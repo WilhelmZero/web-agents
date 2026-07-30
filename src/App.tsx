@@ -72,7 +72,7 @@ import {
   makeResultGroups,
   taskFileName,
 } from './services/downloads';
-import { generateSceneImage, optimizePrompt } from './services/gemini';
+import { generateSceneImage, optimizePrompt, testProxyConnection } from './services/gemini';
 import type {
   AppSettings,
   CreationTool,
@@ -302,6 +302,7 @@ function AppContent() {
   const [activeGroup, setActiveGroup] = useState<ResultGroup | null>(null);
   const [optimizationPreview, setOptimizationPreview] = useState<Array<{ id: string; original: string; optimized: string }> | null>(null);
   const [optimizingAll, setOptimizingAll] = useState(false);
+  const [testingProxy, setTestingProxy] = useState(false);
   const runningIds = useRef(new Set<string>());
   const aborters = useRef(new Map<string, AbortController>());
   const productsRef = useRef(products);
@@ -341,6 +342,23 @@ function AppContent() {
     ? settings.proxyUrl.trim().replace(/\/+$/, '')
     : null;
   const sceneHasSession = Boolean(products.length || tasks.length || prompts.some((item) => item.content.trim()));
+
+  const handleTestProxy = async () => {
+    if (!settings.proxyUrl.trim()) {
+      message.warning('请先填写代理地址');
+      return;
+    }
+    setTestingProxy(true);
+    try {
+      await testProxyConnection(settings.proxyUrl);
+      message.success('代理连接成功');
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : '未知错误';
+      message.error(`代理连接失败：${detail}。请检查地址、Worker 部署状态和 ALLOWED_ORIGINS`);
+    } finally {
+      setTestingProxy(false);
+    }
+  };
 
   useEffect(() => {
     if (!sceneHasSession && !logoHasSession && !inpaintHasSession && !productDetailHasSession) return;
@@ -875,12 +893,17 @@ function AppContent() {
           </Form.Item>
           {settings.connectionMode === 'proxy' && (
             <Form.Item label="代理地址" extra="可填写 Worker 根地址或以 /v1beta 结尾的地址">
-              <Input
-                value={settings.proxyUrl}
-                onChange={(event) => patchSettings({ proxyUrl: event.target.value })}
-                placeholder="https://scene-studio-gemini-proxy.example.workers.dev"
-                allowClear
-              />
+              <Space.Compact block>
+                <Input
+                  value={settings.proxyUrl}
+                  onChange={(event) => patchSettings({ proxyUrl: event.target.value })}
+                  placeholder="https://scene-studio-gemini-proxy.example.workers.dev"
+                  allowClear
+                />
+                <Button icon={<ApiOutlined />} loading={testingProxy} onClick={handleTestProxy}>
+                  测试连通性
+                </Button>
+              </Space.Compact>
             </Form.Item>
           )}
           <Form.Item label="Gemini API Key" style={{ marginBottom: 0 }}>

@@ -9,6 +9,38 @@ export function getGeminiApiRoot(proxyUrl = import.meta.env.VITE_GEMINI_PROXY_UR
   return normalized.endsWith('/v1beta') ? normalized : `${normalized}/v1beta`;
 }
 
+export function getProxyHealthUrl(proxyUrl: string): string {
+  const normalized = proxyUrl.trim().replace(/\/+$/, '').replace(/\/v1beta$/, '');
+  const url = new URL(normalized);
+  if (!['http:', 'https:'].includes(url.protocol)) {
+    throw new Error('代理地址必须使用 http:// 或 https://');
+  }
+  url.pathname = `${url.pathname.replace(/\/+$/, '')}/health`;
+  url.search = '';
+  url.hash = '';
+  return url.toString();
+}
+
+export async function testProxyConnection(proxyUrl: string, signal?: AbortSignal): Promise<void> {
+  let healthUrl: string;
+  try {
+    healthUrl = getProxyHealthUrl(proxyUrl);
+  } catch {
+    throw new Error('代理地址格式不正确，请填写完整的 http:// 或 https:// 地址');
+  }
+
+  const response = await fetch(healthUrl, {
+    method: 'GET',
+    headers: { Accept: 'application/json' },
+    cache: 'no-store',
+    signal,
+  });
+  const data = await response.json().catch(() => null) as { ok?: boolean } | null;
+  if (!response.ok || data?.ok !== true) {
+    throw new Error(`代理服务响应异常（HTTP ${response.status}）`);
+  }
+}
+
 interface GeminiPart {
   text?: string;
   inlineData?: { mimeType: string; data: string };

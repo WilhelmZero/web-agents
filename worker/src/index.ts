@@ -39,7 +39,12 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (request.method === 'GET' && url.pathname === '/health') {
-      return Response.json({ ok: true, service: 'gemini-proxy' }, { headers: { 'Cache-Control': 'no-store' } });
+      const origin = allowedOrigin(request, env);
+      if (!origin) return jsonError('Origin 不在代理白名单中', 403);
+      return Response.json(
+        { ok: true, service: 'gemini-proxy' },
+        { headers: corsHeaders(origin) },
+      );
     }
 
     const origin = allowedOrigin(request, env);
