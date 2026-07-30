@@ -1,0 +1,429 @@
+import type { GeneratedImage, ImageModel, ImageSize, OptimizerModel } from '../types';
+import { fileToBase64 } from '../utils';
+
+const GOOGLE_API_ROOT = 'https://generativelanguage.googleapis.com/v1beta';
+
+export function getGeminiApiRoot(proxyUrl = import.meta.env.VITE_GEMINI_PROXY_URL): string {
+  const normalized = proxyUrl?.trim().replace(/\/+$/, '');
+  if (!normalized) return GOOGLE_API_ROOT;
+  return normalized.endsWith('/v1beta') ? normalized : `${normalized}/v1beta`;
+}
+
+interface GeminiPart {
+  text?: string;
+  inlineData?: { mimeType: string; data: string };
+}
+
+interface GeminiResponse {
+  candidates?: Array<{ content?: { parts?: GeminiPart[] } }>;
+  usageMetadata?: { totalTokenCount?: number };
+  error?: { message?: string; code?: number; status?: string };
+}
+
+const MAX_TRANSIENT_RETRIES = 3;
+
+export function isRetryableGeminiStatus(status: number): boolean {
+  return status === 408 || status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
+}
+
+function retryDelay(attempt: number, retryAfter: string | null): number {
+  const retryAfterSeconds = Number(retryAfter);
+  if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
+    return Math.min(retryAfterSeconds * 1000, 30_000);
+  }
+  return Math.min(1000 * (2 ** attempt) + Math.random() * 500, 30_000);
+}
+
+function waitForRetry(delay: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException('请求已中止', 'AbortError'));
+      return;
+    }
+    const timer = window.setTimeout(resolve, delay);
+    signal?.addEventListener('abort', () => {
+      window.clearTimeout(timer);
+      reject(new DOMException('请求已中止', 'AbortError'));
+    }, { once: true });
+  });
+}
+
+function friendlyError(status: number, body: GeminiResponse): Error {
+  const raw = body.error?.message || `Gemini 请求失败（HTTP ${status}）`;
+  if (status === 400) return new Error(`请求参数无效：${raw}`);
+  if (status === 401 || status === 403) return new Error('API Key 无效、无权限或当前模型不可用');
+  if (status === 429) return new Error('请求过于频繁或额度不足，请降低并发后重试');
+  if (status === 503) return new Error(`Gemini 当前请求量过高，服务暂时无可用容量：${raw}`);
+  if (status >= 500) return new Error(`Gemini 服务暂时不可用：${raw}`);
+  return new Error(raw);
+}
+
+async function postGemini(
+  model: string,
+  apiKey: string,
+  body: unknown,
+  signal?: AbortSignal,
+  apiBaseUrl?: string | null,
+): Promise<GeminiResponse> {
+  const url = `${getGeminiApiRoot(apiBaseUrl === null ? '' : apiBaseUrl)}/models/${encodeURIComponent(model)}:generateContent`;
+  for (let attempt = 0; attempt <= MAX_TRANSIENT_RETRIES; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey,
+        },
+        body: JSON.stringify(body),
+        signal,
+      });
+      const data = (await response.json().catch(() => ({}))) as GeminiResponse;
+      if (response.ok && !data.error) return data;
+      const retryable = isRetryableGeminiStatus(response.status);
+      if (!retryable || attempt === MAX_TRANSIENT_RETRIES) {
+        const error = friendlyError(response.status, data);
+        if (retryable) error.message += `；已自动重试 ${MAX_TRANSIENT_RETRIES} 次，建议稍后再试、降低并发或临时切换模型`;
+        throw error;
+      }
+      await waitForRetry(retryDelay(attempt, response.headers.get('Retry-After')), signal);
+    } catch (error) {
+      if (signal?.aborted || (error instanceof DOMException && error.name === 'AbortError')) throw error;
+      if (error instanceof Error && !error.message.startsWith('Failed to fetch') && !(error instanceof TypeError)) throw error;
+      if (attempt === MAX_TRANSIENT_RETRIES) {
+        throw new Error(`网络请求失败，已自动重试 ${MAX_TRANSIENT_RETRIES} 次，请检查代理或网络连接`);
+      }
+      await waitForRetry(retryDelay(attempt, null), signal);
+    }
+  }
+  throw new Error('Gemini 请求重试失败');
+}
+
+export async function generateSceneImage(options: {
+  apiKey: string;
+  model: ImageModel;
+  prompt: string;
+  image: File;
+  aspectRatio: string;
+  imageSize: ImageSize;
+  signal?: AbortSignal;
+  apiBaseUrl?: string | null;
+}): Promise<GeneratedImage> {
+  const base64 = await fileToBase64(options.image);
+  const data = await postGemini(
+    options.model,
+    options.apiKey,
+    {
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            {
+              text: `基于提供的产品白底图生成一张商业场景图。必须保持产品外观、结构、颜色、Logo 和文字准确，不要复制或增加产品。场景要求：${options.prompt}`,
+            },
+            { inlineData: { mimeType: options.image.type, data: base64 } },
+          ],
+        },
+      ],
+      generationConfig: {
+        responseModalities: ['IMAGE'],
+        imageConfig: {
+          aspectRatio: options.aspectRatio,
+          imageSize: options.imageSize,
+        },
+      },
+    },
+    options.signal,
+    options.apiBaseUrl,
+  );
+
+  const imagePart = data.candidates
+    ?.flatMap((candidate) => candidate.content?.parts ?? [])
+    .find((part) => part.inlineData?.data);
+  if (!imagePart?.inlineData?.data) throw new Error('模型未返回图片，请调整提示词后重试');
+
+  const bytes = Uint8Array.from(atob(imagePart.inlineData.data), (char) => char.charCodeAt(0));
+  const mimeType = imagePart.inlineData.mimeType || 'image/png';
+  return {
+    blob: new Blob([bytes], { type: mimeType }),
+    mimeType,
+    usageTokens: data.usageMetadata?.totalTokenCount,
+  };
+}
+
+export async function optimizePrompt(options: {
+  apiKey: string;
+  model: OptimizerModel;
+  prompt: string;
+  signal?: AbortSignal;
+  apiBaseUrl?: string | null;
+}): Promise<string> {
+  const data = await postGemini(
+    options.model,
+    options.apiKey,
+    {
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            {
+              text: `你是商业产品摄影提示词专家。请把下面的场景描述优化成一段可直接用于图片编辑模型的中文提示词。强调场景、构图、光线、材质、镜头和商业质感，同时要求严格保持原产品外观。只输出优化后的提示词，不要解释。\n\n原提示词：${options.prompt}`,
+            },
+          ],
+        },
+      ],
+      generationConfig: { temperature: 0.7 },
+    },
+    options.signal,
+    options.apiBaseUrl,
+  );
+  const text = data.candidates
+    ?.flatMap((candidate) => candidate.content?.parts ?? [])
+    .map((part) => part.text ?? '')
+    .join('')
+    .trim();
+  if (!text) throw new Error('模型未返回优化结果');
+  return text;
+}
+
+export async function generateLogoComposite(options: {
+  apiKey: string;
+  model: ImageModel;
+  prompt: string;
+  scene: File;
+  logo: File;
+  placementGuide?: Blob;
+  guideMode?: 'placement' | 'inpaint';
+  guideLogoInverted?: boolean;
+  aspectRatio?: string;
+  imageSize: ImageSize;
+  signal?: AbortSignal;
+  apiBaseUrl?: string | null;
+}): Promise<GeneratedImage> {
+  const [sceneData, logoData, guideData] = await Promise.all([
+    fileToBase64(options.scene),
+    fileToBase64(options.logo),
+    options.placementGuide ? fileToBase64(options.placementGuide) : Promise.resolve(undefined),
+  ]);
+  const placementInstruction = guideData && options.guideMode === 'inpaint'
+    ? '第三张图片是局部重绘区域参考图，其中红色半透明标记是唯一允许修改的区域。仅在该区域内自然加入第二张原始 Logo；严格保持标记区域外的场景内容、主体、构图、机位、光影和材质不变。最终图片不得出现红色遮罩或选区边缘。'
+    : guideData
+    ? `第三张图片是定位参考图。必须优先遵循其中 Logo 的中心位置、相对大小和旋转角度，同时使用第二张原始 Logo 保持图形、颜色与文字准确。${options.guideLogoInverted ? '定位参考图中的 Logo 仅为增强可见性而进行了颜色反相，绝对不要采用其反相颜色，最终颜色必须以第二张原始 Logo 为准。' : ''}`
+    : '请根据用户提示词决定 Logo 的位置、大小和融合方式。';
+  const parts: GeminiPart[] = [
+    {
+      text: `请完成专业的 Logo 场景合成。第一张图片是必须保持构图和内容的原始场景，第二张图片是必须准确保留图形、颜色和文字的原始 Logo。${placementInstruction} 如果场景中存在多个杯子，必须给每一个杯子都自然添加同一个 Logo，并让每个 Logo 分别贴合对应杯体的曲面、透视、尺寸、光线和材质；不得遗漏任何一个杯子。让 Logo 与场景的材质、透视、光线、阴影自然融合，不要在杯子以外的位置添加额外 Logo，不要改变场景中的主体。用户要求：${options.prompt}`,
+    },
+    { inlineData: { mimeType: options.scene.type, data: sceneData } },
+    { inlineData: { mimeType: options.logo.type, data: logoData } },
+  ];
+  if (guideData) {
+    parts.push({ inlineData: { mimeType: options.placementGuide?.type || 'image/png', data: guideData } });
+  }
+  const imageConfig: { imageSize: ImageSize; aspectRatio?: string } = {
+    imageSize: options.imageSize,
+  };
+  if (options.aspectRatio) imageConfig.aspectRatio = options.aspectRatio;
+  const data = await postGemini(
+    options.model,
+    options.apiKey,
+    {
+      contents: [{ role: 'user', parts }],
+      generationConfig: {
+        responseModalities: ['IMAGE'],
+        imageConfig,
+      },
+    },
+    options.signal,
+    options.apiBaseUrl,
+  );
+  const imagePart = data.candidates
+    ?.flatMap((candidate) => candidate.content?.parts ?? [])
+    .find((part) => part.inlineData?.data);
+  if (!imagePart?.inlineData?.data) throw new Error('模型未返回合成图片，请调整提示词后重试');
+  const bytes = Uint8Array.from(atob(imagePart.inlineData.data), (char) => char.charCodeAt(0));
+  const mimeType = imagePart.inlineData.mimeType || 'image/png';
+  return {
+    blob: new Blob([bytes], { type: mimeType }),
+    mimeType,
+    usageTokens: data.usageMetadata?.totalTokenCount,
+  };
+}
+
+export async function generateInpaintImage(options: {
+  apiKey: string;
+  model: ImageModel;
+  prompt: string;
+  image: File;
+  maskGuide: Blob;
+  aspectRatio?: string;
+  imageSize: ImageSize;
+  signal?: AbortSignal;
+  apiBaseUrl?: string | null;
+}): Promise<GeneratedImage> {
+  const [imageData, maskData] = await Promise.all([
+    fileToBase64(options.image),
+    fileToBase64(options.maskGuide),
+  ]);
+  const data = await postGemini(
+    options.model,
+    options.apiKey,
+    {
+      contents: [{
+        role: 'user',
+        parts: [
+          {
+            text: `请执行严格的局部重绘。第一张图片是必须保留的原始图片；第二张图片是区域参考图，其中红色半透明标记是唯一允许修改的区域。只在红色标记区域内根据用户要求生成或修改内容，标记区域外的所有像素对应内容必须保持不变，包括主体、构图、机位、裁切、背景、光线、阴影、颜色、材质、文字和 Logo。不得扩大修改区域，最终结果不得出现红色遮罩、选区边缘或标记。用户要求：${options.prompt}`,
+          },
+          { inlineData: { mimeType: options.image.type, data: imageData } },
+          { inlineData: { mimeType: options.maskGuide.type || 'image/png', data: maskData } },
+        ],
+      }],
+      generationConfig: {
+        responseModalities: ['IMAGE'],
+        imageConfig: {
+          imageSize: options.imageSize,
+          ...(options.aspectRatio ? { aspectRatio: options.aspectRatio } : {}),
+        },
+      },
+    },
+    options.signal,
+    options.apiBaseUrl,
+  );
+  const imagePart = data.candidates
+    ?.flatMap((candidate) => candidate.content?.parts ?? [])
+    .find((part) => part.inlineData?.data);
+  if (!imagePart?.inlineData?.data) throw new Error('模型未返回局部重绘图片，请调整选区或提示词后重试');
+  const bytes = Uint8Array.from(atob(imagePart.inlineData.data), (char) => char.charCodeAt(0));
+  const mimeType = imagePart.inlineData.mimeType || 'image/png';
+  return {
+    blob: new Blob([bytes], { type: mimeType }),
+    mimeType,
+    usageTokens: data.usageMetadata?.totalTokenCount,
+  };
+}
+
+export async function analyzeProductDetailPrompts(options: {
+  apiKey: string;
+  model: OptimizerModel;
+  image: File;
+  productInfo: string;
+  count: number;
+  signal?: AbortSignal;
+  apiBaseUrl?: string | null;
+}): Promise<Array<{ title: string; content: string; overlayTexts: string[] }>> {
+  const imageData = await fileToBase64(options.image);
+  const data = await postGemini(
+    options.model,
+    options.apiKey,
+    {
+      contents: [{
+        role: 'user',
+        parts: [
+          {
+            text: `你是擅长欧美品牌独立站与国际电商 PDP 的资深视觉策划师。请分析白底产品图和用户提供的商品信息，规划恰好 ${options.count} 张互不重复、但上下连贯的商品详情页图片。单张时生成综合主视觉；多张时形成清晰的视觉叙事顺序：先用高质量主视觉建立产品印象，再用中景与细节特写解释材质、结构和核心利益，然后用真实生活方式场景帮助用户想象使用价值，尺寸或包装信息放在合适位置，最后以品牌感收束。不得编造无法确认的参数或功能。
+
+整套图片必须共享统一的品牌艺术指导，包括一致的色板、背景材质、光线方向、字体风格、信息层级、留白、图形元素、产品比例和修图质感。相邻页面的背景色、光影或装饰图形需要形成自然的上下视觉承接，避免每张图片像来自不同模板；同时每页仍要有独立明确的信息重点。高质量产品图既要有清晰的中性背景展示，也要有帮助用户理解使用收益的生活方式图片，并保证所有详情图都适合纵向拼接成长图。
+
+每项需要提供简短用途标题、可直接交给图片编辑模型的中文完整提示词，以及需要实际显示在图片上的短文案数组。提示词必须要求严格保持原产品外观、结构、颜色、材质、比例、Logo 和已有文字准确。所有需要显示在成图上的文字必须在完整提示词中使用中文双引号包裹，并与 overlayTexts 数组逐项完全一致；不需要上图文字时返回空数组。
+
+用户商品信息：${options.productInfo}`,
+          },
+          { inlineData: { mimeType: options.image.type, data: imageData } },
+        ],
+      }],
+      generationConfig: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: 'OBJECT',
+          properties: {
+            seriesStyle: { type: 'STRING' },
+            prompts: {
+              type: 'ARRAY',
+              minItems: options.count,
+              maxItems: options.count,
+              items: {
+                type: 'OBJECT',
+                properties: {
+                  title: { type: 'STRING' },
+                  content: { type: 'STRING' },
+                  overlayTexts: { type: 'ARRAY', items: { type: 'STRING' } },
+                },
+                required: ['title', 'content', 'overlayTexts'],
+              },
+            },
+          },
+          required: ['seriesStyle', 'prompts'],
+        },
+      },
+    },
+    options.signal,
+    options.apiBaseUrl,
+  );
+  const text = data.candidates?.flatMap((candidate) => candidate.content?.parts ?? []).map((part) => part.text || '').join('').trim();
+  if (!text) throw new Error('商品分析模型未返回提示词');
+  let parsed: { seriesStyle?: unknown; prompts?: Array<{ title?: unknown; content?: unknown; overlayTexts?: unknown }> };
+  try {
+    parsed = JSON.parse(text) as typeof parsed;
+  } catch {
+    throw new Error('商品分析结果不是有效 JSON，请重新分析');
+  }
+  if (!Array.isArray(parsed.prompts) || parsed.prompts.length !== options.count) {
+    throw new Error(`商品分析应返回 ${options.count} 条提示词，实际返回 ${parsed.prompts?.length || 0} 条`);
+  }
+  if (typeof parsed.seriesStyle !== 'string' || !parsed.seriesStyle.trim()) {
+    throw new Error('商品分析结果缺少整套详情图的统一视觉规范');
+  }
+  const seriesStyle = parsed.seriesStyle.trim();
+  return parsed.prompts.map((item, index) => {
+    if (typeof item.title !== 'string' || !item.title.trim() || typeof item.content !== 'string' || !item.content.trim() || !Array.isArray(item.overlayTexts) || !item.overlayTexts.every((value) => typeof value === 'string')) {
+      throw new Error(`第 ${index + 1} 条商品详情提示词字段不完整`);
+    }
+    return {
+      title: item.title.trim(),
+      content: `全套详情图统一视觉规范：${seriesStyle}。本页在保持该规范的基础上完成以下内容：${item.content.trim()}`,
+      overlayTexts: item.overlayTexts.map((value) => String(value).trim()).filter(Boolean),
+    };
+  });
+}
+
+export async function generateProductDetailImage(options: {
+  apiKey: string;
+  model: ImageModel;
+  image: File;
+  prompt: string;
+  aspectRatio?: string;
+  imageSize: ImageSize;
+  signal?: AbortSignal;
+  apiBaseUrl?: string | null;
+}): Promise<GeneratedImage> {
+  const imageData = await fileToBase64(options.image);
+  const data = await postGemini(
+    options.model,
+    options.apiKey,
+    {
+      contents: [{
+        role: 'user',
+        parts: [
+          {
+            text: `请基于第一张白底产品图制作一张专业电商商品详情页图片。必须严格保持产品外观、结构、颜色、材质、真实比例、Logo 和已有文字准确，不得重新设计、复制或增加产品。按照下面的详情页提示完成场景、构图、卖点表达和指定上图文字；引号内文字需要清晰准确地显示。详情页要求：${options.prompt}`,
+          },
+          { inlineData: { mimeType: options.image.type, data: imageData } },
+        ],
+      }],
+      generationConfig: {
+        responseModalities: ['IMAGE'],
+        imageConfig: {
+          imageSize: options.imageSize,
+          ...(options.aspectRatio ? { aspectRatio: options.aspectRatio } : {}),
+        },
+      },
+    },
+    options.signal,
+    options.apiBaseUrl,
+  );
+  const imagePart = data.candidates?.flatMap((candidate) => candidate.content?.parts ?? []).find((part) => part.inlineData?.data);
+  if (!imagePart?.inlineData?.data) throw new Error('模型未返回商品详情图，请调整提示词后重试');
+  const bytes = Uint8Array.from(atob(imagePart.inlineData.data), (char) => char.charCodeAt(0));
+  const mimeType = imagePart.inlineData.mimeType || 'image/png';
+  return { blob: new Blob([bytes], { type: mimeType }), mimeType, usageTokens: data.usageMetadata?.totalTokenCount };
+}
