@@ -14,7 +14,6 @@ import {
   StopOutlined,
   SwapOutlined,
 } from '@ant-design/icons';
-import { FileCard } from '@ant-design/x';
 import {
   Alert,
   App as AntApp,
@@ -89,6 +88,14 @@ const { Text, Title, Paragraph } = Typography;
 const ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
 const DEFAULT_PLACEMENT: LogoPlacement = { x: 0.5, y: 0.5, width: 0.24, rotation: 0 };
+
+function logoTaskStatusText(status: LogoGenerationTask['status']): string {
+  if (status === 'waiting') return '排队中';
+  if (status === 'running') return '生成中';
+  if (status === 'success') return '生成成功';
+  if (status === 'failed') return '生成失败';
+  return '已停止';
+}
 
 function InpaintPanel({
   pair,
@@ -841,7 +848,9 @@ export default function LogoComposer({
                               status={group.tasks.some((task) => task.status === 'running') ? 'running' : 'waiting'}
                               percent={(group.tasks.filter((task) => task.status === 'success').length / group.tasks.length) * 100}
                             />
-                          : <div className="group-placeholder"><FileImageOutlined /></div>
+                          : group.tasks.some((task) => task.status === 'failed')
+                            ? <div className="task-state-card is-failed"><Text strong type="danger">生成失败</Text><Text type="secondary">{group.tasks.filter((task) => task.status === 'failed').length} 个任务失败</Text></div>
+                            : <div className="task-state-card is-stopped"><Text strong type="secondary">已停止</Text></div>
                       )}
                     </div>
                     <Flex gap={8} align="center">
@@ -900,28 +909,39 @@ export default function LogoComposer({
           <>
             <Image.PreviewGroup>
               <div className="detail-image-grid">
-                {activeGroup.tasks.filter((task) => task.resultUrl).map((task) => (
+                {activeGroup.tasks.map((task) => (
                   <div className="detail-image-item" key={task.id}>
-                    <Image src={task.resultUrl} alt={`第 ${task.copyIndex + 1} 张合成图`} />
-                    <Flex justify="space-between"><Text>结果 {task.copyIndex + 1}</Text><Button type="text" icon={<DownloadOutlined />} onClick={() => downloadLogoTask(task, activeGroup.pair, settings.imageModel)} /></Flex>
+                    {task.resultUrl
+                      ? <Image src={task.resultUrl} alt={`第 ${task.copyIndex + 1} 张合成图`} />
+                      : task.status === 'running'
+                        ? <GeneratingImage status="running" percent={1} />
+                        : task.status === 'waiting'
+                          ? <div className="task-state-card is-waiting"><Text strong>排队中…</Text><Text type="secondary">等待可用并发任务</Text></div>
+                          : <div className={`task-state-card is-${task.status}`}>
+                              <Text strong type={task.status === 'failed' ? 'danger' : 'secondary'}>{logoTaskStatusText(task.status)}</Text>
+                              <Text type="secondary" ellipsis={{ tooltip: task.error }}>{task.error || (task.status === 'stopped' ? '任务已停止' : '尚未生成图片')}</Text>
+                            </div>}
+                    <Flex justify="space-between">
+                      <Text>结果 {task.copyIndex + 1}</Text>
+                      {task.resultUrl && <Button type="text" icon={<DownloadOutlined />} onClick={() => downloadLogoTask(task, activeGroup.pair, settings.imageModel)} />}
+                      {task.status === 'failed' && <Button type="text" icon={<ReloadOutlined />} onClick={() => retryTask(task.id)}>重试</Button>}
+                    </Flex>
                   </div>
                 ))}
               </div>
             </Image.PreviewGroup>
             <Divider titlePlacement="start">文件与任务</Divider>
-            <FileCard.List
-              items={activeGroup.tasks.filter((task) => task.resultUrl).map((task) => ({
-                name: logoTaskFileName(task, activeGroup.pair, settings.imageModel),
-                byte: task.resultBlob?.size,
-                src: task.resultUrl,
-                type: 'image',
-                imageProps: { preview: false },
-              }))}
-              overflow="wrap"
-            />
             <List
-              dataSource={activeGroup.tasks.filter((task) => task.status === 'failed')}
-              renderItem={(task) => <List.Item actions={[<Button key="retry" icon={<ReloadOutlined />} onClick={() => retryTask(task.id)}>重试</Button>]}><List.Item.Meta title={`结果 ${task.copyIndex + 1}`} description={task.error} /></List.Item>}
+              className="task-file-list"
+              dataSource={activeGroup.tasks}
+              renderItem={(task) => (
+                <List.Item actions={task.status === 'failed' ? [<Button key="retry" icon={<ReloadOutlined />} onClick={() => retryTask(task.id)}>重试</Button>] : undefined}>
+                  <List.Item.Meta
+                    title={task.resultBlob ? logoTaskFileName(task, activeGroup.pair, settings.imageModel) : `结果 ${task.copyIndex + 1}`}
+                    description={<Space wrap><Tag color={task.status === 'success' ? 'success' : task.status === 'failed' ? 'error' : task.status === 'running' ? 'processing' : 'default'}>{logoTaskStatusText(task.status)}</Tag>{task.resultBlob?.size ? <Text type="secondary">{Math.ceil(task.resultBlob.size / 1024)} KB</Text> : null}{task.error ? <Text type="danger">{task.error}</Text> : null}</Space>}
+                  />
+                </List.Item>
+              )}
             />
           </>
         )}

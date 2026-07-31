@@ -25,7 +25,7 @@ import {
   StopOutlined,
   VideoCameraOutlined,
 } from '@ant-design/icons';
-import { Attachments, FileCard } from '@ant-design/x';
+import { Attachments } from '@ant-design/x';
 import {
   Alert,
   App as AntApp,
@@ -250,7 +250,9 @@ function ResultGroupCard({
         )) : (
           queueStatus
             ? <GeneratingImage status={queueStatus} percent={(group.successCount / group.tasks.length) * 100} />
-            : <div className="group-placeholder"><FileImageOutlined /></div>
+            : group.failedCount
+              ? <div className="task-state-card is-failed"><Text strong type="danger">生成失败</Text><Text type="secondary">{group.failedCount} 个任务失败</Text></div>
+              : <div className="task-state-card is-stopped"><Text strong type="secondary">已停止</Text></div>
         )}
       </div>
       <Flex gap={10} align="center" className="group-meta">
@@ -266,6 +268,14 @@ function ResultGroupCard({
       </Flex>
     </Card>
   );
+}
+
+function taskStatusText(status: GenerationTask['status']): string {
+  if (status === 'waiting') return '排队中';
+  if (status === 'running') return '生成中';
+  if (status === 'success') return '生成成功';
+  if (status === 'failed') return '生成失败';
+  return '已停止';
 }
 
 function AppContent() {
@@ -1022,42 +1032,44 @@ function AppContent() {
           <>
             <Image.PreviewGroup>
               <div className="detail-image-grid">
-                {activeGroup.tasks.filter((task) => task.resultUrl).map((task) => (
+                {activeGroup.tasks.map((task) => (
                   <div className="detail-image-item" key={task.id}>
-                    <Image src={task.resultUrl} alt={task.prompt} />
+                    {task.resultUrl
+                      ? <Image src={task.resultUrl} alt={task.prompt} />
+                      : task.status === 'running'
+                        ? <GeneratingImage status="running" percent={1} />
+                        : task.status === 'waiting'
+                          ? <div className="task-state-card is-waiting"><Text strong>排队中…</Text><Text type="secondary">等待可用并发任务</Text></div>
+                          : <div className={`task-state-card is-${task.status}`}>
+                              <Text strong type={task.status === 'failed' ? 'danger' : 'secondary'}>{taskStatusText(task.status)}</Text>
+                              <Text type="secondary" ellipsis={{ tooltip: task.error }}>{task.error || (task.status === 'stopped' ? '任务已停止' : '尚未生成图片')}</Text>
+                            </div>}
                     <Flex justify="space-between" align="center">
                       <Text ellipsis={{ tooltip: task.prompt }}>提示词 {task.promptIndex + 1}</Text>
-                      <Button type="text" icon={<DownloadOutlined />} onClick={() => downloadTask(task, settings.imageModel)} />
+                      {task.resultUrl && <Button type="text" icon={<DownloadOutlined />} onClick={() => downloadTask(task, settings.imageModel)} />}
+                      {task.status === 'failed' && <Button type="text" icon={<ReloadOutlined />} onClick={() => retryTask(task.id)}>重试</Button>}
                     </Flex>
                   </div>
                 ))}
               </div>
             </Image.PreviewGroup>
             <Divider titlePlacement="start">文件与任务</Divider>
-            <FileCard.List
-              items={activeGroup.tasks.filter((task) => task.resultUrl).map((task) => ({
-                name: taskFileName(task, settings.imageModel),
-                byte: task.resultBlob?.size,
-                src: task.resultUrl,
-                type: 'image',
-                imageProps: {
-                  preview: false,
-                  alt: `提示词 ${task.promptIndex + 1} 的生成结果`,
-                },
-              }))}
-              overflow="wrap"
+            <List
+              className="task-file-list"
+              dataSource={activeGroup.tasks}
+              renderItem={(task) => (
+                <List.Item
+                  actions={task.status === 'failed'
+                    ? [<Button key="retry" icon={<ReloadOutlined />} onClick={() => retryTask(task.id)}>重试</Button>]
+                    : undefined}
+                >
+                  <List.Item.Meta
+                    title={task.resultBlob ? taskFileName(task, settings.imageModel) : `提示词 ${task.promptIndex + 1}`}
+                    description={<Space wrap><Tag color={task.status === 'success' ? 'success' : task.status === 'failed' ? 'error' : task.status === 'running' ? 'processing' : 'default'}>{taskStatusText(task.status)}</Tag>{task.resultBlob?.size ? <Text type="secondary">{Math.ceil(task.resultBlob.size / 1024)} KB</Text> : null}{task.error ? <Text type="danger">{task.error}</Text> : null}</Space>}
+                  />
+                </List.Item>
+              )}
             />
-            {activeGroup.tasks.some((task) => task.status === 'failed') && (
-              <List
-                className="failed-list"
-                dataSource={activeGroup.tasks.filter((task) => task.status === 'failed')}
-                renderItem={(task) => (
-                  <List.Item actions={[<Button key="retry" icon={<ReloadOutlined />} onClick={() => retryTask(task.id)}>重试</Button>]}>
-                    <List.Item.Meta title={`提示词 ${task.promptIndex + 1}`} description={task.error} />
-                  </List.Item>
-                )}
-              />
-            )}
           </>
         )}
       </Modal>

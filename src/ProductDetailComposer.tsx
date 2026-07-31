@@ -366,7 +366,17 @@ export default function ProductDetailComposer({
         {prompts.length ? <div className="product-detail-results">{prompts.map((prompt) => {
           const task = tasks.find((item) => item.promptId === prompt.id);
           return <Card key={prompt.id} size="small" title={`${prompt.index + 1}. ${prompt.title}`} extra={task?.resultBlob ? <Button type="text" icon={<DownloadOutlined />} onClick={() => downloadDetailTask(task, prompt, settings.imageModel)} /> : null}>
-            {task?.resultUrl ? <Image src={task.resultUrl} alt={prompt.title} /> : task?.status === 'running' ? <GeneratingImage status="running" percent={50} /> : task?.status === 'waiting' ? <GeneratingImage status="waiting" percent={0} /> : <div className="detail-result-placeholder"><Text type="secondary">尚未生成</Text></div>}
+            {task?.resultUrl
+              ? <Image src={task.resultUrl} alt={prompt.title} />
+              : task?.status === 'running'
+                ? <GeneratingImage status="running" percent={1} />
+                : task?.status === 'waiting'
+                  ? <div className="task-state-card is-waiting"><Text strong>排队中…</Text><Text type="secondary">等待可用并发任务</Text></div>
+                  : task?.status === 'failed'
+                    ? <div className="task-state-card is-failed"><Text strong type="danger">生成失败</Text><Text type="secondary">{task.error}</Text></div>
+                    : task?.status === 'stopped'
+                      ? <div className="task-state-card is-stopped"><Text strong type="secondary">已停止</Text><Text type="secondary">任务已停止</Text></div>
+                      : <div className="task-state-card"><Text type="secondary">尚未生成</Text></div>}
             {task?.status === 'failed' && <Button icon={<ReloadOutlined />} onClick={() => queuePrompt(prompt.id)}>重试</Button>}
           </Card>;
         })}</div> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="详情图结果会显示在这里" />}
