@@ -337,7 +337,9 @@ const LanguageContext = createContext<LanguageContextValue | null>(null);
 
 function DomTranslator({ language, children }: { language: AppLanguage; children: ReactNode }) {
   const originals = useRef(new WeakMap<Node, string>());
+  const appliedText = useRef(new WeakMap<Node, string>());
   const attributeOriginals = useRef(new WeakMap<Element, Map<string, string>>());
+  const appliedAttributes = useRef(new WeakMap<Element, Map<string, string>>());
 
   useEffect(() => {
     const root = document.body;
@@ -345,9 +347,13 @@ function DomTranslator({ language, children }: { language: AppLanguage; children
     const visit = (node: Node) => {
       if (node.nodeType === Node.TEXT_NODE) {
         const textNode = node as Text;
-        if (!originals.current.has(textNode)) originals.current.set(textNode, textNode.data);
+        const lastApplied = appliedText.current.get(textNode);
+        if (!originals.current.has(textNode) || textNode.data !== lastApplied) {
+          originals.current.set(textNode, textNode.data);
+        }
         const original = originals.current.get(textNode) ?? textNode.data;
         const next = language === 'en-US' ? translateText(original) : original;
+        appliedText.current.set(textNode, next);
         if (textNode.data !== next) textNode.data = next;
         return;
       }
@@ -360,9 +366,16 @@ function DomTranslator({ language, children }: { language: AppLanguage; children
           saved = new Map();
           attributeOriginals.current.set(node, saved);
         }
-        if (!saved.has(attribute)) saved.set(attribute, current);
+        let applied = appliedAttributes.current.get(node);
+        if (!applied) {
+          applied = new Map();
+          appliedAttributes.current.set(node, applied);
+        }
+        if (!saved.has(attribute) || current !== applied.get(attribute)) saved.set(attribute, current);
         const original = saved.get(attribute) ?? current;
-        node.setAttribute(attribute, language === 'en-US' ? translateText(original) : original);
+        const next = language === 'en-US' ? translateText(original) : original;
+        applied.set(attribute, next);
+        if (current !== next) node.setAttribute(attribute, next);
       });
       node.childNodes.forEach(visit);
     };
