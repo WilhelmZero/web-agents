@@ -635,8 +635,13 @@ export default function LogoComposer({
     aborters.current.forEach((controller) => controller.abort());
     setTasks((current) => current.map((task) => task.status === 'waiting' ? { ...task, status: 'stopped' } : task));
   };
-  const retryTask = (id: string) =>
-    setTasks((current) => current.map((task) => task.id === id ? { ...task, status: 'waiting', error: undefined, retryCount: task.retryCount + 1 } : task));
+  const retryTask = (id: string) => {
+    const task = tasks.find((item) => item.id === id);
+    if (!task) return;
+    const retry = { ...task, status: 'running' as const, error: undefined, retryCount: task.retryCount + 1 };
+    setTasks((current) => current.map((item) => item.id === id ? retry : item));
+    void executeTask(retry);
+  };
   const clearResults = () => {
     aborters.current.forEach((controller) => controller.abort());
     tasks.forEach((task) => task.resultUrl && URL.revokeObjectURL(task.resultUrl));

@@ -280,6 +280,14 @@ export default function ProductDetailComposer({
     }
   }, [apiKey, apiBaseUrl]);
 
+  const retryPrompt = (promptId: string) => {
+    const task = tasks.find((item) => item.promptId === promptId);
+    if (!task) return;
+    const retry = { ...task, status: 'running' as const, error: undefined, retryCount: task.retryCount + 1 };
+    setTasks((current) => current.map((item) => item.id === task.id ? retry : item));
+    void executeTask(retry);
+  };
+
   useEffect(() => {
     const available = Math.max(0, settings.concurrency - runningIds.current.size);
     tasks.filter((task) => task.status === 'waiting' && !runningIds.current.has(task.id)).slice(0, available).forEach((task) => void executeTask(task));
@@ -377,7 +385,7 @@ export default function ProductDetailComposer({
                     : task?.status === 'stopped'
                       ? <div className="task-state-card is-stopped"><Text strong type="secondary">已停止</Text><Text type="secondary">任务已停止</Text></div>
                       : <div className="task-state-card"><Text type="secondary">尚未生成</Text></div>}
-            {task?.status === 'failed' && <Button icon={<ReloadOutlined />} onClick={() => queuePrompt(prompt.id)}>重试</Button>}
+            {task?.status === 'failed' && <Button icon={<ReloadOutlined />} onClick={() => retryPrompt(prompt.id)}>重试</Button>}
           </Card>;
         })}</div> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="详情图结果会显示在这里" />}
       </Card>

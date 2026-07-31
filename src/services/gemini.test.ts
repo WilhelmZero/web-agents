@@ -24,7 +24,7 @@ describe('Gemini API 地址', () => {
   });
 
   it('只对临时性服务错误进行自动重试', () => {
-    expect([408, 429, 500, 502, 503, 504].every(isRetryableGeminiStatus)).toBe(true);
+    expect([408, 429, 500, 502, 503, 504, 524].every(isRetryableGeminiStatus)).toBe(true);
     expect([400, 401, 403, 404].some(isRetryableGeminiStatus)).toBe(false);
   });
 });

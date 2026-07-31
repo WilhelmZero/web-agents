@@ -554,10 +554,13 @@ function AppContent() {
     ));
   };
 
-  const retryTask = (id: string) =>
-    setTasks((current) => current.map((task) => task.id === id
-      ? { ...task, status: 'waiting', error: undefined, retryCount: task.retryCount + 1 }
-      : task));
+  const retryTask = (id: string) => {
+    const task = tasks.find((item) => item.id === id);
+    if (!task) return;
+    const retry = { ...task, status: 'running' as const, error: undefined, retryCount: task.retryCount + 1 };
+    setTasks((current) => current.map((item) => item.id === id ? retry : item));
+    void executeTask(retry);
+  };
 
   const savePreset = () => {
     const content = prompts.find((item) => item.id === activePromptId)?.content.trim()

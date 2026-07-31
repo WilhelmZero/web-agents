@@ -55,7 +55,7 @@ interface GeminiResponse {
 const MAX_TRANSIENT_RETRIES = 3;
 
 export function isRetryableGeminiStatus(status: number): boolean {
-  return status === 408 || status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
+  return status === 408 || status === 429 || status === 500 || status === 502 || status === 503 || status === 504 || status === 524;
 }
 
 function retryDelay(attempt: number, retryAfter: string | null): number {
@@ -86,6 +86,7 @@ function friendlyError(status: number, body: GeminiResponse): Error {
   if (status === 401 || status === 403) return new Error('API Key 无效、无权限或当前模型不可用');
   if (status === 429) return new Error('请求过于频繁或额度不足，请降低并发后重试');
   if (status === 503) return new Error(`Gemini 当前请求量过高，服务暂时无可用容量：${raw}`);
+  if (status === 524) return new Error('Cloudflare 代理等待 Gemini 响应超时（HTTP 524），请重试、降低分辨率，或临时切换为 Gemini 直连');
   if (status >= 500) return new Error(`Gemini 服务暂时不可用：${raw}`);
   return new Error(raw);
 }
@@ -112,9 +113,10 @@ async function postGemini(
       const data = (await response.json().catch(() => ({}))) as GeminiResponse;
       if (response.ok && !data.error) return data;
       const retryable = isRetryableGeminiStatus(response.status);
-      if (!retryable || attempt === MAX_TRANSIENT_RETRIES) {
+      const retryLimit = response.status === 524 ? 1 : MAX_TRANSIENT_RETRIES;
+      if (!retryable || attempt >= retryLimit) {
         const error = friendlyError(response.status, data);
-        if (retryable) error.message += `；已自动重试 ${MAX_TRANSIENT_RETRIES} 次，建议稍后再试、降低并发或临时切换模型`;
+        if (retryable) error.message += `；已自动重试 ${retryLimit} 次，建议稍后再试、降低并发或临时切换模型`;
         throw error;
       }
       await waitForRetry(retryDelay(attempt, response.headers.get('Retry-After')), signal);
