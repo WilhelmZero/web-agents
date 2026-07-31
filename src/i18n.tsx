@@ -224,6 +224,25 @@ const translations: Record<string, string> = {
   '清空结果': 'Clear results',
   '尚未生成': 'Not generated yet',
   '已完成': 'Completed',
+  '张': 'images',
+  '条': 'prompts',
+  '组': 'groups',
+  '任务': 'tasks',
+  '每组': 'per group',
+  '组已配对': 'groups paired',
+  '按': 'Estimated from',
+  '张场景图': 'scene images',
+  '张产品图': 'product images',
+  '条提示词': 'prompts',
+  '张 Logo 合成图': 'logo composites',
+  '张局部重绘图': 'inpainted images',
+  '张商品详情图': 'product detail images',
+  '个独立请求估算，双图输入费用为近似值。': 'independent requests; two-image input cost is approximate.',
+  '张详情图估算，不含商品分析文本 token。': 'detail images; product-analysis text tokens are excluded.',
+  'PNG / JPEG / WebP，单张不超过 20MB': 'PNG / JPEG / WebP, max 20 MB per image',
+  'PNG / JPEG / WebP，不超过 20MB': 'PNG / JPEG / WebP, max 20 MB',
+  '点击预设会写入当前选中的提示词输入框；右键自定义预设可重命名或删除。': 'Click a preset to apply it to the selected prompt field; right-click a custom preset to rename or delete it.',
+  '官方定价': 'Official pricing',
   '仅修改红色选区': 'Modify only the red selected area',
   '红色区域是唯一允许 AI 修改的位置': 'The red area is the only region AI may modify',
   '重新选择图片会清除当前选区和生成结果。': 'Selecting another image clears the current selection and result.',
@@ -274,11 +293,6 @@ function translateText(value: string): string {
   phraseTranslations.forEach(([source, target]) => {
     translated = translated.replaceAll(source, target);
   });
-  Object.entries(translations)
-    .sort(([a], [b]) => b.length - a.length)
-    .forEach(([source, target]) => {
-      translated = translated.replaceAll(source, target);
-    });
   return translated;
 }
 
