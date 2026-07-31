@@ -44,7 +44,7 @@ export function buildTasks(
     productIndex,
     promptId: prompt.id,
     promptIndex,
-    prompt: prompt.content.trim(),
+    prompt: [prompt.content.trim(), product.individualPrompt?.trim()].filter(Boolean).join('\n\n'),
     status: 'waiting',
     retryCount: 0,
   }));

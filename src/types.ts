@@ -32,6 +32,13 @@ export interface ProductImage {
   name: string;
   mimeType: string;
   previewUrl: string;
+  individualPrompt?: string;
+}
+
+export interface IndividualPromptPreset {
+  id: string;
+  name: string;
+  content: string;
 }
 
 export interface PromptItem {

@@ -9,6 +9,7 @@ import type {
 export const STORAGE_KEYS = {
   settings: 'scene-studio.settings.v1',
   presets: 'scene-studio.presets.v1',
+  individualPromptPresets: 'scene-studio.individual-prompt-presets.v1',
   logoSettings: 'scene-studio.logo-settings.v1',
   logoPresets: 'scene-studio.logo-presets.v1',
   inpaintSettings: 'scene-studio.inpaint-settings.v1',

@@ -53,6 +53,14 @@ describe('buildTasks', () => {
     expect(tasks[1].productId).toBe('product-1');
     expect(tasks[1].promptId).toBe('prompt-2');
   });
+  it('将产品专属提示词追加到场景提示词', () => {
+    const tasks = buildTasks(
+      [{ ...products[0], individualPrompt: '杯子高 22.6 CM' }],
+      [prompts[0]],
+      'cartesian',
+    );
+    expect(tasks[0].prompt).toBe('桌面场景\n\n杯子高 22.6 CM');
+  });
   it('一一对应数量不匹配时报错', () => {
     expect(() => buildTasks(products.slice(0, 1), prompts, 'paired')).toThrow('数量一致');
   });

@@ -80,6 +80,7 @@ import type {
   CreationTool,
   GenerationTask,
   ImageModel,
+  IndividualPromptPreset,
   ProductImage,
   PromptItem,
   PromptPreset,
@@ -295,6 +296,16 @@ function AppContent() {
       .map((preset) => ({ ...preset, content: preset.content || preset.prompts?.find((item) => item.trim()) || '' }))
       .filter((preset) => preset.content.trim()),
   );
+  const [individualPromptPresets, setIndividualPromptPresets] = useState<IndividualPromptPreset[]>(() => {
+    const fallback = [{
+      id: 'product-dimensions',
+      name: '杯子尺寸',
+      content: '高  CM，顶部杯口  CM直径，杯肚  CM',
+    }];
+    return readLocalStorage(STORAGE_KEYS.individualPromptPresets, fallback);
+  });
+  const [individualPromptProductId, setIndividualPromptProductId] = useState<string | null>(null);
+  const [individualPromptDraft, setIndividualPromptDraft] = useState('');
   const allScenePresets: PromptPreset[] = [
     ...localizeBuiltInScenePresets(language),
     ...presets,
@@ -327,6 +338,7 @@ function AppContent() {
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(settings)), [settings]);
   useEffect(() => localStorage.setItem(STORAGE_KEYS.presets, JSON.stringify(presets)), [presets]);
+  useEffect(() => localStorage.setItem(STORAGE_KEYS.individualPromptPresets, JSON.stringify(individualPromptPresets)), [individualPromptPresets]);
   useEffect(() => () => {
     products.forEach((product) => URL.revokeObjectURL(product.previewUrl));
     tasks.forEach((task) => task.resultUrl && URL.revokeObjectURL(task.resultUrl));
@@ -340,14 +352,7 @@ function AppContent() {
   const completedCount = tasks.filter((task) => ['success', 'failed', 'stopped'].includes(task.status)).length;
   const successCount = tasks.filter((task) => task.status === 'success').length;
   const isProcessing = tasks.some((task) => ['waiting', 'running'].includes(task.status));
-  const uploadItems: UploadFile[] = products.map((product) => ({
-    uid: product.id,
-    name: product.name,
-    status: 'done',
-    url: product.previewUrl,
-    thumbUrl: product.previewUrl,
-    originFileObj: product.file as UploadFile['originFileObj'],
-  }));
+  const uploadItems: UploadFile[] = [];
   const activeDelimiter = splitMode === 'newline' ? '\n' : delimiter;
   const splitPreview = useMemo(
     () => splitPrompts(bulkText, activeDelimiter),
@@ -425,6 +430,40 @@ function AppContent() {
       const removed = current.find((product) => product.id === uid);
       if (removed) URL.revokeObjectURL(removed.previewUrl);
       return current.filter((product) => product.id !== uid);
+    });
+  };
+
+  const openIndividualPrompt = (product: ProductImage) => {
+    setIndividualPromptProductId(product.id);
+    setIndividualPromptDraft(product.individualPrompt || '');
+  };
+
+  const insertIndividualPromptPreset = (content: string) => {
+    setIndividualPromptDraft((current) => current.trim()
+      ? `${current.trim()}\n${content}`
+      : content);
+  };
+
+  const saveIndividualPromptPreset = (preset?: IndividualPromptPreset) => {
+    let name = preset?.name || '';
+    let content = preset?.content || '';
+    Modal.confirm({
+      title: preset ? '编辑专属提示词预设' : '新增专属提示词预设',
+      content: (
+        <Space orientation="vertical" style={{ width: '100%' }}>
+          <Input defaultValue={name} placeholder="预设名称" onChange={(event) => { name = event.target.value; }} />
+          <Input.TextArea defaultValue={content} placeholder="预设关键词" autoSize={{ minRows: 2, maxRows: 5 }} onChange={(event) => { content = event.target.value; }} />
+        </Space>
+      ),
+      onOk: () => {
+        if (!name.trim() || !content.trim()) {
+          message.warning('请填写预设名称和关键词');
+          return Promise.reject();
+        }
+        setIndividualPromptPresets((current) => preset
+          ? current.map((item) => item.id === preset.id ? { ...item, name: name.trim(), content: content.trim() } : item)
+          : [...current, { id: createId(), name: name.trim(), content: content.trim() }]);
+      },
     });
   };
 
@@ -747,7 +786,85 @@ function AppContent() {
               >
                 <Button icon={<PlusOutlined />} className="upload-fallback">选择图片</Button>
               </Upload>
+              {products.length > 0 && (
+                <div className="scene-product-grid">
+                  {products.map((product) => (
+                    <div className="scene-product-card" key={product.id}>
+                      <Image src={product.previewUrl} alt={product.name} />
+                      <Button
+                        type={product.individualPrompt?.trim() ? 'primary' : 'default'}
+                        ghost={Boolean(product.individualPrompt?.trim())}
+                        block
+                        icon={<EditOutlined />}
+                        onClick={() => openIndividualPrompt(product)}
+                      >
+                        {product.individualPrompt?.trim() ? '编辑专属提示词' : '新增专属提示词'}
+                      </Button>
+                      {product.individualPrompt?.trim() && (
+                        <Text type="secondary" ellipsis={{ tooltip: product.individualPrompt }} className="individual-prompt-summary">
+                          {product.individualPrompt}
+                        </Text>
+                      )}
+                      <Button type="text" danger block icon={<DeleteOutlined />} onClick={() => removeProduct(product.id)}>删除图片</Button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </Card>
+
+            <Modal
+              title="产品图专属提示词"
+              open={Boolean(individualPromptProductId)}
+              width={680}
+              okText="保存"
+              cancelText="取消"
+              onCancel={() => setIndividualPromptProductId(null)}
+              onOk={() => {
+                setProducts((current) => current.map((product) => product.id === individualPromptProductId
+                  ? { ...product, individualPrompt: individualPromptDraft.trim() }
+                  : product));
+                setIndividualPromptProductId(null);
+              }}
+            >
+              <Typography.Paragraph type="secondary">
+                这里的内容仅应用于当前产品图。发送请求时会追加到每条场景提示词后面。
+              </Typography.Paragraph>
+              <Input.TextArea
+                value={individualPromptDraft}
+                onChange={(event) => setIndividualPromptDraft(event.target.value)}
+                placeholder="例如：杯子高 22.6 CM，顶部杯口 7 CM直径，杯肚 9 CM；场景比例需符合真实物体尺寸。"
+                autoSize={{ minRows: 4, maxRows: 8 }}
+                showCount
+                maxLength={1000}
+              />
+              <Flex justify="space-between" align="center" style={{ marginTop: 16 }}>
+                <Text strong>快捷关键词（点击插入）</Text>
+                <Button type="link" icon={<PlusOutlined />} onClick={() => saveIndividualPromptPreset()}>新增预设</Button>
+              </Flex>
+              <Flex gap={8} wrap style={{ marginTop: 8 }}>
+                {individualPromptPresets.map((preset) => (
+                  <Dropdown
+                    key={preset.id}
+                    trigger={['contextMenu']}
+                    menu={{
+                      items: [
+                        { key: 'edit', label: '编辑' },
+                        { key: 'delete', label: '删除', danger: true },
+                      ],
+                      onClick: ({ key }) => {
+                        if (key === 'edit') saveIndividualPromptPreset(preset);
+                        if (key === 'delete') setIndividualPromptPresets((current) => current.filter((item) => item.id !== preset.id));
+                      },
+                    }}
+                  >
+                    <Tag className="prompt-preset-tag" onClick={() => insertIndividualPromptPreset(preset.content)}>
+                      {preset.name}
+                    </Tag>
+                  </Dropdown>
+                ))}
+              </Flex>
+              <Text type="secondary" className="scene-preset-help">点击预设会插入而非覆盖；右键预设可编辑或删除。</Text>
+            </Modal>
 
             <Card
               className="workflow-card"
