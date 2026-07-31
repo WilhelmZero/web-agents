@@ -58,7 +58,6 @@ import {
   Typography,
   Upload,
 } from 'antd';
-import type { UploadFile } from 'antd';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DEFAULT_SETTINGS, localizeBuiltInScenePresets, MODEL_CAPABILITIES, PRICING, STORAGE_KEYS } from './constants';
 import LogoComposer from './LogoComposer';
@@ -352,7 +351,6 @@ function AppContent() {
   const completedCount = tasks.filter((task) => ['success', 'failed', 'stopped'].includes(task.status)).length;
   const successCount = tasks.filter((task) => task.status === 'success').length;
   const isProcessing = tasks.some((task) => ['waiting', 'running'].includes(task.status));
-  const uploadItems: UploadFile[] = [];
   const activeDelimiter = splitMode === 'newline' ? '\n' : delimiter;
   const splitPreview = useMemo(
     () => splitPrompts(bulkText, activeDelimiter),
@@ -765,28 +763,20 @@ function AppContent() {
             </section>
 
             <Card className="workflow-card" title={<Space><span className="step-badge">1</span><span>上传产品白底图</span></Space>} extra={<Text type="secondary">{products.length} 张</Text>}>
-              <Attachments
-                items={uploadItems}
-                overflow="wrap"
-                accept={ACCEPTED_TYPES.join(',')}
-                multiple
-                beforeUpload={(file) => addFiles([file as File])}
-                onRemove={(file) => { removeProduct(file.uid); return true; }}
-                placeholder={{
-                  icon: <FileImageOutlined />,
-                  title: '拖拽、点击或粘贴产品图',
-                  description: 'PNG / JPEG / WebP，单张不超过 20MB',
-                }}
-              />
-              <Upload
-                showUploadList={false}
-                accept={ACCEPTED_TYPES.join(',')}
-                multiple
-                beforeUpload={(file) => addFiles([file as File])}
-              >
-                <Button icon={<PlusOutlined />} className="upload-fallback">选择图片</Button>
-              </Upload>
-              {products.length > 0 && (
+              {products.length === 0 ? (
+                <Attachments
+                  items={[]}
+                  overflow="wrap"
+                  accept={ACCEPTED_TYPES.join(',')}
+                  multiple
+                  beforeUpload={(file) => addFiles([file as File])}
+                  placeholder={{
+                    icon: <FileImageOutlined />,
+                    title: '拖拽、点击或粘贴产品图',
+                    description: 'PNG / JPEG / WebP，单张不超过 20MB',
+                  }}
+                />
+              ) : (
                 <div className="scene-product-grid">
                   {products.map((product) => (
                     <div className="scene-product-card" key={product.id}>
@@ -798,7 +788,7 @@ function AppContent() {
                         icon={<EditOutlined />}
                         onClick={() => openIndividualPrompt(product)}
                       >
-                        {product.individualPrompt?.trim() ? '编辑专属提示词' : '新增专属提示词'}
+                        {product.individualPrompt?.trim() ? '编辑提示词' : '新增提示词'}
                       </Button>
                       {product.individualPrompt?.trim() && (
                         <Text type="secondary" ellipsis={{ tooltip: product.individualPrompt }} className="individual-prompt-summary">
@@ -808,6 +798,17 @@ function AppContent() {
                       <Button type="text" danger block icon={<DeleteOutlined />} onClick={() => removeProduct(product.id)}>删除图片</Button>
                     </div>
                   ))}
+                  <Upload
+                    showUploadList={false}
+                    accept={ACCEPTED_TYPES.join(',')}
+                    multiple
+                    beforeUpload={(file) => addFiles([file as File])}
+                  >
+                    <button type="button" className="scene-product-add">
+                      <PlusOutlined />
+                      <span>继续添加图片</span>
+                    </button>
+                  </Upload>
                 </div>
               )}
             </Card>
@@ -898,11 +899,13 @@ function AppContent() {
               </div>
               <Flex justify="space-between" align="center" gap={10} wrap className="scene-preset-bar">
                 <Space wrap>
-                  {allScenePresets.map((preset) => (
+                  {allScenePresets.map((preset) => preset.builtIn ? (
+                    <Tag key={preset.id} className="prompt-preset-tag" onClick={() => applyScenePreset(preset)}>{preset.name}</Tag>
+                  ) : (
                     <Dropdown
                       key={preset.id}
                       trigger={['contextMenu']}
-                      menu={preset.builtIn ? { items: [] } : {
+                      menu={{
                         items: [
                           { key: 'rename', label: '重命名预设' },
                           { key: 'delete', danger: true, label: '删除预设' },
@@ -913,9 +916,7 @@ function AppContent() {
                         },
                       }}
                     >
-                      <span className="prompt-preset-trigger" onContextMenu={(event) => event.preventDefault()}>
-                        <Tag className="prompt-preset-tag" onClick={() => applyScenePreset(preset)}>{preset.name}</Tag>
-                      </span>
+                      <Tag className="prompt-preset-tag" onClick={() => applyScenePreset(preset)}>{preset.name}</Tag>
                     </Dropdown>
                   ))}
                 </Space>
