@@ -1,0 +1,284 @@
+import { XProvider } from '@ant-design/x';
+import enUSX from '@ant-design/x/locale/en_US';
+import zhCNX from '@ant-design/x/locale/zh_CN';
+import enUS from 'antd/locale/en_US';
+import zhCN from 'antd/locale/zh_CN';
+import {
+  createContext,
+  type ReactNode,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+
+export type AppLanguage = 'zh-CN' | 'en-US';
+
+const LANGUAGE_KEY = 'scene-studio-language';
+
+const translations: Record<string, string> = {
+  'AI 商业场景图工作台': 'AI Commercial Visual Studio',
+  '创作工具': 'Creation tools',
+  '场景图生成': 'Scene generator',
+  'Logo 合成': 'Logo composite',
+  '局部重绘': 'Inpainting',
+  '详情长图生成': 'Product detail page',
+  '视频生成': 'Video generator',
+  '管理': 'Management',
+  '历史记录': 'History',
+  '生成设置': 'Generation settings',
+  '设置': 'Settings',
+  'Key 已配置': 'Key configured',
+  '配置 API Key': 'Configure API Key',
+  '配置 Gemini API': 'Configure Gemini API',
+  '保存到本地': 'Save locally',
+  '连接方式': 'Connection mode',
+  'Gemini 直连': 'Gemini direct',
+  'Cloudflare 代理': 'Cloudflare proxy',
+  '代理地址': 'Proxy URL',
+  '测试连通性': 'Test connection',
+  '测试中': 'Testing',
+  'Gemini API Key': 'Gemini API Key',
+  'Key 会保存在当前浏览器': 'The key is stored in this browser',
+  '上传产品白底图': 'Upload product images',
+  '上传场景图': 'Upload scene images',
+  '上传 Logo 图': 'Upload logo images',
+  '上传图片': 'Upload image',
+  '选择图片': 'Select images',
+  '替换图片': 'Replace image',
+  '清空全部': 'Clear all',
+  '清空': 'Clear',
+  '删除': 'Delete',
+  '替换': 'Replace',
+  '下载': 'Download',
+  '下载全部': 'Download all',
+  '下载单张': 'Download image',
+  '下载本组': 'Download group',
+  '清空生成结果': 'Clear results',
+  '生成结果': 'Generated results',
+  '重绘结果': 'Inpainting result',
+  '预览长图': 'Preview long image',
+  '下载长图': 'Download long image',
+  '一键生成': 'Generate all',
+  '开始生成': 'Start generation',
+  '停止生成': 'Stop generation',
+  '重新生成': 'Regenerate',
+  '重试': 'Retry',
+  '生图': 'Generate',
+  '分析并生成提示词': 'Analyze and create prompts',
+  '重新分析': 'Analyze again',
+  '提示词优化': 'Prompt optimization',
+  '优化提示词': 'Optimize prompt',
+  '优化全部': 'Optimize all',
+  '优化': 'Optimize',
+  '提示词': 'Prompt',
+  '合成提示词': 'Composite prompt',
+  '局部重绘提示词': 'Inpainting prompt',
+  '商品信息': 'Product information',
+  '上图文案': 'Image copy',
+  '新增文案': 'Add copy',
+  '新增一行': 'Add row',
+  '批量粘贴': 'Bulk paste',
+  '批量粘贴提示词': 'Bulk paste prompts',
+  '分割方式': 'Split mode',
+  '自定义符号': 'Custom delimiter',
+  '按回车分割': 'Split by line break',
+  '分隔符': 'Delimiter',
+  '粘贴内容': 'Paste content',
+  '模型': 'Model',
+  '图片模型': 'Image model',
+  '分析模型': 'Analysis model',
+  '优化模型': 'Optimization model',
+  '模型版本': 'Model version',
+  '画面比例': 'Aspect ratio',
+  '跟随原图': 'Follow source image',
+  '指定比例': 'Fixed ratio',
+  '分辨率': 'Resolution',
+  '并发数': 'Concurrency',
+  '生成张数': 'Images per group',
+  '目标张数': 'Target image count',
+  '组合方式': 'Combination mode',
+  '全量组合': 'All combinations',
+  '一一对应': 'Pair by order',
+  '预计费用': 'Estimated cost',
+  '预计任务': 'Estimated tasks',
+  '任务进度': 'Task progress',
+  '任务数': 'Tasks',
+  '成功': 'Succeeded',
+  '失败': 'Failed',
+  '排队中': 'Queued',
+  '生成中': 'Generating',
+  '已停止': 'Stopped',
+  '未生成': 'Not generated',
+  '准备生成': 'Ready to generate',
+  '暂无数据': 'No data',
+  '暂无生成结果': 'No generated results',
+  '内置预设': 'Built-in presets',
+  '快捷提示词': 'Prompt presets',
+  '保存当前输入框为预设': 'Save current prompt as preset',
+  '预设已保存': 'Preset saved',
+  '重命名预设': 'Rename preset',
+  '保存预设': 'Save preset',
+  '预设名称': 'Preset name',
+  '定位 Logo': 'Position logo',
+  '重新定位': 'Edit placement',
+  '清除定位': 'Clear placement',
+  '可视化定位': 'Visual placement',
+  '局部重绘定位': 'Inpainting placement',
+  '框选': 'Rectangle',
+  '涂抹': 'Brush',
+  '画笔大小': 'Brush size',
+  '反相 Logo 颜色': 'Invert logo colors',
+  '取消反相': 'Disable inversion',
+  '确认定位': 'Confirm placement',
+  '取消': 'Cancel',
+  '确定': 'OK',
+  '关闭': 'Close',
+  '应用': 'Apply',
+  '保存': 'Save',
+  '复制': 'Copy',
+  '上移': 'Move up',
+  '下移': 'Move down',
+  '拖拽排序': 'Drag to reorder',
+  '场景图': 'Scene image',
+  '产品图': 'Product image',
+  '原始图片': 'Source image',
+  '原图': 'Source',
+  '结果图片': 'Result image',
+  '配对预览': 'Pair preview',
+  '分组': 'Group',
+  '已配对': 'Paired',
+  '未配对': 'Unpaired',
+  '关于生成内容': 'About generated content',
+  '语言': 'Language',
+  '中文': '中文',
+  '英文': 'English',
+};
+
+const phraseTranslations: Array<[string, string]> = [
+  ['拖拽、点击或粘贴', 'Drag, click, or paste '],
+  ['单张不超过 20MB', 'max 20 MB per image'],
+  ['按产品图自动分组，点击卡片查看全部结果', 'Grouped by product image. Click a card to view all results.'],
+  ['完成上方设置后，结果会按产品显示在这里', 'Results will appear here by product after setup.'],
+  ['可填写 Worker 根地址或以 /v1beta 结尾的地址', 'Enter the Worker root URL or a URL ending in /v1beta.'],
+  ['代理连接成功', 'Proxy connection successful'],
+  ['代理连接失败', 'Proxy connection failed'],
+  ['请先填写代理地址', 'Enter a proxy URL first'],
+  ['请检查地址、Worker 部署状态和 ALLOWED_ORIGINS', 'Check the URL, Worker deployment, and ALLOWED_ORIGINS'],
+  ['上传图、任务和结果仅保留在当前页面会话', 'Uploads, tasks, and results remain only in this page session.'],
+  ['所有 Nano Banana 生成图片均包含 SynthID 水印。', 'All images generated by Nano Banana contain a SynthID watermark. '],
+  ['请确保你拥有上传图片的必要权利，并遵守 Gemini API 使用政策。', 'Make sure you have the rights to uploaded images and follow the Gemini API policy.'],
+  ['点击预设会写入当前选中的提示词输入框', 'Click a preset to apply it to the selected prompt field'],
+  ['右键自定义预设可重命名或删除', 'Right-click a custom preset to rename or delete it'],
+  ['张产品图', ' product images'],
+  ['条提示词', ' prompts'],
+  ['张场景图', ' scene images'],
+  ['个成功结果', ' successful results'],
+  ['个未成功任务', ' unsuccessful tasks'],
+  ['张', ' images'],
+  ['个', ''],
+];
+
+function translateText(value: string): string {
+  const exact = translations[value.trim()];
+  if (exact) return value.replace(value.trim(), exact);
+  let translated = value;
+  phraseTranslations.forEach(([source, target]) => {
+    translated = translated.replaceAll(source, target);
+  });
+  Object.entries(translations)
+    .sort(([a], [b]) => b.length - a.length)
+    .forEach(([source, target]) => {
+      translated = translated.replaceAll(source, target);
+    });
+  return translated;
+}
+
+interface LanguageContextValue {
+  language: AppLanguage;
+  setLanguage: (language: AppLanguage) => void;
+}
+
+const LanguageContext = createContext<LanguageContextValue | null>(null);
+
+function DomTranslator({ language, children }: { language: AppLanguage; children: ReactNode }) {
+  const originals = useRef(new WeakMap<Node, string>());
+  const attributeOriginals = useRef(new WeakMap<Element, Map<string, string>>());
+
+  useEffect(() => {
+    const root = document.body;
+
+    const visit = (node: Node) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const textNode = node as Text;
+        if (!originals.current.has(textNode)) originals.current.set(textNode, textNode.data);
+        const original = originals.current.get(textNode) ?? textNode.data;
+        const next = language === 'en-US' ? translateText(original) : original;
+        if (textNode.data !== next) textNode.data = next;
+        return;
+      }
+      if (!(node instanceof Element)) return;
+      ['placeholder', 'title', 'aria-label'].forEach((attribute) => {
+        const current = node.getAttribute(attribute);
+        if (!current) return;
+        let saved = attributeOriginals.current.get(node);
+        if (!saved) {
+          saved = new Map();
+          attributeOriginals.current.set(node, saved);
+        }
+        if (!saved.has(attribute)) saved.set(attribute, current);
+        const original = saved.get(attribute) ?? current;
+        node.setAttribute(attribute, language === 'en-US' ? translateText(original) : original);
+      });
+      node.childNodes.forEach(visit);
+    };
+
+    visit(root);
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.type === 'characterData') visit(mutation.target);
+        mutation.addedNodes.forEach(visit);
+      });
+    });
+    observer.observe(root, { childList: true, subtree: true, characterData: true });
+    return () => observer.disconnect();
+  }, [language]);
+
+  return children;
+}
+
+export function LanguageProvider({ children }: { children: ReactNode }) {
+  const [language, setLanguage] = useState<AppLanguage>(() =>
+    localStorage.getItem(LANGUAGE_KEY) === 'en-US' ? 'en-US' : 'zh-CN',
+  );
+  useEffect(() => {
+    localStorage.setItem(LANGUAGE_KEY, language);
+    document.documentElement.lang = language;
+  }, [language]);
+  const value = useMemo(() => ({ language, setLanguage }), [language]);
+  const locale = language === 'en-US' ? { ...enUS, ...enUSX } : { ...zhCN, ...zhCNX };
+
+  return (
+    <LanguageContext.Provider value={value}>
+      <XProvider
+        locale={locale}
+        theme={{
+          token: {
+            colorPrimary: '#7c5cff',
+            borderRadius: 12,
+            fontFamily: "'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif",
+          },
+        }}
+      >
+        <DomTranslator language={language}>{children}</DomTranslator>
+      </XProvider>
+    </LanguageContext.Provider>
+  );
+}
+
+export function useLanguage(): LanguageContextValue {
+  const context = useContext(LanguageContext);
+  if (!context) throw new Error('useLanguage must be used inside LanguageProvider');
+  return context;
+}

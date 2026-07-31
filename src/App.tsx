@@ -13,6 +13,7 @@ import {
   EyeOutlined,
   FileImageOutlined,
   FolderOpenOutlined,
+  GlobalOutlined,
   HighlightOutlined,
   KeyOutlined,
   MenuFoldOutlined,
@@ -64,6 +65,7 @@ import LogoComposer from './LogoComposer';
 import InpaintComposer from './InpaintComposer';
 import ProductDetailComposer from './ProductDetailComposer';
 import GeneratingImage from './GeneratingImage';
+import { useLanguage } from './i18n';
 import { readLocalStorage } from './storage';
 import {
   downloadAllZip,
@@ -268,6 +270,7 @@ function ResultGroupCard({
 
 function AppContent() {
   const { message, modal } = AntApp.useApp();
+  const { language, setLanguage } = useLanguage();
   const screens = Grid.useBreakpoint();
   const compact = !screens.xl;
   const [settings, setSettings] = useState<AppSettings>(() =>
@@ -614,6 +617,15 @@ function AppContent() {
             <Tag icon={<AppstoreOutlined />} color="purple">{creationTool === 'scene' ? '场景图生成' : creationTool === 'logo' ? 'Logo 合成' : creationTool === 'inpaint' ? '局部重绘' : '详情长图生成'}</Tag>
           </Flex>
           <Space>
+            <Segmented
+              size="small"
+              value={language}
+              onChange={(value) => setLanguage(value as 'zh-CN' | 'en-US')}
+              options={[
+                { label: '中文', value: 'zh-CN', icon: <GlobalOutlined /> },
+                { label: 'EN', value: 'en-US' },
+              ]}
+            />
             {creationTool === 'scene' && tasks.length > 0 && (
               <Badge status={isProcessing ? 'processing' : 'success'} text={`${completedCount}/${tasks.length}`} />
             )}
