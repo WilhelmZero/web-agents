@@ -227,6 +227,8 @@ function ResultGroupCard({
     : group.tasks.some((task) => task.status === 'waiting')
       ? 'waiting'
       : undefined;
+  const activeTask = group.tasks.find((task) => task.status === 'running')
+    || group.tasks.find((task) => task.status === 'waiting');
   return (
     <Card
       hoverable
@@ -249,7 +251,7 @@ function ResultGroupCard({
           />
         )) : (
           queueStatus
-            ? <GeneratingImage status={queueStatus} percent={(group.successCount / group.tasks.length) * 100} />
+            ? <GeneratingImage progressKey={activeTask?.id} status={queueStatus} percent={(group.successCount / group.tasks.length) * 100} />
             : group.failedCount
               ? <div className="task-state-card is-failed"><Text strong type="danger">生成失败</Text><Text type="secondary">{group.failedCount} 个任务失败</Text></div>
               : <div className="task-state-card is-stopped"><Text strong type="secondary">已停止</Text></div>
@@ -1040,7 +1042,7 @@ function AppContent() {
                     {task.resultUrl
                       ? <Image src={task.resultUrl} alt={task.prompt} />
                       : task.status === 'running'
-                        ? <GeneratingImage status="running" percent={1} />
+                        ? <GeneratingImage progressKey={task.id} status="running" percent={1} />
                         : task.status === 'waiting'
                           ? <div className="task-state-card is-waiting"><Text strong>排队中…</Text><Text type="secondary">等待可用并发任务</Text></div>
                           : <div className={`task-state-card is-${task.status}`}>

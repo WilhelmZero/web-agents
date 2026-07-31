@@ -32,4 +32,16 @@ describe('生成进度模拟', () => {
     act(() => vi.advanceTimersByTime(5000));
     expect(screen.getByText('生成中… 96%')).toBeInTheDocument();
   });
+
+  it('同一个任务在结果卡和弹窗中共享完全相同的进度', () => {
+    render(
+      <LanguageProvider>
+        <GeneratingImage progressKey="task-1" status="running" percent={1} />
+        <GeneratingImage progressKey="task-1" status="running" percent={1} />
+      </LanguageProvider>,
+    );
+    act(() => vi.advanceTimersByTime(2000));
+    const labels = screen.getAllByText('生成中… 3%');
+    expect(labels).toHaveLength(2);
+  });
 });

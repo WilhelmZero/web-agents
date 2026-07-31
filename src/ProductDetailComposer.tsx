@@ -377,7 +377,7 @@ export default function ProductDetailComposer({
             {task?.resultUrl
               ? <Image src={task.resultUrl} alt={prompt.title} />
               : task?.status === 'running'
-                ? <GeneratingImage status="running" percent={1} />
+                ? <GeneratingImage progressKey={task.id} status="running" percent={1} />
                 : task?.status === 'waiting'
                   ? <div className="task-state-card is-waiting"><Text strong>排队中…</Text><Text type="secondary">等待可用并发任务</Text></div>
                   : task?.status === 'failed'

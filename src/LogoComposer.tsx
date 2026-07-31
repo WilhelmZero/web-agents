@@ -850,6 +850,7 @@ export default function LogoComposer({
                       {!group.successCount && (
                         group.tasks.some((task) => task.status === 'waiting' || task.status === 'running')
                           ? <GeneratingImage
+                              progressKey={(group.tasks.find((task) => task.status === 'running') || group.tasks.find((task) => task.status === 'waiting'))?.id}
                               status={group.tasks.some((task) => task.status === 'running') ? 'running' : 'waiting'}
                               percent={(group.tasks.filter((task) => task.status === 'success').length / group.tasks.length) * 100}
                             />
@@ -919,7 +920,7 @@ export default function LogoComposer({
                     {task.resultUrl
                       ? <Image src={task.resultUrl} alt={`第 ${task.copyIndex + 1} 张合成图`} />
                       : task.status === 'running'
-                        ? <GeneratingImage status="running" percent={1} />
+                        ? <GeneratingImage progressKey={task.id} status="running" percent={1} />
                         : task.status === 'waiting'
                           ? <div className="task-state-card is-waiting"><Text strong>排队中…</Text><Text type="secondary">等待可用并发任务</Text></div>
                           : <div className={`task-state-card is-${task.status}`}>
