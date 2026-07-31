@@ -228,6 +228,10 @@ const translations: Record<string, string> = {
   '条': 'prompts',
   '组': 'groups',
   '任务': 'tasks',
+  '个任务': 'tasks',
+  '生成': 'Generate',
+  '上传': 'Upload',
+  '组 × 每组': 'groups ×',
   '每组': 'per group',
   '组已配对': 'groups paired',
   '按': 'Estimated from',
@@ -251,6 +255,9 @@ const translations: Record<string, string> = {
 
 const phraseTranslations: Array<[string, string]> = [
   ['拖拽、点击或粘贴', 'Drag, click, or paste '],
+  ['产品图', 'product image'],
+  ['场景图', 'scene image'],
+  ['详情图', 'detail image'],
   ['单张不超过 20MB', 'max 20 MB per image'],
   ['按产品图自动分组，点击卡片查看全部结果', 'Grouped by product image. Click a card to view all results.'],
   ['完成上方设置后，结果会按产品显示在这里', 'Results will appear here by product after setup.'],
