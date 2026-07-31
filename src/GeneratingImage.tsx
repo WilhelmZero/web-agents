@@ -28,6 +28,7 @@ export default function GeneratingImage({
 
   return (
     <Image
+      key={`${status}-${simulatedPercent}`}
       preview={false}
       width="100%"
       height={170}
@@ -35,13 +36,13 @@ export default function GeneratingImage({
       placeholder={{
         progress: {
           percent: simulatedPercent,
-          render: (_progress, currentPercent) => (
+          render: () => (
             <Typography.Text strong>
               {status === 'waiting'
                 ? language === 'en-US' ? 'Queued…' : '排队中…'
                 : language === 'en-US'
-                  ? `Generating… ${Math.round(currentPercent)}%`
-                  : `生成中… ${Math.round(currentPercent)}%`}
+                  ? `Generating… ${simulatedPercent}%`
+                  : `生成中… ${simulatedPercent}%`}
             </Typography.Text>
           ),
         },
