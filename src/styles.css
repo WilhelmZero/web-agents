@@ -30,10 +30,18 @@ button, input, textarea { font: inherit; }
 .brand-subtitle { display: block; line-height: 1.15 !important; font-size: 13px; }
 .header-divider { height: 28px; margin-inline: 6px; }
 .workspace-layout { min-height: calc(100vh - 72px); background: transparent; }
-.nav-sider { background: #fff !important; border-right: 1px solid #e9ebf1; }
-.nav-sider .ant-layout-sider-children { display: flex; flex-direction: column; }
-.nav-sider .ant-menu { border-inline-end: none !important; padding-top: 16px; flex: 1; }
-.sider-foot { display: flex; gap: 8px; padding: 18px; border-top: 1px solid #eef0f5; white-space: nowrap; overflow: hidden; }
+.nav-sider {
+  height: calc(100vh - 72px);
+  position: sticky;
+  top: 72px;
+  align-self: flex-start;
+  overflow: hidden;
+  background: #fff !important;
+  border-right: 1px solid #e9ebf1;
+}
+.nav-sider .ant-layout-sider-children { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+.nav-sider .ant-menu { min-height: 0; border-inline-end: none !important; padding-top: 16px; flex: 1; overflow-y: auto; }
+.sider-foot { flex: none; display: flex; gap: 8px; padding: 18px; border-top: 1px solid #eef0f5; white-space: nowrap; overflow: hidden; background: #fff; }
 .main-content { min-width: 0; }
 .content-inner { max-width: 1120px; margin: 0 auto; padding: 28px; }
 .settings-sider { border-left: 1px solid #e9ebf1; background: white !important; overflow: auto; height: calc(100vh - 72px); position: sticky; top: 72px; }
@@ -170,6 +178,7 @@ button, input, textarea { font: inherit; }
 }
 @media (max-width: 640px) {
   .topbar { height: 64px; padding: 0 12px; }
+  .nav-sider { height: calc(100vh - 64px); top: 64px; }
   .brand-mark { width: 34px; height: 34px; }
   .brand-title { font-size: 17px !important; }
   .topbar .ant-btn span:not(.anticon) { display: none; }

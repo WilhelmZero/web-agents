@@ -41,6 +41,8 @@ const translations: Record<string, string> = {
   '测试中': 'Testing',
   'Gemini API Key': 'Gemini API Key',
   'Key 会保存在当前浏览器': 'The key is stored in this browser',
+  'Key 保存在当前浏览器，并由浏览器直接请求 Gemini。请勿在不受信任的设备上配置。': 'The key is stored in this browser and sent directly to Gemini by your browser. Do not configure it on an untrusted device.',
+  'Key 与代理地址保存在当前浏览器，请求将通过你配置的代理转发到 Gemini。': 'The key and proxy URL are stored in this browser. Requests are forwarded to Gemini through your configured proxy.',
   '把白底产品图放进真实世界': 'Place clean product shots into the real world',
   '上传产品、组合提示词，批量生成风格一致的商业场景图。': 'Upload products, combine prompts, and create consistent commercial scenes in batches.',
   '让品牌标识自然融入每个场景': 'Blend your brand naturally into every scene',
