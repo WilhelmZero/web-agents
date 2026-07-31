@@ -5,6 +5,7 @@ import {
   DeleteOutlined,
   DownloadOutlined,
   EditOutlined,
+  EyeOutlined,
   FileImageOutlined,
   HolderOutlined,
   HighlightOutlined,
@@ -741,34 +742,40 @@ export default function LogoComposer({
 
           <Card className="workflow-card" title="配对与 Logo 定位" extra={<Tag color={isPairingValid ? 'success' : 'warning'}>{completePairs.length}/{pairs.length} 组已配对</Tag>}>
             {pairs.length ? (
-              <div className="pair-grid">
-                {pairs.map((pair) => (
-                  <Card key={pair.id} size="small" className={!pair.scene || !pair.logo ? 'pair-card pair-incomplete' : 'pair-card'}>
-                    <Flex align="center" gap={10}>
-                      <div className="pair-number">{pair.index + 1}</div>
-                      {pair.scene ? <img src={pair.scene.previewUrl} alt="" /> : <div className="pair-missing">缺场景</div>}
-                      <span>+</span>
-                      {pair.logo ? <img src={pair.logo.previewUrl} alt="" /> : <div className="pair-missing">缺 Logo</div>}
-                    </Flex>
-                    <Flex className="pair-actions-row" justify="space-between" align="center" style={{ marginTop: 10 }} gap={6} wrap>
-                      {pair.inpaintMask
-                        ? <Tag icon={<HighlightOutlined />} color="magenta">局部重绘</Tag>
-                        : pair.placement
-                          ? <Tag icon={<CheckOutlined />} color="success">已定位</Tag>
-                          : <Tag>提示词定位</Tag>}
-                      <Space className="pair-action-buttons" size={4} wrap>
-                        {(pair.placement || pair.inpaintMask) && (
-                          <Button size="small" type="text" onClick={() => {
-                            setPlacements((current) => ({ ...current, [pair.index]: undefined }));
-                            setInpaintMasks((current) => ({ ...current, [pair.index]: undefined }));
-                          }}>清除定位</Button>
-                        )}
-                        <Button size="small" disabled={!pair.scene || !pair.logo} icon={<EditOutlined />} onClick={() => setEditingPair(pair)}>定位 Logo</Button>
-                      </Space>
-                    </Flex>
-                  </Card>
-                ))}
-              </div>
+              <Image.PreviewGroup>
+                <div className="pair-grid">
+                  {pairs.map((pair) => (
+                    <Card key={pair.id} size="small" className={!pair.scene || !pair.logo ? 'pair-card pair-incomplete' : 'pair-card'}>
+                      <Flex align="center" gap={10}>
+                        <div className="pair-number">{pair.index + 1}</div>
+                        {pair.scene
+                          ? <Image width={54} height={54} style={{ objectFit: 'cover' }} src={pair.scene.previewUrl} alt={`第 ${pair.index + 1} 组场景图`} preview={{ mask: <EyeOutlined /> }} />
+                          : <div className="pair-missing">缺场景</div>}
+                        <span>+</span>
+                        {pair.logo
+                          ? <Image width={54} height={54} className="pair-logo-preview" style={{ objectFit: 'contain', background: '#f6f7fa' }} src={pair.logo.previewUrl} alt={`第 ${pair.index + 1} 组 Logo`} preview={{ mask: <EyeOutlined /> }} />
+                          : <div className="pair-missing">缺 Logo</div>}
+                      </Flex>
+                      <Flex className="pair-actions-row" justify="space-between" align="center" style={{ marginTop: 10 }} gap={6} wrap>
+                        {pair.inpaintMask
+                          ? <Tag icon={<HighlightOutlined />} color="magenta">局部重绘</Tag>
+                          : pair.placement
+                            ? <Tag icon={<CheckOutlined />} color="success">已定位</Tag>
+                            : <Tag>提示词定位</Tag>}
+                        <Space className="pair-action-buttons" size={4} wrap>
+                          {(pair.placement || pair.inpaintMask) && (
+                            <Button size="small" type="text" onClick={() => {
+                              setPlacements((current) => ({ ...current, [pair.index]: undefined }));
+                              setInpaintMasks((current) => ({ ...current, [pair.index]: undefined }));
+                            }}>清除定位</Button>
+                          )}
+                          <Button size="small" disabled={!pair.scene || !pair.logo} icon={<EditOutlined />} onClick={() => setEditingPair(pair)}>定位 Logo</Button>
+                        </Space>
+                      </Flex>
+                    </Card>
+                  ))}
+                </div>
+              </Image.PreviewGroup>
             ) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="上传两列图片后将按顺序自动配对" />}
           </Card>
 

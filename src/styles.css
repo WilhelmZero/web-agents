@@ -151,8 +151,10 @@ button, input, textarea { font: inherit; }
 .asset-card-footer { display: flex; align-items: center; justify-content: center; gap: 0; padding: 4px 2px; border-top: 1px solid #eceef3; }
 .asset-card-footer .ant-btn { padding-inline: 4px; font-size: 11px; }
 .pair-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(265px, 1fr)); gap: 12px; }
-.pair-card img, .pair-missing { width: 54px; height: 54px; border-radius: 9px; object-fit: cover; border: 1px solid #e3e6ed; }
-.pair-card .logo-thumb, .pair-card img:nth-of-type(2) { object-fit: contain; background: #f6f7fa; }
+.pair-card .ant-image, .pair-card .ant-image-img, .pair-missing { width: 54px; height: 54px; border-radius: 9px; object-fit: cover; border: 1px solid #e3e6ed; }
+.pair-card .ant-image { flex: none; overflow: hidden; }
+.pair-card .ant-image-img { display: block; border: 0; }
+.pair-card .pair-logo-preview { object-fit: contain; background: #f6f7fa; }
 .pair-actions-row { min-width: 0; }
 .pair-action-buttons { max-width: 100%; justify-content: flex-end; margin-left: auto; }
 .pair-action-buttons .ant-space-item { min-width: 0; }
