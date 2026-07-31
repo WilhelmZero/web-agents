@@ -76,6 +76,25 @@ export const BUILT_IN_SCENE_PRESETS: PromptPreset[] = [
   },
 ];
 
+const BUILT_IN_SCENE_PRESETS_EN: Record<string, Pick<PromptPreset, 'name' | 'content'>> = {
+  'builtin-scene-christmas': {
+    name: 'Western Christmas',
+    content: 'The cup is exactly 22.6 cm tall, with a 7 cm top-rim diameter and a 9 cm body diameter. Establish an accurate real-world scale from these dimensions. The proportions between the cup and tables, tableware, gifts, decorations, furniture, and people must match their actual real-world sizes; never make the cup too large or too small. Strictly preserve the cup’s appearance, structure, color, material, text, and logo. Place it naturally on a warm Western family Christmas dining table with realistically sized pine branches, red berries, gingerbread, champagne-gold fairy lights, and elegantly wrapped gifts. Add a softly blurred Christmas tree and fireplace in the background. Use warm candlelight balanced with cool winter daylight, realistic commercial photography, and shallow depth of field. Keep the cup as the visual focus without changing the product or its compositional logic.',
+  },
+  'builtin-scene-thanksgiving': {
+    name: 'Western Thanksgiving',
+    content: 'The cup is exactly 22.6 cm tall, with a 7 cm top-rim diameter and a 9 cm body diameter. Establish an accurate real-world scale from these dimensions. The proportions between the cup and tables, tableware, gifts, decorations, furniture, and people must match their actual real-world sizes; never make the cup too large or too small. Strictly preserve the cup’s appearance, structure, color, material, text, and logo. Place it naturally on a Western family Thanksgiving dining table with realistically sized linen napkins, plates, pumpkins, maple leaves, candles, and a restrained amount of autumn fruit. Show a softly blurred family-dinner atmosphere in the background. Use warm golden side light, natural shadows, and premium lifestyle commercial-photography styling. Keep the scene refined and uncluttered, with the cup clearly featured at a realistic scale.',
+  },
+  'builtin-scene-halloween': {
+    name: 'Western Halloween',
+    content: 'The cup is exactly 22.6 cm tall, with a 7 cm top-rim diameter and a 9 cm body diameter. Establish an accurate real-world scale from these dimensions. The proportions between the cup and tables, tableware, gifts, decorations, furniture, and people must match their actual real-world sizes; never make the cup too large or too small. Strictly preserve the cup’s appearance, structure, color, material, text, and logo. Place it naturally on a refined Western Halloween party table with realistically sized miniature pumpkins, black candlesticks, candy, dry leaves, and subtle cobweb decorations. Use softly blurred warm-orange party lighting in the background. Create a mysterious yet premium commercial-photography atmosphere, keeping the product sharp, the lighting realistic, and every prop correctly scaled to the cup.',
+  },
+  'builtin-scene-valentines': {
+    name: "Western Valentine's Day",
+    content: 'The cup is exactly 22.6 cm tall, with a 7 cm top-rim diameter and a 9 cm body diameter. Establish an accurate real-world scale from these dimensions. The proportions between the cup and tables, tableware, gifts, decorations, furniture, and people must match their actual real-world sizes; never make the cup too large or too small. Strictly preserve the cup’s appearance, structure, color, material, text, and logo. Place it naturally on a Western Valentine’s Day table for two or a coffee table with realistically sized roses, a card, desserts, tableware, and restrained heart-shaped decorations. Use a softly blurred warm background with delicate bokeh, gentle natural pink-and-gold tones, and premium commercial composition. Avoid overcrowding and strictly preserve realistic proportions between the cup and all scene objects.',
+  },
+};
+
 export const BUILT_IN_LOGO_PRESETS = [
   {
     id: 'builtin-glass-engraving',
@@ -99,6 +118,31 @@ export const BUILT_IN_LOGO_PRESETS = [
     updatedAt: 0,
   },
 ] as const;
+
+const BUILT_IN_LOGO_PRESETS_EN: Record<string, { name: string; content: string }> = {
+  'builtin-glass-engraving': {
+    name: 'Engraved logo on a glass',
+    content: 'Strictly preserve the original scene image’s composition, framing, viewpoint, lens, subject positions, glass shape, background, lighting, shadows, colors, and every other element. Do not move, remove, replace, or regenerate anything in the scene. Only engrave the supplied logo naturally and accurately onto the glass surface. The logo’s top edge must be exactly 2 cm below the rim, and its total width must not exceed 70% of the widest part of the glass body. Strictly preserve the logo’s graphics, text, proportions, and details. The engraving must conform naturally to the glass curvature, perspective, refraction, reflections, and ambient lighting and look like a real, finely crafted engraving. If the scene contains multiple glasses, apply the same logo to every glass. Make no changes other than adding the logo naturally.',
+  },
+  'builtin-white-glass-laser': {
+    name: 'White logo laser-engraved on a glass',
+    content: 'Strictly preserve the original scene image’s composition, framing, viewpoint, lens, subject positions, glass shape, background, lighting, shadows, colors, and every other element. Do not move, remove, replace, or regenerate anything in the scene. Convert only the supplied logo to white and place it naturally on the glass through laser engraving. The logo’s top edge must be exactly 2 cm below the rim, and its total width must not exceed 70% of the widest part of the glass body. Strictly preserve the logo’s original graphics, text, proportions, and details; do not redesign it. The white laser engraving must have a realistic, delicate frosted-etch texture and conform correctly to the glass curvature, perspective, refraction, reflections, and ambient lighting. If the scene contains multiple glasses, apply the same white engraved logo to every glass. Make no changes other than adding the white logo naturally.',
+  },
+  'builtin-wood-box-laser': {
+    name: 'Logo laser-engraved on a wooden box',
+    content: 'Strictly preserve the original scene image’s composition, framing, viewpoint, lens, subject positions, wooden-box shape, background, lighting, shadows, colors, wood grain, and every other element. Do not move, remove, replace, or regenerate anything in the scene. Only laser-engrave the supplied logo naturally and accurately onto the wooden-box surface. Strictly preserve the logo’s graphics, text, proportions, and details; do not redesign it. The engraving must show realistic burned and recessed wood texture while conforming correctly to the box perspective, wood grain, material, and environmental lighting. If the scene contains multiple wooden boxes, apply the same logo to every box. Make no changes other than adding the logo naturally.',
+  },
+};
+
+export function localizeBuiltInScenePresets(language: 'zh-CN' | 'en-US'): PromptPreset[] {
+  if (language === 'zh-CN') return BUILT_IN_SCENE_PRESETS;
+  return BUILT_IN_SCENE_PRESETS.map((preset) => ({ ...preset, ...BUILT_IN_SCENE_PRESETS_EN[preset.id] }));
+}
+
+export function localizeBuiltInLogoPresets(language: 'zh-CN' | 'en-US') {
+  if (language === 'zh-CN') return BUILT_IN_LOGO_PRESETS;
+  return BUILT_IN_LOGO_PRESETS.map((preset) => ({ ...preset, ...BUILT_IN_LOGO_PRESETS_EN[preset.id] }));
+}
 
 export const DEFAULT_SETTINGS: AppSettings = {
   apiKey: '',

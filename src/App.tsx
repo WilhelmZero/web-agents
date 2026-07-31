@@ -60,7 +60,7 @@ import {
 } from 'antd';
 import type { UploadFile } from 'antd';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BUILT_IN_SCENE_PRESETS, DEFAULT_SETTINGS, MODEL_CAPABILITIES, PRICING, STORAGE_KEYS } from './constants';
+import { DEFAULT_SETTINGS, localizeBuiltInScenePresets, MODEL_CAPABILITIES, PRICING, STORAGE_KEYS } from './constants';
 import LogoComposer from './LogoComposer';
 import InpaintComposer from './InpaintComposer';
 import ProductDetailComposer from './ProductDetailComposer';
@@ -284,7 +284,7 @@ function AppContent() {
       .filter((preset) => preset.content.trim()),
   );
   const allScenePresets: PromptPreset[] = [
-    ...BUILT_IN_SCENE_PRESETS,
+    ...localizeBuiltInScenePresets(language),
     ...presets,
   ];
   const [tasks, setTasks] = useState<GenerationTask[]>([]);

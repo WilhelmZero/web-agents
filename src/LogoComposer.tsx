@@ -48,8 +48,8 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  BUILT_IN_LOGO_PRESETS,
   DEFAULT_LOGO_SETTINGS,
+  localizeBuiltInLogoPresets,
   MODEL_CAPABILITIES,
   PRICING,
   STORAGE_KEYS,
@@ -83,6 +83,7 @@ import {
   sanitizeFileName,
 } from './utils';
 import GeneratingImage from './GeneratingImage';
+import { useLanguage } from './i18n';
 
 const { Text, Title, Paragraph } = Typography;
 const ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
@@ -408,6 +409,7 @@ export default function LogoComposer({
   settingsHost?: HTMLElement | null;
 }) {
   const { message, modal } = AntApp.useApp();
+  const { language } = useLanguage();
   const [settings, setSettings] = useState<LogoSettings>(() =>
     readLocalStorage(STORAGE_KEYS.logoSettings, DEFAULT_LOGO_SETTINGS as LogoSettings),
   );
@@ -444,7 +446,7 @@ export default function LogoComposer({
   const isProcessing = tasks.some((task) => ['waiting', 'running'].includes(task.status));
   const capability = MODEL_CAPABILITIES[settings.imageModel];
   const allPresets: LogoPromptPreset[] = [
-    ...(BUILT_IN_LOGO_PRESETS as readonly LogoPromptPreset[]),
+    ...(localizeBuiltInLogoPresets(language) as readonly LogoPromptPreset[]),
     ...customPresets,
   ];
 
