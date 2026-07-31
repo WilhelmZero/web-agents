@@ -17,7 +17,6 @@ import {
   Flex,
   Form,
   Input,
-  Progress,
   Radio,
   Segmented,
   Select,
@@ -338,7 +337,6 @@ export default function InpaintComposer({
       <Card className="action-card">
         <Flex justify="space-between" align="center" gap={12} wrap><div><Title level={4} style={{ margin: 0 }}>生成 1 张局部重绘图</Title><Text type="secondary">仅修改红色选区</Text></div><Space>{status === 'running' && <Button danger icon={<StopOutlined />} onClick={() => aborter.current?.abort()}>停止</Button>}<Button type="primary" size="large" icon={<RocketOutlined />} loading={status === 'running'} onClick={() => void generate()}>开始重绘</Button></Space></Flex>
         {status === 'waiting' && <GeneratingImage status="waiting" percent={0} />}
-        {status === 'running' && <Progress style={{ marginTop: 18 }} percent={50} status="active" />}
         {error && <Alert style={{ marginTop: 16 }} type="error" showIcon title="局部重绘失败" description={error} />}
       </Card>
       <section className="results-section">
@@ -349,7 +347,7 @@ export default function InpaintComposer({
         >
           {result
             ? <FileCard name={resultName} byte={result.blob.size} src={result.url} type="image" imageProps={{ preview: true }} />
-            : <div className="inpaint-empty-result">{status === 'running' ? <GeneratingImage status="running" percent={50} /> : <Text type="secondary">生成结果会显示在这里</Text>}</div>}
+            : <div className="inpaint-empty-result">{status === 'running' ? <GeneratingImage progressKey="inpaint-current" status="running" percent={1} /> : <Text type="secondary">生成结果会显示在这里</Text>}</div>}
         </Card>
       </section>
       {!settingsHost && <aside className="logo-settings">{settingsPanel}</aside>}

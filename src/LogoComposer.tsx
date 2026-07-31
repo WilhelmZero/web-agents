@@ -852,7 +852,7 @@ export default function LogoComposer({
                           ? <GeneratingImage
                               progressKey={(group.tasks.find((task) => task.status === 'running') || group.tasks.find((task) => task.status === 'waiting'))?.id}
                               status={group.tasks.some((task) => task.status === 'running') ? 'running' : 'waiting'}
-                              percent={(group.tasks.filter((task) => task.status === 'success').length / group.tasks.length) * 100}
+                              percent={group.tasks.some((task) => task.status === 'running') ? 1 : 0}
                             />
                           : group.tasks.some((task) => task.status === 'failed')
                             ? <div className="task-state-card is-failed"><Text strong type="danger">生成失败</Text><Text type="secondary">{group.tasks.filter((task) => task.status === 'failed').length} 个任务失败</Text></div>

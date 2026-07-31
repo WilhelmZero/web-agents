@@ -251,7 +251,7 @@ function ResultGroupCard({
           />
         )) : (
           queueStatus
-            ? <GeneratingImage progressKey={activeTask?.id} status={queueStatus} percent={(group.successCount / group.tasks.length) * 100} />
+            ? <GeneratingImage progressKey={activeTask?.id} status={queueStatus} percent={queueStatus === 'running' ? 1 : 0} />
             : group.failedCount
               ? <div className="task-state-card is-failed"><Text strong type="danger">生成失败</Text><Text type="secondary">{group.failedCount} 个任务失败</Text></div>
               : <div className="task-state-card is-stopped"><Text strong type="secondary">已停止</Text></div>
