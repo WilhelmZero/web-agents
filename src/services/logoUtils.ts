@@ -133,3 +133,24 @@ export async function createPlacementGuide(
     canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('生成定位参考图失败')), 'image/png');
   });
 }
+
+export async function padLogoToSquare(file: File): Promise<Blob> {
+  const url = URL.createObjectURL(file);
+  try {
+    const image = await loadImage(url);
+    if (image.naturalWidth === image.naturalHeight) return file;
+    const side = Math.max(image.naturalWidth, image.naturalHeight);
+    const canvas = document.createElement('canvas');
+    canvas.width = side;
+    canvas.height = side;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('浏览器不支持 Canvas Logo 预处理');
+    context.clearRect(0, 0, side, side);
+    context.drawImage(image, (side - image.naturalWidth) / 2, (side - image.naturalHeight) / 2);
+    return await new Promise((resolve, reject) => {
+      canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('Logo 正方形画布处理失败')), 'image/png');
+    });
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}

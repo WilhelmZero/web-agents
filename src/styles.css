@@ -221,3 +221,7 @@ button, input, textarea { font: inherit; }
   .product-detail-input-grid { grid-template-columns: 1fr; }
   .pair-grid { grid-template-columns: 1fr; }
 }
+
+.glass-etch-skill-card { margin: -8px 0 20px; background: #faf8ff; border-color: #ded6ff; }
+.glass-etch-skill-card .ant-alert { margin-bottom: 16px; }
+.glass-etch-skill-card .ant-form-item:last-child { margin-bottom: 0; }

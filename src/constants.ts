@@ -24,6 +24,13 @@ export const DEFAULT_LOGO_SETTINGS = {
   imageSize: '1K',
   concurrency: 3,
   copiesPerGroup: 1,
+  useGlassLogoEtchSkill: false,
+  glassEtchScaleRatio: 0.7,
+  glassEtchTopMarginRatio: 0.1,
+  glassEtchLogoColor: 'white',
+  glassEtchTextureMode: 'laser_etch',
+  glassEtchApplyAllCups: true,
+  glassEtchOutputCoordinateMode: 'relative_percent',
 } as const;
 
 export const DEFAULT_INPAINT_SETTINGS = {

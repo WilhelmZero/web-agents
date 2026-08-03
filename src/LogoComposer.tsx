@@ -65,6 +65,7 @@ import {
   logoTaskFileName,
   makeLogoResultGroups,
   inpaintGuideToBlob,
+  padLogoToSquare,
 } from './services/logoUtils';
 import { readLocalStorage } from './storage';
 import type {
@@ -418,9 +419,10 @@ export default function LogoComposer({
 }) {
   const { message, modal } = AntApp.useApp();
   const { language } = useLanguage();
-  const [settings, setSettings] = useState<LogoSettings>(() =>
-    readLocalStorage(STORAGE_KEYS.logoSettings, DEFAULT_LOGO_SETTINGS as LogoSettings),
-  );
+  const [settings, setSettings] = useState<LogoSettings>(() => ({
+    ...(DEFAULT_LOGO_SETTINGS as LogoSettings),
+    ...readLocalStorage(STORAGE_KEYS.logoSettings, {} as Partial<LogoSettings>),
+  }));
   const [scenes, setScenes] = useState<LogoAsset[]>([]);
   const [logos, setLogos] = useState<LogoAsset[]>([]);
   const [placements, setPlacements] = useState<Record<number, LogoPlacement | undefined>>({});
@@ -575,24 +577,37 @@ export default function LogoComposer({
     setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status: 'running', error: undefined } : item));
     try {
       const currentSettings = settingsRef.current;
-      const guide = pair.inpaintMask
-        ? await inpaintGuideToBlob(pair.inpaintMask.guideDataUrl)
-        : pair.placement
-          ? await createPlacementGuide(pair.scene.previewUrl, pair.logo.previewUrl, pair.placement)
-          : undefined;
+      const guide = currentSettings.useGlassLogoEtchSkill
+        ? undefined
+        : pair.inpaintMask
+          ? await inpaintGuideToBlob(pair.inpaintMask.guideDataUrl)
+          : pair.placement
+            ? await createPlacementGuide(pair.scene.previewUrl, pair.logo.previewUrl, pair.placement)
+            : undefined;
+      const requestLogo = currentSettings.useGlassLogoEtchSkill
+        ? await padLogoToSquare(pair.logo.file)
+        : pair.logo.file;
       const result = await generateLogoComposite({
         apiKey,
         model: currentSettings.imageModel,
         prompt: promptRef.current,
         scene: pair.scene.file,
-        logo: pair.logo.file,
+        logo: requestLogo,
         placementGuide: guide,
-        guideMode: pair.inpaintMask ? 'inpaint' : pair.placement ? 'placement' : undefined,
+        guideMode: currentSettings.useGlassLogoEtchSkill ? undefined : pair.inpaintMask ? 'inpaint' : pair.placement ? 'placement' : undefined,
         guideLogoInverted: Boolean(pair.placement?.invertForGuide),
         aspectRatio: currentSettings.ratioMode === 'fixed' ? currentSettings.aspectRatio : undefined,
         imageSize: currentSettings.imageSize,
         signal: controller.signal,
         apiBaseUrl,
+        glassLogoEtch: currentSettings.useGlassLogoEtchSkill ? {
+          scaleRatio: currentSettings.glassEtchScaleRatio,
+          topMarginRatio: currentSettings.glassEtchTopMarginRatio,
+          logoColor: currentSettings.glassEtchLogoColor,
+          textureMode: currentSettings.glassEtchTextureMode,
+          applyAllCups: currentSettings.glassEtchApplyAllCups,
+          outputCoordinateMode: currentSettings.glassEtchOutputCoordinateMode,
+        } : undefined,
       });
       const resultUrl = URL.createObjectURL(result.blob);
       setTasks((current) => current.map((item) => item.id === task.id
@@ -624,7 +639,7 @@ export default function LogoComposer({
       return onRequestKey();
     }
     if (!isPairingValid) return void message.warning('请确保场景图与 Logo 图数量一致且全部配对');
-    if (!prompt.trim()) return void message.warning('请输入 Logo 合成提示词');
+    if (!settings.useGlassLogoEtchSkill && !prompt.trim()) return void message.warning('请输入 Logo 合成提示词');
     tasks.forEach((task) => task.resultUrl && URL.revokeObjectURL(task.resultUrl));
     try {
       setTasks(buildLogoTasks(pairs, settings.copiesPerGroup));
@@ -670,6 +685,35 @@ export default function LogoComposer({
       <Flex justify="space-between"><Title level={4} style={{ margin: 0 }}>合成设置</Title><Tag color="purple">Logo</Tag></Flex>
       <Divider />
       <Form layout="vertical">
+        <Form.Item label="玻璃杯 Logo 雕刻技能">
+          <Flex justify="space-between" align="center">
+            <Text>使用 glass-logo-etch</Text>
+            <Switch checked={settings.useGlassLogoEtchSkill} onChange={(useGlassLogoEtchSkill) => patchSettings({ useGlassLogoEtchSkill })} />
+          </Flex>
+        </Form.Item>
+        {settings.useGlassLogoEtchSkill && (
+          <Card size="small" className="glass-etch-skill-card">
+            <Alert type="info" showIcon title="技能模式已启用" description="自动识别玻璃杯并按杯体曲率合成；手动定位与局部重绘参考在此模式下不会提交。用户提示词可以留空。" />
+            <Form.Item label={`Logo 尺寸比例 · ${Math.round(settings.glassEtchScaleRatio * 100)}%`}>
+              <Slider min={0.1} max={0.9} step={0.05} value={settings.glassEtchScaleRatio} onChange={(glassEtchScaleRatio) => patchSettings({ glassEtchScaleRatio })} />
+            </Form.Item>
+            <Form.Item label={`杯口下边距比例 · ${Math.round(settings.glassEtchTopMarginRatio * 100)}%`}>
+              <Slider min={0} max={0.3} step={0.01} value={settings.glassEtchTopMarginRatio} onChange={(glassEtchTopMarginRatio) => patchSettings({ glassEtchTopMarginRatio })} />
+            </Form.Item>
+            <Form.Item label="Logo 颜色">
+              <Segmented block value={settings.glassEtchLogoColor} onChange={(glassEtchLogoColor) => patchSettings({ glassEtchLogoColor: glassEtchLogoColor as LogoSettings['glassEtchLogoColor'] })} options={[{ value: 'white', label: '白色' }, { value: 'black', label: '黑色' }]} />
+            </Form.Item>
+            <Form.Item label="材质模式">
+              <Segmented block value={settings.glassEtchTextureMode} onChange={(glassEtchTextureMode) => patchSettings({ glassEtchTextureMode: glassEtchTextureMode as LogoSettings['glassEtchTextureMode'] })} options={[{ value: 'laser_etch', label: '激光磨砂蚀刻' }, { value: 'print', label: '实色印刷' }]} />
+            </Form.Item>
+            <Form.Item label="应用范围">
+              <Flex justify="space-between" align="center"><Text>应用到所有有效杯子</Text><Switch checked={settings.glassEtchApplyAllCups} onChange={(glassEtchApplyAllCups) => patchSettings({ glassEtchApplyAllCups })} /></Flex>
+            </Form.Item>
+            <Form.Item label="坐标计算模式">
+              <Select value={settings.glassEtchOutputCoordinateMode} onChange={(glassEtchOutputCoordinateMode) => patchSettings({ glassEtchOutputCoordinateMode })} options={[{ value: 'relative_percent', label: '相对比例 [0,1]' }, { value: 'pixel', label: '原图像素' }]} />
+            </Form.Item>
+          </Card>
+        )}
         <Form.Item label="图片模型">
           <Select value={settings.imageModel} onChange={(imageModel) => patchSettings({ imageModel })} options={Object.entries(MODEL_CAPABILITIES).map(([value, item]) => ({ value, label: item.label }))} />
         </Form.Item>
@@ -757,7 +801,9 @@ export default function LogoComposer({
                           : <div className="pair-missing">缺 Logo</div>}
                       </Flex>
                       <Flex className="pair-actions-row" justify="space-between" align="center" style={{ marginTop: 10 }} gap={6} wrap>
-                        {pair.inpaintMask
+                        {settings.useGlassLogoEtchSkill
+                          ? <Tag color="purple">Skill 自动定位</Tag>
+                          : pair.inpaintMask
                           ? <Tag icon={<HighlightOutlined />} color="magenta">局部重绘</Tag>
                           : pair.placement
                             ? <Tag icon={<CheckOutlined />} color="success">已定位</Tag>
@@ -769,7 +815,7 @@ export default function LogoComposer({
                               setInpaintMasks((current) => ({ ...current, [pair.index]: undefined }));
                             }}>清除定位</Button>
                           )}
-                          <Button size="small" disabled={!pair.scene || !pair.logo} icon={<EditOutlined />} onClick={() => setEditingPair(pair)}>定位 Logo</Button>
+                          <Tooltip title={settings.useGlassLogoEtchSkill ? "技能模式会自动检测杯体并计算 Logo 位置" : undefined}><Button size="small" disabled={!pair.scene || !pair.logo || settings.useGlassLogoEtchSkill} icon={<EditOutlined />} onClick={() => setEditingPair(pair)}>定位 Logo</Button></Tooltip>
                         </Space>
                       </Flex>
                     </Card>
@@ -781,14 +827,15 @@ export default function LogoComposer({
 
           <Card
             className="workflow-card"
-            title="Logo 合成提示词"
+            title={<Space><span>Logo 合成提示词</span>{settings.useGlassLogoEtchSkill && <Tag color="purple">可选</Tag>}</Space>}
             extra={<Space><Button icon={<SaveOutlined />} onClick={savePreset}>保存预设</Button><Button icon={<ClearOutlined />} onClick={() => setPrompt('')}>清空</Button></Space>}
           >
+            {settings.useGlassLogoEtchSkill && <Alert type="success" showIcon title="当前使用玻璃杯 Logo 雕刻技能" description="无需填写提示词；如填写，将作为技能指令之外的补充要求。" style={{ marginBottom: 12 }} />}
             <Input.TextArea
               rows={5}
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
-              placeholder="描述 Logo 放置位置、载体材质、融合方式、光影和需要保持不变的内容……"
+              placeholder={settings.useGlassLogoEtchSkill ? "可选：补充特殊要求；留空将完全按照 glass-logo-etch 技能参数生成" : "描述 Logo 放置位置、载体材质、融合方式、光影和需要保持不变的内容……"}
               showCount
               maxLength={2000}
             />

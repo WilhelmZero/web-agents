@@ -1,4 +1,4 @@
-import type { GeneratedImage, ImageModel, ImageSize, OptimizerModel } from '../types';
+import type { GeneratedImage, GlassLogoEtchOptions, ImageModel, ImageSize, OptimizerModel } from '../types';
 import { fileToBase64 } from '../utils';
 
 const GOOGLE_API_ROOT = 'https://generativelanguage.googleapis.com/v1beta';
@@ -219,12 +219,15 @@ export async function optimizePrompt(options: {
   return text;
 }
 
+export function buildGlassLogoEtchInstruction(options: GlassLogoEtchOptions): string {
+  return `启用“玻璃杯 LOGO 雕刻合成”专用流程。先识别所有可见玻璃杯的杯口顶端、杯口下缘、杯身左右边界、杯肚底边和整杯底边；区分平底杯与高脚杯，高脚和底座不计入贴图区。以杯口下缘到杯肚底边为有效高度 H，杯身正面左右边界为宽度 W；Logo 正方形边长为 min(W,H) × ${options.scaleRatio}，顶部位置为杯口下缘 + H × ${options.topMarginRatio}，水平居中。越过杯肚底边时先上移，仍无法容纳时等比缩小，不得拉伸 Logo。Logo 颜色为${options.logoColor === 'white' ? '白色' : '黑色'}，材质为${options.textureMode === 'laser_etch' ? '半透明磨砂、细微凹凸的玻璃内部激光蚀刻' : '实色表面油墨印刷'}。${options.applyAllCups ? '对所有可正面展示 Logo 的有效杯逐一应用；明显侧向或遮挡严重的杯不应强行贴图。' : '仅对画面层级最靠前且视觉尺寸最大的有效主体杯应用。'}保持原场景的背景、酒水、道具、构图、光线和其他内容完全不变，仅在选定杯身增加 Logo。按杯身曲率进行水平包裹、透视压缩和边缘渐缩，匹配遮挡、景深、反光、折射、阴影、颗粒和清晰度。内部分析坐标使用 ${options.outputCoordinateMode === 'relative_percent' ? '[0,1] 相对比例' : '原图像素'} 基准。若未检测到可贴图杯，不得凭空生成杯子或改动场景。`;
+}
 export async function generateLogoComposite(options: {
   apiKey: string;
   model: ImageModel;
   prompt: string;
   scene: File;
-  logo: File;
+  logo: Blob;
   placementGuide?: Blob;
   guideMode?: 'placement' | 'inpaint';
   guideLogoInverted?: boolean;
@@ -232,20 +235,26 @@ export async function generateLogoComposite(options: {
   imageSize: ImageSize;
   signal?: AbortSignal;
   apiBaseUrl?: string | null;
+  glassLogoEtch?: GlassLogoEtchOptions;
 }): Promise<GeneratedImage> {
   const [sceneData, logoData, guideData] = await Promise.all([
     fileToBase64(options.scene),
     fileToBase64(options.logo),
     options.placementGuide ? fileToBase64(options.placementGuide) : Promise.resolve(undefined),
   ]);
-  const placementInstruction = guideData && options.guideMode === 'inpaint'
+  const placementInstruction = options.glassLogoEtch
+    ? buildGlassLogoEtchInstruction(options.glassLogoEtch)
+    : guideData && options.guideMode === 'inpaint'
     ? '第三张图片是局部重绘区域参考图，其中红色半透明标记是唯一允许修改的区域。仅在该区域内自然加入第二张原始 Logo；严格保持标记区域外的场景内容、主体、构图、机位、光影和材质不变。最终图片不得出现红色遮罩或选区边缘。'
     : guideData
     ? `第三张图片是定位参考图。必须优先遵循其中 Logo 的中心位置、相对大小和旋转角度，同时使用第二张原始 Logo 保持图形、颜色与文字准确。${options.guideLogoInverted ? '定位参考图中的 Logo 仅为增强可见性而进行了颜色反相，绝对不要采用其反相颜色，最终颜色必须以第二张原始 Logo 为准。' : ''}`
     : '请根据用户提示词决定 Logo 的位置、大小和融合方式。';
+  const applicationInstruction = options.glassLogoEtch
+    ? ''
+    : '如果场景中存在多个杯子，必须给每一个杯子都自然添加同一个 Logo，并让每个 Logo 分别贴合对应杯体的曲面、透视、尺寸、光线和材质；不得遗漏任何一个杯子。';
   const parts: GeminiPart[] = [
     {
-      text: `请完成专业的 Logo 场景合成。第一张图片是必须保持构图和内容的原始场景，第二张图片是必须准确保留图形、颜色和文字的原始 Logo。${placementInstruction} 如果场景中存在多个杯子，必须给每一个杯子都自然添加同一个 Logo，并让每个 Logo 分别贴合对应杯体的曲面、透视、尺寸、光线和材质；不得遗漏任何一个杯子。让 Logo 与场景的材质、透视、光线、阴影自然融合，不要在杯子以外的位置添加额外 Logo，不要改变场景中的主体。用户要求：${options.prompt}`,
+      text: `请完成专业的 Logo 场景合成。第一张图片是必须保持构图和内容的原始场景，第二张图片是必须准确保留图形、颜色和文字的原始 Logo。${placementInstruction}${applicationInstruction} 让 Logo 与场景的材质、透视、光线、阴影自然融合，不要在杯子以外的位置添加额外 Logo，不要改变场景中的主体。${options.prompt.trim() ? `用户补充要求：${options.prompt.trim()}` : ''}`,
     },
     { inlineData: { mimeType: options.scene.type, data: sceneData } },
     { inlineData: { mimeType: options.logo.type, data: logoData } },

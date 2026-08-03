@@ -104,6 +104,15 @@ export interface GeneratedImage {
   usageTokens?: number;
 }
 
+export interface GlassLogoEtchOptions {
+  scaleRatio: number;
+  topMarginRatio: number;
+  logoColor: 'white' | 'black';
+  textureMode: 'laser_etch' | 'print';
+  applyAllCups: boolean;
+  outputCoordinateMode: 'relative_percent' | 'pixel';
+}
+
 export interface LogoAsset {
   id: string;
   file: File;
@@ -142,6 +151,13 @@ export interface LogoSettings {
   imageSize: ImageSize;
   concurrency: number;
   copiesPerGroup: number;
+  useGlassLogoEtchSkill: boolean;
+  glassEtchScaleRatio: number;
+  glassEtchTopMarginRatio: number;
+  glassEtchLogoColor: 'white' | 'black';
+  glassEtchTextureMode: 'laser_etch' | 'print';
+  glassEtchApplyAllCups: boolean;
+  glassEtchOutputCoordinateMode: 'relative_percent' | 'pixel';
 }
 
 export interface InpaintSettings {
