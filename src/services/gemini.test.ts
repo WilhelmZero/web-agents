@@ -82,10 +82,12 @@ describe('物体批量替换指令', () => {
     expect(instruction).toContain('必须全部替换');
     expect(instruction).toContain('每一个目标杯子');
     expect(instruction).toContain('印花、Logo、酒液或其他液体、杯盖挂件');
-    expect(instruction).not.toContain('泡沫、');
+    expect(instruction).toContain('泡沫未被勾选');
+    expect(instruction).toContain('酒液或其他液体');
+    expect(instruction).not.toContain('原有液体液面');
   });
 
-  it('无参考图时只说明场景图且不追加未开启元素', () => {
+  it('无参考图且未勾选内容时允许酒液和泡沫随场景变化', () => {
     const instruction = buildObjectReplacementInstruction({
       sourceObjectName: '椅子', targetObjectName: '木凳', hasSourceReference: false, hasTargetReference: false,
       preservation: { print: false, logo: false, engraving: false, liquid: false, foam: false, custom: [] },
@@ -93,5 +95,8 @@ describe('物体批量替换指令', () => {
     expect(instruction).not.toContain('第二张图片');
     expect(instruction).not.toContain('杯子专项替换');
     expect(instruction).not.toContain('严格保留：');
+    expect(instruction).toContain('酒液、泡沫未被勾选');
+    expect(instruction).toContain('允许模型根据新物体结构与当前场景自然调整');
+    expect(instruction).toContain('规则优先于参考图外观、保持构图和其他任何约束');
   });
 });

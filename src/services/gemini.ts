@@ -359,7 +359,7 @@ export function buildObjectReplacementInstruction(options: {
   const ordinal = (index: number) => ['第一', '第二', '第三'][index - 1] || ('第' + index);
   const references: string[] = ['第一张图片是必须保持的原始场景图。'];
   if (options.hasSourceReference) references.push(`${ordinal(imageIndex++)}张图片是原物体识别参考图，用于识别场景中所有“${sourceName}”。`);
-  if (options.hasTargetReference) references.push(`${ordinal(imageIndex)}张图片是新物体参考图，必须严格保持其身份、结构、比例、材质和外观细节。`);
+  if (options.hasTargetReference) references.push(`${ordinal(imageIndex)}张图片是新物体参考图，必须严格保持其身份、结构、比例和材质；酒液与泡沫是否保留仅由后续保留元素规则决定，不属于默认外观细节。`);
   const labels: Array<[keyof Omit<ObjectPreservationOptions, 'custom'>, string]> = [
     ['print', '印花'], ['logo', 'Logo'], ['engraving', '雕刻'], ['liquid', '酒液或其他液体'], ['foam', '泡沫'],
   ];
@@ -370,11 +370,18 @@ export function buildObjectReplacementInstruction(options: {
   const preservationInstruction = preserved.length
     ? `新物体上的以下元素必须严格保留：${preserved.join('、')}。逐项保持其图形、文字、颜色、位置、比例、清晰度、材质效果和相互关系，不得删除、改写、模糊、重新设计或替换。`
     : '';
+  const flexibleContents = [
+    !options.preservation.liquid ? '酒液' : '',
+    !options.preservation.foam ? '泡沫' : '',
+  ].filter(Boolean);
+  const flexibleContentInstruction = flexibleContents.length
+    ? `${flexibleContents.join('、')}未被勾选，因此不属于必须保留的元素，且此规则优先于参考图外观、保持构图和其他任何约束。允许模型根据新物体结构与当前场景自然调整其有无、数量、液面高度、形态和状态，也允许合理减少或完全移除；不得为了复刻原物体或参考图而强制保留。`
+    : '';
   const isCup = /杯|cup|tumbler|mug|goblet|glass/i.test(sourceName);
   const cupInstruction = isCup
-    ? '这是杯子专项替换任务。必须替换画面中每一个目标杯子，包括远处、局部遮挡、被手持或仅露出一部分的杯子。保持每个杯子的杯底接触面、杯口朝向、杯身轴线、把手方向、手部握持关系以及原有液体液面。不得改变桌面、手指、吸管、杯盖、配饰和杯子周围既有的反射、折射与阴影，只能为新杯子做必要且自然的融合。'
+    ? '这是杯子专项替换任务。必须替换画面中每一个目标杯子，包括远处、局部遮挡、被手持或仅露出一部分的杯子。保持每个杯子的杯底接触面、杯口朝向、杯身轴线、把手方向和手部握持关系。不得改变桌面、手指、吸管、杯盖、配饰和杯子周围既有的反射、折射与阴影，只能为新杯子做必要且自然的融合。'
     : '';
-  return `执行严格的场景物体批量替换。${references.join('')} 找出场景中所有符合名称“${sourceName}”或原物体参考图的同类物体，必须全部替换为“${targetName}”，不得遗漏，也不得在原本没有目标物体的位置新增物体。只允许修改每个旧物体原本占据的区域。禁止 AI 重新设计、重新绘制、重新排版、重新解释或重新生成原始场景及其任何非目标元素。将整个新物体作为一个完整整体精确放置到每个旧物体的位置，保持完全一致的 Position（位置）、Scale（整体大小）、Rotation（旋转）、Perspective（透视）、Camera Angle（相机角度）、接地关系、遮挡关系与景深。保持新物体自身的结构、比例、材质和参考图身份，不得把新物体变形成旧物体，仅允许对整体进行匹配场景所必需的空间变换。除目标物体外，画幅、构图、裁切、镜头、人物、手部、背景、道具、已有文字、光线、阴影、反射、折射、颜色、噪点和清晰度必须保持不变。${cupInstruction}${preservationInstruction}`;
+  return `执行严格的场景物体批量替换。${references.join('')} 找出场景中所有符合名称“${sourceName}”或原物体参考图的同类物体，必须全部替换为“${targetName}”，不得遗漏，也不得在原本没有目标物体的位置新增物体。只允许修改每个旧物体原本占据的区域。禁止 AI 重新设计、重新绘制、重新排版、重新解释或重新生成原始场景及其任何非目标元素。将整个新物体作为一个完整整体精确放置到每个旧物体的位置，保持完全一致的 Position（位置）、Scale（整体大小）、Rotation（旋转）、Perspective（透视）、Camera Angle（相机角度）、接地关系、遮挡关系与景深。保持新物体自身的结构、比例、材质和参考图身份，不得把新物体变形成旧物体，仅允许对整体进行匹配场景所必需的空间变换。除目标物体外，画幅、构图、裁切、镜头、人物、手部、背景、道具、已有文字、光线、阴影、反射、折射、颜色、噪点和清晰度必须保持不变。${cupInstruction}${preservationInstruction}${flexibleContentInstruction}`;
 }
 
 export async function generateObjectReplacementImage(options: {
