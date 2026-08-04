@@ -12,6 +12,7 @@ export const STORAGE_KEYS = {
   individualPromptPresets: 'scene-studio.individual-prompt-presets.v1',
   logoSettings: 'scene-studio.logo-settings.v1',
   logoPresets: 'scene-studio.logo-presets.v1',
+  logoReplaceSettings: 'scene-studio.logo-replace-settings.v1',
   inpaintSettings: 'scene-studio.inpaint-settings.v1',
   productDetailSettings: 'scene-studio.product-detail-settings.v1',
 } as const;
@@ -33,6 +34,16 @@ export const DEFAULT_LOGO_SETTINGS = {
   glassEtchOutputCoordinateMode: 'relative_percent',
 } as const;
 
+export const DEFAULT_LOGO_REPLACE_SETTINGS = {
+  imageModel: 'gemini-3.1-flash-image',
+  ratioMode: 'original',
+  aspectRatio: '1:1',
+  imageSize: '1K',
+  concurrency: 3,
+  copiesPerScene: 1,
+  logoColorMode: 'original',
+  customLogoColor: '#ffffff',
+} as const;
 export const DEFAULT_INPAINT_SETTINGS = {
   imageModel: 'gemini-3.1-flash-image',
   optimizerModel: 'gemini-3.1-flash-lite',

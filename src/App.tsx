@@ -23,6 +23,7 @@ import {
   SaveOutlined,
   SettingOutlined,
   StopOutlined,
+  SwapOutlined,
   VideoCameraOutlined,
 } from '@ant-design/icons';
 import { Attachments } from '@ant-design/x';
@@ -61,6 +62,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DEFAULT_SETTINGS, localizeBuiltInScenePresets, MODEL_CAPABILITIES, PRICING, STORAGE_KEYS } from './constants';
 import LogoComposer from './LogoComposer';
+import LogoReplaceComposer from './LogoReplaceComposer';
 import InpaintComposer from './InpaintComposer';
 import ProductDetailComposer from './ProductDetailComposer';
 import GeneratingImage from './GeneratingImage';
@@ -317,9 +319,11 @@ function AppContent() {
   const [logoSettingsHost, setLogoSettingsHost] = useState<HTMLElement | null>(null);
   const [inpaintSettingsHost, setInpaintSettingsHost] = useState<HTMLElement | null>(null);
   const [productDetailSettingsHost, setProductDetailSettingsHost] = useState<HTMLElement | null>(null);
+  const [logoReplaceSettingsHost, setLogoReplaceSettingsHost] = useState<HTMLElement | null>(null);
   const [logoHasSession, setLogoHasSession] = useState(false);
   const [inpaintHasSession, setInpaintHasSession] = useState(false);
   const [productDetailHasSession, setProductDetailHasSession] = useState(false);
+  const [logoReplaceHasSession, setLogoReplaceHasSession] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkText, setBulkText] = useState('');
   const [splitMode, setSplitMode] = useState<'delimiter' | 'newline'>('delimiter');
@@ -379,14 +383,14 @@ function AppContent() {
   };
 
   useEffect(() => {
-    if (!sceneHasSession && !logoHasSession && !inpaintHasSession && !productDetailHasSession) return;
+    if (!sceneHasSession && !logoHasSession && !logoReplaceHasSession && !inpaintHasSession && !productDetailHasSession) return;
     const warnBeforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = '';
     };
     window.addEventListener('beforeunload', warnBeforeUnload);
     return () => window.removeEventListener('beforeunload', warnBeforeUnload);
-  }, [sceneHasSession, logoHasSession, inpaintHasSession, productDetailHasSession]);
+  }, [sceneHasSession, logoHasSession, logoReplaceHasSession, inpaintHasSession, productDetailHasSession]);
 
   const patchSettings = useCallback((patch: Partial<AppSettings>) => {
     setSettings((current) => {
@@ -666,7 +670,7 @@ function AppContent() {
               <Text type="secondary" className="brand-subtitle">AI 商业场景图工作台</Text>
             </div>
             <Divider orientation="vertical" className="header-divider" />
-            <Tag icon={<AppstoreOutlined />} color="purple">{creationTool === 'scene' ? '场景图生成' : creationTool === 'logo' ? 'Logo 合成' : creationTool === 'inpaint' ? '局部重绘' : '详情长图生成'}</Tag>
+            <Tag icon={<AppstoreOutlined />} color="purple">{creationTool === 'scene' ? '场景图生成' : creationTool === 'logo' ? 'Logo 合成' : creationTool === 'logo-replace' ? 'Logo 替换' : creationTool === 'inpaint' ? '局部重绘' : '详情长图生成'}</Tag>
           </Flex>
           <Space>
             <Segmented
@@ -699,12 +703,13 @@ function AppContent() {
             mode="inline"
             selectedKeys={[creationTool]}
             onClick={({ key }) => {
-              if (key === 'scene' || key === 'logo' || key === 'inpaint' || key === 'product-detail') setCreationTool(key);
+              if (key === 'scene' || key === 'logo' || key === 'logo-replace' || key === 'inpaint' || key === 'product-detail') setCreationTool(key);
             }}
             items={[
               { key: 'create', type: 'group', label: '创作工具', children: [
                 { key: 'scene', icon: <FileImageOutlined />, label: '场景图生成' },
                 { key: 'logo', icon: <ExperimentOutlined />, label: 'Logo 合成' },
+                { key: 'logo-replace', icon: <SwapOutlined />, label: 'Logo 替换' },
                 { key: 'inpaint', icon: <HighlightOutlined />, label: '局部重绘' },
                 { key: 'product-detail', icon: <FolderOpenOutlined />, label: '详情长图生成' },
                 { key: 'video', icon: <VideoCameraOutlined />, label: '视频生成', disabled: true },
@@ -730,6 +735,16 @@ function AppContent() {
                 onRequestKey={() => setKeyOpen(true)}
                 onSessionStateChange={setLogoHasSession}
                 settingsHost={logoSettingsHost}
+              />
+            </div>
+            <div hidden={creationTool !== 'logo-replace'}>
+              <LogoReplaceComposer
+                apiKey={settings.apiKey}
+                apiBaseUrl={apiBaseUrl}
+                connectionMode={settings.connectionMode}
+                onRequestKey={() => setKeyOpen(true)}
+                onSessionStateChange={setLogoReplaceHasSession}
+                settingsHost={logoReplaceSettingsHost}
               />
             </div>
             <div hidden={creationTool !== 'inpaint'}>
@@ -994,6 +1009,11 @@ function AppContent() {
             <div ref={setLogoSettingsHost} />
           </Sider>
         )}
+        {!compact && creationTool === 'logo-replace' && (
+          <Sider width={330} theme="light" className="settings-sider">
+            <div ref={setLogoReplaceSettingsHost} />
+          </Sider>
+        )}
         {!compact && creationTool === 'inpaint' && (
           <Sider width={330} theme="light" className="settings-sider">
             <div ref={setInpaintSettingsHost} />
@@ -1010,7 +1030,7 @@ function AppContent() {
         {creationTool === 'scene'
           ? settingsPanel
           : compact
-            ? <div ref={creationTool === 'logo' ? setLogoSettingsHost : creationTool === 'inpaint' ? setInpaintSettingsHost : setProductDetailSettingsHost} />
+            ? <div ref={creationTool === 'logo' ? setLogoSettingsHost : creationTool === 'logo-replace' ? setLogoReplaceSettingsHost : creationTool === 'inpaint' ? setInpaintSettingsHost : setProductDetailSettingsHost} />
             : null}
       </Drawer>
 

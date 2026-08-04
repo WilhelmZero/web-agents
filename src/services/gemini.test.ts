@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildGlassLogoEtchInstruction, getGeminiApiRoot, getProxyHealthUrl, isRetryableGeminiStatus } from './gemini';
+import { buildGlassLogoEtchInstruction, buildLogoReplacementInstruction, getGeminiApiRoot, getProxyHealthUrl, isRetryableGeminiStatus } from './gemini';
 
 describe('Gemini API 地址', () => {
   it('未配置代理时直连 Google', () => {
@@ -46,5 +46,23 @@ describe('玻璃杯 Logo 雕刻技能指令', () => {
     expect(instruction).toContain('仅对画面层级最靠前');
     expect(instruction).toContain('原图像素');
     expect(instruction).toContain('其他内容完全不变');
+  });
+});
+
+describe('Logo 替换指令', () => {
+  it('有旧 Logo 时声明三张图片顺序并限制仅修改 Logo', () => {
+    const instruction = buildLogoReplacementInstruction({ hasOldLogo: true, logoColorMode: 'custom', customLogoColor: '#1a2b3c' });
+    expect(instruction).toContain('第二张图片是旧 Logo');
+    expect(instruction).toContain('第三张图片');
+    expect(instruction).toContain('#1a2b3c');
+    expect(instruction).toContain('若同一场景存在多个旧 Logo，必须全部替换');
+    expect(instruction).toContain('原图所有像素对应内容必须保持不变');
+  });
+
+  it('未提供旧 Logo 时使用双图说明', () => {
+    const instruction = buildLogoReplacementInstruction({ hasOldLogo: false, logoColorMode: 'original' });
+    expect(instruction).toContain('第二张图片是必须用于替换的新 Logo');
+    expect(instruction).not.toContain('第三张图片');
+    expect(instruction).toContain('严格保持新 Logo 原始颜色');
   });
 });

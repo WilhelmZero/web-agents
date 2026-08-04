@@ -12,7 +12,7 @@ export type OptimizerModel =
 export type CombinationMode = 'cartesian' | 'paired';
 export type TaskStatus = 'waiting' | 'running' | 'success' | 'failed' | 'stopped';
 export type ImageSize = '0.5K' | '1K' | '2K' | '4K';
-export type CreationTool = 'scene' | 'logo' | 'inpaint' | 'product-detail';
+export type CreationTool = 'scene' | 'logo' | 'logo-replace' | 'inpaint' | 'product-detail';
 
 export interface AppSettings {
   apiKey: string;
@@ -160,6 +160,29 @@ export interface LogoSettings {
   glassEtchOutputCoordinateMode: 'relative_percent' | 'pixel';
 }
 
+export interface LogoReplaceSettings {
+  imageModel: ImageModel;
+  ratioMode: 'original' | 'fixed';
+  aspectRatio: string;
+  imageSize: ImageSize;
+  concurrency: number;
+  copiesPerScene: number;
+  logoColorMode: 'original' | 'white' | 'black' | 'custom';
+  customLogoColor: string;
+}
+
+export interface LogoReplaceTask {
+  id: string;
+  sceneId: string;
+  sceneIndex: number;
+  copyIndex: number;
+  status: TaskStatus;
+  resultBlob?: Blob;
+  resultUrl?: string;
+  resultMimeType?: string;
+  error?: string;
+  retryCount: number;
+}
 export interface InpaintSettings {
   imageModel: ImageModel;
   optimizerModel: OptimizerModel;

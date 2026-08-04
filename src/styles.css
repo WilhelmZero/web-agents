@@ -225,3 +225,24 @@ button, input, textarea { font: inherit; }
 .glass-etch-skill-card { margin: -8px 0 20px; background: #faf8ff; border-color: #ded6ff; }
 .glass-etch-skill-card .ant-alert { margin-bottom: 16px; }
 .glass-etch-skill-card .ant-form-item:last-child { margin-bottom: 0; }
+
+.logo-replace-page { min-width: 0; }
+.logo-replace-hero { background: radial-gradient(circle at 76% 18%, rgba(83, 211, 231, .4), transparent 28%), linear-gradient(130deg, #101b2b, #12384a 55%, #176878); }
+.hero-strip.logo-replace-hero .hero-description { color: #d8f6fb !important; }
+.replace-scene-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(145px, 1fr)); gap: 14px; }
+.replace-scene-card { padding: 9px; border: 1px solid #e4e8ee; border-radius: 12px; background: #fafbfc; }
+.replace-scene-card .ant-image, .replace-scene-card .ant-image-img { width: 100%; }
+.replace-scene-card .ant-image-img { aspect-ratio: 1; object-fit: cover; border-radius: 8px; }
+.replace-scene-grid > .ant-upload-wrapper, .replace-scene-grid > .ant-upload-wrapper .ant-upload-select { width: 100%; height: 100%; min-height: 190px; }
+.replace-logo-grid { display: grid; grid-template-columns: minmax(0, 1fr) 42px minmax(0, 1fr); gap: 12px; align-items: center; }
+.replace-arrow { display: grid; place-items: center; color: #20a6bd; font-size: 24px; }
+.replace-logo-slot { min-height: 190px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
+.replace-logo-slot > .ant-image, .replace-logo-slot > .ant-image img { width: 140px; height: 140px; object-fit: contain; border-radius: 10px; background: #f6f7fa; }
+.replace-logo-slot .ant-upload-wrapper, .replace-logo-slot .ant-upload-drag { width: 100%; }
+.logo-replace-results { display: grid; grid-template-columns: repeat(auto-fill, minmax(235px, 1fr)); gap: 16px; margin-top: 20px; }
+.replace-result-image { min-height: 220px; }
+.replace-result-image .ant-image, .replace-result-image .ant-image-img { width: 100%; }
+.replace-result-image .ant-image-img { aspect-ratio: 1; object-fit: cover; border-radius: 8px; }
+.replace-result-image .generating-image, .replace-result-image .ant-image-progress-wrapper { width: 100% !important; height: 220px !important; border-radius: 8px; overflow: hidden; }
+.replace-result-image .task-state-card { min-height: 220px; }
+@media (max-width: 700px) { .replace-logo-grid { grid-template-columns: 1fr; } .replace-arrow { transform: rotate(90deg); } }

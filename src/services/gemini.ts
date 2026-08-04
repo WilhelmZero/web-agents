@@ -292,6 +292,59 @@ export async function generateLogoComposite(options: {
   };
 }
 
+export function buildLogoReplacementInstruction(options: {
+  hasOldLogo: boolean;
+  logoColorMode: 'original' | 'white' | 'black' | 'custom';
+  customLogoColor?: string;
+}): string {
+  const colorInstruction = options.logoColorMode === 'original'
+    ? '严格保持新 Logo 原始颜色。'
+    : options.logoColorMode === 'white'
+      ? '将新 Logo 转换为白色，但保持图形、文字、比例和细节不变。'
+      : options.logoColorMode === 'black'
+        ? '将新 Logo 转换为黑色，但保持图形、文字、比例和细节不变。'
+        : `将新 Logo 调整为颜色 ${options.customLogoColor || '#ffffff'}，但保持图形、文字、比例和细节不变。`;
+  const referenceInstruction = options.hasOldLogo
+    ? '第二张图片是旧 Logo 识别参考，第三张图片是必须用于替换的新 Logo。请在场景中寻找与旧 Logo 相同的所有标识并逐一替换。'
+    : '第二张图片是必须用于替换的新 Logo。请识别场景内产品或载体上现有的品牌 Logo，并逐一替换。';
+  return `执行严格的 Logo 替换任务。第一张图片是原始场景图，${referenceInstruction}${colorInstruction} 只允许改变旧 Logo 覆盖的区域：保持每个 Logo 原有的位置、大小、角度、透视、曲面包裹、遮挡关系和材质融合方式，并用新 Logo 准确替换。若同一场景存在多个旧 Logo，必须全部替换。除 Logo 外，原图所有像素对应内容必须保持不变，包括画幅、构图、裁切、镜头、主体、产品结构、杯体、背景、人物、道具、已有非 Logo 文字、颜色、光线、阴影、反射、折射、景深、噪点和清晰度。不得移动、删除、增加、重绘或重新设计任何非 Logo 内容，不得在原本没有 Logo 的位置新增 Logo。`;
+}
+
+export async function generateLogoReplacement(options: {
+  apiKey: string;
+  model: ImageModel;
+  scene: File;
+  oldLogo?: File;
+  newLogo: File;
+  logoColorMode: 'original' | 'white' | 'black' | 'custom';
+  customLogoColor?: string;
+  aspectRatio?: string;
+  imageSize: ImageSize;
+  signal?: AbortSignal;
+  apiBaseUrl?: string | null;
+}): Promise<GeneratedImage> {
+  const [sceneData, oldLogoData, newLogoData] = await Promise.all([
+    fileToBase64(options.scene),
+    options.oldLogo ? fileToBase64(options.oldLogo) : Promise.resolve(undefined),
+    fileToBase64(options.newLogo),
+  ]);
+  const parts: GeminiPart[] = [{
+    text: buildLogoReplacementInstruction({ hasOldLogo: Boolean(options.oldLogo), logoColorMode: options.logoColorMode, customLogoColor: options.customLogoColor }),
+  }, { inlineData: { mimeType: options.scene.type, data: sceneData } }];
+  if (oldLogoData && options.oldLogo) parts.push({ inlineData: { mimeType: options.oldLogo.type, data: oldLogoData } });
+  parts.push({ inlineData: { mimeType: options.newLogo.type, data: newLogoData } });
+  const imageConfig: { imageSize: ImageSize; aspectRatio?: string } = { imageSize: options.imageSize };
+  if (options.aspectRatio) imageConfig.aspectRatio = options.aspectRatio;
+  const data = await postGemini(options.model, options.apiKey, {
+    contents: [{ role: 'user', parts }],
+    generationConfig: { responseModalities: ['IMAGE'], imageConfig },
+  }, options.signal, options.apiBaseUrl);
+  const imagePart = data.candidates?.flatMap((candidate) => candidate.content?.parts ?? []).find((part) => part.inlineData?.data);
+  if (!imagePart?.inlineData?.data) throw new Error('模型未返回 Logo 替换图片，请重试或切换模型');
+  const bytes = Uint8Array.from(atob(imagePart.inlineData.data), (char) => char.charCodeAt(0));
+  const mimeType = imagePart.inlineData.mimeType || 'image/png';
+  return { blob: new Blob([bytes], { type: mimeType }), mimeType, usageTokens: data.usageMetadata?.totalTokenCount };
+}
 export async function generateInpaintImage(options: {
   apiKey: string;
   model: ImageModel;
