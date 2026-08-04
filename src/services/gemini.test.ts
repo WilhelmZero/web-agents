@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildGlassLogoEtchInstruction, buildLogoReplacementInstruction, getGeminiApiRoot, getProxyHealthUrl, isRetryableGeminiStatus } from './gemini';
+import { buildGlassLogoEtchInstruction, buildLogoReplacementInstruction, buildObjectReplacementInstruction, getGeminiApiRoot, getProxyHealthUrl, isRetryableGeminiStatus } from './gemini';
 
 describe('Gemini API 地址', () => {
   it('未配置代理时直连 Google', () => {
@@ -64,5 +64,34 @@ describe('Logo 替换指令', () => {
     expect(instruction).toContain('第二张图片是必须用于替换的新 Logo');
     expect(instruction).not.toContain('第三张图片');
     expect(instruction).toContain('严格保持新 Logo 原始颜色');
+  });
+});
+
+describe('物体批量替换指令', () => {
+  it('声明参考图顺序、全部替换和杯子专项限制', () => {
+    const instruction = buildObjectReplacementInstruction({
+      sourceObjectName: '玻璃杯',
+      targetObjectName: '不锈钢保温杯',
+      hasSourceReference: true,
+      hasTargetReference: true,
+      preservation: { print: true, logo: true, engraving: false, liquid: true, foam: false, custom: ['杯盖挂件'] },
+    });
+    expect(instruction).toContain('第一张图片');
+    expect(instruction).toContain('第二张图片是原物体');
+    expect(instruction).toContain('第三张图片是新物体');
+    expect(instruction).toContain('必须全部替换');
+    expect(instruction).toContain('每一个目标杯子');
+    expect(instruction).toContain('印花、Logo、酒液或其他液体、杯盖挂件');
+    expect(instruction).not.toContain('泡沫、');
+  });
+
+  it('无参考图时只说明场景图且不追加未开启元素', () => {
+    const instruction = buildObjectReplacementInstruction({
+      sourceObjectName: '椅子', targetObjectName: '木凳', hasSourceReference: false, hasTargetReference: false,
+      preservation: { print: false, logo: false, engraving: false, liquid: false, foam: false, custom: [] },
+    });
+    expect(instruction).not.toContain('第二张图片');
+    expect(instruction).not.toContain('杯子专项替换');
+    expect(instruction).not.toContain('严格保留：');
   });
 });

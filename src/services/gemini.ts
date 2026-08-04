@@ -1,4 +1,4 @@
-import type { GeneratedImage, GlassLogoEtchOptions, ImageModel, ImageSize, OptimizerModel } from '../types';
+import type { GeneratedImage, GlassLogoEtchOptions, ImageModel, ImageSize, ObjectPreservationOptions, OptimizerModel } from '../types';
 import { fileToBase64 } from '../utils';
 
 const GOOGLE_API_ROOT = 'https://generativelanguage.googleapis.com/v1beta';
@@ -342,6 +342,77 @@ export async function generateLogoReplacement(options: {
   }, options.signal, options.apiBaseUrl);
   const imagePart = data.candidates?.flatMap((candidate) => candidate.content?.parts ?? []).find((part) => part.inlineData?.data);
   if (!imagePart?.inlineData?.data) throw new Error('模型未返回 Logo 替换图片，请重试或切换模型');
+  const bytes = Uint8Array.from(atob(imagePart.inlineData.data), (char) => char.charCodeAt(0));
+  const mimeType = imagePart.inlineData.mimeType || 'image/png';
+  return { blob: new Blob([bytes], { type: mimeType }), mimeType, usageTokens: data.usageMetadata?.totalTokenCount };
+}
+export function buildObjectReplacementInstruction(options: {
+  sourceObjectName: string;
+  targetObjectName: string;
+  hasSourceReference: boolean;
+  hasTargetReference: boolean;
+  preservation: ObjectPreservationOptions;
+}): string {
+  const sourceName = options.sourceObjectName.trim() || '原物体参考图所示物体';
+  const targetName = options.targetObjectName.trim() || '新物体参考图所示物体';
+  let imageIndex = 2;
+  const ordinal = (index: number) => ['第一', '第二', '第三'][index - 1] || ('第' + index);
+  const references: string[] = ['第一张图片是必须保持的原始场景图。'];
+  if (options.hasSourceReference) references.push(`${ordinal(imageIndex++)}张图片是原物体识别参考图，用于识别场景中所有“${sourceName}”。`);
+  if (options.hasTargetReference) references.push(`${ordinal(imageIndex)}张图片是新物体参考图，必须严格保持其身份、结构、比例、材质和外观细节。`);
+  const labels: Array<[keyof Omit<ObjectPreservationOptions, 'custom'>, string]> = [
+    ['print', '印花'], ['logo', 'Logo'], ['engraving', '雕刻'], ['liquid', '酒液或其他液体'], ['foam', '泡沫'],
+  ];
+  const preserved = [
+    ...labels.filter(([key]) => options.preservation[key]).map(([, label]) => label),
+    ...options.preservation.custom.map((item) => item.trim()).filter(Boolean),
+  ];
+  const preservationInstruction = preserved.length
+    ? `新物体上的以下元素必须严格保留：${preserved.join('、')}。逐项保持其图形、文字、颜色、位置、比例、清晰度、材质效果和相互关系，不得删除、改写、模糊、重新设计或替换。`
+    : '';
+  const isCup = /杯|cup|tumbler|mug|goblet|glass/i.test(sourceName);
+  const cupInstruction = isCup
+    ? '这是杯子专项替换任务。必须替换画面中每一个目标杯子，包括远处、局部遮挡、被手持或仅露出一部分的杯子。保持每个杯子的杯底接触面、杯口朝向、杯身轴线、把手方向、手部握持关系以及原有液体液面。不得改变桌面、手指、吸管、杯盖、配饰和杯子周围既有的反射、折射与阴影，只能为新杯子做必要且自然的融合。'
+    : '';
+  return `执行严格的场景物体批量替换。${references.join('')} 找出场景中所有符合名称“${sourceName}”或原物体参考图的同类物体，必须全部替换为“${targetName}”，不得遗漏，也不得在原本没有目标物体的位置新增物体。只允许修改每个旧物体原本占据的区域。禁止 AI 重新设计、重新绘制、重新排版、重新解释或重新生成原始场景及其任何非目标元素。将整个新物体作为一个完整整体精确放置到每个旧物体的位置，保持完全一致的 Position（位置）、Scale（整体大小）、Rotation（旋转）、Perspective（透视）、Camera Angle（相机角度）、接地关系、遮挡关系与景深。保持新物体自身的结构、比例、材质和参考图身份，不得把新物体变形成旧物体，仅允许对整体进行匹配场景所必需的空间变换。除目标物体外，画幅、构图、裁切、镜头、人物、手部、背景、道具、已有文字、光线、阴影、反射、折射、颜色、噪点和清晰度必须保持不变。${cupInstruction}${preservationInstruction}`;
+}
+
+export async function generateObjectReplacementImage(options: {
+  apiKey: string;
+  model: ImageModel;
+  scene: File;
+  sourceReference?: File;
+  targetReference?: File;
+  sourceObjectName: string;
+  targetObjectName: string;
+  preservation: ObjectPreservationOptions;
+  aspectRatio?: string;
+  imageSize: ImageSize;
+  signal?: AbortSignal;
+  apiBaseUrl?: string | null;
+}): Promise<GeneratedImage> {
+  const [sceneData, sourceData, targetData] = await Promise.all([
+    fileToBase64(options.scene),
+    options.sourceReference ? fileToBase64(options.sourceReference) : Promise.resolve(undefined),
+    options.targetReference ? fileToBase64(options.targetReference) : Promise.resolve(undefined),
+  ]);
+  const parts: GeminiPart[] = [{ text: buildObjectReplacementInstruction({
+    sourceObjectName: options.sourceObjectName,
+    targetObjectName: options.targetObjectName,
+    hasSourceReference: Boolean(options.sourceReference),
+    hasTargetReference: Boolean(options.targetReference),
+    preservation: options.preservation,
+  }) }, { inlineData: { mimeType: options.scene.type, data: sceneData } }];
+  if (sourceData && options.sourceReference) parts.push({ inlineData: { mimeType: options.sourceReference.type, data: sourceData } });
+  if (targetData && options.targetReference) parts.push({ inlineData: { mimeType: options.targetReference.type, data: targetData } });
+  const imageConfig: { imageSize: ImageSize; aspectRatio?: string } = { imageSize: options.imageSize };
+  if (options.aspectRatio) imageConfig.aspectRatio = options.aspectRatio;
+  const data = await postGemini(options.model, options.apiKey, {
+    contents: [{ role: 'user', parts }],
+    generationConfig: { responseModalities: ['IMAGE'], imageConfig },
+  }, options.signal, options.apiBaseUrl);
+  const imagePart = data.candidates?.flatMap((candidate) => candidate.content?.parts ?? []).find((part) => part.inlineData?.data);
+  if (!imagePart?.inlineData?.data) throw new Error('模型未返回物体替换图片，请重试或切换模型');
   const bytes = Uint8Array.from(atob(imagePart.inlineData.data), (char) => char.charCodeAt(0));
   const mimeType = imagePart.inlineData.mimeType || 'image/png';
   return { blob: new Blob([bytes], { type: mimeType }), mimeType, usageTokens: data.usageMetadata?.totalTokenCount };

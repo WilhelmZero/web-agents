@@ -13,6 +13,7 @@ export const STORAGE_KEYS = {
   logoSettings: 'scene-studio.logo-settings.v1',
   logoPresets: 'scene-studio.logo-presets.v1',
   logoReplaceSettings: 'scene-studio.logo-replace-settings.v1',
+  objectReplaceSettings: 'scene-studio.object-replace-settings.v1',
   inpaintSettings: 'scene-studio.inpaint-settings.v1',
   productDetailSettings: 'scene-studio.product-detail-settings.v1',
 } as const;
@@ -46,6 +47,17 @@ export const DEFAULT_LOGO_REPLACE_SETTINGS = {
   randomAssignLogos: false,
   customizeReplacementPrompt: false,
   replacementPrompt: '',
+} as const;
+export const DEFAULT_OBJECT_REPLACE_SETTINGS = {
+  imageModel: 'gemini-3.1-flash-image',
+  ratioMode: 'original',
+  aspectRatio: '1:1',
+  imageSize: '1K',
+  concurrency: 3,
+  copiesPerScene: 1,
+  sourceObjectName: '杯子',
+  targetObjectName: '',
+  preservation: { print: false, logo: false, engraving: false, liquid: false, foam: false, custom: [] },
 } as const;
 export const DEFAULT_INPAINT_SETTINGS = {
   imageModel: 'gemini-3.1-flash-image',

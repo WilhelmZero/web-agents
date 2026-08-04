@@ -261,3 +261,8 @@ button, input, textarea { font: inherit; }
 .replace-pair-preview-item > .ant-typography { grid-column: 1 / -1; }
 .replace-pair-preview-item > .ant-select { grid-column: 1 / -1; width: 100%; }
 .pair-logo-box { width: 58px; height: 58px; display: grid; place-items: center; }
+.object-replace-page { min-width: 0; }
+.object-replace-hero { background: radial-gradient(circle at 78% 18%, rgba(143, 104, 255, .42), transparent 28%), linear-gradient(130deg, #17152d, #2f2863 55%, #5544a0); }
+.hero-strip.object-replace-hero .hero-description { color: #eeeaff !important; }
+.object-result-groups { display: grid; gap: 18px; margin-top: 20px; }
+.object-result-group > .ant-card-body { padding-top: 8px; }
