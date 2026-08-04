@@ -169,6 +169,10 @@ export interface LogoReplaceSettings {
   copiesPerScene: number;
   logoColorMode: 'original' | 'white' | 'black' | 'custom';
   customLogoColor: string;
+  logoEffect: 'natural' | 'laser-engrave' | 'deboss' | 'emboss' | 'print';
+  engravingTarget: 'auto' | 'wood-box' | 'custom';
+  customEngravingObject: string;
+  engravingMethod: string;
   randomAssignLogos: boolean;
   customizeReplacementPrompt: boolean;
   replacementPrompt: string;

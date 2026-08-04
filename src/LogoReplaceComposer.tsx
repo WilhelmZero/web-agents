@@ -170,7 +170,11 @@ export default function LogoReplaceComposer({
     hasOldLogo: Boolean(oldLogo),
     logoColorMode: settings.logoColorMode,
     customLogoColor: settings.customLogoColor,
-  }), [oldLogo, settings.logoColorMode, settings.customLogoColor]);
+    logoEffect: settings.logoEffect,
+    engravingTarget: settings.engravingTarget,
+    customEngravingObject: settings.customEngravingObject,
+    engravingMethod: settings.engravingMethod,
+  }), [oldLogo, settings.logoColorMode, settings.customLogoColor, settings.logoEffect, settings.engravingTarget, settings.customEngravingObject, settings.engravingMethod]);
   const pairings = useMemo(
     () => assignReplacementLogos(scenes, newLogos, settings.randomAssignLogos, randomSeed, manualLogoAssignments),
     [scenes, newLogos, settings.randomAssignLogos, randomSeed, manualLogoAssignments],
@@ -197,7 +201,7 @@ export default function LogoReplaceComposer({
         customLogoColor: currentSettings.customLogoColor,
         promptOverride: currentSettings.customizeReplacementPrompt && currentSettings.replacementPrompt.trim()
           ? currentSettings.replacementPrompt.trim()
-          : buildLogoReplacementInstruction({ hasOldLogo: Boolean(oldLogoRef.current), logoColorMode: currentSettings.logoColorMode, customLogoColor: currentSettings.customLogoColor }),
+          : buildLogoReplacementInstruction({ hasOldLogo: Boolean(oldLogoRef.current), logoColorMode: currentSettings.logoColorMode, customLogoColor: currentSettings.customLogoColor, logoEffect: currentSettings.logoEffect, engravingTarget: currentSettings.engravingTarget, customEngravingObject: currentSettings.customEngravingObject, engravingMethod: currentSettings.engravingMethod }),
         aspectRatio: currentSettings.ratioMode === 'fixed' ? currentSettings.aspectRatio : undefined,
         imageSize: currentSettings.imageSize,
         signal: controller.signal,
@@ -272,6 +276,25 @@ export default function LogoReplaceComposer({
             { value: 'original', label: '保持原色' }, { value: 'white', label: '白色' }, { value: 'black', label: '黑色' }, { value: 'custom', label: '自定义颜色' },
           ]} />
           {settings.logoColorMode === 'custom' && <Flex gap={8} align="center" style={{ marginTop: 10 }}><ColorPicker value={settings.customLogoColor} onChange={(_, hex) => patchSettings({ customLogoColor: hex })} /><Text code>{settings.customLogoColor}</Text></Flex>}
+        </Form.Item>
+        <Form.Item label="Logo 呈现工艺">
+          <Select value={settings.logoEffect} onChange={(logoEffect) => patchSettings({ logoEffect })} options={[
+            { value: 'natural', label: '保持原工艺' },
+            { value: 'laser-engrave', label: '激光雕刻' },
+            { value: 'deboss', label: '凹刻 / 压凹' },
+            { value: 'emboss', label: '浮雕' },
+            { value: 'print', label: '表面印刷' },
+          ]} />
+          {settings.logoEffect !== 'natural' && <>
+            <Select style={{ marginTop: 10 }} value={settings.engravingTarget} onChange={(engravingTarget) => patchSettings({ engravingTarget, engravingMethod: engravingTarget === 'wood-box' && !settings.engravingMethod.trim() ? '根据木材本色进行自然激光烧蚀，保留木纹并自动调整焦痕深浅' : settings.engravingMethod })} options={[
+              { value: 'auto', label: '自动识别原 Logo 载体' },
+              { value: 'wood-box', label: '木盒' },
+              { value: 'custom', label: '自定义物体' },
+            ]} />
+            {settings.engravingTarget === 'custom' && <Input style={{ marginTop: 10 }} value={settings.customEngravingObject} placeholder="输入雕刻载体，例如：深蓝色皮革盒" onChange={(event) => patchSettings({ customEngravingObject: event.target.value })} />}
+            <Input.TextArea style={{ marginTop: 10 }} value={settings.engravingMethod} placeholder={settings.engravingTarget === 'wood-box' ? '输入木盒雕刻方式，例如：自然激光烧蚀、深凹雕刻' : '输入具体雕刻或制作方式（选填）'} autoSize={{ minRows: 2, maxRows: 4 }} onChange={(event) => patchSettings({ engravingMethod: event.target.value })} />
+            <Text type="secondary" className="field-help">雕刻模式会根据木盒或自定义载体的颜色、纹理和材质自然调整深浅，不强制使用固定黑白色。</Text>
+          </>}
         </Form.Item>
         <Form.Item label="替换提示词">
           <Flex justify="space-between" align="center" style={{ marginBottom: 8 }}>

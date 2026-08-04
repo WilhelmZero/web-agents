@@ -59,6 +59,32 @@ describe('Logo 替换指令', () => {
     expect(instruction).toContain('原图所有像素对应内容必须保持不变');
   });
 
+  it('支持木盒激光雕刻并保护 Logo 小字字形', () => {
+    const instruction = buildLogoReplacementInstruction({
+      hasOldLogo: true,
+      logoColorMode: 'white',
+      logoEffect: 'laser-engrave',
+      engravingTarget: 'wood-box',
+      engravingMethod: '浅层激光烧蚀并保留木纹',
+    });
+    expect(instruction).toContain('场景中的木盒');
+    expect(instruction).toContain('浅层激光烧蚀并保留木纹');
+    expect(instruction).toContain('随木材本色自然变化');
+    expect(instruction).toContain('严禁对 Logo 执行 OCR');
+    expect(instruction).toContain('不得产生乱码');
+    expect(instruction).toContain('字符的数量、顺序、大小写');
+    expect(instruction).not.toContain('将新 Logo 转换为白色');
+  });
+
+  it('支持自定义雕刻物体和工艺', () => {
+    const instruction = buildLogoReplacementInstruction({
+      hasOldLogo: false, logoColorMode: 'original', logoEffect: 'deboss', engravingTarget: 'custom',
+      customEngravingObject: '深蓝色皮革盒', engravingMethod: '低温压凹',
+    });
+    expect(instruction).toContain('深蓝色皮革盒');
+    expect(instruction).toContain('低温压凹');
+    expect(instruction).toContain('真实凹刻或压凹');
+  });
   it('未提供旧 Logo 时使用双图说明', () => {
     const instruction = buildLogoReplacementInstruction({ hasOldLogo: false, logoColorMode: 'original' });
     expect(instruction).toContain('第二张图片是必须用于替换的新 Logo');
