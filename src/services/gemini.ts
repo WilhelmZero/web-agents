@@ -321,7 +321,7 @@ export function buildLogoReplacementInstruction(options: {
   const customMethod = options.engravingMethod?.trim();
   const woodStyle = options.woodEngravingStyle || 'dark-burn';
   const woodMethod = woodStyle === 'dark-burn'
-    ? '深色激光烧蚀雕刻：形成深棕至黑色的高对比烧蚀图案，文字和大面积图形内部清晰填充，边缘锐利，同时保留可见木纹与自然焦痕。'
+    ? '深色激光烧蚀雕刻：形成深棕至炭黑色的高对比烧灼图案，文字和大面积图形内部清晰填充，边缘锐利，同时保留可见木纹与自然焦痕。最终 Logo 必须明显比周围木材更深；严禁生成白色、乳白色、浅色、玻璃磨砂色、白色油墨或发光效果，即使新 Logo 参考图本身是白色也必须忽略其颜色，只保留图形与文字形状。'
     : woodStyle === 'natural-recessed'
       ? '原木同色浅雕或凹刻：去除表层形成浅色或同木色的低对比凹陷线条和纹理，不做黑色填充，不产生明显焦黑，以凹槽阴影、切削纹理和木材本色表现图案。'
       : '自定义木盒雕刻方式：' + (options.customWoodEngravingMethod?.trim() || '根据用户描述自然雕刻并保留木材纹理') + '。';

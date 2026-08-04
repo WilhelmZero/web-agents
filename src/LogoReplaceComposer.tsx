@@ -61,6 +61,24 @@ function fileName(task: LogoReplaceTask, scene: LogoAsset, model: string) {
   return `${String(task.sceneIndex + 1).padStart(2, '0')}_${sanitizeFileName(scene.name)}_${String(task.copyIndex + 1).padStart(2, '0')}_${model}.${mimeExtension(task.resultMimeType)}`;
 }
 
+function buildActualReplacementPrompt(settings: LogoReplaceSettings, hasOldLogo: boolean) {
+  const mandatoryPrompt = buildLogoReplacementInstruction({
+    hasOldLogo,
+    logoColorMode: settings.logoColorMode,
+    customLogoColor: settings.customLogoColor,
+    glassEngravingEnabled: settings.glassEngravingEnabled,
+    woodEngravingEnabled: settings.woodEngravingEnabled,
+    customEngravingEnabled: settings.customEngravingEnabled,
+    woodEngravingStyle: settings.woodEngravingStyle,
+    customWoodEngravingMethod: settings.customWoodEngravingMethod,
+    customEngravingObject: settings.customEngravingObject,
+    engravingMethod: settings.engravingMethod,
+  });
+  const customPrompt = settings.customizeReplacementPrompt ? settings.replacementPrompt.trim() : '';
+  return customPrompt
+    ? customPrompt + '\n\n【以下 Logo 工艺、颜色和小字保护规则为强制最高优先级，不得被前文覆盖】\n' + mandatoryPrompt
+    : mandatoryPrompt;
+}
 export default function LogoReplaceComposer({
   apiKey,
   apiBaseUrl,
@@ -181,7 +199,10 @@ export default function LogoReplaceComposer({
     customEngravingObject: settings.customEngravingObject,
     engravingMethod: settings.engravingMethod,
   }), [oldLogo, settings.logoColorMode, settings.customLogoColor, settings.glassEngravingEnabled, settings.woodEngravingEnabled, settings.customEngravingEnabled, settings.woodEngravingStyle, settings.customWoodEngravingMethod, settings.customEngravingObject, settings.engravingMethod]);
-  const pairings = useMemo(
+  const actualReplacementPrompt = useMemo(
+    () => buildActualReplacementPrompt(settings, Boolean(oldLogo)),
+    [settings, oldLogo],
+  );  const pairings = useMemo(
     () => assignReplacementLogos(scenes, newLogos, settings.randomAssignLogos, randomSeed, manualLogoAssignments),
     [scenes, newLogos, settings.randomAssignLogos, randomSeed, manualLogoAssignments],
   );
@@ -205,9 +226,7 @@ export default function LogoReplaceComposer({
         newLogo: replacement.file,
         logoColorMode: currentSettings.logoColorMode,
         customLogoColor: currentSettings.customLogoColor,
-        promptOverride: currentSettings.customizeReplacementPrompt && currentSettings.replacementPrompt.trim()
-          ? currentSettings.replacementPrompt.trim()
-          : buildLogoReplacementInstruction({ hasOldLogo: Boolean(oldLogoRef.current), logoColorMode: currentSettings.logoColorMode, customLogoColor: currentSettings.customLogoColor, glassEngravingEnabled: currentSettings.glassEngravingEnabled, woodEngravingEnabled: currentSettings.woodEngravingEnabled, customEngravingEnabled: currentSettings.customEngravingEnabled, woodEngravingStyle: currentSettings.woodEngravingStyle, customWoodEngravingMethod: currentSettings.customWoodEngravingMethod, customEngravingObject: currentSettings.customEngravingObject, engravingMethod: currentSettings.engravingMethod }),
+        promptOverride: buildActualReplacementPrompt(currentSettings, Boolean(oldLogoRef.current)),
         aspectRatio: currentSettings.ratioMode === 'fixed' ? currentSettings.aspectRatio : undefined,
         imageSize: currentSettings.imageSize,
         signal: controller.signal,
@@ -312,7 +331,8 @@ export default function LogoReplaceComposer({
             <Switch checked={settings.customizeReplacementPrompt} onChange={(customizeReplacementPrompt) => patchSettings({ customizeReplacementPrompt, replacementPrompt: customizeReplacementPrompt ? (settings.replacementPrompt.trim() || defaultReplacementPrompt) : settings.replacementPrompt })} />
           </Flex>
           <Input.TextArea value={settings.customizeReplacementPrompt ? settings.replacementPrompt : defaultReplacementPrompt} readOnly={!settings.customizeReplacementPrompt} autoSize={{ minRows: 6, maxRows: 12 }} onChange={(event) => patchSettings({ replacementPrompt: event.target.value })} />
-          <Flex justify="space-between" align="center" gap={8} style={{ marginTop: 8 }}><Text type="secondary" className="field-help">这里显示的完整提示词就是实际发送给模型的文本。</Text>{settings.customizeReplacementPrompt && <Button size="small" onClick={() => patchSettings({ replacementPrompt: defaultReplacementPrompt })}>恢复默认</Button>}</Flex>
+          <Flex justify="space-between" align="center" gap={8} style={{ marginTop: 8 }}><Text type="secondary" className="field-help">{settings.customizeReplacementPrompt ? '上方为自定义内容，工艺、颜色和小字保护规则会作为强制后缀追加。' : '这里显示的完整提示词就是实际发送给模型的文本。'}</Text>{settings.customizeReplacementPrompt && <Button size="small" onClick={() => patchSettings({ replacementPrompt: '' })}>清空自定义</Button>}</Flex>
+          {settings.customizeReplacementPrompt && <><Text strong style={{ display: 'block', marginTop: 10 }}>最终实际发送提示词</Text><Input.TextArea readOnly value={actualReplacementPrompt} autoSize={{ minRows: 6, maxRows: 12 }} style={{ marginTop: 6 }} /></>}
           <Text type="secondary" className="field-help">图片按“场景图、可选旧 Logo、新 Logo”的顺序作为独立图片内容提交。</Text>
         </Form.Item>
         <Form.Item label="图片模型"><Select value={settings.imageModel} onChange={(imageModel) => patchSettings({ imageModel })} options={Object.entries(MODEL_CAPABILITIES).map(([value, item]) => ({ value, label: item.label }))} /></Form.Item>

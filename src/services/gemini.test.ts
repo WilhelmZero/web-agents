@@ -65,7 +65,9 @@ describe('Logo 替换指令', () => {
     });
     expect(instruction).toContain('旧 Logo 位于木盒');
     expect(instruction).toContain('深色激光烧蚀雕刻');
-    expect(instruction).toContain('深棕至黑色');
+    expect(instruction).toContain('深棕至炭黑色');
+    expect(instruction).toContain('严禁生成白色、乳白色、浅色');
+    expect(instruction).toContain('参考图本身是白色也必须忽略其颜色');
     expect(instruction).toContain('严禁对 Logo 执行 OCR');
     expect(instruction).toContain('不得产生乱码');
     expect(instruction).not.toContain('将新 Logo 转换为白色');
