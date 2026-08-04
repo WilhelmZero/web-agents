@@ -15,15 +15,18 @@ export function assignReplacementLogos(
   logos: LogoAsset[],
   random: boolean,
   seed: string,
+  manualAssignments: Record<string, string> = {},
 ): LogoReplacementPairing[] {
-  return scenes.map((scene, index) => ({
-    scene,
-    logo: random && logos.length
+  return scenes.map((scene, index) => {
+    const automaticLogo = random && logos.length
       ? logos[stableHash(`${scene.id}-${seed}`) % logos.length]
-      : logos[index],
-  }));
+      : logos[index];
+    return {
+      scene,
+      logo: logos.find((logo) => logo.id === manualAssignments[scene.id]) ?? automaticLogo,
+    };
+  });
 }
-
 export function buildLogoReplaceTasks(pairings: LogoReplacementPairing[], copiesPerScene: number): LogoReplaceTask[] {
   if (!pairings.length || pairings.some((pairing) => !pairing.logo)) {
     throw new Error('每张场景图都必须匹配一个新 Logo');

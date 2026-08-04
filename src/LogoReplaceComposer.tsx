@@ -20,6 +20,7 @@ import {
   Flex,
   Form,
   Image,
+  Input,
   InputNumber,
   Popconfirm,
   Progress,
@@ -38,7 +39,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { DEFAULT_LOGO_REPLACE_SETTINGS, MODEL_CAPABILITIES, PRICING, STORAGE_KEYS } from './constants';
 import GeneratingImage from './GeneratingImage';
-import { generateLogoReplacement } from './services/gemini';
+import { buildLogoReplacementInstruction, generateLogoReplacement } from './services/gemini';
 import { assignReplacementLogos, buildLogoReplaceTasks } from './services/logoReplaceUtils';
 import { readLocalStorage } from './storage';
 import type { LogoAsset, LogoReplaceSettings, LogoReplaceTask } from './types';
@@ -84,6 +85,7 @@ export default function LogoReplaceComposer({
   const [oldLogo, setOldLogo] = useState<LogoAsset>();
   const [newLogos, setNewLogos] = useState<LogoAsset[]>([]);
   const [randomSeed, setRandomSeed] = useState(() => createId());
+  const [manualLogoAssignments, setManualLogoAssignments] = useState<Record<string, string>>({});
   const [compareOriginalIds, setCompareOriginalIds] = useState<Set<string>>(() => new Set());
   const [tasks, setTasks] = useState<LogoReplaceTask[]>([]);
   const runningIds = useRef(new Set<string>());
@@ -151,6 +153,7 @@ export default function LogoReplaceComposer({
   };
   const removeNewLogo = (id: string) => {
     resetTasks();
+    setManualLogoAssignments((current) => Object.fromEntries(Object.entries(current).filter(([, logoId]) => logoId !== id)));
     setNewLogos((current) => {
       const target = current.find((item) => item.id === id);
       if (target) URL.revokeObjectURL(target.previewUrl);
@@ -163,9 +166,14 @@ export default function LogoReplaceComposer({
     return next;
   });
 
+  const defaultReplacementPrompt = useMemo(() => buildLogoReplacementInstruction({
+    hasOldLogo: Boolean(oldLogo),
+    logoColorMode: settings.logoColorMode,
+    customLogoColor: settings.customLogoColor,
+  }), [oldLogo, settings.logoColorMode, settings.customLogoColor]);
   const pairings = useMemo(
-    () => assignReplacementLogos(scenes, newLogos, settings.randomAssignLogos, randomSeed),
-    [scenes, newLogos, settings.randomAssignLogos, randomSeed],
+    () => assignReplacementLogos(scenes, newLogos, settings.randomAssignLogos, randomSeed, manualLogoAssignments),
+    [scenes, newLogos, settings.randomAssignLogos, randomSeed, manualLogoAssignments],
   );
 
   const executeTask = useCallback(async (task: LogoReplaceTask) => {
@@ -187,6 +195,9 @@ export default function LogoReplaceComposer({
         newLogo: replacement.file,
         logoColorMode: currentSettings.logoColorMode,
         customLogoColor: currentSettings.customLogoColor,
+        promptOverride: currentSettings.customizeReplacementPrompt && currentSettings.replacementPrompt.trim()
+          ? currentSettings.replacementPrompt.trim()
+          : buildLogoReplacementInstruction({ hasOldLogo: Boolean(oldLogoRef.current), logoColorMode: currentSettings.logoColorMode, customLogoColor: currentSettings.customLogoColor }),
         aspectRatio: currentSettings.ratioMode === 'fixed' ? currentSettings.aspectRatio : undefined,
         imageSize: currentSettings.imageSize,
         signal: controller.signal,
@@ -213,7 +224,6 @@ export default function LogoReplaceComposer({
     if (connectionMode === 'proxy' && !apiBaseUrl) { message.warning('请先配置代理地址'); return onRequestKey(); }
     if (!scenes.length) return void message.warning('请至少上传一张已贴 Logo 的场景图');
     if (!newLogos.length) return void message.warning('请至少上传一个新 Logo');
-    if (!settings.randomAssignLogos && scenes.length !== newLogos.length) return void message.warning('未开启随机分配时，场景图与新 Logo 数量必须一致');
     if (pairings.some((pairing) => !pairing.logo)) return void message.warning('存在尚未匹配新 Logo 的场景图');
     resetTasks();
     setCompareOriginalIds(new Set());
@@ -263,6 +273,15 @@ export default function LogoReplaceComposer({
           ]} />
           {settings.logoColorMode === 'custom' && <Flex gap={8} align="center" style={{ marginTop: 10 }}><ColorPicker value={settings.customLogoColor} onChange={(_, hex) => patchSettings({ customLogoColor: hex })} /><Text code>{settings.customLogoColor}</Text></Flex>}
         </Form.Item>
+        <Form.Item label="替换提示词">
+          <Flex justify="space-between" align="center" style={{ marginBottom: 8 }}>
+            <Text>自定义编辑</Text>
+            <Switch checked={settings.customizeReplacementPrompt} onChange={(customizeReplacementPrompt) => patchSettings({ customizeReplacementPrompt, replacementPrompt: customizeReplacementPrompt ? (settings.replacementPrompt.trim() || defaultReplacementPrompt) : settings.replacementPrompt })} />
+          </Flex>
+          <Input.TextArea value={settings.customizeReplacementPrompt ? settings.replacementPrompt : defaultReplacementPrompt} readOnly={!settings.customizeReplacementPrompt} autoSize={{ minRows: 6, maxRows: 12 }} onChange={(event) => patchSettings({ replacementPrompt: event.target.value })} />
+          <Flex justify="space-between" align="center" gap={8} style={{ marginTop: 8 }}><Text type="secondary" className="field-help">这里显示的完整提示词就是实际发送给模型的文本。</Text>{settings.customizeReplacementPrompt && <Button size="small" onClick={() => patchSettings({ replacementPrompt: defaultReplacementPrompt })}>恢复默认</Button>}</Flex>
+          <Text type="secondary" className="field-help">图片按“场景图、可选旧 Logo、新 Logo”的顺序作为独立图片内容提交。</Text>
+        </Form.Item>
         <Form.Item label="图片模型"><Select value={settings.imageModel} onChange={(imageModel) => patchSettings({ imageModel })} options={Object.entries(MODEL_CAPABILITIES).map(([value, item]) => ({ value, label: item.label }))} /></Form.Item>
         <Form.Item label="画面比例">
           <Radio.Group value={settings.ratioMode} onChange={(event) => patchSettings({ ratioMode: event.target.value })}><Radio value="original">跟随场景原图</Radio><Radio value="fixed">指定比例</Radio></Radio.Group>
@@ -298,8 +317,8 @@ export default function LogoReplaceComposer({
           </Card>
         </div>
         {!!scenes.length && !!newLogos.length && <Card size="small" className="replace-pair-preview" title="场景与新 Logo 配对预览" extra={settings.randomAssignLogos && <Button size="small" icon={<ReloadOutlined />} onClick={() => { setRandomSeed(createId()); resetTasks(); }}>重新随机</Button>}>
-          {!settings.randomAssignLogos && scenes.length !== newLogos.length && <Alert type="error" showIcon title="数量不一致" description="关闭随机分配时，场景图与新 Logo 数量必须相同。" style={{ marginBottom: 12 }} />}
-          <div className="replace-pair-preview-grid">{pairings.map(({ scene, logo }, index) => <div className="replace-pair-preview-item" key={scene.id}><Image src={scene.previewUrl} alt={`场景 ${index + 1}`} /><SwapOutlined /><div className="pair-logo-box">{logo ? <Image src={logo.previewUrl} alt={`新 Logo ${index + 1}`} /> : <Text type="danger">未匹配</Text>}</div><Text type="secondary">第 {index + 1} 组</Text></div>)}</div>
+          {pairings.some((pairing) => !pairing.logo) && <Alert type="error" showIcon title="存在未匹配场景" description="请为未匹配的场景手动指定一个新 Logo，或开启随机分配。" style={{ marginBottom: 12 }} />}
+          <div className="replace-pair-preview-grid">{pairings.map(({ scene, logo }, index) => <div className="replace-pair-preview-item" key={scene.id}><Image src={scene.previewUrl} alt={`场景 ${index + 1}`} /><SwapOutlined /><div className="pair-logo-box">{logo ? <Image src={logo.previewUrl} alt={`新 Logo ${index + 1}`} /> : <Text type="danger">未匹配</Text>}</div><Text type="secondary">第 {index + 1} 组</Text><Select aria-label={`手动指定第 ${index + 1} 组 Logo`} value={manualLogoAssignments[scene.id] || ''} onChange={(logoId) => { setManualLogoAssignments((current) => { const next = { ...current }; if (logoId) next[scene.id] = logoId; else delete next[scene.id]; return next; }); resetTasks(); }} options={[{ value: '', label: '跟随自动分配' }, ...newLogos.map((item, logoIndex) => ({ value: item.id, label: `Logo ${logoIndex + 1} · ${item.name}` }))]} /></div>)}</div>
         </Card>}
       </Card>
       <Card className="action-card"><Flex justify="space-between" align="center" gap={16} wrap><div><Title level={4} style={{ margin: 0 }}>准备替换 {taskCount} 张图片</Title><Text type="secondary">{scenes.length} 张场景图 × 每张 {settings.copiesPerScene} 个结果</Text></div><Space>{processing && <Button danger icon={<StopOutlined />} onClick={stop}>停止任务</Button>}<Button type="primary" size="large" icon={<RocketOutlined />} loading={processing} onClick={start}>{processing ? '正在替换' : '开始替换'}</Button></Space></Flex>{!!tasks.length && <Progress style={{ marginTop: 18 }} percent={Math.round((completed / tasks.length) * 100)} status={processing ? 'active' : successful.length ? 'success' : 'exception'} />}</Card>

@@ -26,6 +26,12 @@ describe('Logo 替换配对', () => {
     expect(first.every((pairing) => logos.some((logo) => logo.id === pairing.logo?.id))).toBe(true);
   });
 
+  it('手动指定优先于自动配对', () => {
+    const scenes = assets('scene', 2);
+    const logos = assets('logo', 2);
+    const pairings = assignReplacementLogos(scenes, logos, false, 'seed', { 'scene-0': 'logo-1' });
+    expect(pairings.map((pairing) => pairing.logo?.id)).toEqual(['logo-1', 'logo-1']);
+  });
   it('任务固定保存预览时分配的新 Logo', () => {
     const pairings = assignReplacementLogos(assets('scene', 2), assets('logo', 2), false, 'seed');
     const tasks = buildLogoReplaceTasks(pairings, 2);

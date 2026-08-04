@@ -170,6 +170,8 @@ export interface LogoReplaceSettings {
   logoColorMode: 'original' | 'white' | 'black' | 'custom';
   customLogoColor: string;
   randomAssignLogos: boolean;
+  customizeReplacementPrompt: boolean;
+  replacementPrompt: string;
 }
 
 export interface LogoReplaceTask {

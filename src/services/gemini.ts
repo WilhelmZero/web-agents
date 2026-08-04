@@ -318,6 +318,7 @@ export async function generateLogoReplacement(options: {
   newLogo: File;
   logoColorMode: 'original' | 'white' | 'black' | 'custom';
   customLogoColor?: string;
+  promptOverride?: string;
   aspectRatio?: string;
   imageSize: ImageSize;
   signal?: AbortSignal;
@@ -329,7 +330,7 @@ export async function generateLogoReplacement(options: {
     fileToBase64(options.newLogo),
   ]);
   const parts: GeminiPart[] = [{
-    text: buildLogoReplacementInstruction({ hasOldLogo: Boolean(options.oldLogo), logoColorMode: options.logoColorMode, customLogoColor: options.customLogoColor }),
+    text: options.promptOverride?.trim() || buildLogoReplacementInstruction({ hasOldLogo: Boolean(options.oldLogo), logoColorMode: options.logoColorMode, customLogoColor: options.customLogoColor }),
   }, { inlineData: { mimeType: options.scene.type, data: sceneData } }];
   if (oldLogoData && options.oldLogo) parts.push({ inlineData: { mimeType: options.oldLogo.type, data: oldLogoData } });
   parts.push({ inlineData: { mimeType: options.newLogo.type, data: newLogoData } });
