@@ -299,7 +299,8 @@ export function buildLogoReplacementInstruction(options: {
   glassEngravingEnabled?: boolean;
   woodEngravingEnabled?: boolean;
   customEngravingEnabled?: boolean;
-  woodEngravingStyle?: 'dark-burn' | 'natural-recessed' | 'custom';
+  woodEngravingStyle?: 'auto' | 'dark-burn' | 'natural-recessed' | 'custom';
+  woodEngravingDepth?: number;
   customWoodEngravingMethod?: string;
   customEngravingObject?: string;
   engravingMethod?: string;
@@ -319,12 +320,17 @@ export function buildLogoReplacementInstruction(options: {
     : '第二张图片是必须用于替换的新 Logo。请识别场景内产品或载体上现有的品牌 Logo，并逐一替换。';
   const customObject = options.customEngravingObject?.trim() || '自定义载体';
   const customMethod = options.engravingMethod?.trim();
-  const woodStyle = options.woodEngravingStyle || 'dark-burn';
-  const woodMethod = woodStyle === 'dark-burn'
-    ? '深色激光烧蚀雕刻：形成深棕至炭黑色的高对比烧灼图案，文字和大面积图形内部清晰填充，边缘锐利，同时保留可见木纹与自然焦痕。最终 Logo 必须明显比周围木材更深；严禁生成白色、乳白色、浅色、玻璃磨砂色、白色油墨或发光效果，即使新 Logo 参考图本身是白色也必须忽略其颜色，只保留图形与文字形状。'
-    : woodStyle === 'natural-recessed'
-      ? '原木同色浅雕或凹刻：去除表层形成浅色或同木色的低对比凹陷线条和纹理，不做黑色填充，不产生明显焦黑，以凹槽阴影、切削纹理和木材本色表现图案。'
-      : '自定义木盒雕刻方式：' + (options.customWoodEngravingMethod?.trim() || '根据用户描述自然雕刻并保留木材纹理') + '。';
+  const woodStyle = options.woodEngravingStyle || 'auto';
+  const woodDepth = Math.max(0, Math.min(100, options.woodEngravingDepth ?? 20));
+  const naturalRecessedInstruction = '原木同色浅雕或凹刻：雕刻深浅为 ' + woodDepth + '%。以极浅、接近木材本色的低对比凹陷线条和纹理表现 Logo，颜色应比当前木材仅略浅或略深，不做黑色填充，不产生焦黑、白色油墨或强对比边缘；通过细微凹槽阴影、切削纹理和木材本色显示图案。数值越低，颜色和凹陷必须越轻。';
+  const darkBurnInstruction = '深色激光烧蚀雕刻：形成深棕至炭黑色的高对比烧灼图案，文字和大面积图形内部清晰填充，边缘锐利，同时保留可见木纹与自然焦痕。最终 Logo 必须明显比周围木材更深；严禁生成白色、乳白色、浅色、玻璃磨砂色、白色油墨或发光效果，即使新 Logo 参考图本身是白色也必须忽略其颜色，只保留图形与文字形状。';
+  const woodMethod = woodStyle === 'auto'
+    ? '自动识别木盒底色并逐个选择工艺：若木盒为深色木材或深色涂层，使用深色激光烧蚀效果；若木盒为浅色木材或浅色涂层，使用原木同色浅雕或凹刻效果。不得把浅色木盒误用深黑烧蚀，也不得把深色木盒生成白色 Logo。浅色木盒采用以下浅雕深度规则：' + naturalRecessedInstruction
+    : woodStyle === 'dark-burn'
+      ? darkBurnInstruction
+      : woodStyle === 'natural-recessed'
+        ? naturalRecessedInstruction
+        : '自定义木盒雕刻方式：' + (options.customWoodEngravingMethod?.trim() || '根据用户描述自然雕刻并保留木材纹理') + '。';
   const engravingInstructions = [
     options.glassEngravingEnabled
       ? '若旧 Logo 位于玻璃物体上，将新 Logo 以玻璃激光磨砂雕刻方式制作。形成真实的半透明乳白或雾化蚀刻质感，保留玻璃透光、折射、曲面包裹、反射和厚度变化，不得表现为油墨印刷、贴纸或木材烧蚀。'

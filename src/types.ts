@@ -172,7 +172,8 @@ export interface LogoReplaceSettings {
   glassEngravingEnabled: boolean;
   woodEngravingEnabled: boolean;
   customEngravingEnabled: boolean;
-  woodEngravingStyle: 'dark-burn' | 'natural-recessed' | 'custom';
+  woodEngravingStyle: 'auto' | 'dark-burn' | 'natural-recessed' | 'custom';
+  woodEngravingDepth: number;
   customWoodEngravingMethod: string;
   customEngravingObject: string;
   engravingMethod: string;
