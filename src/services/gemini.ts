@@ -296,14 +296,16 @@ export function buildLogoReplacementInstruction(options: {
   hasOldLogo: boolean;
   logoColorMode: 'original' | 'white' | 'black' | 'custom';
   customLogoColor?: string;
-  logoEffect?: 'natural' | 'glass-engrave' | 'wood-engrave' | 'custom-engrave' | 'print';
+  glassEngravingEnabled?: boolean;
+  woodEngravingEnabled?: boolean;
+  customEngravingEnabled?: boolean;
   woodEngravingStyle?: 'dark-burn' | 'natural-recessed' | 'custom';
   customWoodEngravingMethod?: string;
   customEngravingObject?: string;
   engravingMethod?: string;
 }): string {
-  const effect = options.logoEffect || 'natural';
-  const colorInstruction = ['glass-engrave', 'wood-engrave', 'custom-engrave'].includes(effect)
+  const hasEngraving = Boolean(options.glassEngravingEnabled || options.woodEngravingEnabled || options.customEngravingEnabled);
+  const colorInstruction = hasEngraving
     ? '雕刻颜色必须由载体材质、局部底色、深度、烧蚀程度、光线和阴影自然形成，不得强制覆盖为不真实的纯色。'
     : options.logoColorMode === 'original'
     ? '严格保持新 Logo 原始颜色。'
@@ -323,15 +325,20 @@ export function buildLogoReplacementInstruction(options: {
     : woodStyle === 'natural-recessed'
       ? '原木同色浅雕或凹刻：去除表层形成浅色或同木色的低对比凹陷线条和纹理，不做黑色填充，不产生明显焦黑，以凹槽阴影、切削纹理和木材本色表现图案。'
       : '自定义木盒雕刻方式：' + (options.customWoodEngravingMethod?.trim() || '根据用户描述自然雕刻并保留木材纹理') + '。';
-  const effectInstruction = effect === 'glass-engrave'
-    ? '将新 Logo 以玻璃激光磨砂雕刻方式制作在场景中的玻璃物体上。形成真实的半透明乳白或雾化蚀刻质感，保留玻璃透光、折射、曲面包裹、反射和厚度变化，不得表现为油墨印刷、贴纸或木材烧蚀。'
-    : effect === 'wood-engrave'
-      ? '将新 Logo 雕刻在场景中的木盒上。' + woodMethod + ' 必须根据木盒实际深浅、木种、纹理方向和光照调整对比度与雕刻深度，不得改变木盒本身的颜色、木纹、结构和构图。'
-      : effect === 'custom-engrave'
-        ? '将新 Logo 雕刻在场景中的“' + customObject + '”上。指定雕刻方式：' + (customMethod || '根据载体材质自然雕刻') + '。必须服从该载体的颜色、纹理、硬度、反光和凹凸特性。'
-        : effect === 'print'
-          ? '将新 Logo 以真实表面印刷方式应用在原 Logo 所在载体上。' + (customMethod ? '指定印刷方式：' + customMethod + '。' : '') + '保持油墨与载体纹理、透视和光照自然融合。'
-          : '保持原 Logo 在场景中的现有制作工艺和材质融合方式，只替换 Logo 内容。';  const microTextInstruction = '新 Logo 必须作为完整的不可拆分图形资产进行像素级外观复制，尤其是尺寸很小的文字、字母、数字、标点、细线和负空间。严禁对 Logo 执行 OCR 后重新输入、拼写、翻译、纠错、补字、猜字、改写字体或生成相似字母；不得把任何字符替换为其他字符，不得产生乱码。必须保持参考 Logo 中每个字符的数量、顺序、大小写、字形轮廓、间距、基线、粗细和相对位置完全一致。即使小字无法语义识别，也必须把原始笔画当作图形纹理逐笔保留，而不是解释其文字含义。';
+  const engravingInstructions = [
+    options.glassEngravingEnabled
+      ? '若旧 Logo 位于玻璃物体上，将新 Logo 以玻璃激光磨砂雕刻方式制作。形成真实的半透明乳白或雾化蚀刻质感，保留玻璃透光、折射、曲面包裹、反射和厚度变化，不得表现为油墨印刷、贴纸或木材烧蚀。'
+      : '',
+    options.woodEngravingEnabled
+      ? '若旧 Logo 位于木盒上，将新 Logo 按以下木盒工艺雕刻：' + woodMethod + ' 必须根据木盒实际深浅、木种、纹理方向和光照调整对比度与雕刻深度，不得改变木盒本身的颜色、木纹、结构和构图。'
+      : '',
+    options.customEngravingEnabled
+      ? '若旧 Logo 位于场景中的“' + customObject + '”上，采用指定雕刻方式：' + (customMethod || '根据载体材质自然雕刻') + '。必须服从该载体的颜色、纹理、硬度、反光和凹凸特性。'
+      : '',
+  ].filter(Boolean);
+  const effectInstruction = engravingInstructions.length
+    ? engravingInstructions.join('') + '必须先识别每个旧 Logo 所在的载体类型，再分别应用匹配的玻璃、木盒或自定义物体工艺；这些工艺可在同一张场景图中同时生效。未匹配上述载体的 Logo 保持原有制作工艺。'
+    : '保持原 Logo 在场景中的现有制作工艺和材质融合方式，只替换 Logo 内容。';  const microTextInstruction = '新 Logo 必须作为完整的不可拆分图形资产进行像素级外观复制，尤其是尺寸很小的文字、字母、数字、标点、细线和负空间。严禁对 Logo 执行 OCR 后重新输入、拼写、翻译、纠错、补字、猜字、改写字体或生成相似字母；不得把任何字符替换为其他字符，不得产生乱码。必须保持参考 Logo 中每个字符的数量、顺序、大小写、字形轮廓、间距、基线、粗细和相对位置完全一致。即使小字无法语义识别，也必须把原始笔画当作图形纹理逐笔保留，而不是解释其文字含义。';
   return `执行严格的 Logo 替换任务。第一张图片是原始场景图，${referenceInstruction}${colorInstruction}${effectInstruction}${microTextInstruction} 只允许改变旧 Logo 覆盖的区域：保持每个 Logo 原有的位置、大小、角度、透视、曲面包裹、遮挡关系和材质融合方式，并用新 Logo 准确替换。若同一场景存在多个旧 Logo，必须全部替换。除 Logo 外，原图所有像素对应内容必须保持不变，包括画幅、构图、裁切、镜头、主体、产品结构、杯体、背景、人物、道具、已有非 Logo 文字、颜色、光线、阴影、反射、折射、景深、噪点和清晰度。不得移动、删除、增加、重绘或重新设计任何非 Logo 内容，不得在原本没有 Logo 的位置新增 Logo。`;
 }
 

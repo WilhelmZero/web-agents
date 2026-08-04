@@ -80,16 +80,11 @@ export default function LogoReplaceComposer({
   const [settings, setSettings] = useState<LogoReplaceSettings>(() => {
     const stored = readLocalStorage(STORAGE_KEYS.logoReplaceSettings, {} as Partial<LogoReplaceSettings> & { logoEffect?: string });
     const legacyEffect = (stored as { logoEffect?: string }).logoEffect;
-    const logoEffect: LogoReplaceSettings['logoEffect'] = legacyEffect === 'laser-engrave'
-      ? 'glass-engrave'
-      : legacyEffect === 'deboss' || legacyEffect === 'emboss'
-        ? 'wood-engrave'
-        : legacyEffect === 'natural' || legacyEffect === 'glass-engrave' || legacyEffect === 'wood-engrave' || legacyEffect === 'custom-engrave' || legacyEffect === 'print'
-          ? legacyEffect
-          : DEFAULT_LOGO_REPLACE_SETTINGS.logoEffect;
-    return { ...(DEFAULT_LOGO_REPLACE_SETTINGS as LogoReplaceSettings), ...stored, logoEffect };
-  });
-  const [scenes, setScenes] = useState<LogoAsset[]>([]);
+    const glassEngravingEnabled = stored.glassEngravingEnabled ?? (!legacyEffect || legacyEffect === 'glass-engrave' || legacyEffect === 'laser-engrave');
+    const woodEngravingEnabled = stored.woodEngravingEnabled ?? (legacyEffect === 'wood-engrave' || legacyEffect === 'deboss' || legacyEffect === 'emboss');
+    const customEngravingEnabled = stored.customEngravingEnabled ?? legacyEffect === 'custom-engrave';
+    return { ...(DEFAULT_LOGO_REPLACE_SETTINGS as LogoReplaceSettings), ...stored, glassEngravingEnabled, woodEngravingEnabled, customEngravingEnabled };
+  });  const [scenes, setScenes] = useState<LogoAsset[]>([]);
   const [oldLogo, setOldLogo] = useState<LogoAsset>();
   const [newLogos, setNewLogos] = useState<LogoAsset[]>([]);
   const [randomSeed, setRandomSeed] = useState(() => createId());
@@ -178,12 +173,14 @@ export default function LogoReplaceComposer({
     hasOldLogo: Boolean(oldLogo),
     logoColorMode: settings.logoColorMode,
     customLogoColor: settings.customLogoColor,
-    logoEffect: settings.logoEffect,
+    glassEngravingEnabled: settings.glassEngravingEnabled,
+    woodEngravingEnabled: settings.woodEngravingEnabled,
+    customEngravingEnabled: settings.customEngravingEnabled,
     woodEngravingStyle: settings.woodEngravingStyle,
     customWoodEngravingMethod: settings.customWoodEngravingMethod,
     customEngravingObject: settings.customEngravingObject,
     engravingMethod: settings.engravingMethod,
-  }), [oldLogo, settings.logoColorMode, settings.customLogoColor, settings.logoEffect, settings.woodEngravingStyle, settings.customWoodEngravingMethod, settings.customEngravingObject, settings.engravingMethod]);
+  }), [oldLogo, settings.logoColorMode, settings.customLogoColor, settings.glassEngravingEnabled, settings.woodEngravingEnabled, settings.customEngravingEnabled, settings.woodEngravingStyle, settings.customWoodEngravingMethod, settings.customEngravingObject, settings.engravingMethod]);
   const pairings = useMemo(
     () => assignReplacementLogos(scenes, newLogos, settings.randomAssignLogos, randomSeed, manualLogoAssignments),
     [scenes, newLogos, settings.randomAssignLogos, randomSeed, manualLogoAssignments],
@@ -210,7 +207,7 @@ export default function LogoReplaceComposer({
         customLogoColor: currentSettings.customLogoColor,
         promptOverride: currentSettings.customizeReplacementPrompt && currentSettings.replacementPrompt.trim()
           ? currentSettings.replacementPrompt.trim()
-          : buildLogoReplacementInstruction({ hasOldLogo: Boolean(oldLogoRef.current), logoColorMode: currentSettings.logoColorMode, customLogoColor: currentSettings.customLogoColor, logoEffect: currentSettings.logoEffect, woodEngravingStyle: currentSettings.woodEngravingStyle, customWoodEngravingMethod: currentSettings.customWoodEngravingMethod, customEngravingObject: currentSettings.customEngravingObject, engravingMethod: currentSettings.engravingMethod }),
+          : buildLogoReplacementInstruction({ hasOldLogo: Boolean(oldLogoRef.current), logoColorMode: currentSettings.logoColorMode, customLogoColor: currentSettings.customLogoColor, glassEngravingEnabled: currentSettings.glassEngravingEnabled, woodEngravingEnabled: currentSettings.woodEngravingEnabled, customEngravingEnabled: currentSettings.customEngravingEnabled, woodEngravingStyle: currentSettings.woodEngravingStyle, customWoodEngravingMethod: currentSettings.customWoodEngravingMethod, customEngravingObject: currentSettings.customEngravingObject, engravingMethod: currentSettings.engravingMethod }),
         aspectRatio: currentSettings.ratioMode === 'fixed' ? currentSettings.aspectRatio : undefined,
         imageSize: currentSettings.imageSize,
         signal: controller.signal,
@@ -286,26 +283,26 @@ export default function LogoReplaceComposer({
           ]} />
           {settings.logoColorMode === 'custom' && <Flex gap={8} align="center" style={{ marginTop: 10 }}><ColorPicker value={settings.customLogoColor} onChange={(_, hex) => patchSettings({ customLogoColor: hex })} /><Text code>{settings.customLogoColor}</Text></Flex>}
         </Form.Item>
-        <Form.Item label="Logo 呈现工艺">
-          <Select value={settings.logoEffect} onChange={(logoEffect) => patchSettings({ logoEffect })} options={[
-            { value: 'glass-engrave', label: '玻璃激光磨砂雕刻（默认）' },
-            { value: 'wood-engrave', label: '木盒雕刻' },
-            { value: 'custom-engrave', label: '自定义物体雕刻' },
-            { value: 'natural', label: '保持原工艺' },
-            { value: 'print', label: '表面印刷' },
-          ]} />
-          {settings.logoEffect === 'glass-engrave' && <Alert style={{ marginTop: 10 }} type="info" showIcon title="玻璃默认使用激光磨砂雕刻" description="呈半透明乳白或雾化蚀刻质感，并保留玻璃的透光、折射和曲面效果。" />}
-          {settings.logoEffect === 'wood-engrave' && <>
+        <Form.Item label="玻璃 Logo 工艺">
+          <Flex justify="space-between" align="center"><Text>玻璃激光磨砂雕刻</Text><Switch checked={settings.glassEngravingEnabled} onChange={(glassEngravingEnabled) => patchSettings({ glassEngravingEnabled })} /></Flex>
+          <Text type="secondary" className="field-help">默认开启。仅在 Logo 位于玻璃载体时生效，呈半透明乳白或雾化蚀刻质感，并保留透光、折射和曲面效果。</Text>
+        </Form.Item>
+        <Form.Item label="木盒 Logo 工艺">
+          <Flex justify="space-between" align="center"><Text>启用木盒独立雕刻</Text><Switch checked={settings.woodEngravingEnabled} onChange={(woodEngravingEnabled) => patchSettings({ woodEngravingEnabled })} /></Flex>
+          {settings.woodEngravingEnabled && <>
             <Select style={{ marginTop: 10 }} value={settings.woodEngravingStyle} onChange={(woodEngravingStyle) => patchSettings({ woodEngravingStyle })} options={[
               { value: 'dark-burn', label: '深色激光烧蚀（深黑高对比）' },
               { value: 'natural-recessed', label: '原木浅雕 / 凹刻（同色低对比）' },
               { value: 'custom', label: '自定义木盒雕刻方式' },
             ]} />
-            {settings.woodEngravingStyle === 'dark-burn' && <Text type="secondary" className="field-help">类似深色烧蚀填充效果：图案呈深棕至黑色，边缘清晰，同时保留木纹和自然焦痕。</Text>}
-            {settings.woodEngravingStyle === 'natural-recessed' && <Text type="secondary" className="field-help">类似原木同色浅雕效果：不做黑色填充，通过浅凹槽、切削纹理和自然阴影显示 Logo。</Text>}
+            {settings.woodEngravingStyle === 'dark-burn' && <Text type="secondary" className="field-help">图案呈深棕至黑色，边缘清晰，同时保留木纹和自然焦痕。</Text>}
+            {settings.woodEngravingStyle === 'natural-recessed' && <Text type="secondary" className="field-help">不做黑色填充，通过浅凹槽、切削纹理和自然阴影显示 Logo。</Text>}
             {settings.woodEngravingStyle === 'custom' && <Input.TextArea style={{ marginTop: 10 }} value={settings.customWoodEngravingMethod} placeholder="输入木盒雕刻方式、深浅、颜色和表面效果" autoSize={{ minRows: 2, maxRows: 4 }} onChange={(event) => patchSettings({ customWoodEngravingMethod: event.target.value })} />}
           </>}
-          {settings.logoEffect === 'custom-engrave' && <>
+        </Form.Item>
+        <Form.Item label="自定义物体 Logo 工艺">
+          <Flex justify="space-between" align="center"><Text>启用自定义载体雕刻</Text><Switch checked={settings.customEngravingEnabled} onChange={(customEngravingEnabled) => patchSettings({ customEngravingEnabled })} /></Flex>
+          {settings.customEngravingEnabled && <>
             <Input style={{ marginTop: 10 }} value={settings.customEngravingObject} placeholder="输入雕刻载体，例如：深蓝色皮革盒" onChange={(event) => patchSettings({ customEngravingObject: event.target.value })} />
             <Input.TextArea style={{ marginTop: 10 }} value={settings.engravingMethod} placeholder="输入具体雕刻方式、颜色、深浅和材质效果" autoSize={{ minRows: 2, maxRows: 4 }} onChange={(event) => patchSettings({ engravingMethod: event.target.value })} />
           </>}

@@ -61,9 +61,9 @@ describe('Logo 替换指令', () => {
 
   it('区分木盒深色烧蚀并保护 Logo 小字字形', () => {
     const instruction = buildLogoReplacementInstruction({
-      hasOldLogo: true, logoColorMode: 'white', logoEffect: 'wood-engrave', woodEngravingStyle: 'dark-burn',
+      hasOldLogo: true, logoColorMode: 'white', woodEngravingEnabled: true, woodEngravingStyle: 'dark-burn',
     });
-    expect(instruction).toContain('场景中的木盒');
+    expect(instruction).toContain('旧 Logo 位于木盒');
     expect(instruction).toContain('深色激光烧蚀雕刻');
     expect(instruction).toContain('深棕至黑色');
     expect(instruction).toContain('严禁对 Logo 执行 OCR');
@@ -72,18 +72,20 @@ describe('Logo 替换指令', () => {
   });
 
   it('支持木盒原木同色浅雕和自定义方式', () => {
-    const natural = buildLogoReplacementInstruction({ hasOldLogo: false, logoColorMode: 'original', logoEffect: 'wood-engrave', woodEngravingStyle: 'natural-recessed' });
+    const natural = buildLogoReplacementInstruction({ hasOldLogo: false, logoColorMode: 'original', woodEngravingEnabled: true, woodEngravingStyle: 'natural-recessed' });
     expect(natural).toContain('原木同色浅雕或凹刻');
     expect(natural).toContain('不做黑色填充');
-    const custom = buildLogoReplacementInstruction({ hasOldLogo: false, logoColorMode: 'original', logoEffect: 'wood-engrave', woodEngravingStyle: 'custom', customWoodEngravingMethod: '浅金色精细线雕' });
+    const custom = buildLogoReplacementInstruction({ hasOldLogo: false, logoColorMode: 'original', woodEngravingEnabled: true, woodEngravingStyle: 'custom', customWoodEngravingMethod: '浅金色精细线雕' });
     expect(custom).toContain('浅金色精细线雕');
   });
 
   it('玻璃默认使用激光磨砂雕刻并支持其他自定义载体', () => {
-    const glass = buildLogoReplacementInstruction({ hasOldLogo: false, logoColorMode: 'original', logoEffect: 'glass-engrave' });
+    const glass = buildLogoReplacementInstruction({ hasOldLogo: false, logoColorMode: 'original', glassEngravingEnabled: true, woodEngravingEnabled: true });
     expect(glass).toContain('玻璃激光磨砂雕刻');
     expect(glass).toContain('半透明乳白或雾化蚀刻');
-    const custom = buildLogoReplacementInstruction({ hasOldLogo: false, logoColorMode: 'original', logoEffect: 'custom-engrave', customEngravingObject: '深蓝色皮革盒', engravingMethod: '低温压凹' });
+    expect(glass).toContain('木盒工艺雕刻');
+    expect(glass).toContain('可在同一张场景图中同时生效');
+    const custom = buildLogoReplacementInstruction({ hasOldLogo: false, logoColorMode: 'original', customEngravingEnabled: true, customEngravingObject: '深蓝色皮革盒', engravingMethod: '低温压凹' });
     expect(custom).toContain('深蓝色皮革盒');
     expect(custom).toContain('低温压凹');
   });
