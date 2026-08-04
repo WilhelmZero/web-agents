@@ -169,12 +169,14 @@ export interface LogoReplaceSettings {
   copiesPerScene: number;
   logoColorMode: 'original' | 'white' | 'black' | 'custom';
   customLogoColor: string;
+  randomAssignLogos: boolean;
 }
 
 export interface LogoReplaceTask {
   id: string;
   sceneId: string;
   sceneIndex: number;
+  newLogoId: string;
   copyIndex: number;
   status: TaskStatus;
   resultBlob?: Blob;

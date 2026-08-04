@@ -43,6 +43,7 @@ export const DEFAULT_LOGO_REPLACE_SETTINGS = {
   copiesPerScene: 1,
   logoColorMode: 'original',
   customLogoColor: '#ffffff',
+  randomAssignLogos: false,
 } as const;
 export const DEFAULT_INPAINT_SETTINGS = {
   imageModel: 'gemini-3.1-flash-image',

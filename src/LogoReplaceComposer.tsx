@@ -28,6 +28,7 @@ import {
   Select,
   Space,
   Statistic,
+  Switch,
   Tag,
   Typography,
   Upload,
@@ -38,6 +39,7 @@ import { createPortal } from 'react-dom';
 import { DEFAULT_LOGO_REPLACE_SETTINGS, MODEL_CAPABILITIES, PRICING, STORAGE_KEYS } from './constants';
 import GeneratingImage from './GeneratingImage';
 import { generateLogoReplacement } from './services/gemini';
+import { assignReplacementLogos, buildLogoReplaceTasks } from './services/logoReplaceUtils';
 import { readLocalStorage } from './storage';
 import type { LogoAsset, LogoReplaceSettings, LogoReplaceTask } from './types';
 import { createId, downloadBlob, estimateImageCost, mimeExtension, normalizeSettingsForModel, sanitizeFileName } from './utils';
@@ -80,21 +82,23 @@ export default function LogoReplaceComposer({
   }));
   const [scenes, setScenes] = useState<LogoAsset[]>([]);
   const [oldLogo, setOldLogo] = useState<LogoAsset>();
-  const [newLogo, setNewLogo] = useState<LogoAsset>();
+  const [newLogos, setNewLogos] = useState<LogoAsset[]>([]);
+  const [randomSeed, setRandomSeed] = useState(() => createId());
+  const [compareOriginalIds, setCompareOriginalIds] = useState<Set<string>>(() => new Set());
   const [tasks, setTasks] = useState<LogoReplaceTask[]>([]);
   const runningIds = useRef(new Set<string>());
   const aborters = useRef(new Map<string, AbortController>());
   const scenesRef = useRef(scenes);
   const oldLogoRef = useRef(oldLogo);
-  const newLogoRef = useRef(newLogo);
+  const newLogosRef = useRef(newLogos);
   const settingsRef = useRef(settings);
 
   useEffect(() => { scenesRef.current = scenes; }, [scenes]);
   useEffect(() => { oldLogoRef.current = oldLogo; }, [oldLogo]);
-  useEffect(() => { newLogoRef.current = newLogo; }, [newLogo]);
+  useEffect(() => { newLogosRef.current = newLogos; }, [newLogos]);
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => localStorage.setItem(STORAGE_KEYS.logoReplaceSettings, JSON.stringify(settings)), [settings]);
-  useEffect(() => onSessionStateChange?.(Boolean(scenes.length || oldLogo || newLogo || tasks.length)), [scenes.length, oldLogo, newLogo, tasks.length, onSessionStateChange]);
+  useEffect(() => onSessionStateChange?.(Boolean(scenes.length || oldLogo || newLogos.length || tasks.length)), [scenes.length, oldLogo, newLogos.length, tasks.length, onSessionStateChange]);
 
   const validateFile = (file: File) => {
     if (!ACCEPTED_TYPES.includes(file.type)) return void message.error(`${file.name}：仅支持 PNG、JPEG、WebP`);
@@ -108,6 +112,7 @@ export default function LogoReplaceComposer({
       current.forEach((task) => task.resultUrl && URL.revokeObjectURL(task.resultUrl));
       return [];
     });
+    setCompareOriginalIds(new Set());
   };
   const addScenes = (files: File[]) => {
     const assets = files.filter((file) => validateFile(file) === true).map(makeAsset);
@@ -125,18 +130,32 @@ export default function LogoReplaceComposer({
       return current.filter((item) => item.id !== id);
     });
   };
-  const setSingleAsset = (kind: 'old' | 'new', file: File) => {
+  const setOldLogoAsset = (file: File) => {
     if (validateFile(file) !== true) return false;
     resetTasks();
     const next = makeAsset(file);
-    if (kind === 'old') setOldLogo((current) => { if (current) URL.revokeObjectURL(current.previewUrl); return next; });
-    else setNewLogo((current) => { if (current) URL.revokeObjectURL(current.previewUrl); return next; });
+    setOldLogo((current) => { if (current) URL.revokeObjectURL(current.previewUrl); return next; });
     return false;
   };
-  const clearSingleAsset = (kind: 'old' | 'new') => {
+  const clearOldLogo = () => {
     resetTasks();
-    if (kind === 'old') setOldLogo((current) => { if (current) URL.revokeObjectURL(current.previewUrl); return undefined; });
-    else setNewLogo((current) => { if (current) URL.revokeObjectURL(current.previewUrl); return undefined; });
+    setOldLogo((current) => { if (current) URL.revokeObjectURL(current.previewUrl); return undefined; });
+  };
+  const addNewLogos = (files: File[]) => {
+    const assets = files.filter((file) => validateFile(file) === true).map(makeAsset);
+    if (assets.length) {
+      resetTasks();
+      setNewLogos((current) => [...current, ...assets]);
+    }
+    return false;
+  };
+  const removeNewLogo = (id: string) => {
+    resetTasks();
+    setNewLogos((current) => {
+      const target = current.find((item) => item.id === id);
+      if (target) URL.revokeObjectURL(target.previewUrl);
+      return current.filter((item) => item.id !== id);
+    });
   };
   const patchSettings = (patch: Partial<LogoReplaceSettings>) => setSettings((current) => {
     const next = { ...current, ...patch };
@@ -144,10 +163,15 @@ export default function LogoReplaceComposer({
     return next;
   });
 
+  const pairings = useMemo(
+    () => assignReplacementLogos(scenes, newLogos, settings.randomAssignLogos, randomSeed),
+    [scenes, newLogos, settings.randomAssignLogos, randomSeed],
+  );
+
   const executeTask = useCallback(async (task: LogoReplaceTask) => {
     if (runningIds.current.has(task.id)) return;
     const scene = scenesRef.current.find((item) => item.id === task.sceneId);
-    const replacement = newLogoRef.current;
+    const replacement = newLogosRef.current.find((item) => item.id === task.newLogoId);
     if (!scene || !replacement) return;
     runningIds.current.add(task.id);
     const controller = new AbortController();
@@ -188,11 +212,12 @@ export default function LogoReplaceComposer({
     if (!apiKey) return onRequestKey();
     if (connectionMode === 'proxy' && !apiBaseUrl) { message.warning('请先配置代理地址'); return onRequestKey(); }
     if (!scenes.length) return void message.warning('请至少上传一张已贴 Logo 的场景图');
-    if (!newLogo) return void message.warning('请上传新 Logo');
+    if (!newLogos.length) return void message.warning('请至少上传一个新 Logo');
+    if (!settings.randomAssignLogos && scenes.length !== newLogos.length) return void message.warning('未开启随机分配时，场景图与新 Logo 数量必须一致');
+    if (pairings.some((pairing) => !pairing.logo)) return void message.warning('存在尚未匹配新 Logo 的场景图');
     resetTasks();
-    setTasks(scenes.flatMap((scene, sceneIndex) => Array.from({ length: settings.copiesPerScene }, (_, copyIndex) => ({
-      id: createId(), sceneId: scene.id, sceneIndex, copyIndex, status: 'waiting' as const, retryCount: 0,
-    }))));
+    setCompareOriginalIds(new Set());
+    setTasks(buildLogoReplaceTasks(pairings, settings.copiesPerScene));
   };
   const stop = () => {
     aborters.current.forEach((controller) => controller.abort());
@@ -228,6 +253,10 @@ export default function LogoReplaceComposer({
     <div className="settings-panel logo-replace-settings-panel">
       <Flex justify="space-between"><Title level={4} style={{ margin: 0 }}>替换设置</Title><Tag color="cyan">REPLACE</Tag></Flex>
       <Form layout="vertical" style={{ marginTop: 20 }}>
+        <Form.Item label="Logo 分配方式">
+          <Flex justify="space-between" align="center"><Text>随机分配新 Logo</Text><Switch checked={settings.randomAssignLogos} onChange={(randomAssignLogos) => { patchSettings({ randomAssignLogos }); resetTasks(); }} /></Flex>
+          <Text type="secondary" className="field-help">关闭时场景图与新 Logo 必须数量一致并按顺序配对；开启后允许数量不同。</Text>
+        </Form.Item>
         <Form.Item label="新 Logo 颜色">
           <Select value={settings.logoColorMode} onChange={(logoColorMode) => patchSettings({ logoColorMode })} options={[
             { value: 'original', label: '保持原色' }, { value: 'white', label: '白色' }, { value: 'black', label: '黑色' }, { value: 'custom', label: '自定义颜色' },
@@ -247,12 +276,11 @@ export default function LogoReplaceComposer({
     </div>
   );
 
-  const singleLogoCard = (kind: 'old' | 'new', asset?: LogoAsset) => (
+  const oldLogoCard = (
     <div className="replace-logo-slot">
-      {asset ? <><Image src={asset.previewUrl} alt={kind === 'old' ? '旧 Logo' : '新 Logo'} /><Space><Upload showUploadList={false} accept={ACCEPTED_TYPES.join(',')} beforeUpload={(file) => setSingleAsset(kind, file as File)}><Button size="small" icon={<ReloadOutlined />}>替换</Button></Upload><Button size="small" danger icon={<DeleteOutlined />} onClick={() => clearSingleAsset(kind)}>删除</Button></Space></> : <Upload.Dragger showUploadList={false} accept={ACCEPTED_TYPES.join(',')} beforeUpload={(file) => setSingleAsset(kind, file as File)}><p className="ant-upload-drag-icon"><PlusOutlined /></p><p className="ant-upload-text">{kind === 'old' ? '上传旧 Logo（选填）' : '上传新 Logo'}</p><p className="ant-upload-hint">PNG / JPEG / WebP</p></Upload.Dragger>}
+      {oldLogo ? <><Image src={oldLogo.previewUrl} alt="旧 Logo" /><Space><Upload showUploadList={false} accept={ACCEPTED_TYPES.join(',')} beforeUpload={(file) => setOldLogoAsset(file as File)}><Button size="small" icon={<ReloadOutlined />}>替换</Button></Upload><Button size="small" danger icon={<DeleteOutlined />} onClick={clearOldLogo}>删除</Button></Space></> : <Upload.Dragger showUploadList={false} accept={ACCEPTED_TYPES.join(',')} beforeUpload={(file) => setOldLogoAsset(file as File)}><p className="ant-upload-drag-icon"><PlusOutlined /></p><p className="ant-upload-text">上传旧 Logo（选填）</p><p className="ant-upload-hint">PNG / JPEG / WebP</p></Upload.Dragger>}
     </div>
   );
-
   return (
     <div className="logo-replace-page">
       <section className="hero-strip logo-replace-hero"><div><Text className="eyebrow">LOGO REPLACER</Text><Title level={2}>批量替换场景中的品牌 Logo</Title><Paragraph className="hero-description">识别场景中的旧 Logo 并替换为新 Logo，其他内容严格保持不变。</Paragraph></div><div className="hero-orb" /></section>
@@ -262,11 +290,21 @@ export default function LogoReplaceComposer({
       </Card>
       <Card className="workflow-card" title={<Space><span className="step-badge">2</span><span>设置旧 Logo 与新 Logo</span></Space>}>
         <Alert type="info" showIcon title="旧 Logo 可不上传" description="上传旧 Logo 能帮助 AI 更准确识别需要替换的标识；新 Logo 必须上传。" style={{ marginBottom: 16 }} />
-        <div className="replace-logo-grid"><Card size="small" title="旧 Logo（选填）">{singleLogoCard('old', oldLogo)}</Card><div className="replace-arrow"><SwapOutlined /></div><Card size="small" title="新 Logo（必填）">{singleLogoCard('new', newLogo)}</Card></div>
+        <div className="replace-logo-grid">
+          <Card size="small" title="旧 Logo（选填）">{oldLogoCard}</Card>
+          <div className="replace-arrow"><SwapOutlined /></div>
+          <Card size="small" title="新 Logo（可多选）">
+            {!newLogos.length ? <Upload.Dragger multiple showUploadList={false} accept={ACCEPTED_TYPES.join(',')} beforeUpload={(file) => addNewLogos([file as File])}><p className="ant-upload-drag-icon"><PlusOutlined /></p><p className="ant-upload-text">上传一个或多个新 Logo</p><p className="ant-upload-hint">PNG / JPEG / WebP</p></Upload.Dragger> : <Image.PreviewGroup><div className="replace-new-logo-grid">{newLogos.map((logo) => <div className="replace-new-logo-card" key={logo.id}><Image src={logo.previewUrl} alt="新 Logo" /><Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => removeNewLogo(logo.id)}>删除</Button></div>)}<Upload multiple showUploadList={false} accept={ACCEPTED_TYPES.join(',')} beforeUpload={(file) => addNewLogos([file as File])}><button type="button" className="replace-logo-add"><PlusOutlined /><span>添加 Logo</span></button></Upload></div></Image.PreviewGroup>}
+          </Card>
+        </div>
+        {!!scenes.length && !!newLogos.length && <Card size="small" className="replace-pair-preview" title="场景与新 Logo 配对预览" extra={settings.randomAssignLogos && <Button size="small" icon={<ReloadOutlined />} onClick={() => { setRandomSeed(createId()); resetTasks(); }}>重新随机</Button>}>
+          {!settings.randomAssignLogos && scenes.length !== newLogos.length && <Alert type="error" showIcon title="数量不一致" description="关闭随机分配时，场景图与新 Logo 数量必须相同。" style={{ marginBottom: 12 }} />}
+          <div className="replace-pair-preview-grid">{pairings.map(({ scene, logo }, index) => <div className="replace-pair-preview-item" key={scene.id}><Image src={scene.previewUrl} alt={`场景 ${index + 1}`} /><SwapOutlined /><div className="pair-logo-box">{logo ? <Image src={logo.previewUrl} alt={`新 Logo ${index + 1}`} /> : <Text type="danger">未匹配</Text>}</div><Text type="secondary">第 {index + 1} 组</Text></div>)}</div>
+        </Card>}
       </Card>
       <Card className="action-card"><Flex justify="space-between" align="center" gap={16} wrap><div><Title level={4} style={{ margin: 0 }}>准备替换 {taskCount} 张图片</Title><Text type="secondary">{scenes.length} 张场景图 × 每张 {settings.copiesPerScene} 个结果</Text></div><Space>{processing && <Button danger icon={<StopOutlined />} onClick={stop}>停止任务</Button>}<Button type="primary" size="large" icon={<RocketOutlined />} loading={processing} onClick={start}>{processing ? '正在替换' : '开始替换'}</Button></Space></Flex>{!!tasks.length && <Progress style={{ marginTop: 18 }} percent={Math.round((completed / tasks.length) * 100)} status={processing ? 'active' : successful.length ? 'success' : 'exception'} />}</Card>
       <section className="results-section"><Flex justify="space-between" align="center" gap={8} wrap><div><Title level={3}>替换结果</Title><Text type="secondary">每个结果仅改变 Logo</Text></div><Space><Popconfirm title="清空全部替换结果？" onConfirm={clearResults}><Button danger disabled={!tasks.length} icon={<ClearOutlined />}>清空结果</Button></Popconfirm><Button disabled={!successful.length} icon={<DownloadOutlined />} onClick={() => void downloadAll()}>下载全部 ZIP</Button></Space></Flex>
-        {tasks.length ? <Image.PreviewGroup><div className="logo-replace-results">{groups.flatMap((group) => group.tasks.map((task) => <Card key={task.id} size="small" title={`场景 ${task.sceneIndex + 1} · 结果 ${task.copyIndex + 1}`} extra={task.resultBlob && <Button type="text" icon={<DownloadOutlined />} onClick={() => downloadTask(task)} />}><div className="replace-result-image">{task.resultUrl ? <Image src={task.resultUrl} alt="Logo 替换结果" /> : task.status === 'running' ? <GeneratingImage progressKey={task.id} status="running" percent={1} /> : <div className={`task-state-card is-${task.status}`}><Text strong type={task.status === 'failed' ? 'danger' : 'secondary'}>{statusText(task.status)}</Text><Text type="secondary">{task.error || (task.status === 'waiting' ? '等待可用并发任务' : '')}</Text></div>}</div><Flex justify="space-between" align="center" style={{ marginTop: 8 }}><Tag color={task.status === 'success' ? 'success' : task.status === 'failed' ? 'error' : task.status === 'running' ? 'processing' : 'default'}>{statusText(task.status)}</Tag>{task.status === 'failed' && <Button size="small" icon={<ReloadOutlined />} onClick={() => retry(task.id)}>重试</Button>}</Flex></Card>))}</div></Image.PreviewGroup> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="完成上传并开始替换后，结果会显示在这里" />}
+        {tasks.length ? <Image.PreviewGroup><div className="logo-replace-results">{groups.flatMap((group) => group.tasks.map((task) => <Card key={task.id} size="small" title={`场景 ${task.sceneIndex + 1} · 结果 ${task.copyIndex + 1}`} extra={task.resultBlob && <Button type="text" icon={<DownloadOutlined />} onClick={() => downloadTask(task)} />}><div className="replace-result-image">{task.resultUrl ? <Image src={compareOriginalIds.has(task.id) ? group.scene.previewUrl : task.resultUrl} alt={compareOriginalIds.has(task.id) ? "原始场景图" : "Logo 替换结果"} /> : task.status === 'running' ? <GeneratingImage progressKey={task.id} status="running" percent={1} /> : <div className={`task-state-card is-${task.status}`}><Text strong type={task.status === 'failed' ? 'danger' : 'secondary'}>{statusText(task.status)}</Text><Text type="secondary">{task.error || (task.status === 'waiting' ? '等待可用并发任务' : '')}</Text></div>}</div><Flex justify="space-between" align="center" gap={8} style={{ marginTop: 8 }}><Space size={6}><Tag color={task.status === 'success' ? 'success' : task.status === 'failed' ? 'error' : task.status === 'running' ? 'processing' : 'default'}>{statusText(task.status)}</Tag>{task.resultUrl && <Button size="small" icon={<EyeOutlined />} onClick={() => setCompareOriginalIds((current) => { const next = new Set(current); if (next.has(task.id)) next.delete(task.id); else next.add(task.id); return next; })}>{compareOriginalIds.has(task.id) ? '查看生成图' : '原图对比'}</Button>}</Space>{task.status === 'failed' && <Button size="small" icon={<ReloadOutlined />} onClick={() => retry(task.id)}>重试</Button>}</Flex></Card>))}</div></Image.PreviewGroup> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="完成上传并开始替换后，结果会显示在这里" />}
       </section>
       <Alert type="warning" showIcon title="生成式替换提示" description="模型会尽量保持其他区域不变，但生成式图片接口不能保证像素级完全一致；旧 Logo 参考图有助于提高识别准确率。" />
       {!settingsHost && <aside className="logo-settings">{settingsPanel}</aside>}
