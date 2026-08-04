@@ -296,6 +296,7 @@ export function buildLogoReplacementInstruction(options: {
   hasOldLogo: boolean;
   logoColorMode: 'original' | 'white' | 'black' | 'custom';
   customLogoColor?: string;
+  engravingMode?: 'auto' | 'custom';
   glassEngravingEnabled?: boolean;
   woodEngravingEnabled?: boolean;
   customEngravingEnabled?: boolean;
@@ -305,7 +306,8 @@ export function buildLogoReplacementInstruction(options: {
   customEngravingObject?: string;
   engravingMethod?: string;
 }): string {
-  const hasEngraving = Boolean(options.glassEngravingEnabled || options.woodEngravingEnabled || options.customEngravingEnabled);
+  const automaticEngraving = options.engravingMode === 'auto';
+  const hasEngraving = automaticEngraving || Boolean(options.glassEngravingEnabled || options.woodEngravingEnabled || options.customEngravingEnabled);
   const colorInstruction = hasEngraving
     ? '雕刻颜色必须由载体材质、局部底色、深度、烧蚀程度、光线和阴影自然形成，不得强制覆盖为不真实的纯色。'
     : options.logoColorMode === 'original'
@@ -342,9 +344,12 @@ export function buildLogoReplacementInstruction(options: {
       ? '若旧 Logo 位于场景中的“' + customObject + '”上，采用指定雕刻方式：' + (customMethod || '根据载体材质自然雕刻') + '。必须服从该载体的颜色、纹理、硬度、反光和凹凸特性。'
       : '',
   ].filter(Boolean);
-  const effectInstruction = engravingInstructions.length
-    ? engravingInstructions.join('') + '必须先识别每个旧 Logo 所在的载体类型，再分别应用匹配的玻璃、木盒或自定义物体工艺；这些工艺可在同一张场景图中同时生效。未匹配上述载体的 Logo 保持原有制作工艺。'
-    : '保持原 Logo 在场景中的现有制作工艺和材质融合方式，只替换 Logo 内容。';  const microTextInstruction = '新 Logo 必须作为完整的不可拆分图形资产进行像素级外观复制，尤其是尺寸很小的文字、字母、数字、标点、细线和负空间。严禁对 Logo 执行 OCR 后重新输入、拼写、翻译、纠错、补字、猜字、改写字体或生成相似字母；不得把任何字符替换为其他字符，不得产生乱码。必须保持参考 Logo 中每个字符的数量、顺序、大小写、字形轮廓、间距、基线、粗细和相对位置完全一致。即使小字无法语义识别，也必须把原始笔画当作图形纹理逐笔保留，而不是解释其文字含义。';
+  const effectInstruction = automaticEngraving
+    ? '自动识别场景中每一个旧 Logo 当前真实采用的制作或雕刻工艺，并将新 Logo 按该位置完全相同的工艺重新制作。必须分别识别每个 Logo 的载体材质、颜色、纹理、雕刻深度、烧蚀颜色、磨砂程度、凹凸、印刷、光泽和边缘效果：木盒上的 Logo 沿用该木盒原有的深色烧蚀、原木浅雕、凹刻或其他木工工艺；玻璃上的 Logo 沿用原有的激光磨砂、透明蚀刻或其他玻璃工艺；其他载体同样沿用各自原工艺。同一张图中的不同 Logo 可以具有多种不同工艺，必须逐个识别、逐个匹配，严禁把一种工艺统一套用到所有 Logo。'
+    : engravingInstructions.length
+      ? engravingInstructions.join('') + '必须先识别每个旧 Logo 所在的载体类型，再分别应用匹配的玻璃、木盒或自定义物体工艺；这些工艺可在同一张场景图中同时生效。未匹配上述载体的 Logo 保持原有制作工艺。'
+      : '保持原 Logo 在场景中的现有制作工艺和材质融合方式，只替换 Logo 内容。';
+  const microTextInstruction = '新 Logo 必须作为完整的不可拆分图形资产进行像素级外观复制，尤其是尺寸很小的文字、字母、数字、标点、细线和负空间。严禁对 Logo 执行 OCR 后重新输入、拼写、翻译、纠错、补字、猜字、改写字体或生成相似字母；不得把任何字符替换为其他字符，不得产生乱码。必须保持参考 Logo 中每个字符的数量、顺序、大小写、字形轮廓、间距、基线、粗细和相对位置完全一致。即使小字无法语义识别，也必须把原始笔画当作图形纹理逐笔保留，而不是解释其文字含义。';
   return `执行严格的 Logo 替换任务。第一张图片是原始场景图，${referenceInstruction}${colorInstruction}${effectInstruction}${microTextInstruction} 只允许改变旧 Logo 覆盖的区域：保持每个 Logo 原有的位置、大小、角度、透视、曲面包裹、遮挡关系和材质融合方式，并用新 Logo 准确替换。若同一场景存在多个旧 Logo，必须全部替换。除 Logo 外，原图所有像素对应内容必须保持不变，包括画幅、构图、裁切、镜头、主体、产品结构、杯体、背景、人物、道具、已有非 Logo 文字、颜色、光线、阴影、反射、折射、景深、噪点和清晰度。不得移动、删除、增加、重绘或重新设计任何非 Logo 内容，不得在原本没有 Logo 的位置新增 Logo。`;
 }
 

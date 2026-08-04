@@ -67,6 +67,7 @@ function buildActualReplacementPrompt(settings: LogoReplaceSettings, hasOldLogo:
     hasOldLogo,
     logoColorMode: settings.logoColorMode,
     customLogoColor: settings.customLogoColor,
+    engravingMode: settings.engravingMode,
     glassEngravingEnabled: settings.glassEngravingEnabled,
     woodEngravingEnabled: settings.woodEngravingEnabled,
     customEngravingEnabled: settings.customEngravingEnabled,
@@ -193,6 +194,7 @@ export default function LogoReplaceComposer({
     hasOldLogo: Boolean(oldLogo),
     logoColorMode: settings.logoColorMode,
     customLogoColor: settings.customLogoColor,
+    engravingMode: settings.engravingMode,
     glassEngravingEnabled: settings.glassEngravingEnabled,
     woodEngravingEnabled: settings.woodEngravingEnabled,
     customEngravingEnabled: settings.customEngravingEnabled,
@@ -201,7 +203,7 @@ export default function LogoReplaceComposer({
     customWoodEngravingMethod: settings.customWoodEngravingMethod,
     customEngravingObject: settings.customEngravingObject,
     engravingMethod: settings.engravingMethod,
-  }), [oldLogo, settings.logoColorMode, settings.customLogoColor, settings.glassEngravingEnabled, settings.woodEngravingEnabled, settings.customEngravingEnabled, settings.woodEngravingStyle, settings.woodEngravingDepth, settings.customWoodEngravingMethod, settings.customEngravingObject, settings.engravingMethod]);
+  }), [oldLogo, settings.logoColorMode, settings.customLogoColor, settings.engravingMode, settings.glassEngravingEnabled, settings.woodEngravingEnabled, settings.customEngravingEnabled, settings.woodEngravingStyle, settings.woodEngravingDepth, settings.customWoodEngravingMethod, settings.customEngravingObject, settings.engravingMethod]);
   const actualReplacementPrompt = useMemo(
     () => buildActualReplacementPrompt(settings, Boolean(oldLogo)),
     [settings, oldLogo],
@@ -306,34 +308,43 @@ export default function LogoReplaceComposer({
           ]} />
           {settings.logoColorMode === 'custom' && <Flex gap={8} align="center" style={{ marginTop: 10 }}><ColorPicker value={settings.customLogoColor} onChange={(_, hex) => patchSettings({ customLogoColor: hex })} /><Text code>{settings.customLogoColor}</Text></Flex>}
         </Form.Item>
-        <Form.Item label="玻璃 Logo 工艺">
-          <Flex justify="space-between" align="center"><Text>玻璃激光磨砂雕刻</Text><Switch checked={settings.glassEngravingEnabled} onChange={(glassEngravingEnabled) => patchSettings({ glassEngravingEnabled })} /></Flex>
-          <Text type="secondary" className="field-help">默认开启。仅在 Logo 位于玻璃载体时生效，呈半透明乳白或雾化蚀刻质感，并保留透光、折射和曲面效果。</Text>
-        </Form.Item>
-        <Form.Item label="木盒 Logo 工艺">
-          <Flex justify="space-between" align="center"><Text>启用木盒独立雕刻</Text><Switch checked={settings.woodEngravingEnabled} onChange={(woodEngravingEnabled) => patchSettings({ woodEngravingEnabled })} /></Flex>
-          {settings.woodEngravingEnabled && <>
-            <Select style={{ marginTop: 10 }} value={settings.woodEngravingStyle} onChange={(woodEngravingStyle) => patchSettings({ woodEngravingStyle })} options={[
-              { value: 'auto', label: '自动识别木盒颜色（推荐）' },
-              { value: 'dark-burn', label: '深色激光烧蚀（深黑高对比）' },
-              { value: 'natural-recessed', label: '原木浅雕 / 凹刻（同色低对比）' },
-              { value: 'custom', label: '自定义木盒雕刻方式' },
-            ]} />
-            {settings.woodEngravingStyle === 'auto' && <Text type="secondary" className="field-help">逐个识别木盒底色：深色木盒使用深色激光烧蚀，浅色木盒使用原木浅雕 / 凹刻。</Text>}
-            {settings.woodEngravingStyle === 'dark-burn' && <Text type="secondary" className="field-help">图案呈深棕至炭黑色，边缘清晰，同时保留木纹和自然焦痕。</Text>}
-            {settings.woodEngravingStyle === 'natural-recessed' && <Text type="secondary" className="field-help">颜色接近原木，不做黑色填充，通过极浅凹槽、切削纹理和自然阴影显示 Logo。</Text>}
-            {(settings.woodEngravingStyle === 'natural-recessed' || settings.woodEngravingStyle === 'auto') && <div style={{ marginTop: 10 }}>
-              <Flex justify="space-between"><Text>原木浅雕深浅</Text><Text code>{settings.woodEngravingDepth}%</Text></Flex>
-              <Slider min={0} max={100} value={settings.woodEngravingDepth} onChange={(woodEngravingDepth) => patchSettings({ woodEngravingDepth })} marks={{ 0: '极浅', 50: '中等', 100: '较深' }} />
-            </div>}
-            {settings.woodEngravingStyle === 'custom' && <Input.TextArea style={{ marginTop: 10 }} value={settings.customWoodEngravingMethod} placeholder="输入木盒雕刻方式、深浅、颜色和表面效果" autoSize={{ minRows: 2, maxRows: 4 }} onChange={(event) => patchSettings({ customWoodEngravingMethod: event.target.value })} />}
-          </>}
-        </Form.Item>        <Form.Item label="自定义物体 Logo 工艺">
-          <Flex justify="space-between" align="center"><Text>启用自定义载体雕刻</Text><Switch checked={settings.customEngravingEnabled} onChange={(customEngravingEnabled) => patchSettings({ customEngravingEnabled })} /></Flex>
-          {settings.customEngravingEnabled && <>
-            <Input style={{ marginTop: 10 }} value={settings.customEngravingObject} placeholder="输入雕刻载体，例如：深蓝色皮革盒" onChange={(event) => patchSettings({ customEngravingObject: event.target.value })} />
-            <Input.TextArea style={{ marginTop: 10 }} value={settings.engravingMethod} placeholder="输入具体雕刻方式、颜色、深浅和材质效果" autoSize={{ minRows: 2, maxRows: 4 }} onChange={(event) => patchSettings({ engravingMethod: event.target.value })} />
-          </>}
+        <Form.Item label="雕刻工艺">
+          <Segmented block value={settings.engravingMode} onChange={(engravingMode) => patchSettings({ engravingMode: engravingMode as LogoReplaceSettings['engravingMode'] })} options={[
+            { value: 'auto', label: '自动识别图片工艺' },
+            { value: 'custom', label: '自定义雕刻工艺' },
+          ]} />
+          {settings.engravingMode === 'auto' ? <Alert style={{ marginTop: 12 }} type="info" showIcon title="逐个 Logo 自动识别并沿用原工艺" description="AI 会分别识别每个 Logo 所在载体和原有雕刻方式：木盒沿用木盒原工艺，玻璃沿用玻璃原工艺；同一张图中的多种不同工艺会逐个匹配，不会统一套用。" /> : <Space direction="vertical" size={12} style={{ width: '100%', marginTop: 12 }}>
+            <Card size="small" title="玻璃 Logo 工艺">
+              <Flex justify="space-between" align="center"><Text>玻璃激光磨砂雕刻</Text><Switch checked={settings.glassEngravingEnabled} onChange={(glassEngravingEnabled) => patchSettings({ glassEngravingEnabled })} /></Flex>
+              <Text type="secondary" className="field-help">仅在 Logo 位于玻璃载体时生效，呈半透明乳白或雾化蚀刻质感，并保留透光、折射和曲面效果。</Text>
+            </Card>
+            <Card size="small" title="木盒 Logo 工艺">
+              <Flex justify="space-between" align="center"><Text>启用木盒独立雕刻</Text><Switch checked={settings.woodEngravingEnabled} onChange={(woodEngravingEnabled) => patchSettings({ woodEngravingEnabled })} /></Flex>
+              {settings.woodEngravingEnabled && <>
+                <Select style={{ marginTop: 10 }} value={settings.woodEngravingStyle} onChange={(woodEngravingStyle) => patchSettings({ woodEngravingStyle })} options={[
+                  { value: 'auto', label: '自动识别木盒颜色（推荐）' },
+                  { value: 'dark-burn', label: '深色激光烧蚀（深黑高对比）' },
+                  { value: 'natural-recessed', label: '原木浅雕 / 凹刻（同色低对比）' },
+                  { value: 'custom', label: '自定义木盒雕刻方式' },
+                ]} />
+                {settings.woodEngravingStyle === 'auto' && <Text type="secondary" className="field-help">逐个识别木盒底色：深色木盒使用深色激光烧蚀，浅色木盒使用原木浅雕 / 凹刻。</Text>}
+                {settings.woodEngravingStyle === 'dark-burn' && <Text type="secondary" className="field-help">图案呈深棕至炭黑色，边缘清晰，同时保留木纹和自然焦痕。</Text>}
+                {settings.woodEngravingStyle === 'natural-recessed' && <Text type="secondary" className="field-help">颜色接近原木，不做黑色填充，通过极浅凹槽、切削纹理和自然阴影显示 Logo。</Text>}
+                {(settings.woodEngravingStyle === 'natural-recessed' || settings.woodEngravingStyle === 'auto') && <div style={{ marginTop: 10 }}>
+                  <Flex justify="space-between"><Text>原木浅雕深浅</Text><Text code>{settings.woodEngravingDepth}%</Text></Flex>
+                  <Slider min={0} max={100} value={settings.woodEngravingDepth} onChange={(woodEngravingDepth) => patchSettings({ woodEngravingDepth })} marks={{ 0: '极浅', 50: '中等', 100: '较深' }} />
+                </div>}
+                {settings.woodEngravingStyle === 'custom' && <Input.TextArea style={{ marginTop: 10 }} value={settings.customWoodEngravingMethod} placeholder="输入木盒雕刻方式、深浅、颜色和表面效果" autoSize={{ minRows: 2, maxRows: 4 }} onChange={(event) => patchSettings({ customWoodEngravingMethod: event.target.value })} />}
+              </>}
+            </Card>
+            <Card size="small" title="自定义物体 Logo 工艺">
+              <Flex justify="space-between" align="center"><Text>启用自定义载体雕刻</Text><Switch checked={settings.customEngravingEnabled} onChange={(customEngravingEnabled) => patchSettings({ customEngravingEnabled })} /></Flex>
+              {settings.customEngravingEnabled && <>
+                <Input style={{ marginTop: 10 }} value={settings.customEngravingObject} placeholder="输入雕刻载体，例如：深蓝色皮革盒" onChange={(event) => patchSettings({ customEngravingObject: event.target.value })} />
+                <Input.TextArea style={{ marginTop: 10 }} value={settings.engravingMethod} placeholder="输入具体雕刻方式、颜色、深浅和材质效果" autoSize={{ minRows: 2, maxRows: 4 }} onChange={(event) => patchSettings({ engravingMethod: event.target.value })} />
+              </>}
+            </Card>
+          </Space>}
         </Form.Item>        <Form.Item label="替换提示词">
           <Flex justify="space-between" align="center" style={{ marginBottom: 8 }}>
             <Text>自定义编辑</Text>

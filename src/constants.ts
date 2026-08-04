@@ -44,6 +44,7 @@ export const DEFAULT_LOGO_REPLACE_SETTINGS = {
   copiesPerScene: 1,
   logoColorMode: 'original',
   customLogoColor: '#ffffff',
+  engravingMode: 'auto',
   glassEngravingEnabled: true,
   woodEngravingEnabled: false,
   customEngravingEnabled: false,

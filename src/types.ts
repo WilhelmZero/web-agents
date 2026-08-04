@@ -169,6 +169,7 @@ export interface LogoReplaceSettings {
   copiesPerScene: number;
   logoColorMode: 'original' | 'white' | 'black' | 'custom';
   customLogoColor: string;
+  engravingMode: 'auto' | 'custom';
   glassEngravingEnabled: boolean;
   woodEngravingEnabled: boolean;
   customEngravingEnabled: boolean;

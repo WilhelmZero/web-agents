@@ -59,6 +59,15 @@ describe('Logo 替换指令', () => {
     expect(instruction).toContain('原图所有像素对应内容必须保持不变');
   });
 
+  it('自动模式逐个识别并沿用同一场景中的多种原工艺', () => {
+    const instruction = buildLogoReplacementInstruction({ hasOldLogo: true, logoColorMode: 'white', engravingMode: 'auto' });
+    expect(instruction).toContain('每一个旧 Logo 当前真实采用的制作或雕刻工艺');
+    expect(instruction).toContain('木盒上的 Logo 沿用该木盒原有');
+    expect(instruction).toContain('玻璃上的 Logo 沿用原有');
+    expect(instruction).toContain('多种不同工艺');
+    expect(instruction).toContain('逐个识别、逐个匹配');
+    expect(instruction).not.toContain('将新 Logo 转换为白色');
+  });
   it('区分木盒深色烧蚀并保护 Logo 小字字形', () => {
     const instruction = buildLogoReplacementInstruction({
       hasOldLogo: true, logoColorMode: 'white', woodEngravingEnabled: true, woodEngravingStyle: 'dark-burn',
