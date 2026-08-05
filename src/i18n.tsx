@@ -195,6 +195,8 @@ const translations: Record<string, string> = {
   '接近原木色': 'Near natural wood',
   '最深色': 'Darkest',
   '控制台': 'Console',
+  '全选成功项': 'Select all successful',
+  '下载选中': 'Download selected',
   '请求控制台': 'Request console',
   '清空日志': 'Clear logs',
   '请求中': 'Requesting',

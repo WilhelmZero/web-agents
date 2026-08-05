@@ -15,6 +15,7 @@ import {
   App as AntApp,
   Button,
   Card,
+  Checkbox,
   ColorPicker,
   Empty,
   Flex,
@@ -111,6 +112,7 @@ export default function LogoReplaceComposer({
   const [randomSeed, setRandomSeed] = useState(() => createId());
   const [manualLogoAssignments, setManualLogoAssignments] = useState<Record<string, string>>({});
   const [compareOriginalIds, setCompareOriginalIds] = useState<Set<string>>(() => new Set());
+  const [selectedResultIds, setSelectedResultIds] = useState<Set<string>>(() => new Set());
   const [tasks, setTasks] = useState<LogoReplaceTask[]>([]);
   const runningIds = useRef(new Set<string>());
   const aborters = useRef(new Map<string, AbortController>());
@@ -139,6 +141,7 @@ export default function LogoReplaceComposer({
       return [];
     });
     setCompareOriginalIds(new Set());
+    setSelectedResultIds(new Set());
   };
   const addScenes = (files: File[]) => {
     const assets = files.filter((file) => validateFile(file) === true).map(makeAsset);
@@ -293,6 +296,31 @@ export default function LogoReplaceComposer({
     });
     downloadBlob(await zip.generateAsync({ type: 'blob' }), 'SceneStudio_Logo替换结果.zip');
   };
+  const selectedSuccessful = successful.filter((task) => selectedResultIds.has(task.id));
+  const allSuccessfulSelected = successful.length > 0 && selectedSuccessful.length === successful.length;
+  const toggleResultSelection = (id: string, checked: boolean) => {
+    setSelectedResultIds((current) => {
+      const next = new Set(current);
+      if (checked) next.add(id); else next.delete(id);
+      return next;
+    });
+  };
+  const toggleSelectAllSuccessful = (checked: boolean) => {
+    setSelectedResultIds(checked ? new Set(successful.map((task) => task.id)) : new Set());
+  };
+  const downloadSelected = async () => {
+    if (!selectedSuccessful.length) return;
+    if (selectedSuccessful.length === 1) {
+      downloadTask(selectedSuccessful[0]);
+      return;
+    }
+    const zip = new JSZip();
+    selectedSuccessful.forEach((task) => {
+      const scene = scenes.find((item) => item.id === task.sceneId);
+      if (scene && task.resultBlob) zip.file(fileName(task, scene, settings.imageModel), task.resultBlob);
+    });
+    downloadBlob(await zip.generateAsync({ type: 'blob' }), `SceneStudio_选中的Logo替换结果_${selectedSuccessful.length}张.zip`);
+  };
 
   const settingsPanel = (
     <div className="settings-panel logo-replace-settings-panel">
@@ -395,8 +423,8 @@ export default function LogoReplaceComposer({
         </Card>}
       </Card>
       <Card className="action-card"><Flex justify="space-between" align="center" gap={16} wrap><div><Title level={4} style={{ margin: 0 }}>准备替换 {taskCount} 张图片</Title><Text type="secondary">{scenes.length} 张场景图 × 每张 {settings.copiesPerScene} 个结果</Text></div><Space>{processing && <Button danger icon={<StopOutlined />} onClick={stop}>停止任务</Button>}<Button type="primary" size="large" icon={<RocketOutlined />} loading={processing} onClick={start}>{processing ? '正在替换' : '开始替换'}</Button></Space></Flex>{!!tasks.length && <Progress style={{ marginTop: 18 }} percent={Math.round((completed / tasks.length) * 100)} status={processing ? 'active' : successful.length ? 'success' : 'exception'} />}</Card>
-      <section className="results-section"><Flex justify="space-between" align="center" gap={8} wrap><div><Title level={3}>替换结果</Title><Text type="secondary">每个结果仅改变 Logo</Text></div><Space><Popconfirm title="清空全部替换结果？" onConfirm={clearResults}><Button danger disabled={!tasks.length} icon={<ClearOutlined />}>清空结果</Button></Popconfirm><Button disabled={!successful.length} icon={<DownloadOutlined />} onClick={() => void downloadAll()}>下载全部 ZIP</Button></Space></Flex>
-        {tasks.length ? <Image.PreviewGroup><div className="logo-replace-results">{groups.flatMap((group) => group.tasks.map((task) => <Card key={task.id} size="small" title={`场景 ${task.sceneIndex + 1} · 结果 ${task.copyIndex + 1}`} extra={task.resultBlob && <Button type="text" icon={<DownloadOutlined />} onClick={() => downloadTask(task)} />}><div className="replace-result-image">{task.resultUrl ? <Image src={compareOriginalIds.has(task.id) ? group.scene.previewUrl : task.resultUrl} alt={compareOriginalIds.has(task.id) ? "原始场景图" : "Logo 替换结果"} /> : task.status === 'running' ? <GeneratingImage progressKey={task.id} status="running" percent={1} /> : <div className={`task-state-card is-${task.status}`}><Text strong type={task.status === 'failed' ? 'danger' : 'secondary'}>{statusText(task.status)}</Text><Text type="secondary">{task.error || (task.status === 'waiting' ? '等待可用并发任务' : '')}</Text></div>}</div><Flex justify="space-between" align="center" gap={8} style={{ marginTop: 8 }}><Space size={6}><Tag color={task.status === 'success' ? 'success' : task.status === 'failed' ? 'error' : task.status === 'running' ? 'processing' : 'default'}>{statusText(task.status)}</Tag>{task.resultUrl && <Button size="small" icon={<EyeOutlined />} onClick={() => setCompareOriginalIds((current) => { const next = new Set(current); if (next.has(task.id)) next.delete(task.id); else next.add(task.id); return next; })}>{compareOriginalIds.has(task.id) ? '查看生成图' : '原图对比'}</Button>}</Space>{task.status === 'failed' && <Button size="small" icon={<ReloadOutlined />} onClick={() => retry(task.id)}>重试</Button>}</Flex></Card>))}</div></Image.PreviewGroup> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="完成上传并开始替换后，结果会显示在这里" />}
+      <section className="results-section"><Flex justify="space-between" align="center" gap={8} wrap><div><Title level={3}>替换结果</Title><Text type="secondary">每个结果仅改变 Logo</Text></div><Space wrap>{!!successful.length && <Checkbox checked={allSuccessfulSelected} indeterminate={selectedSuccessful.length > 0 && !allSuccessfulSelected} onChange={(event) => toggleSelectAllSuccessful(event.target.checked)}>全选成功项</Checkbox>}<Button disabled={!selectedSuccessful.length} icon={<DownloadOutlined />} onClick={() => void downloadSelected()}>下载选中{selectedSuccessful.length ? `（${selectedSuccessful.length}）` : ''}</Button><Popconfirm title="清空全部替换结果？" onConfirm={clearResults}><Button danger disabled={!tasks.length} icon={<ClearOutlined />}>清空结果</Button></Popconfirm><Button disabled={!successful.length} icon={<DownloadOutlined />} onClick={() => void downloadAll()}>下载全部 ZIP</Button></Space></Flex>
+        {tasks.length ? <Image.PreviewGroup><div className="logo-replace-results">{groups.flatMap((group) => group.tasks.map((task) => <Card key={task.id} size="small" style={selectedResultIds.has(task.id) ? { borderColor: '#1677ff', boxShadow: '0 0 0 1px #1677ff' } : undefined} title={`场景 ${task.sceneIndex + 1} · 结果 ${task.copyIndex + 1}`} extra={task.resultBlob && <Space size={4}><Checkbox aria-label={`选择场景 ${task.sceneIndex + 1} 结果 ${task.copyIndex + 1}`} checked={selectedResultIds.has(task.id)} onChange={(event) => toggleResultSelection(task.id, event.target.checked)} /><Button type="text" icon={<DownloadOutlined />} onClick={() => downloadTask(task)} /></Space>}><div className="replace-result-image">{task.resultUrl ? <Image src={compareOriginalIds.has(task.id) ? group.scene.previewUrl : task.resultUrl} alt={compareOriginalIds.has(task.id) ? "原始场景图" : "Logo 替换结果"} /> : task.status === 'running' ? <GeneratingImage progressKey={task.id} status="running" percent={1} /> : <div className={`task-state-card is-${task.status}`}><Text strong type={task.status === 'failed' ? 'danger' : 'secondary'}>{statusText(task.status)}</Text><Text type="secondary">{task.error || (task.status === 'waiting' ? '等待可用并发任务' : '')}</Text></div>}</div><Flex justify="space-between" align="center" gap={8} style={{ marginTop: 8 }}><Space size={6}><Tag color={task.status === 'success' ? 'success' : task.status === 'failed' ? 'error' : task.status === 'running' ? 'processing' : 'default'}>{statusText(task.status)}</Tag>{task.resultUrl && <Button size="small" icon={<EyeOutlined />} onClick={() => setCompareOriginalIds((current) => { const next = new Set(current); if (next.has(task.id)) next.delete(task.id); else next.add(task.id); return next; })}>{compareOriginalIds.has(task.id) ? '查看生成图' : '原图对比'}</Button>}</Space>{task.status === 'failed' && <Button size="small" icon={<ReloadOutlined />} onClick={() => retry(task.id)}>重试</Button>}</Flex></Card>))}</div></Image.PreviewGroup> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="完成上传并开始替换后，结果会显示在这里" />}
       </section>
       <Alert type="warning" showIcon title="生成式替换提示" description="模型会尽量保持其他区域不变，但生成式图片接口不能保证像素级完全一致；旧 Logo 参考图有助于提高识别准确率。" />
       {!settingsHost && <aside className="logo-settings">{settingsPanel}</aside>}
