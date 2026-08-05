@@ -57,6 +57,10 @@ describe('Logo 替换指令', () => {
     expect(instruction).toContain('#1a2b3c');
     expect(instruction).toContain('若同一场景存在多个旧 Logo，必须全部替换');
     expect(instruction).toContain('原图所有像素对应内容必须保持不变');
+    expect(instruction).toContain('杯体及曲面贴合强制规则');
+    expect(instruction).toContain('当作附着于该三维表面的二维纹理进行 UV 投影');
+    expect(instruction).toContain('左右两侧逐渐横向压缩');
+    expect(instruction).toContain('禁止平面贴纸感');
   });
 
   it('自动模式逐个识别并沿用同一场景中的多种原工艺', () => {
