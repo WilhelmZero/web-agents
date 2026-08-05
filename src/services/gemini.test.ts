@@ -83,11 +83,15 @@ describe('Logo 替换指令', () => {
   });
 
   it('支持木盒原木同色浅雕和自定义方式', () => {
-    const natural = buildLogoReplacementInstruction({ hasOldLogo: false, logoColorMode: 'original', woodEngravingEnabled: true, woodEngravingStyle: 'natural-recessed', woodEngravingDepth: 10 });
+    const natural = buildLogoReplacementInstruction({ hasOldLogo: false, logoColorMode: 'original', woodEngravingEnabled: true, woodEngravingStyle: 'natural-recessed', woodEngravingColorDepth: 10 });
     expect(natural).toContain('原木同色浅雕或凹刻');
     expect(natural).toContain('不做黑色填充');
-    expect(natural).toContain('雕刻深浅为 10%');
-    expect(natural).toContain('颜色应比当前木材仅略浅或略深');
+    expect(natural).toContain('颜色深浅参数为 10%');
+    expect(natural).toContain('明暗差不得超过约 5%');
+    expect(natural).toContain('不能使用固定默认色');
+    const darkNatural = buildLogoReplacementInstruction({ hasOldLogo: false, logoColorMode: 'original', woodEngravingEnabled: true, woodEngravingStyle: 'natural-recessed', woodEngravingColorDepth: 85 });
+    expect(darkNatural).toContain('25%–40%');
+    expect(darkNatural).toContain('物理凹槽深度始终保持极浅且固定');
     const custom = buildLogoReplacementInstruction({ hasOldLogo: false, logoColorMode: 'original', woodEngravingEnabled: true, woodEngravingStyle: 'custom', customWoodEngravingMethod: '浅金色精细线雕' });
     expect(custom).toContain('浅金色精细线雕');
   });

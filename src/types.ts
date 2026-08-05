@@ -174,7 +174,7 @@ export interface LogoReplaceSettings {
   woodEngravingEnabled: boolean;
   customEngravingEnabled: boolean;
   woodEngravingStyle: 'auto' | 'dark-burn' | 'natural-recessed' | 'custom';
-  woodEngravingDepth: number;
+  woodEngravingColorDepth: number;
   customWoodEngravingMethod: string;
   customEngravingObject: string;
   engravingMethod: string;

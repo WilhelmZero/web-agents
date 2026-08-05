@@ -6,6 +6,7 @@ import {
   BulbOutlined,
   CheckCircleFilled,
   CopyOutlined,
+  CodeOutlined,
   DeleteOutlined,
   DownloadOutlined,
   EditOutlined,
@@ -66,6 +67,7 @@ import LogoReplaceComposer from './LogoReplaceComposer';
 import ObjectReplaceComposer from './ObjectReplaceComposer';
 import InpaintComposer from './InpaintComposer';
 import ProductDetailComposer from './ProductDetailComposer';
+import RequestConsoleDrawer from './RequestConsoleDrawer';
 import GeneratingImage from './GeneratingImage';
 import { useLanguage } from './i18n';
 import { readLocalStorage } from './storage';
@@ -317,6 +319,7 @@ function AppContent() {
   const [creationTool, setCreationTool] = useState<CreationTool>('scene');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [keyOpen, setKeyOpen] = useState(false);
+  const [requestConsoleOpen, setRequestConsoleOpen] = useState(false);
   const [logoSettingsHost, setLogoSettingsHost] = useState<HTMLElement | null>(null);
   const [inpaintSettingsHost, setInpaintSettingsHost] = useState<HTMLElement | null>(null);
   const [productDetailSettingsHost, setProductDetailSettingsHost] = useState<HTMLElement | null>(null);
@@ -688,6 +691,7 @@ function AppContent() {
             {creationTool === 'scene' && tasks.length > 0 && (
               <Badge status={isProcessing ? 'processing' : 'success'} text={`${completedCount}/${tasks.length}`} />
             )}
+            <Button icon={<CodeOutlined />} onClick={() => setRequestConsoleOpen(true)}>控制台</Button>
             {compact && <Button icon={<SettingOutlined />} onClick={() => setSettingsOpen(true)}>设置</Button>}
             <Button
               type={settings.apiKey ? 'default' : 'primary'}
@@ -1044,6 +1048,8 @@ function AppContent() {
           </Sider>
         )}
       </Layout>
+
+      <RequestConsoleDrawer open={requestConsoleOpen} onClose={() => setRequestConsoleOpen(false)} />
 
       <Drawer title="生成设置" size={360} open={settingsOpen} onClose={() => setSettingsOpen(false)} destroyOnHidden>
         {creationTool === 'scene'

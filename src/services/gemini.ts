@@ -1,5 +1,6 @@
 import type { GeneratedImage, GlassLogoEtchOptions, ImageModel, ImageSize, ObjectPreservationOptions, OptimizerModel } from '../types';
 import { fileToBase64 } from '../utils';
+import { startRequestConsoleEntry, summarizeGeminiRequest, updateRequestConsoleEntry } from './requestConsole';
 
 const GOOGLE_API_ROOT = 'https://generativelanguage.googleapis.com/v1beta';
 
@@ -99,8 +100,11 @@ async function postGemini(
   apiBaseUrl?: string | null,
 ): Promise<GeminiResponse> {
   const url = `${getGeminiApiRoot(apiBaseUrl === null ? '' : apiBaseUrl)}/models/${encodeURIComponent(model)}:generateContent`;
+  const requestStartedAt = performance.now();
+  const consoleId = startRequestConsoleEntry({ model, connection: apiBaseUrl ? 'proxy' : 'direct', requestSummary: summarizeGeminiRequest(body) });
   for (let attempt = 0; attempt <= MAX_TRANSIENT_RETRIES; attempt += 1) {
     try {
+      updateRequestConsoleEntry(consoleId, { status: 'running', attempt: attempt + 1, message: attempt ? '正在进行第 ' + (attempt + 1) + ' 次请求' : '请求已发送' });
       const response = await fetch(url, {
         method: 'POST',
         headers: {
@@ -111,21 +115,30 @@ async function postGemini(
         signal,
       });
       const data = (await response.json().catch(() => ({}))) as GeminiResponse;
-      if (response.ok && !data.error) return data;
+      if (response.ok && !data.error) {
+        const imageCount = data.candidates?.flatMap((candidate) => candidate.content?.parts ?? []).filter((part) => part.inlineData?.data).length ?? 0;
+        updateRequestConsoleEntry(consoleId, { status: 'success', httpStatus: response.status, durationMs: Math.round(performance.now() - requestStartedAt), resultSummary: (imageCount ? imageCount + ' 张图片' : '响应成功') + (data.usageMetadata?.totalTokenCount ? ' · ' + data.usageMetadata.totalTokenCount + ' tokens' : ''), message: 'Gemini 请求完成' });
+        return data;
+      }
       const retryable = isRetryableGeminiStatus(response.status);
       const retryLimit = response.status === 524 ? 1 : MAX_TRANSIENT_RETRIES;
       if (!retryable || attempt >= retryLimit) {
         const error = friendlyError(response.status, data);
         if (retryable) error.message += `；已自动重试 ${retryLimit} 次，建议稍后再试、降低并发或临时切换模型`;
+        updateRequestConsoleEntry(consoleId, { status: 'failed', httpStatus: response.status, durationMs: Math.round(performance.now() - requestStartedAt), message: error.message });
         throw error;
       }
+      updateRequestConsoleEntry(consoleId, { status: 'retrying', httpStatus: response.status, attempt: attempt + 1, message: 'HTTP ' + response.status + '，等待自动重试' });
       await waitForRetry(retryDelay(attempt, response.headers.get('Retry-After')), signal);
     } catch (error) {
-      if (signal?.aborted || (error instanceof DOMException && error.name === 'AbortError')) throw error;
+      if (signal?.aborted || (error instanceof DOMException && error.name === 'AbortError')) { updateRequestConsoleEntry(consoleId, { status: 'stopped', durationMs: Math.round(performance.now() - requestStartedAt), message: '用户中止请求' }); throw error; }
       if (error instanceof Error && !error.message.startsWith('Failed to fetch') && !(error instanceof TypeError)) throw error;
       if (attempt === MAX_TRANSIENT_RETRIES) {
-        throw new Error(`网络请求失败，已自动重试 ${MAX_TRANSIENT_RETRIES} 次，请检查代理或网络连接`);
+        const networkError = new Error(`网络请求失败，已自动重试 ${MAX_TRANSIENT_RETRIES} 次，请检查代理或网络连接`);
+        updateRequestConsoleEntry(consoleId, { status: 'failed', durationMs: Math.round(performance.now() - requestStartedAt), message: networkError.message });
+        throw networkError;
       }
+      updateRequestConsoleEntry(consoleId, { status: 'retrying', attempt: attempt + 1, message: '网络错误，等待自动重试' });
       await waitForRetry(retryDelay(attempt, null), signal);
     }
   }
@@ -301,7 +314,7 @@ export function buildLogoReplacementInstruction(options: {
   woodEngravingEnabled?: boolean;
   customEngravingEnabled?: boolean;
   woodEngravingStyle?: 'auto' | 'dark-burn' | 'natural-recessed' | 'custom';
-  woodEngravingDepth?: number;
+  woodEngravingColorDepth?: number;
   customWoodEngravingMethod?: string;
   customEngravingObject?: string;
   engravingMethod?: string;
@@ -323,11 +336,18 @@ export function buildLogoReplacementInstruction(options: {
   const customObject = options.customEngravingObject?.trim() || '自定义载体';
   const customMethod = options.engravingMethod?.trim();
   const woodStyle = options.woodEngravingStyle || 'auto';
-  const woodDepth = Math.max(0, Math.min(100, options.woodEngravingDepth ?? 20));
-  const naturalRecessedInstruction = '原木同色浅雕或凹刻：雕刻深浅为 ' + woodDepth + '%。以极浅、接近木材本色的低对比凹陷线条和纹理表现 Logo，颜色应比当前木材仅略浅或略深，不做黑色填充，不产生焦黑、白色油墨或强对比边缘；通过细微凹槽阴影、切削纹理和木材本色显示图案。数值越低，颜色和凹陷必须越轻。';
+  const woodColorDepth = Math.max(0, Math.min(100, options.woodEngravingColorDepth ?? 15));
+  const woodColorProfile = woodColorDepth <= 20
+    ? '极浅同色：Logo 与周围木材的明暗差不得超过约 5%，远看接近隐约可见，绝不能变成白色、黑色或高对比图案。'
+    : woodColorDepth <= 40
+      ? '浅色低对比：Logo 与周围木材保持约 5%–12% 的明暗差，仍以木材本色为主，不得使用白色或黑色填充。'
+      : woodColorDepth <= 70
+        ? '中等同色对比：Logo 与周围木材保持约 12%–25% 的明暗差，清晰可辨但仍保留原木同色质感。'
+        : '较深同色对比：Logo 与周围木材保持约 25%–40% 的明暗差，明显可见但禁止纯黑、纯白、油墨或焦黑烧灼效果。';
+  const naturalRecessedInstruction = '原木同色浅雕或凹刻：颜色深浅参数为 ' + woodColorDepth + '%。' + woodColorProfile + ' 此百分比必须直接改变最终 Logo 相对当前木材底色的颜色对比度，不能使用固定默认色，也不能忽略或自行重置该参数。只调整 Logo 的颜色明暗与对比度；物理凹槽深度始终保持极浅且固定。不做黑色填充。保留 Logo 区域连续可见的真实木纹，通过细微凹槽阴影和切削纹理显示图案。';
   const darkBurnInstruction = '深色激光烧蚀雕刻：形成深棕至炭黑色的高对比烧灼图案，文字和大面积图形内部清晰填充，边缘锐利，同时保留可见木纹与自然焦痕。最终 Logo 必须明显比周围木材更深；严禁生成白色、乳白色、浅色、玻璃磨砂色、白色油墨或发光效果，即使新 Logo 参考图本身是白色也必须忽略其颜色，只保留图形与文字形状。';
   const woodMethod = woodStyle === 'auto'
-    ? '自动识别木盒底色并逐个选择工艺：若木盒为深色木材或深色涂层，使用深色激光烧蚀效果；若木盒为浅色木材或浅色涂层，使用原木同色浅雕或凹刻效果。不得把浅色木盒误用深黑烧蚀，也不得把深色木盒生成白色 Logo。浅色木盒采用以下浅雕深度规则：' + naturalRecessedInstruction
+    ? '自动识别木盒底色并逐个选择工艺：若木盒为深色木材或深色涂层，使用深色激光烧蚀效果；若木盒为浅色木材或浅色涂层，使用原木同色浅雕或凹刻效果。不得把浅色木盒误用深黑烧蚀，也不得把深色木盒生成白色 Logo。浅色木盒采用以下浅雕颜色规则：' + naturalRecessedInstruction
     : woodStyle === 'dark-burn'
       ? darkBurnInstruction
       : woodStyle === 'natural-recessed'

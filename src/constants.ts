@@ -49,7 +49,7 @@ export const DEFAULT_LOGO_REPLACE_SETTINGS = {
   woodEngravingEnabled: false,
   customEngravingEnabled: false,
   woodEngravingStyle: 'auto',
-  woodEngravingDepth: 20,
+  woodEngravingColorDepth: 15,
   customWoodEngravingMethod: '',
   customEngravingObject: '',
   engravingMethod: '',
