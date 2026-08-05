@@ -461,7 +461,7 @@ export async function verifyLogoReplacement(options: {
   const expected = options.expectedText?.trim();
   const data = await postGemini(options.model, options.apiKey, {
     contents: [{ role: 'user', parts: [
-      { text: `第一张图片是原始 Logo 参考，第二张图片是生成后的场景图。只检查场景图中新替换 Logo 的字符和图形是否与参考一致。${expected ? `准确文字必须逐字符等于〈${expected}〉，包括大小写、空格、数字和标点。` : '未提供准确文字，请直接比较参考 Logo 与生成 Logo 的全部可见字符、笔画、布局和图形。'}任何字符替换、乱码、缺失、多余、大小写或标点变化都判定失败。` },
+      { text: `第一张图片是原始 Logo 参考，第二张图片是生成后的场景图。只检查场景图中新替换 Logo 的字符和图形是否与参考一致。${expected ? `准确文字必须逐字符等于〈${expected}〉，包括大小写、空格、数字和标点。` : '未提供准确文字，请直接比较参考 Logo 与生成 Logo 的全部可见字符、笔画、布局和图形。'}任何字符替换、乱码、缺失、多余、大小写或标点变化都判定失败。输出 JSON 时，differences 数组中的每一项和 summary 必须使用简体中文描述，禁止输出英文审核说明；referenceText 和 generatedText 只记录图片中实际识别到的原始字符，必须保持原文、大小写、空格和标点，不得翻译或改写。` },
       { inlineData: { mimeType: reference.mimeType, data: reference.data } },
       { inlineData: { mimeType: options.generatedImage.type || 'image/png', data: generated } },
     ] }],

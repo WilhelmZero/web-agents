@@ -42,6 +42,8 @@ describe('Logo 结果校验', () => {
     expect(result).toMatchObject({ passed: false, referenceText: 'NAME', generatedText: 'N4ME', graphicConsistent: true });
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
     expect(body.contents[0].parts[0].text).toContain('准确文字必须逐字符等于〈NAME〉');
+    expect(body.contents[0].parts[0].text).toContain('differences 数组中的每一项和 summary 必须使用简体中文描述');
+    expect(body.contents[0].parts[0].text).toContain('referenceText 和 generatedText 只记录图片中实际识别到的原始字符');
     expect(body.contents[0].parts.filter((part: { inlineData?: unknown }) => part.inlineData)).toHaveLength(2);
   });
 });
