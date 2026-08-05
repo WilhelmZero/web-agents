@@ -155,35 +155,36 @@ describe('Logo 替换指令', () => {
 });
 
 describe('物体批量替换指令', () => {
-  it('声明参考图顺序、全部替换和杯子专项限制', () => {
+  it('只移植新杯本体和勾选的表面特征，其他内容跟随原场景', () => {
     const instruction = buildObjectReplacementInstruction({
-      sourceObjectName: '玻璃杯',
-      targetObjectName: '不锈钢保温杯',
-      hasSourceReference: true,
-      hasTargetReference: true,
-      preservation: { print: true, logo: true, engraving: false, liquid: true, foam: false, custom: ['杯盖挂件'] },
+      sourceObjectName: '玻璃杯', targetObjectName: '不锈钢保温杯', hasSourceReference: true, hasTargetReference: true,
+      preservation: { print: true, logo: true, engraving: false, liquid: false, foam: false, custom: [] },
     });
-    expect(instruction).toContain('第一张图片');
-    expect(instruction).toContain('第二张图片是原物体');
-    expect(instruction).toContain('第三张图片是新物体');
-    expect(instruction).toContain('必须全部替换');
-    expect(instruction).toContain('每一个目标杯子');
-    expect(instruction).toContain('印花、Logo、酒液或其他液体、杯盖挂件');
-    expect(instruction).toContain('泡沫未被勾选');
-    expect(instruction).toContain('酒液或其他液体');
-    expect(instruction).not.toContain('原有液体液面');
+    expect(instruction).toContain('第一张图片是原始场景图');
+    expect(instruction).toContain('第二张图片仅用于帮助识别原物体');
+    expect(instruction).toContain('第三张图片是新物体本体参考图');
+    expect(instruction).toContain('全部实例都必须替换，不得遗漏');
+    expect(instruction).toContain('杯身或物体表面的印花、Logo');
+    expect(instruction).toContain('杯子本体专项');
+    expect(instruction).toContain('实体杯身外壳、杯口、杯底');
+    expect(instruction).toContain('液体类型、颜色、液面高度和可见状态');
+    expect(instruction).toContain('原场景有泡沫时保持原有泡沫');
+    expect(instruction).toContain('手部握持点和前后遮挡顺序');
+    expect(instruction).toContain('禁止拉伸或压扁成旧杯形状');
+    expect(instruction).toContain('不得复制参考图中的背景、构图、相机角度');
   });
 
-  it('无参考图且未勾选内容时允许酒液和泡沫随场景变化', () => {
+  it('未勾选目标参考元素时不从目标图带入并保持原场景内容', () => {
     const instruction = buildObjectReplacementInstruction({
       sourceObjectName: '椅子', targetObjectName: '木凳', hasSourceReference: false, hasTargetReference: false,
       preservation: { print: false, logo: false, engraving: false, liquid: false, foam: false, custom: [] },
     });
     expect(instruction).not.toContain('第二张图片');
-    expect(instruction).not.toContain('杯子专项替换');
-    expect(instruction).not.toContain('严格保留：');
-    expect(instruction).toContain('酒液、泡沫未被勾选');
-    expect(instruction).toContain('允许模型根据新物体结构与当前场景自然调整');
-    expect(instruction).toContain('规则优先于参考图外观、保持构图和其他任何约束');
+    expect(instruction).not.toContain('杯子本体专项');
+    expect(instruction).toContain('不要强制复制新物体参考图上的印花、Logo、雕刻或装饰');
+    expect(instruction).toContain('原场景有液体时必须保留');
+    expect(instruction).toContain('原场景没有时不得新增');
+    expect(instruction).toContain('原场景是除新物体本体身份之外所有信息的最高优先级来源');
+    expect(instruction).toContain('变化必须仅限于旧物体实体本体及其紧邻融合边缘');
   });
 });

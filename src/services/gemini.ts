@@ -498,33 +498,36 @@ export function buildObjectReplacementInstruction(options: {
   const targetName = options.targetObjectName.trim() || '新物体参考图所示物体';
   let imageIndex = 2;
   const ordinal = (index: number) => ['第一', '第二', '第三'][index - 1] || ('第' + index);
-  const references: string[] = ['第一张图片是必须保持的原始场景图。'];
-  if (options.hasSourceReference) references.push(`${ordinal(imageIndex++)}张图片是原物体识别参考图，用于识别场景中所有“${sourceName}”。`);
-  if (options.hasTargetReference) references.push(`${ordinal(imageIndex)}张图片是新物体参考图，必须严格保持其身份、结构、比例和材质；酒液与泡沫是否保留仅由后续保留元素规则决定，不属于默认外观细节。`);
-  const labels: Array<[keyof Omit<ObjectPreservationOptions, 'custom'>, string]> = [
-    ['print', '印花'], ['logo', 'Logo'], ['engraving', '雕刻'], ['liquid', '酒液或其他液体'], ['foam', '泡沫'],
-  ];
-  const preserved = [
-    ...labels.filter(([key]) => options.preservation[key]).map(([, label]) => label),
-    ...options.preservation.custom.map((item) => item.trim()).filter(Boolean),
-  ];
-  const preservationInstruction = preserved.length
-    ? `新物体上的以下元素必须严格保留：${preserved.join('、')}。逐项保持其图形、文字、颜色、位置、比例、清晰度、材质效果和相互关系，不得删除、改写、模糊、重新设计或替换。`
-    : '';
-  const flexibleContents = [
-    !options.preservation.liquid ? '酒液' : '',
-    !options.preservation.foam ? '泡沫' : '',
-  ].filter(Boolean);
-  const flexibleContentInstruction = flexibleContents.length
-    ? `${flexibleContents.join('、')}未被勾选，因此不属于必须保留的元素，且此规则优先于参考图外观、保持构图和其他任何约束。允许模型根据新物体结构与当前场景自然调整其有无、数量、液面高度、形态和状态，也允许合理减少或完全移除；不得为了复刻原物体或参考图而强制保留。`
-    : '';
-  const isCup = /杯|cup|tumbler|mug|goblet|glass/i.test(sourceName);
-  const cupInstruction = isCup
-    ? '这是杯子专项替换任务。必须替换画面中每一个目标杯子，包括远处、局部遮挡、被手持或仅露出一部分的杯子。保持每个杯子的杯底接触面、杯口朝向、杯身轴线、把手方向和手部握持关系。不得改变桌面、手指、吸管、杯盖、配饰和杯子周围既有的反射、折射与阴影，只能为新杯子做必要且自然的融合。'
-    : '';
-  return `执行严格的场景物体批量替换。${references.join('')} 找出场景中所有符合名称“${sourceName}”或原物体参考图的同类物体，必须全部替换为“${targetName}”，不得遗漏，也不得在原本没有目标物体的位置新增物体。只允许修改每个旧物体原本占据的区域。禁止 AI 重新设计、重新绘制、重新排版、重新解释或重新生成原始场景及其任何非目标元素。将整个新物体作为一个完整整体精确放置到每个旧物体的位置，保持完全一致的 Position（位置）、Scale（整体大小）、Rotation（旋转）、Perspective（透视）、Camera Angle（相机角度）、接地关系、遮挡关系与景深。保持新物体自身的结构、比例、材质和参考图身份，不得把新物体变形成旧物体，仅允许对整体进行匹配场景所必需的空间变换。除目标物体外，画幅、构图、裁切、镜头、人物、手部、背景、道具、已有文字、光线、阴影、反射、折射、颜色、噪点和清晰度必须保持不变。${cupInstruction}${preservationInstruction}${flexibleContentInstruction}`;
-}
+  const references: string[] = ['第一张图片是原始场景图，也是最终画面、构图、机位、光照、遮挡和环境的唯一基准。'];
+  if (options.hasSourceReference) references.push(`${ordinal(imageIndex++)}张图片仅用于帮助识别原物体“${sourceName}”，不得复制该参考图的背景或外观到结果。`);
+  if (options.hasTargetReference) references.push(`${ordinal(imageIndex)}张图片是新物体本体参考图。只提取“${targetName}”实体本身的核心身份特征，不得复制参考图中的背景、构图、相机角度、摆放姿态、阴影、反射、手、道具或附属内容。`);
 
+  const surfaceFeatures = [
+    options.preservation.print ? '杯身或物体表面的印花' : '',
+    options.preservation.logo ? 'Logo' : '',
+    options.preservation.engraving ? '雕刻' : '',
+    ...options.preservation.custom.map((item) => item.trim()).filter(Boolean),
+  ].filter(Boolean);
+  const surfaceInstruction = surfaceFeatures.length
+    ? `以下新物体表面特征必须从新物体参考图准确移植：${surfaceFeatures.join('、')}。只移植其图形、文字、颜色、比例及在新物体本体上的相对位置，随场景透视和曲面自然贴合，不得重新设计或改字。`
+    : '不要强制复制新物体参考图上的印花、Logo、雕刻或装饰；只采用新物体本体的结构、轮廓、材质和基础颜色。';
+
+  const contentRules = [
+    options.preservation.liquid
+      ? '酒液或其他液体已勾选：从新物体参考图保留其类型、颜色和状态，但液面透视、遮挡与光照仍必须适配原场景。'
+      : '酒液或其他液体未勾选：禁止从新物体参考图复制液体；原场景有液体时必须保留原场景的液体类型、颜色、液面高度和可见状态，原场景没有时不得新增。',
+    options.preservation.foam
+      ? '泡沫已勾选：从新物体参考图保留泡沫特征，并适配原场景。'
+      : '泡沫未勾选：禁止从新物体参考图复制泡沫；原场景有泡沫时保持原有泡沫，原场景没有时不得新增。',
+  ].join('');
+
+  const isCup = /杯|cup|tumbler|mug|goblet|glass/i.test(sourceName + ' ' + targetName);
+  const cupInstruction = isCup
+    ? '【杯子本体专项】把“杯子本体”限定为实体杯身外壳、杯口、杯底以及新杯本身不可分离的把手；只从新参考图采用这些部分的几何结构、轮廓、透明度或不透明度、材质、基础颜色，以及已勾选的杯身表面特征。杯内液体、泡沫、冰块，以及场景中的吸管、可拆卸杯盖、装饰挂件、手和手指默认都不属于新杯本体；其来源必须严格服从前述勾选规则：未勾选时沿用原场景，只有明确勾选的元素才允许从新参考图移植。所有这些元素都只按新杯口和杯身做最小限度的自然遮挡适配。保持原场景杯底接触点、杯口朝向、杯身轴线、手部握持点和前后遮挡顺序。若新杯本体比例与旧杯不同，保持新杯自身比例，采用统一缩放放入旧杯的空间包络，底部接触点优先固定，禁止拉伸或压扁成旧杯形状。'
+    : '';
+
+  return `执行“仅替换物体本体”的严格局部编辑任务。${references.join('')} 第一步，识别原始场景中所有符合“${sourceName}”的实例，全部实例都必须替换，不得遗漏，并为每个实例分离出实体本体区域；不得把其内部内容物、前景遮挡物、手部、可拆卸附件或背景算入本体区域。第二步，只在每个旧物体实体本体原来占据的区域内，用“${targetName}”的新物体本体替换；新物体本体必须保持参考图或名称定义的结构、轮廓、比例、材质和基础颜色，但必须重新按照原场景的 Position、整体 Scale、Rotation、Perspective、Camera Angle、接地关系、景深和遮挡关系进行渲染，绝不能复制新物体参考图的拍摄视角和摆放方式。${surfaceInstruction}${contentRules}${cupInstruction} 原场景是除新物体本体身份之外所有信息的最高优先级来源。人物、手部、背景、桌面、道具、文字、内容物、附件、构图、裁切、镜头、光线、颜色和清晰度必须与原场景一致。原有阴影、反射、折射和高光应尽量保留，只允许在紧贴新物体表面的狭小范围内做符合新几何形状的必要融合，禁止重做整张图的光影。不得新增、删除或移动任何非目标元素，不得改变画面布局，不得把目标参考图的环境带入结果。输出前逐项检查：变化必须仅限于旧物体实体本体及其紧邻融合边缘；若背景、手、液体、泡沫、吸管、杯盖、道具或构图发生变化，则结果不合格，必须恢复为原场景。`;
+}
 export async function generateObjectReplacementImage(options: {
   apiKey: string;
   model: ImageModel;
