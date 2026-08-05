@@ -170,7 +170,13 @@ describe('物体批量替换指令', () => {
     expect(instruction).toContain('液体类型、颜色、液面高度和可见状态');
     expect(instruction).toContain('原场景有泡沫时保持原有泡沫');
     expect(instruction).toContain('手部握持点和前后遮挡顺序');
-    expect(instruction).toContain('禁止拉伸或压扁成旧杯形状');
+    expect(instruction).toContain('宽度必须由新杯原始宽高比自动决定');
+    expect(instruction).toContain('严禁任何横向或纵向非等比拉伸');
+    expect(instruction).toContain('改变腰线、曲线、锥度或杯肚宽度');
+    expect(instruction).toContain('旧物体轮廓与按新物体真实比例放置后的新轮廓之并集');
+    expect(instruction).toContain('旧物体上的同类印花、Logo、文字和雕刻全部属于旧物体本体');
+    expect(instruction).toContain('最终只能出现新物体参考图中的表面图案');
+    expect(instruction).toContain('禁止 OCR 后重新拼写');
     expect(instruction).toContain('不得复制参考图中的背景、构图、相机角度');
   });
 
@@ -185,6 +191,6 @@ describe('物体批量替换指令', () => {
     expect(instruction).toContain('原场景有液体时必须保留');
     expect(instruction).toContain('原场景没有时不得新增');
     expect(instruction).toContain('原场景是除新物体本体身份之外所有信息的最高优先级来源');
-    expect(instruction).toContain('变化必须仅限于旧物体实体本体及其紧邻融合边缘');
+    expect(instruction).toContain('变化必须仅限于旧物体轮廓、新物体真实比例轮廓及其紧邻融合边缘');
   });
 });
