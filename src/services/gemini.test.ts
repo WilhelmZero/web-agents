@@ -181,6 +181,12 @@ describe('物体批量替换指令', () => {
     expect(instruction).toContain('扩展局部编辑区域容纳完整新物体');
     expect(instruction).toContain('归一化轮廓与新物体参考图逐段比较');
     expect(instruction).toContain('任何杯口、杯肚、腰线、杯底或其他轮廓比例偏差都判定为不合格');
+    expect(instruction).toContain('不可编辑轮廓路径');
+    expect(instruction).toContain('y/H = 0%、10%、25%、50%、75%、90%、100%');
+    expect(instruction).toContain('轮廓宽度误差不得超过参考值约 1%');
+    expect(instruction).toContain('杯底外扩角度、底脚圆角半径');
+    expect(instruction).toContain('尤其禁止生成比新物体参考图更宽或更厚的杯底');
+    expect(instruction).toContain('逆投影回标准正视比例');
     expect(instruction).toContain('改变腰线、曲线、锥度或杯肚宽度');
     expect(instruction).toContain('旧物体轮廓与按新物体真实比例放置后的新轮廓之并集');
     expect(instruction).toContain('旧物体上的同类印花、Logo、文字和雕刻全部属于旧物体本体');
