@@ -181,6 +181,9 @@ export interface LogoReplaceSettings {
   randomAssignLogos: boolean;
   customizeReplacementPrompt: boolean;
   replacementPrompt: string;
+  strictTextVerification: boolean;
+  verificationModel: OptimizerModel;
+  verificationRetries: number;
 }
 
 export interface ObjectPreservationOptions {
@@ -216,6 +219,19 @@ export interface ObjectReplaceTask {
   error?: string;
   retryCount: number;
 }
+export interface LogoExpectedText {
+  logoId: string;
+  text: string;
+}
+
+export interface LogoVerificationResult {
+  passed: boolean;
+  referenceText: string;
+  generatedText: string;
+  differences: string[];
+  graphicConsistent: boolean;
+  summary: string;
+}
 export interface LogoReplaceTask {
   id: string;
   sceneId: string;
@@ -228,6 +244,10 @@ export interface LogoReplaceTask {
   resultMimeType?: string;
   error?: string;
   retryCount: number;
+  verificationStatus?: 'pending' | 'verifying' | 'passed' | 'failed' | 'skipped';
+  verificationResult?: LogoVerificationResult;
+  verificationAttempts?: number;
+  acceptedVerificationRisk?: boolean;
 }
 export interface InpaintSettings {
   imageModel: ImageModel;

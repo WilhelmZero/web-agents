@@ -41,7 +41,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { DEFAULT_LOGO_REPLACE_SETTINGS, MODEL_CAPABILITIES, PRICING, STORAGE_KEYS } from './constants';
 import GeneratingImage from './GeneratingImage';
-import { buildLogoReplacementInstruction, generateLogoReplacement } from './services/gemini';
+import { buildLogoReplacementInstruction, generateLogoReplacement, verifyLogoReplacement } from './services/gemini';
 import { assignReplacementLogos, buildLogoReplaceTasks } from './services/logoReplaceUtils';
 import { readLocalStorage } from './storage';
 import type { LogoAsset, LogoReplaceSettings, LogoReplaceTask } from './types';
@@ -63,7 +63,7 @@ function fileName(task: LogoReplaceTask, scene: LogoAsset, model: string) {
   return `${String(task.sceneIndex + 1).padStart(2, '0')}_${sanitizeFileName(scene.name)}_${String(task.copyIndex + 1).padStart(2, '0')}_${model}.${mimeExtension(task.resultMimeType)}`;
 }
 
-function buildActualReplacementPrompt(settings: LogoReplaceSettings, hasOldLogo: boolean) {
+function buildActualReplacementPrompt(settings: LogoReplaceSettings, hasOldLogo: boolean, expectedText = '', correctionFeedback = '') {
   const mandatoryPrompt = buildLogoReplacementInstruction({
     hasOldLogo,
     logoColorMode: settings.logoColorMode,
@@ -77,6 +77,8 @@ function buildActualReplacementPrompt(settings: LogoReplaceSettings, hasOldLogo:
     customWoodEngravingMethod: settings.customWoodEngravingMethod,
     customEngravingObject: settings.customEngravingObject,
     engravingMethod: settings.engravingMethod,
+    expectedText,
+    correctionFeedback,
   });
   const customPrompt = settings.customizeReplacementPrompt ? settings.replacementPrompt.trim() : '';
   return customPrompt
@@ -109,6 +111,7 @@ export default function LogoReplaceComposer({
   });  const [scenes, setScenes] = useState<LogoAsset[]>([]);
   const [oldLogo, setOldLogo] = useState<LogoAsset>();
   const [newLogos, setNewLogos] = useState<LogoAsset[]>([]);
+  const [expectedTexts, setExpectedTexts] = useState<Record<string, string>>({});
   const [randomSeed, setRandomSeed] = useState(() => createId());
   const [manualLogoAssignments, setManualLogoAssignments] = useState<Record<string, string>>({});
   const [compareOriginalIds, setCompareOriginalIds] = useState<Set<string>>(() => new Set());
@@ -181,6 +184,7 @@ export default function LogoReplaceComposer({
   const removeNewLogo = (id: string) => {
     resetTasks();
     setManualLogoAssignments((current) => Object.fromEntries(Object.entries(current).filter(([, logoId]) => logoId !== id)));
+    setExpectedTexts((current) => { const next = { ...current }; delete next[id]; return next; });
     setNewLogos((current) => {
       const target = current.find((item) => item.id === id);
       if (target) URL.revokeObjectURL(target.previewUrl);
@@ -224,25 +228,54 @@ export default function LogoReplaceComposer({
     runningIds.current.add(task.id);
     const controller = new AbortController();
     aborters.current.set(task.id, controller);
-    setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status: 'running', error: undefined } : item));
+    setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status: 'running', error: undefined, verificationStatus: settingsRef.current.strictTextVerification ? 'pending' : 'skipped', acceptedVerificationRisk: false } : item));
     try {
       const currentSettings = settingsRef.current;
-      const result = await generateLogoReplacement({
-        apiKey,
-        model: currentSettings.imageModel,
-        scene: scene.file,
-        oldLogo: oldLogoRef.current?.file,
-        newLogo: replacement.file,
-        logoColorMode: currentSettings.logoColorMode,
-        customLogoColor: currentSettings.customLogoColor,
-        promptOverride: buildActualReplacementPrompt(currentSettings, Boolean(oldLogoRef.current)),
-        aspectRatio: currentSettings.ratioMode === 'fixed' ? currentSettings.aspectRatio : undefined,
-        imageSize: currentSettings.imageSize,
-        signal: controller.signal,
-        apiBaseUrl,
-      });
-      const resultUrl = URL.createObjectURL(result.blob);
-      setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status: 'success', resultBlob: result.blob, resultUrl, resultMimeType: result.mimeType } : item));
+      const expectedText = expectedTexts[replacement.id]?.trim() || '';
+      let correctionFeedback = '';
+      for (let verificationAttempt = 0; verificationAttempt <= currentSettings.verificationRetries; verificationAttempt += 1) {
+        const result = await generateLogoReplacement({
+          apiKey,
+          model: currentSettings.imageModel,
+          scene: scene.file,
+          oldLogo: oldLogoRef.current?.file,
+          newLogo: replacement.file,
+          logoColorMode: currentSettings.logoColorMode,
+          customLogoColor: currentSettings.customLogoColor,
+          promptOverride: buildActualReplacementPrompt(currentSettings, Boolean(oldLogoRef.current), expectedText, correctionFeedback),
+          aspectRatio: currentSettings.ratioMode === 'fixed' ? currentSettings.aspectRatio : undefined,
+          imageSize: currentSettings.imageSize,
+          signal: controller.signal,
+          apiBaseUrl,
+        });
+        if (!currentSettings.strictTextVerification) {
+          const resultUrl = URL.createObjectURL(result.blob);
+          setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status: 'success', resultBlob: result.blob, resultUrl, resultMimeType: result.mimeType, verificationStatus: 'skipped' } : item));
+          return;
+        }
+        setTasks((current) => current.map((item) => item.id === task.id ? { ...item, verificationStatus: 'verifying', verificationAttempts: verificationAttempt + 1 } : item));
+        let verification;
+        try {
+          verification = await verifyLogoReplacement({ apiKey, apiBaseUrl, model: currentSettings.verificationModel, referenceLogo: replacement.file, generatedImage: result.blob, expectedText, signal: controller.signal });
+        } catch (error) {
+          const resultUrl = URL.createObjectURL(result.blob);
+          const summary = error instanceof Error ? error.message : 'Logo 校验失败';
+          setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status: 'success', resultBlob: result.blob, resultUrl, resultMimeType: result.mimeType, verificationStatus: 'failed', verificationAttempts: verificationAttempt + 1, verificationResult: { passed: false, referenceText: expectedText, generatedText: '', differences: [summary], graphicConsistent: false, summary } } : item));
+          return;
+        }
+        if (verification.passed) {
+          const resultUrl = URL.createObjectURL(result.blob);
+          setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status: 'success', resultBlob: result.blob, resultUrl, resultMimeType: result.mimeType, verificationStatus: 'passed', verificationResult: verification, verificationAttempts: verificationAttempt + 1 } : item));
+          return;
+        }
+        if (verificationAttempt >= currentSettings.verificationRetries) {
+          const resultUrl = URL.createObjectURL(result.blob);
+          setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status: 'success', resultBlob: result.blob, resultUrl, resultMimeType: result.mimeType, verificationStatus: 'failed', verificationResult: verification, verificationAttempts: verificationAttempt + 1 } : item));
+          return;
+        }
+        correctionFeedback = [verification.summary, ...verification.differences].filter(Boolean).join('；');
+        setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status: 'running', verificationStatus: 'pending', verificationResult: verification, verificationAttempts: verificationAttempt + 1 } : item));
+      }
     } catch (error) {
       const stopped = controller.signal.aborted;
       setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status: stopped ? 'stopped' : 'failed', error: stopped ? '任务已停止' : error instanceof Error ? error.message : 'Logo 替换失败' } : item));
@@ -250,8 +283,7 @@ export default function LogoReplaceComposer({
       runningIds.current.delete(task.id);
       aborters.current.delete(task.id);
     }
-  }, [apiKey, apiBaseUrl]);
-
+  }, [apiKey, apiBaseUrl, expectedTexts]);
   useEffect(() => {
     const available = Math.max(0, settings.concurrency - runningIds.current.size);
     tasks.filter((task) => task.status === 'waiting' && !runningIds.current.has(task.id)).slice(0, available).forEach((task) => void executeTask(task));
@@ -274,30 +306,33 @@ export default function LogoReplaceComposer({
   const retry = (id: string) => {
     const task = tasks.find((item) => item.id === id);
     if (!task) return;
-    const next = { ...task, status: 'running' as const, error: undefined, retryCount: task.retryCount + 1 };
+    const next = { ...task, status: 'running' as const, error: undefined, retryCount: task.retryCount + 1, verificationStatus: settings.strictTextVerification ? 'pending' as const : 'skipped' as const, verificationResult: undefined, verificationAttempts: 0, acceptedVerificationRisk: false };
     setTasks((current) => current.map((item) => item.id === id ? next : item));
     void executeTask(next);
   };
   const clearResults = () => resetTasks();
   const successful = tasks.filter((task) => task.status === 'success' && task.resultBlob);
+  const downloadable = successful.filter((task) => task.verificationStatus !== 'failed' || task.acceptedVerificationRisk);
   const processing = tasks.some((task) => task.status === 'waiting' || task.status === 'running');
   const completed = tasks.filter((task) => ['success', 'failed', 'stopped'].includes(task.status)).length;
   const taskCount = scenes.length * settings.copiesPerScene;
+  const baseEstimatedCost = estimateImageCost(settings.imageModel, settings.imageSize, taskCount) + taskCount * PRICING.models[settings.imageModel].inputImage * (oldLogo ? 2 : 1);
+  const worstCaseImageCost = baseEstimatedCost * (settings.strictTextVerification ? settings.verificationRetries + 1 : 1);
   const groups = useMemo(() => scenes.map((scene) => ({ scene, tasks: tasks.filter((task) => task.sceneId === scene.id) })).filter((group) => group.tasks.length), [scenes, tasks]);
   const downloadTask = (task: LogoReplaceTask) => {
     const scene = scenes.find((item) => item.id === task.sceneId);
-    if (scene && task.resultBlob) downloadBlob(task.resultBlob, fileName(task, scene, settings.imageModel));
+    if (scene && task.resultBlob && (task.verificationStatus !== 'failed' || task.acceptedVerificationRisk)) downloadBlob(task.resultBlob, fileName(task, scene, settings.imageModel));
   };
   const downloadAll = async () => {
     const zip = new JSZip();
     groups.forEach((group) => {
       const target = settings.copiesPerScene > 1 ? zip.folder(`${String(group.tasks[0]?.sceneIndex + 1).padStart(2, '0')}_${sanitizeFileName(group.scene.name)}`)! : zip;
-      group.tasks.forEach((task) => { if (task.resultBlob) target.file(fileName(task, group.scene, settings.imageModel), task.resultBlob); });
+      group.tasks.forEach((task) => { if (task.resultBlob && (task.verificationStatus !== 'failed' || task.acceptedVerificationRisk)) target.file(fileName(task, group.scene, settings.imageModel), task.resultBlob); });
     });
     downloadBlob(await zip.generateAsync({ type: 'blob' }), 'SceneStudio_Logo替换结果.zip');
   };
-  const selectedSuccessful = successful.filter((task) => selectedResultIds.has(task.id));
-  const allSuccessfulSelected = successful.length > 0 && selectedSuccessful.length === successful.length;
+  const selectedSuccessful = downloadable.filter((task) => selectedResultIds.has(task.id));
+  const allSuccessfulSelected = downloadable.length > 0 && selectedSuccessful.length === downloadable.length;
   const toggleResultSelection = (id: string, checked: boolean) => {
     setSelectedResultIds((current) => {
       const next = new Set(current);
@@ -306,7 +341,7 @@ export default function LogoReplaceComposer({
     });
   };
   const toggleSelectAllSuccessful = (checked: boolean) => {
-    setSelectedResultIds(checked ? new Set(successful.map((task) => task.id)) : new Set());
+    setSelectedResultIds(checked ? new Set(downloadable.map((task) => task.id)) : new Set());
   };
   const downloadSelected = async () => {
     if (!selectedSuccessful.length) return;
@@ -329,6 +364,14 @@ export default function LogoReplaceComposer({
         <Form.Item label="Logo 分配方式">
           <Flex justify="space-between" align="center"><Text>随机分配新 Logo</Text><Switch checked={settings.randomAssignLogos} onChange={(randomAssignLogos) => { patchSettings({ randomAssignLogos }); resetTasks(); }} /></Flex>
           <Text type="secondary" className="field-help">关闭时场景图与新 Logo 必须数量一致并按顺序配对；开启后允许数量不同。</Text>
+        </Form.Item>
+        <Form.Item label="严格文字校验">
+          <Flex justify="space-between" align="center"><Text>生成后自动检查 Logo 字符</Text><Switch checked={settings.strictTextVerification} onChange={(strictTextVerification) => patchSettings({ strictTextVerification })} /></Flex>
+          <Text type="secondary" className="field-help">默认开启。校验失败会携带字符差异自动重新生成。</Text>
+          {settings.strictTextVerification && <Space direction="vertical" style={{ width: '100%', marginTop: 10 }}>
+            <Select value={settings.verificationModel} onChange={(verificationModel) => patchSettings({ verificationModel })} options={[{ value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite' }, { value: 'gemini-3.1-flash', label: 'Gemini 3.1 Flash' }, { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' }]} />
+            <Flex justify="space-between" align="center"><Text>自动修复次数</Text><InputNumber min={0} max={3} value={settings.verificationRetries} onChange={(verificationRetries) => patchSettings({ verificationRetries: verificationRetries ?? 2 })} /></Flex>
+          </Space>}
         </Form.Item>
         <Form.Item label="新 Logo 颜色">
           <Select value={settings.logoColorMode} onChange={(logoColorMode) => patchSettings({ logoColorMode })} options={[
@@ -392,7 +435,7 @@ export default function LogoReplaceComposer({
         <Form.Item label="每张场景生成张数"><InputNumber min={1} max={8} value={settings.copiesPerScene} onChange={(copiesPerScene) => patchSettings({ copiesPerScene: copiesPerScene || 1 })} style={{ width: '100%' }} /></Form.Item>
         <Form.Item label="并发任务数"><InputNumber min={1} max={6} value={settings.concurrency} onChange={(concurrency) => patchSettings({ concurrency: concurrency || 1 })} style={{ width: '100%' }} /></Form.Item>
       </Form>
-      <Card className="price-card" variant="borderless"><Statistic title="预计价格" prefix="$" precision={3} value={estimateImageCost(settings.imageModel, settings.imageSize, taskCount) + taskCount * PRICING.models[settings.imageModel].inputImage * (oldLogo ? 2 : 1)} /><Text type="secondary">按 {taskCount} 个请求与 {oldLogo ? 3 : 2} 张输入参考图估算。</Text></Card>
+      <Card className="price-card" variant="borderless"><Flex gap={20} wrap><Statistic title="基础预计价格" prefix="$" precision={3} value={baseEstimatedCost} />{settings.strictTextVerification && <Statistic title="最坏情况生图价格" prefix="$" precision={3} value={worstCaseImageCost} />}</Flex><Text type="secondary">基础费用按 {taskCount} 个请求估算。{settings.strictTextVerification ? `最坏情况下每项会重新生成 ${settings.verificationRetries} 次；校验模型的文本 token 费用另计。` : ''}</Text></Card>
     </div>
   );
 
@@ -414,7 +457,7 @@ export default function LogoReplaceComposer({
           <Card size="small" title="旧 Logo（选填）">{oldLogoCard}</Card>
           <div className="replace-arrow"><SwapOutlined /></div>
           <Card size="small" title="新 Logo（可多选）">
-            {!newLogos.length ? <Upload.Dragger multiple showUploadList={false} accept={ACCEPTED_TYPES.join(',')} beforeUpload={(file) => addNewLogos([file as File])}><p className="ant-upload-drag-icon"><PlusOutlined /></p><p className="ant-upload-text">上传一个或多个新 Logo</p><p className="ant-upload-hint">PNG / JPEG / WebP</p></Upload.Dragger> : <Image.PreviewGroup><div className="replace-new-logo-grid">{newLogos.map((logo) => <div className="replace-new-logo-card" key={logo.id}><Image src={logo.previewUrl} alt="新 Logo" /><Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => removeNewLogo(logo.id)}>删除</Button></div>)}<Upload multiple showUploadList={false} accept={ACCEPTED_TYPES.join(',')} beforeUpload={(file) => addNewLogos([file as File])}><button type="button" className="replace-logo-add"><PlusOutlined /><span>添加 Logo</span></button></Upload></div></Image.PreviewGroup>}
+            {!newLogos.length ? <Upload.Dragger multiple showUploadList={false} accept={ACCEPTED_TYPES.join(',')} beforeUpload={(file) => addNewLogos([file as File])}><p className="ant-upload-drag-icon"><PlusOutlined /></p><p className="ant-upload-text">上传一个或多个新 Logo</p><p className="ant-upload-hint">PNG / JPEG / WebP</p></Upload.Dragger> : <Image.PreviewGroup><div className="replace-new-logo-grid">{newLogos.map((logo) => <div className="replace-new-logo-card" key={logo.id}><Image src={logo.previewUrl} alt="新 Logo" /><Input size="small" value={expectedTexts[logo.id] || ''} placeholder="准确文字（选填）" onChange={(event) => setExpectedTexts((current) => ({ ...current, [logo.id]: event.target.value }))} /><Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => removeNewLogo(logo.id)}>删除</Button></div>)}<Upload multiple showUploadList={false} accept={ACCEPTED_TYPES.join(',')} beforeUpload={(file) => addNewLogos([file as File])}><button type="button" className="replace-logo-add"><PlusOutlined /><span>添加 Logo</span></button></Upload></div></Image.PreviewGroup>}
           </Card>
         </div>
         {!!scenes.length && !!newLogos.length && <Card size="small" className="replace-pair-preview" title="场景与新 Logo 配对预览" extra={settings.randomAssignLogos && <Button size="small" icon={<ReloadOutlined />} onClick={() => { setRandomSeed(createId()); resetTasks(); }}>重新随机</Button>}>
@@ -423,8 +466,8 @@ export default function LogoReplaceComposer({
         </Card>}
       </Card>
       <Card className="action-card"><Flex justify="space-between" align="center" gap={16} wrap><div><Title level={4} style={{ margin: 0 }}>准备替换 {taskCount} 张图片</Title><Text type="secondary">{scenes.length} 张场景图 × 每张 {settings.copiesPerScene} 个结果</Text></div><Space>{processing && <Button danger icon={<StopOutlined />} onClick={stop}>停止任务</Button>}<Button type="primary" size="large" icon={<RocketOutlined />} loading={processing} onClick={start}>{processing ? '正在替换' : '开始替换'}</Button></Space></Flex>{!!tasks.length && <Progress style={{ marginTop: 18 }} percent={Math.round((completed / tasks.length) * 100)} status={processing ? 'active' : successful.length ? 'success' : 'exception'} />}</Card>
-      <section className="results-section"><Flex justify="space-between" align="center" gap={8} wrap><div><Title level={3}>替换结果</Title><Text type="secondary">每个结果仅改变 Logo</Text></div><Space wrap>{!!successful.length && <Checkbox checked={allSuccessfulSelected} indeterminate={selectedSuccessful.length > 0 && !allSuccessfulSelected} onChange={(event) => toggleSelectAllSuccessful(event.target.checked)}>全选成功项</Checkbox>}<Button disabled={!selectedSuccessful.length} icon={<DownloadOutlined />} onClick={() => void downloadSelected()}>下载选中{selectedSuccessful.length ? `（${selectedSuccessful.length}）` : ''}</Button><Popconfirm title="清空全部替换结果？" onConfirm={clearResults}><Button danger disabled={!tasks.length} icon={<ClearOutlined />}>清空结果</Button></Popconfirm><Button disabled={!successful.length} icon={<DownloadOutlined />} onClick={() => void downloadAll()}>下载全部 ZIP</Button></Space></Flex>
-        {tasks.length ? <Image.PreviewGroup><div className="logo-replace-results">{groups.flatMap((group) => group.tasks.map((task) => <Card key={task.id} size="small" style={selectedResultIds.has(task.id) ? { borderColor: '#1677ff', boxShadow: '0 0 0 1px #1677ff' } : undefined} title={`场景 ${task.sceneIndex + 1} · 结果 ${task.copyIndex + 1}`} extra={task.resultBlob && <Space size={4}><Checkbox aria-label={`选择场景 ${task.sceneIndex + 1} 结果 ${task.copyIndex + 1}`} checked={selectedResultIds.has(task.id)} onChange={(event) => toggleResultSelection(task.id, event.target.checked)} /><Button type="text" icon={<DownloadOutlined />} onClick={() => downloadTask(task)} /></Space>}><div className="replace-result-image">{task.resultUrl ? <Image src={compareOriginalIds.has(task.id) ? group.scene.previewUrl : task.resultUrl} alt={compareOriginalIds.has(task.id) ? "原始场景图" : "Logo 替换结果"} /> : task.status === 'running' ? <GeneratingImage progressKey={task.id} status="running" percent={1} /> : <div className={`task-state-card is-${task.status}`}><Text strong type={task.status === 'failed' ? 'danger' : 'secondary'}>{statusText(task.status)}</Text><Text type="secondary">{task.error || (task.status === 'waiting' ? '等待可用并发任务' : '')}</Text></div>}</div><Flex justify="space-between" align="center" gap={8} style={{ marginTop: 8 }}><Space size={6}><Tag color={task.status === 'success' ? 'success' : task.status === 'failed' ? 'error' : task.status === 'running' ? 'processing' : 'default'}>{statusText(task.status)}</Tag>{task.resultUrl && <Button size="small" icon={<EyeOutlined />} onClick={() => setCompareOriginalIds((current) => { const next = new Set(current); if (next.has(task.id)) next.delete(task.id); else next.add(task.id); return next; })}>{compareOriginalIds.has(task.id) ? '查看生成图' : '原图对比'}</Button>}</Space>{task.status === 'failed' && <Button size="small" icon={<ReloadOutlined />} onClick={() => retry(task.id)}>重试</Button>}</Flex></Card>))}</div></Image.PreviewGroup> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="完成上传并开始替换后，结果会显示在这里" />}
+      <section className="results-section"><Flex justify="space-between" align="center" gap={8} wrap><div><Title level={3}>替换结果</Title><Text type="secondary">每个结果仅改变 Logo</Text></div><Space wrap>{!!downloadable.length && <Checkbox checked={allSuccessfulSelected} indeterminate={selectedSuccessful.length > 0 && !allSuccessfulSelected} onChange={(event) => toggleSelectAllSuccessful(event.target.checked)}>全选成功项</Checkbox>}<Button disabled={!selectedSuccessful.length} icon={<DownloadOutlined />} onClick={() => void downloadSelected()}>下载选中{selectedSuccessful.length ? `（${selectedSuccessful.length}）` : ''}</Button><Popconfirm title="清空全部替换结果？" onConfirm={clearResults}><Button danger disabled={!tasks.length} icon={<ClearOutlined />}>清空结果</Button></Popconfirm><Button disabled={!downloadable.length} icon={<DownloadOutlined />} onClick={() => void downloadAll()}>下载全部 ZIP</Button></Space></Flex>
+        {tasks.length ? <Image.PreviewGroup><div className="logo-replace-results">{groups.flatMap((group) => group.tasks.map((task) => <Card key={task.id} size="small" style={selectedResultIds.has(task.id) ? { borderColor: '#1677ff', boxShadow: '0 0 0 1px #1677ff' } : undefined} title={`场景 ${task.sceneIndex + 1} · 结果 ${task.copyIndex + 1}`} extra={task.resultBlob && <Space size={4}><Checkbox disabled={task.verificationStatus === 'failed' && !task.acceptedVerificationRisk} aria-label={`选择场景 ${task.sceneIndex + 1} 结果 ${task.copyIndex + 1}`} checked={selectedResultIds.has(task.id)} onChange={(event) => toggleResultSelection(task.id, event.target.checked)} /><Button type="text" disabled={task.verificationStatus === 'failed' && !task.acceptedVerificationRisk} icon={<DownloadOutlined />} onClick={() => downloadTask(task)} /></Space>}><div className="replace-result-image">{task.resultUrl ? <Image src={compareOriginalIds.has(task.id) ? group.scene.previewUrl : task.resultUrl} alt={compareOriginalIds.has(task.id) ? "原始场景图" : "Logo 替换结果"} /> : task.status === 'running' ? <GeneratingImage progressKey={task.id} status="running" percent={1} /> : <div className={`task-state-card is-${task.status}`}><Text strong type={task.status === 'failed' ? 'danger' : 'secondary'}>{statusText(task.status)}</Text><Text type="secondary">{task.error || (task.status === 'waiting' ? '等待可用并发任务' : '')}</Text></div>}</div><Flex justify="space-between" align="center" gap={8} style={{ marginTop: 8 }}><Space size={6}><Tag color={task.status === 'success' ? 'success' : task.status === 'failed' ? 'error' : task.status === 'running' ? 'processing' : 'default'}>{statusText(task.status)}</Tag>{task.resultUrl && <Button size="small" icon={<EyeOutlined />} onClick={() => setCompareOriginalIds((current) => { const next = new Set(current); if (next.has(task.id)) next.delete(task.id); else next.add(task.id); return next; })}>{compareOriginalIds.has(task.id) ? '查看生成图' : '原图对比'}</Button>}</Space>{task.status === 'failed' && <Button size="small" icon={<ReloadOutlined />} onClick={() => retry(task.id)}>重试</Button>}</Flex>{task.verificationStatus && <Flex vertical gap={6} style={{ marginTop: 8 }}><Tag color={task.verificationStatus === 'passed' ? 'success' : task.verificationStatus === 'failed' ? 'error' : task.verificationStatus === 'verifying' ? 'processing' : 'default'}>{task.verificationStatus === 'passed' ? '文字校验通过' : task.verificationStatus === 'failed' ? '文字校验未通过' : task.verificationStatus === 'verifying' ? '校验中' : task.verificationStatus === 'skipped' ? '未启用校验' : '等待校验'}</Tag>{task.verificationResult && <Text type={task.verificationStatus === 'failed' ? 'danger' : 'secondary'}>{[task.verificationResult.summary, ...task.verificationResult.differences].filter(Boolean).join('；')}{task.verificationAttempts ? `（校验 ${task.verificationAttempts} 次）` : ''}</Text>}{task.verificationStatus === 'failed' && !task.acceptedVerificationRisk && <Space><Button size="small" icon={<ReloadOutlined />} onClick={() => retry(task.id)}>重新生成</Button><Button size="small" onClick={() => setTasks((current) => current.map((item) => item.id === task.id ? { ...item, acceptedVerificationRisk: true } : item))}>人工确认可用</Button></Space>}{task.acceptedVerificationRisk && <Tag color="warning">已人工接受风险</Tag>}</Flex>}</Card>))}</div></Image.PreviewGroup> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="完成上传并开始替换后，结果会显示在这里" />}
       </section>
       <Alert type="warning" showIcon title="生成式替换提示" description="模型会尽量保持其他区域不变，但生成式图片接口不能保证像素级完全一致；旧 Logo 参考图有助于提高识别准确率。" />
       {!settingsHost && <aside className="logo-settings">{settingsPanel}</aside>}

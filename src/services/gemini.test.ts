@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { buildGlassLogoEtchInstruction, buildLogoReplacementInstruction, buildObjectReplacementInstruction, getGeminiApiRoot, getProxyHealthUrl, isRetryableGeminiStatus } from './gemini';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { buildGlassLogoEtchInstruction, buildLogoReplacementInstruction, buildObjectReplacementInstruction, getGeminiApiRoot, getProxyHealthUrl, isRetryableGeminiStatus, verifyLogoReplacement } from './gemini';
 
 describe('Gemini API 地址', () => {
   it('未配置代理时直连 Google', () => {
@@ -29,6 +29,22 @@ describe('Gemini API 地址', () => {
   });
 });
 
+describe('Logo 结果校验', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('提交参考图、生成图和准确文字并解析结构化结果', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      candidates: [{ content: { parts: [{ text: JSON.stringify({ passed: false, referenceText: 'NAME', generatedText: 'N4ME', differences: ['A 被替换为 4'], graphicConsistent: true, summary: '字符不一致' }) }] } }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const reference = new File(['logo'], 'logo.png', { type: 'image/png' });
+    const generated = new Blob(['result'], { type: 'image/png' });
+    const result = await verifyLogoReplacement({ apiKey: 'test-key', model: 'gemini-3.1-flash-lite', referenceLogo: reference, generatedImage: generated, expectedText: 'NAME', apiBaseUrl: null });
+    expect(result).toMatchObject({ passed: false, referenceText: 'NAME', generatedText: 'N4ME', graphicConsistent: true });
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.contents[0].parts[0].text).toContain('准确文字必须逐字符等于〈NAME〉');
+    expect(body.contents[0].parts.filter((part: { inlineData?: unknown }) => part.inlineData)).toHaveLength(2);
+  });
+});
 describe('玻璃杯 Logo 雕刻技能指令', () => {
   it('将所有可调参数写入生成指令', () => {
     const instruction = buildGlassLogoEtchInstruction({
@@ -63,6 +79,18 @@ describe('Logo 替换指令', () => {
     expect(instruction).toContain('禁止平面贴纸感');
   });
 
+  it('将准确文字和校验差异作为不可覆盖的修复约束', () => {
+    const instruction = buildLogoReplacementInstruction({
+      hasOldLogo: false,
+      logoColorMode: 'original',
+      expectedText: 'NAME’S CLASS 2026',
+      correctionFeedback: '生成结果把 CLASS 写成了 CL4SS',
+    });
+    expect(instruction).toContain('〈NAME’S CLASS 2026〉');
+    expect(instruction).toContain('大小写、空格、数字和标点完全一致');
+    expect(instruction).toContain('生成结果把 CLASS 写成了 CL4SS');
+    expect(instruction).toContain('不得改变位置、曲面贴合、工艺或场景其他内容');
+  });
   it('自动模式逐个识别并沿用同一场景中的多种原工艺', () => {
     const instruction = buildLogoReplacementInstruction({ hasOldLogo: true, logoColorMode: 'white', engravingMode: 'auto' });
     expect(instruction).toContain('每一个旧 Logo 当前真实采用的制作或雕刻工艺');

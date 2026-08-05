@@ -1,4 +1,4 @@
-import type { GeneratedImage, GlassLogoEtchOptions, ImageModel, ImageSize, ObjectPreservationOptions, OptimizerModel } from '../types';
+import type { GeneratedImage, GlassLogoEtchOptions, ImageModel, ImageSize, LogoVerificationResult, ObjectPreservationOptions, OptimizerModel } from '../types';
 import { fileToBase64 } from '../utils';
 import { startRequestConsoleEntry, summarizeGeminiRequest, updateRequestConsoleEntry } from './requestConsole';
 
@@ -318,6 +318,8 @@ export function buildLogoReplacementInstruction(options: {
   customWoodEngravingMethod?: string;
   customEngravingObject?: string;
   engravingMethod?: string;
+  expectedText?: string;
+  correctionFeedback?: string;
 }): string {
   const automaticEngraving = options.engravingMode === 'auto';
   const hasEngraving = automaticEngraving || Boolean(options.glassEngravingEnabled || options.woodEngravingEnabled || options.customEngravingEnabled);
@@ -372,13 +374,44 @@ export function buildLogoReplacementInstruction(options: {
       ? engravingInstructions.join('') + '必须先识别每个旧 Logo 所在的载体类型，再分别应用匹配的玻璃、木盒或自定义物体工艺；这些工艺可在同一张场景图中同时生效。未匹配上述载体的 Logo 保持原有制作工艺。'
       : '保持原 Logo 在场景中的现有制作工艺和材质融合方式，只替换 Logo 内容。';
   const microTextInstruction = '新 Logo 必须作为完整的不可拆分图形资产进行像素级外观复制，尤其是尺寸很小的文字、字母、数字、标点、细线和负空间。严禁对 Logo 执行 OCR 后重新输入、拼写、翻译、纠错、补字、猜字、改写字体或生成相似字母；不得把任何字符替换为其他字符，不得产生乱码。必须保持参考 Logo 中每个字符的数量、顺序、大小写、字形轮廓、间距、基线、粗细和相对位置完全一致。即使小字无法语义识别，也必须把原始笔画当作图形纹理逐笔保留，而不是解释其文字含义。';
+  const exactTextInstruction = options.expectedText?.trim()
+    ? '【准确文字最高优先级】新 Logo 中必须准确呈现以下字符序列：〈' + options.expectedText + '〉。必须逐字符保持内容、顺序、大小写、空格、数字和标点完全一致，禁止翻译、纠错、补全或替换。'
+    : '';
+  const correctionInstruction = options.correctionFeedback?.trim()
+    ? '【上次结果校验失败，必须修复】' + options.correctionFeedback + '。只修复 Logo 图形和字符，不得改变位置、曲面贴合、工艺或场景其他内容。'
+    : '';
   const surfaceConformanceInstruction = '【杯体及曲面贴合强制规则】若旧 Logo 位于杯子、玻璃杯、保温杯、瓶子或任何弧形载体上，必须先识别该位置的圆柱形、锥形或不规则曲率、杯身中心轴线、表面法线和相机视角，再把新 Logo 当作附着于该三维表面的二维纹理进行 UV 投影。Logo 必须沿杯体横向曲率自然弯曲，并随透视在远离正面的左右两侧逐渐横向压缩；其上下边缘、文字基线和每条笔画都必须服从同一曲面，不得保持平面矩形。严格匹配旧 Logo 原有的中心位置、可见宽高、旋转、透视缩短、杯体边缘遮挡和表面朝向，不得跨出杯体轮廓。同步继承杯体上的高光、阴影、透明度、反射、折射和材质颗粒，使这些光学效果连续穿过 Logo。禁止平面贴纸感、悬浮感、正视图硬贴、左右宽度不收缩、边缘翘起或与杯体曲率不一致。输出前检查 Logo 的每个局部是否贴在杯面上；若任何笔画看起来是平的或浮在杯子前方，必须重新按杯面曲率变形后再输出。';
   const zeroColorFinalCheck = !automaticEngraving && options.woodEngravingEnabled && options.woodEngravingStyle === 'natural-recessed' && woodColorDepth === 0
     ? '【输出前最终强制验收】新 Logo 参考图中的黑色、白色及任何颜色像素只能用于确定凹槽的形状和位置，严禁复制到木盒表面。最终木盒 Logo 不得出现棕色或黑色线条、轮廓、描边、实心笔画、填充或烧灼色；Logo 笔画内部与周围木材必须是相同原木颜色并连续保留木纹。唯一可见差异只能是无着色浅凹槽的微小几何起伏及其自然光影。如果初步结果看起来像深色线稿、印刷或烧蚀，则该结果不合格，必须在输出前改为零着色同色凹刻。'
     : '';
-  return `执行严格的 Logo 替换任务。第一张图片是原始场景图，${referenceInstruction}${colorInstruction}${effectInstruction}${microTextInstruction}${surfaceConformanceInstruction}${zeroColorFinalCheck} 只允许改变旧 Logo 覆盖的区域：保持每个 Logo 原有的位置、大小、角度、透视、曲面包裹、遮挡关系和材质融合方式，并用新 Logo 准确替换。若同一场景存在多个旧 Logo，必须全部替换。除 Logo 外，原图所有像素对应内容必须保持不变，包括画幅、构图、裁切、镜头、主体、产品结构、杯体、背景、人物、道具、已有非 Logo 文字、颜色、光线、阴影、反射、折射、景深、噪点和清晰度。不得移动、删除、增加、重绘或重新设计任何非 Logo 内容，不得在原本没有 Logo 的位置新增 Logo。`;
+  return `执行严格的 Logo 替换任务。第一张图片是原始场景图，${referenceInstruction}${colorInstruction}${effectInstruction}${microTextInstruction}${exactTextInstruction}${correctionInstruction}${surfaceConformanceInstruction}${zeroColorFinalCheck} 只允许改变旧 Logo 覆盖的区域：保持每个 Logo 原有的位置、大小、角度、透视、曲面包裹、遮挡关系和材质融合方式，并用新 Logo 准确替换。若同一场景存在多个旧 Logo，必须全部替换。除 Logo 外，原图所有像素对应内容必须保持不变，包括画幅、构图、裁切、镜头、主体、产品结构、杯体、背景、人物、道具、已有非 Logo 文字、颜色、光线、阴影、反射、折射、景深、噪点和清晰度。不得移动、删除、增加、重绘或重新设计任何非 Logo 内容，不得在原本没有 Logo 的位置新增 Logo。`;
 }
 
+async function normalizedLogoReference(file: File): Promise<{ data: string; mimeType: string }> {
+  if (typeof createImageBitmap !== 'function' || typeof document === 'undefined') {
+    return { data: await fileToBase64(file), mimeType: file.type };
+  }
+  try {
+    const bitmap = await createImageBitmap(file);
+    const longest = Math.max(bitmap.width, bitmap.height);
+    const scale = 820 / Math.max(1, longest);
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = 1024;
+    canvas.height = 1024;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Canvas unavailable');
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = 'high';
+    context.drawImage(bitmap, (1024 - width) / 2, (1024 - height) / 2, width, height);
+    bitmap.close();
+    const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error('Logo normalization failed')), 'image/png'));
+    return { data: await fileToBase64(blob), mimeType: 'image/png' };
+  } catch {
+    return { data: await fileToBase64(file), mimeType: file.type };
+  }
+}
 export async function generateLogoReplacement(options: {
   apiKey: string;
   model: ImageModel;
@@ -393,16 +426,16 @@ export async function generateLogoReplacement(options: {
   signal?: AbortSignal;
   apiBaseUrl?: string | null;
 }): Promise<GeneratedImage> {
-  const [sceneData, oldLogoData, newLogoData] = await Promise.all([
+  const [sceneData, oldLogoData, normalizedNewLogo] = await Promise.all([
     fileToBase64(options.scene),
     options.oldLogo ? fileToBase64(options.oldLogo) : Promise.resolve(undefined),
-    fileToBase64(options.newLogo),
+    normalizedLogoReference(options.newLogo),
   ]);
   const parts: GeminiPart[] = [{
     text: options.promptOverride?.trim() || buildLogoReplacementInstruction({ hasOldLogo: Boolean(options.oldLogo), logoColorMode: options.logoColorMode, customLogoColor: options.customLogoColor }),
   }, { inlineData: { mimeType: options.scene.type, data: sceneData } }];
   if (oldLogoData && options.oldLogo) parts.push({ inlineData: { mimeType: options.oldLogo.type, data: oldLogoData } });
-  parts.push({ inlineData: { mimeType: options.newLogo.type, data: newLogoData } });
+  parts.push({ inlineData: { mimeType: normalizedNewLogo.mimeType, data: normalizedNewLogo.data } });
   const imageConfig: { imageSize: ImageSize; aspectRatio?: string } = { imageSize: options.imageSize };
   if (options.aspectRatio) imageConfig.aspectRatio = options.aspectRatio;
   const data = await postGemini(options.model, options.apiKey, {
@@ -414,6 +447,45 @@ export async function generateLogoReplacement(options: {
   const bytes = Uint8Array.from(atob(imagePart.inlineData.data), (char) => char.charCodeAt(0));
   const mimeType = imagePart.inlineData.mimeType || 'image/png';
   return { blob: new Blob([bytes], { type: mimeType }), mimeType, usageTokens: data.usageMetadata?.totalTokenCount };
+}
+export async function verifyLogoReplacement(options: {
+  apiKey: string;
+  model: OptimizerModel;
+  referenceLogo: File;
+  generatedImage: Blob;
+  expectedText?: string;
+  signal?: AbortSignal;
+  apiBaseUrl?: string | null;
+}): Promise<LogoVerificationResult> {
+  const [reference, generated] = await Promise.all([normalizedLogoReference(options.referenceLogo), fileToBase64(options.generatedImage)]);
+  const expected = options.expectedText?.trim();
+  const data = await postGemini(options.model, options.apiKey, {
+    contents: [{ role: 'user', parts: [
+      { text: `第一张图片是原始 Logo 参考，第二张图片是生成后的场景图。只检查场景图中新替换 Logo 的字符和图形是否与参考一致。${expected ? `准确文字必须逐字符等于〈${expected}〉，包括大小写、空格、数字和标点。` : '未提供准确文字，请直接比较参考 Logo 与生成 Logo 的全部可见字符、笔画、布局和图形。'}任何字符替换、乱码、缺失、多余、大小写或标点变化都判定失败。` },
+      { inlineData: { mimeType: reference.mimeType, data: reference.data } },
+      { inlineData: { mimeType: options.generatedImage.type || 'image/png', data: generated } },
+    ] }],
+    generationConfig: {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: 'OBJECT',
+        properties: {
+          passed: { type: 'BOOLEAN' }, referenceText: { type: 'STRING' }, generatedText: { type: 'STRING' },
+          differences: { type: 'ARRAY', items: { type: 'STRING' } }, graphicConsistent: { type: 'BOOLEAN' }, summary: { type: 'STRING' },
+        },
+        required: ['passed', 'referenceText', 'generatedText', 'differences', 'graphicConsistent', 'summary'],
+      },
+    },
+  }, options.signal, options.apiBaseUrl);
+  const raw = data.candidates?.flatMap((candidate) => candidate.content?.parts ?? []).map((part) => part.text || '').join('').trim();
+  if (!raw) throw new Error('Logo 校验模型未返回结果');
+  try {
+    const parsed = JSON.parse(raw) as LogoVerificationResult;
+    if (typeof parsed.passed !== 'boolean' || !Array.isArray(parsed.differences) || typeof parsed.graphicConsistent !== 'boolean') throw new Error('invalid');
+    return { passed: parsed.passed, referenceText: String(parsed.referenceText || ''), generatedText: String(parsed.generatedText || ''), differences: parsed.differences.map(String), graphicConsistent: parsed.graphicConsistent, summary: String(parsed.summary || '') };
+  } catch {
+    throw new Error('Logo 校验结果格式无效，请重试');
+  }
 }
 export function buildObjectReplacementInstruction(options: {
   sourceObjectName: string;

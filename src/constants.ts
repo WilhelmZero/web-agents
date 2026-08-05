@@ -56,6 +56,9 @@ export const DEFAULT_LOGO_REPLACE_SETTINGS = {
   randomAssignLogos: false,
   customizeReplacementPrompt: false,
   replacementPrompt: '',
+  strictTextVerification: true,
+  verificationModel: 'gemini-3.1-flash-lite',
+  verificationRetries: 2,
 } as const;
 export const DEFAULT_OBJECT_REPLACE_SETTINGS = {
   imageModel: 'gemini-3.1-flash-image',
