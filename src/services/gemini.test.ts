@@ -170,10 +170,15 @@ describe('物体批量替换指令', () => {
     expect(instruction).toContain('液体类型、颜色、液面高度和可见状态');
     expect(instruction).toContain('原场景有泡沫时保持原有泡沫');
     expect(instruction).toContain('手部握持点和前后遮挡顺序');
-    expect(instruction).toContain('宽度必须由新杯原始宽高比自动决定');
+    expect(instruction).toContain('最终高度只能由新杯参考图决定');
+    expect(instruction).toContain('严格按新杯原始总高与最大宽度之比计算最终高度');
+    expect(instruction).toContain('新杯较高时必须允许其轮廓自然向上延伸');
+    expect(instruction).toContain('严禁压缩新杯高度以匹配旧杯');
+    expect(instruction).toContain('禁止使用旧物体可见高度约束新物体高度');
     expect(instruction).toContain('严禁任何横向或纵向非等比拉伸');
     expect(instruction).toContain('Sx = Sy = Sz');
-    expect(instruction).toContain('只能减小或增大同一个统一缩放倍率');
+    expect(instruction).toContain('严禁用旧物体高度反推或限制该倍率');
+    expect(instruction).toContain('扩展局部编辑区域容纳完整新物体');
     expect(instruction).toContain('归一化轮廓与新物体参考图逐段比较');
     expect(instruction).toContain('任何杯口、杯肚、腰线、杯底或其他轮廓比例偏差都判定为不合格');
     expect(instruction).toContain('改变腰线、曲线、锥度或杯肚宽度');
