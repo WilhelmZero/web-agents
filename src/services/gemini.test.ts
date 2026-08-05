@@ -78,6 +78,10 @@ describe('Logo 替换指令', () => {
     expect(instruction).toContain('杯体及曲面贴合强制规则');
     expect(instruction).toContain('当作附着于该三维表面的二维纹理进行 UV 投影');
     expect(instruction).toContain('左右两侧逐渐横向压缩');
+    expect(instruction).toContain('严禁复制或继承旧 Logo 的平面形状、错误弧度');
+    expect(instruction).toContain('杯口与杯底椭圆');
+    expect(instruction).toContain('而不是照抄旧 Logo');
+    expect(instruction).toContain('上、中、下三条水平带');
     expect(instruction).toContain('禁止平面贴纸感');
   });
 
