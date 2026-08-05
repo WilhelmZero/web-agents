@@ -193,6 +193,7 @@ const translations: Record<string, string> = {
   '原木浅雕深浅': 'Natural carving depth',
   '原木浅雕颜色深浅': 'Natural carving color darkness',
   '接近原木色': 'Near natural wood',
+  '仅凹槽 / 不改色': 'Groove only / no recoloring',
   '最深色': 'Darkest',
   '控制台': 'Console',
   '全选成功项': 'Select all successful',

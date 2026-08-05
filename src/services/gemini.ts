@@ -337,14 +337,16 @@ export function buildLogoReplacementInstruction(options: {
   const customMethod = options.engravingMethod?.trim();
   const woodStyle = options.woodEngravingStyle || 'auto';
   const woodColorDepth = Math.max(0, Math.min(100, options.woodEngravingColorDepth ?? 15));
-  const woodColorProfile = woodColorDepth <= 20
-    ? '极浅同色：Logo 与周围木材的明暗差不得超过约 5%，远看接近隐约可见，绝不能变成白色、黑色或高对比图案。'
-    : woodColorDepth <= 40
-      ? '浅色低对比：Logo 与周围木材保持约 5%–12% 的明暗差，仍以木材本色为主，不得使用白色或黑色填充。'
-      : woodColorDepth <= 70
-        ? '中等同色对比：Logo 与周围木材保持约 12%–25% 的明暗差，清晰可辨但仍保留原木同色质感。'
-        : '较深同色对比：Logo 与周围木材保持约 25%–40% 的明暗差，明显可见但禁止纯黑、纯白、油墨或焦黑烧灼效果。';
-  const naturalRecessedInstruction = '原木同色浅雕或凹刻：颜色深浅参数为 ' + woodColorDepth + '%。' + woodColorProfile + ' 此百分比必须直接改变最终 Logo 相对当前木材底色的颜色对比度，不能使用固定默认色，也不能忽略或自行重置该参数。只调整 Logo 的颜色明暗与对比度；物理凹槽深度始终保持极浅且固定。不做黑色填充。保留 Logo 区域连续可见的真实木纹，通过细微凹槽阴影和切削纹理显示图案。';
+  const woodColorProfile = woodColorDepth === 0
+    ? '零着色纯凹刻（最高优先级）：不得改变 Logo 区域木材的色相、饱和度、平均明度或木纹颜色；逐点沿用周围原木本色，颜色差必须近似 0%。绝对禁止深色轮廓、棕色描边、线稿、填充、烧焦、油墨、颜料、白化或发光。只在木材表面刻出极浅的真实几何凹槽，图案仅依靠凹槽内壁及边缘随场景原有光源产生的极微弱高光和自然阴影显现。'
+    : woodColorDepth <= 15
+      ? '近零着色纯凹刻：Logo 与周围木材的整体颜色差不得超过约 2%，禁止深色轮廓、棕色线稿、填充、烧灼或颜料；主要依靠极浅凹槽边缘的微弱高光和自然阴影显示。'
+      : woodColorDepth <= 40
+        ? '浅色低对比：Logo 与周围木材保持约 3%–10% 的明暗差，仍以木材本色为主，不得使用白色或黑色填充。'
+        : woodColorDepth <= 70
+          ? '中等同色对比：Logo 与周围木材保持约 10%–22% 的明暗差，清晰可辨但仍保留原木同色质感。'
+          : '较深同色对比：Logo 与周围木材保持约 22%–38% 的明暗差，明显可见但禁止纯黑、纯白、油墨或焦黑烧灼效果。';
+  const naturalRecessedInstruction = '原木同色浅雕或凹刻：颜色深浅参数为 ' + woodColorDepth + '%。' + woodColorProfile + ' 此百分比必须直接控制最终 Logo 相对当前木材底色的着色程度，不能使用固定默认色，也不能忽略或自行重置该参数。凹槽物理深度始终保持极浅且固定，颜色参数不得转化为更深的凹槽。保留 Logo 内外连续一致的真实木纹；Logo 参考图的黑色或白色仅代表图形蒙版和笔画形状，绝不能作为输出颜色。';
   const darkBurnInstruction = '深色激光烧蚀雕刻：形成深棕至炭黑色的高对比烧灼图案，文字和大面积图形内部清晰填充，边缘锐利，同时保留可见木纹与自然焦痕。最终 Logo 必须明显比周围木材更深；严禁生成白色、乳白色、浅色、玻璃磨砂色、白色油墨或发光效果，即使新 Logo 参考图本身是白色也必须忽略其颜色，只保留图形与文字形状。';
   const woodMethod = woodStyle === 'auto'
     ? '自动识别木盒底色并逐个选择工艺：若木盒为深色木材或深色涂层，使用深色激光烧蚀效果；若木盒为浅色木材或浅色涂层，使用原木同色浅雕或凹刻效果。不得把浅色木盒误用深黑烧蚀，也不得把深色木盒生成白色 Logo。浅色木盒采用以下浅雕颜色规则：' + naturalRecessedInstruction
@@ -358,7 +360,7 @@ export function buildLogoReplacementInstruction(options: {
       ? '若旧 Logo 位于玻璃物体上，将新 Logo 以玻璃激光磨砂雕刻方式制作。形成真实的半透明乳白或雾化蚀刻质感，保留玻璃透光、折射、曲面包裹、反射和厚度变化，不得表现为油墨印刷、贴纸或木材烧蚀。'
       : '',
     options.woodEngravingEnabled
-      ? '若旧 Logo 位于木盒上，将新 Logo 按以下木盒工艺雕刻：' + woodMethod + ' 必须根据木盒实际深浅、木种、纹理方向和光照调整对比度与雕刻深度，不得改变木盒本身的颜色、木纹、结构和构图。'
+      ? '若旧 Logo 位于木盒上，将新 Logo 按以下木盒工艺雕刻：' + woodMethod + ' 必须严格服从上述工艺及颜色参数，再根据木盒实际木种、纹理方向和光照做自然材质融合；不得擅自加深颜色或凹槽，不得改变木盒本身的颜色、木纹、结构和构图。'
       : '',
     options.customEngravingEnabled
       ? '若旧 Logo 位于场景中的“' + customObject + '”上，采用指定雕刻方式：' + (customMethod || '根据载体材质自然雕刻') + '。必须服从该载体的颜色、纹理、硬度、反光和凹凸特性。'

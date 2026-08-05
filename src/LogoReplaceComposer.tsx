@@ -360,7 +360,7 @@ export default function LogoReplaceComposer({
                 {settings.woodEngravingStyle === 'natural-recessed' && <Text type="secondary" className="field-help">颜色接近原木，不做黑色填充，通过极浅凹槽、切削纹理和自然阴影显示 Logo。</Text>}
                 {(settings.woodEngravingStyle === 'natural-recessed' || settings.woodEngravingStyle === 'auto') && <div style={{ marginTop: 10 }}>
                   <Flex justify="space-between"><Text>原木浅雕颜色深浅</Text><Text code>{settings.woodEngravingColorDepth}%</Text></Flex>
-                  <Slider min={0} max={100} value={settings.woodEngravingColorDepth} onChange={(woodEngravingColorDepth) => patchSettings({ woodEngravingColorDepth })} marks={{ 0: '接近原木色', 50: '中等', 100: '最深色' }} />
+                  <Slider min={0} max={100} value={settings.woodEngravingColorDepth} onChange={(woodEngravingColorDepth) => patchSettings({ woodEngravingColorDepth })} marks={{ 0: '仅凹槽 / 不改色', 50: '中等', 100: '最深色' }} />
                 </div>}
                 {settings.woodEngravingStyle === 'custom' && <Input.TextArea style={{ marginTop: 10 }} value={settings.customWoodEngravingMethod} placeholder="输入木盒雕刻方式、深浅、颜色和表面效果" autoSize={{ minRows: 2, maxRows: 4 }} onChange={(event) => patchSettings({ customWoodEngravingMethod: event.target.value })} />}
               </>}
