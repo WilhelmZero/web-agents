@@ -91,6 +91,9 @@ describe('Logo 替换指令', () => {
     expect(natural).toContain('绝对禁止深色轮廓');
     expect(natural).toContain('只在木材表面刻出极浅的真实几何凹槽');
     expect(natural).toContain('参考图的黑色或白色仅代表图形蒙版');
+    expect(natural).toContain('输出前最终强制验收');
+    expect(natural).toContain('黑色、白色及任何颜色像素只能用于确定凹槽的形状和位置');
+    expect(natural).toContain('如果初步结果看起来像深色线稿');
     const darkNatural = buildLogoReplacementInstruction({ hasOldLogo: false, logoColorMode: 'original', woodEngravingEnabled: true, woodEngravingStyle: 'natural-recessed', woodEngravingColorDepth: 85 });
     expect(darkNatural).toContain('22%–38%');
     expect(darkNatural).toContain('凹槽物理深度始终保持极浅且固定');
