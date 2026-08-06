@@ -131,6 +131,8 @@ const translations: Record<string, string> = {
   '拖拽、点击或粘贴场景图': 'Drag, click, or paste scene images',
   '支持多张 PNG / JPEG / WebP，单张不超过 20MB': 'Multiple PNG / JPEG / WebP images, max 20 MB each',
   '设置旧 Logo 与新 Logo': 'Set old and new logos',
+  '设置 Logo': 'Set logos',
+  '使用旧 Logo 参考': 'Use old logo reference',
   '旧 Logo 可不上传': 'The old logo is optional',
   '上传旧 Logo 能帮助 AI 更准确识别需要替换的标识；新 Logo 必须上传。': 'Uploading the old logo helps AI identify what to replace; the new logo is required.',
   '旧 Logo（选填）': 'Old logo (optional)',

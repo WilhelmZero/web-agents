@@ -161,6 +161,7 @@ export interface LogoSettings {
 }
 
 export interface LogoReplaceSettings {
+  useOldLogoReference: boolean;
   imageModel: ImageModel;
   ratioMode: 'original' | 'fixed';
   aspectRatio: string;

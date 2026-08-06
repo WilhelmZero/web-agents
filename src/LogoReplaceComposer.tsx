@@ -198,7 +198,7 @@ export default function LogoReplaceComposer({
   });
 
   const defaultReplacementPrompt = useMemo(() => buildLogoReplacementInstruction({
-    hasOldLogo: Boolean(oldLogo),
+    hasOldLogo: settings.useOldLogoReference && Boolean(oldLogo),
     logoColorMode: settings.logoColorMode,
     customLogoColor: settings.customLogoColor,
     engravingMode: settings.engravingMode,
@@ -210,9 +210,9 @@ export default function LogoReplaceComposer({
     customWoodEngravingMethod: settings.customWoodEngravingMethod,
     customEngravingObject: settings.customEngravingObject,
     engravingMethod: settings.engravingMethod,
-  }), [oldLogo, settings.logoColorMode, settings.customLogoColor, settings.engravingMode, settings.glassEngravingEnabled, settings.woodEngravingEnabled, settings.customEngravingEnabled, settings.woodEngravingStyle, settings.woodEngravingColorDepth, settings.customWoodEngravingMethod, settings.customEngravingObject, settings.engravingMethod]);
+  }), [oldLogo, settings.useOldLogoReference, settings.logoColorMode, settings.customLogoColor, settings.engravingMode, settings.glassEngravingEnabled, settings.woodEngravingEnabled, settings.customEngravingEnabled, settings.woodEngravingStyle, settings.woodEngravingColorDepth, settings.customWoodEngravingMethod, settings.customEngravingObject, settings.engravingMethod]);
   const actualReplacementPrompt = useMemo(
-    () => buildActualReplacementPrompt(settings, Boolean(oldLogo)),
+    () => buildActualReplacementPrompt(settings, settings.useOldLogoReference && Boolean(oldLogo)),
     [settings, oldLogo],
   );
   const pairings = useMemo(
@@ -238,11 +238,11 @@ export default function LogoReplaceComposer({
           apiKey,
           model: currentSettings.imageModel,
           scene: scene.file,
-          oldLogo: oldLogoRef.current?.file,
+          oldLogo: currentSettings.useOldLogoReference ? oldLogoRef.current?.file : undefined,
           newLogo: replacement.file,
           logoColorMode: currentSettings.logoColorMode,
           customLogoColor: currentSettings.customLogoColor,
-          promptOverride: buildActualReplacementPrompt(currentSettings, Boolean(oldLogoRef.current), expectedText, correctionFeedback),
+          promptOverride: buildActualReplacementPrompt(currentSettings, currentSettings.useOldLogoReference && Boolean(oldLogoRef.current), expectedText, correctionFeedback),
           aspectRatio: currentSettings.ratioMode === 'fixed' ? currentSettings.aspectRatio : undefined,
           imageSize: currentSettings.imageSize,
           signal: controller.signal,
@@ -316,7 +316,7 @@ export default function LogoReplaceComposer({
   const processing = tasks.some((task) => task.status === 'waiting' || task.status === 'running');
   const completed = tasks.filter((task) => ['success', 'failed', 'stopped'].includes(task.status)).length;
   const taskCount = scenes.length * settings.copiesPerScene;
-  const baseEstimatedCost = estimateImageCost(settings.imageModel, settings.imageSize, taskCount) + taskCount * PRICING.models[settings.imageModel].inputImage * (oldLogo ? 2 : 1);
+  const baseEstimatedCost = estimateImageCost(settings.imageModel, settings.imageSize, taskCount) + taskCount * PRICING.models[settings.imageModel].inputImage * (settings.useOldLogoReference && oldLogo ? 2 : 1);
   const worstCaseImageCost = baseEstimatedCost * (settings.strictTextVerification ? settings.verificationRetries + 1 : 1);
   const groups = useMemo(() => scenes.map((scene) => ({ scene, tasks: tasks.filter((task) => task.sceneId === scene.id) })).filter((group) => group.tasks.length), [scenes, tasks]);
   const downloadTask = (task: LogoReplaceTask) => {
@@ -451,11 +451,10 @@ export default function LogoReplaceComposer({
         {!scenes.length && <Upload.Dragger multiple showUploadList={false} accept={ACCEPTED_TYPES.join(',')} beforeUpload={(file) => addScenes([file as File])}><p className="ant-upload-drag-icon"><FileImageOutlined /></p><p className="ant-upload-text">拖拽、点击或粘贴场景图</p><p className="ant-upload-hint">支持多张 PNG / JPEG / WebP，单张不超过 20MB</p></Upload.Dragger>}
         {!!scenes.length && <Image.PreviewGroup><div className="replace-scene-grid">{scenes.map((scene) => <div className="replace-scene-card" key={scene.id}><Image src={scene.previewUrl} alt={scene.name} preview={{ mask: <EyeOutlined /> }} /><Button type="text" danger block icon={<DeleteOutlined />} onClick={() => removeScene(scene.id)}>删除</Button></div>)}<Upload multiple showUploadList={false} accept={ACCEPTED_TYPES.join(',')} beforeUpload={(file) => addScenes([file as File])}><button type="button" className="scene-product-add"><PlusOutlined /><span>继续添加图片</span></button></Upload></div></Image.PreviewGroup>}
       </Card>
-      <Card className="workflow-card" title={<Space><span className="step-badge">2</span><span>设置旧 Logo 与新 Logo</span></Space>}>
-        <Alert type="info" showIcon title="旧 Logo 可不上传" description="上传旧 Logo 能帮助 AI 更准确识别需要替换的标识；新 Logo 必须上传。" style={{ marginBottom: 16 }} />
-        <div className="replace-logo-grid">
-          <Card size="small" title="旧 Logo（选填）">{oldLogoCard}</Card>
-          <div className="replace-arrow"><SwapOutlined /></div>
+      <Card className="workflow-card" title={<Space><span className="step-badge">2</span><span>设置 Logo</span></Space>} extra={<Space><Text type="secondary">使用旧 Logo 参考</Text><Switch checked={settings.useOldLogoReference} onChange={(useOldLogoReference) => patchSettings({ useOldLogoReference })} /></Space>}>
+        {settings.useOldLogoReference && <Alert type="info" showIcon title="旧 Logo 可不上传" description="上传旧 Logo 能帮助 AI 更准确识别需要替换的标识；新 Logo 必须上传。" style={{ marginBottom: 16 }} />}
+        <div className={`replace-logo-grid${settings.useOldLogoReference ? '' : ' is-single'}`}>
+          {settings.useOldLogoReference && <><Card size="small" title="旧 Logo（选填）">{oldLogoCard}</Card><div className="replace-arrow"><SwapOutlined /></div></>}
           <Card size="small" title="新 Logo（可多选）">
             {!newLogos.length ? <Upload.Dragger multiple showUploadList={false} accept={ACCEPTED_TYPES.join(',')} beforeUpload={(file) => addNewLogos([file as File])}><p className="ant-upload-drag-icon"><PlusOutlined /></p><p className="ant-upload-text">上传一个或多个新 Logo</p><p className="ant-upload-hint">PNG / JPEG / WebP</p></Upload.Dragger> : <Image.PreviewGroup><div className="replace-new-logo-grid">{newLogos.map((logo) => <div className="replace-new-logo-card" key={logo.id}><Image src={logo.previewUrl} alt="新 Logo" /><Input size="small" value={expectedTexts[logo.id] || ''} placeholder="准确文字（选填）" onChange={(event) => setExpectedTexts((current) => ({ ...current, [logo.id]: event.target.value }))} /><Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => removeNewLogo(logo.id)}>删除</Button></div>)}<Upload multiple showUploadList={false} accept={ACCEPTED_TYPES.join(',')} beforeUpload={(file) => addNewLogos([file as File])}><button type="button" className="replace-logo-add"><PlusOutlined /><span>添加 Logo</span></button></Upload></div></Image.PreviewGroup>}
           </Card>

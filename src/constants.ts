@@ -36,6 +36,7 @@ export const DEFAULT_LOGO_SETTINGS = {
 } as const;
 
 export const DEFAULT_LOGO_REPLACE_SETTINGS = {
+  useOldLogoReference: false,
   imageModel: 'gemini-3.1-flash-image',
   ratioMode: 'original',
   aspectRatio: '1:1',
