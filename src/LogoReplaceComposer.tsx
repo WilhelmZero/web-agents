@@ -47,7 +47,9 @@ import { buildLogoReplacementInstruction, generateLogoReplacement, verifyLogoRep
 import { assignReplacementLogos, buildLogoReplaceTasks } from './services/logoReplaceUtils';
 import { readLocalStorage } from './storage';
 import type { LogoAsset, LogoReplaceSettings, LogoReplaceTask } from './types';
-import { createId, downloadBlob, estimateImageCost, mimeExtension, normalizeSettingsForModel, sanitizeFileName } from './utils';
+import { createId, downloadBlob, estimateImageCost, normalizeSettingsForModel, sanitizeFileName } from './utils';
+import { logoReplaceResultFileName } from './services/logoReplaceFileName';
+import PsdLogoImportModal from './PsdLogoImportModal';
 
 const { Text, Title, Paragraph } = Typography;
 const ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
@@ -59,10 +61,6 @@ function statusText(status: LogoReplaceTask['status']) {
   if (status === 'success') return '替换成功';
   if (status === 'failed') return '替换失败';
   return '已停止';
-}
-
-function fileName(task: LogoReplaceTask, scene: LogoAsset, model: string) {
-  return `${String(task.sceneIndex + 1).padStart(2, '0')}_${sanitizeFileName(scene.name)}_${String(task.copyIndex + 1).padStart(2, '0')}_${model}.${mimeExtension(task.resultMimeType)}`;
 }
 
 function buildActualReplacementPrompt(settings: LogoReplaceSettings, hasOldLogo: boolean, expectedText = '', correctionFeedback = '') {
@@ -121,6 +119,7 @@ function LogoReplaceSingleComposer({
   const [compareOriginalIds, setCompareOriginalIds] = useState<Set<string>>(() => new Set());
   const [selectedResultIds, setSelectedResultIds] = useState<Set<string>>(() => new Set());
   const [tasks, setTasks] = useState<LogoReplaceTask[]>([]);
+  const [pendingPsdFile, setPendingPsdFile] = useState<File>();
   const runningIds = useRef(new Set<string>());
   const aborters = useRef(new Map<string, AbortController>());
   const scenesRef = useRef(scenes);
@@ -184,6 +183,13 @@ function LogoReplaceSingleComposer({
       setNewLogos((current) => [...current, ...assets]);
     }
     return false;
+  };
+  const loadPsdLogos = async (file: File) => {
+    setPendingPsdFile(file);
+  };
+  const addNewLogoFile = (file: File) => {
+    if (file.name.toLowerCase().endsWith('.psd')) { void loadPsdLogos(file); return false; }
+    return addNewLogos([file]);
   };
   const removeNewLogo = (id: string) => {
     resetTasks();
@@ -329,13 +335,13 @@ function LogoReplaceSingleComposer({
   const groups = useMemo(() => scenes.map((scene) => ({ scene, tasks: tasks.filter((task) => task.sceneId === scene.id) })).filter((group) => group.tasks.length), [scenes, tasks]);
   const downloadTask = (task: LogoReplaceTask) => {
     const scene = scenes.find((item) => item.id === task.sceneId);
-    if (scene && task.resultBlob && (task.verificationStatus !== 'failed' || task.acceptedVerificationRisk)) downloadBlob(task.resultBlob, fileName(task, scene, settings.imageModel));
+    if (scene && task.resultBlob && (task.verificationStatus !== 'failed' || task.acceptedVerificationRisk)) downloadBlob(task.resultBlob, logoReplaceResultFileName(scene.name, task.copyIndex, settings.copiesPerScene, task.resultMimeType));
   };
   const downloadAll = async () => {
     const zip = new JSZip();
     groups.forEach((group) => {
       const target = settings.copiesPerScene > 1 ? zip.folder(`${String(group.tasks[0]?.sceneIndex + 1).padStart(2, '0')}_${sanitizeFileName(group.scene.name)}`)! : zip;
-      group.tasks.forEach((task) => { if (task.resultBlob && (task.verificationStatus !== 'failed' || task.acceptedVerificationRisk)) target.file(fileName(task, group.scene, settings.imageModel), task.resultBlob); });
+      group.tasks.forEach((task) => { if (task.resultBlob && (task.verificationStatus !== 'failed' || task.acceptedVerificationRisk)) target.file(logoReplaceResultFileName(group.scene.name, task.copyIndex, settings.copiesPerScene, task.resultMimeType), task.resultBlob); });
     });
     downloadBlob(await zip.generateAsync({ type: 'blob' }), 'SceneStudio_Logo替换结果.zip');
   };
@@ -360,7 +366,7 @@ function LogoReplaceSingleComposer({
     const zip = new JSZip();
     selectedSuccessful.forEach((task) => {
       const scene = scenes.find((item) => item.id === task.sceneId);
-      if (scene && task.resultBlob) zip.file(fileName(task, scene, settings.imageModel), task.resultBlob);
+      if (scene && task.resultBlob) zip.file(logoReplaceResultFileName(scene.name, task.copyIndex, settings.copiesPerScene, task.resultMimeType), task.resultBlob);
     });
     downloadBlob(await zip.generateAsync({ type: 'blob' }), `SceneStudio_选中的Logo替换结果_${selectedSuccessful.length}张.zip`);
   };
@@ -464,7 +470,7 @@ function LogoReplaceSingleComposer({
         <div className={`replace-logo-grid${settings.useOldLogoReference ? '' : ' is-single'}`}>
           {settings.useOldLogoReference && <><Card size="small" title="旧 Logo（选填）">{oldLogoCard}</Card><div className="replace-arrow"><SwapOutlined /></div></>}
           <Card size="small" title="新 Logo（可多选）">
-            {!newLogos.length ? <Upload.Dragger multiple showUploadList={false} accept={ACCEPTED_TYPES.join(',')} beforeUpload={(file) => addNewLogos([file as File])}><p className="ant-upload-drag-icon"><PlusOutlined /></p><p className="ant-upload-text">上传一个或多个新 Logo</p><p className="ant-upload-hint">PNG / JPEG / WebP</p></Upload.Dragger> : <Image.PreviewGroup><div className="replace-new-logo-grid">{newLogos.map((logo) => <div className="replace-new-logo-card" key={logo.id}><Image src={logo.previewUrl} alt="新 Logo" /><Input size="small" value={expectedTexts[logo.id] || ''} placeholder="准确文字（选填）" onChange={(event) => setExpectedTexts((current) => ({ ...current, [logo.id]: event.target.value }))} /><Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => removeNewLogo(logo.id)}>删除</Button></div>)}<Upload multiple showUploadList={false} accept={ACCEPTED_TYPES.join(',')} beforeUpload={(file) => addNewLogos([file as File])}><button type="button" className="replace-logo-add"><PlusOutlined /><span>添加 Logo</span></button></Upload></div></Image.PreviewGroup>}
+            {!newLogos.length ? <Upload.Dragger multiple showUploadList={false} accept={`${ACCEPTED_TYPES.join(',')},.psd,image/vnd.adobe.photoshop`} beforeUpload={(file) => addNewLogoFile(file as File)}><p className="ant-upload-drag-icon"><PlusOutlined /></p><p className="ant-upload-text">上传一个或多个新 Logo</p><p className="ant-upload-hint">PNG / JPEG / WebP / PSD；PSD 可选择包括隐藏图层在内的 Logo</p></Upload.Dragger> : <Image.PreviewGroup><div className="replace-new-logo-grid">{newLogos.map((logo) => <div className="replace-new-logo-card" key={logo.id}><Image src={logo.previewUrl} alt="新 Logo" /><Input size="small" value={expectedTexts[logo.id] || ''} placeholder="准确文字（选填）" onChange={(event) => setExpectedTexts((current) => ({ ...current, [logo.id]: event.target.value }))} /><Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => removeNewLogo(logo.id)}>删除</Button></div>)}<Upload multiple showUploadList={false} accept={`${ACCEPTED_TYPES.join(',')},.psd,image/vnd.adobe.photoshop`} beforeUpload={(file) => addNewLogoFile(file as File)}><button type="button" className="replace-logo-add"><PlusOutlined /><span>添加 Logo / PSD</span></button></Upload></div></Image.PreviewGroup>}
           </Card>
         </div>
         {!!scenes.length && !!newLogos.length && <Card size="small" className="replace-pair-preview" title="场景与新 Logo 配对预览" extra={settings.randomAssignLogos && <Button size="small" icon={<ReloadOutlined />} onClick={() => { setRandomSeed(createId()); resetTasks(); }}>重新随机</Button>}>
@@ -479,6 +485,7 @@ function LogoReplaceSingleComposer({
       <Alert type="warning" showIcon title="生成式替换提示" description="模型会尽量保持其他区域不变，但生成式图片接口不能保证像素级完全一致；旧 Logo 参考图有助于提高识别准确率。" />
       {!settingsHost && <aside className="logo-settings">{settingsPanel}</aside>}
       {settingsHost && createPortal(settingsPanel, settingsHost)}
+      <PsdLogoImportModal file={pendingPsdFile} onClose={() => setPendingPsdFile(undefined)} onImport={(files) => { addNewLogos(files); message.success(`已从 PSD 导入 ${files.length} 个透明 Logo 图层`); }} />
     </div>
   );
 }

@@ -12,16 +12,21 @@ function copyCanvas(source: HTMLCanvasElement) {
 export function parsePsdLogoLayers(buffer: ArrayBuffer) {
   const psd = readPsd(buffer, { skipLayerImageData: false, skipCompositeImageData: true });
   const layers: PsdLogoLayer[] = [];
-  const visit = (items: Layer[] | undefined, parents: string[] = []) => items?.forEach((layer, index) => {
+  const visit = (items: Layer[] | undefined, parents: string[] = [], parentHidden = false) => items?.forEach((layer, index) => {
     const name = layer.name?.trim() || `图层 ${index + 1}`; const path = [...parents, name];
+    const hidden = parentHidden || layer.hidden === true;
     if (layer.canvas?.width && layer.canvas.height) {
       const canvas = copyCanvas(layer.canvas);
-      layers.push({ id: `${path.join('/')}-${index}-${layers.length}`, name, path: path.join(' / '), hidden: layer.hidden === true, canvas, previewUrl: canvas.toDataURL('image/png'), width: canvas.width, height: canvas.height });
+      layers.push({ id: `${path.join('/')}-${index}-${layers.length}`, name, path: path.join(' / '), hidden, canvas, previewUrl: canvas.toDataURL('image/png'), width: canvas.width, height: canvas.height });
     }
-    visit(layer.children, path);
+    visit(layer.children, path, hidden);
   });
   visit(psd.children);
   return { psd: psd as Psd, layers };
+}
+
+export function defaultPsdLogoLayerIds(layers: Pick<PsdLogoLayer, 'id' | 'name'>[]) {
+  return new Set(layers.filter((layer) => layer.name.trim() !== '背景').map((layer) => layer.id));
 }
 
 export async function renderPsdLogoLayer(source: HTMLCanvasElement, width: number, height: number, mode: LogoFitMode, quality: LogoQualityMode, backgroundColor: string | null) {

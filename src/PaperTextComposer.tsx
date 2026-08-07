@@ -1,4 +1,4 @@
-import { DeleteOutlined, DownloadOutlined, EyeOutlined, FileImageOutlined, FileTextOutlined, ReloadOutlined, RocketOutlined, ScanOutlined, StopOutlined } from '@ant-design/icons';
+import { DeleteOutlined, DownloadOutlined, EyeOutlined, FileImageOutlined, FileTextOutlined, ReloadOutlined, RocketOutlined, ScanOutlined, StopOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { Alert, App, Button, Card, Empty, Flex, Form, Image, Input, InputNumber, Progress, Segmented, Select, Space, Tag, Typography, Upload } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -7,13 +7,28 @@ import { buildPaperTextEditPrompt, editPaperTextOpenAi, recognizePaperTextOpenAi
 import { editPaperTextGemini, recognizePaperTextGemini, verifyPaperTextGemini } from './services/gemini';
 import { createId, downloadBlob, sanitizeFileName } from './utils';
 import { createEmbeddedImageSvg } from './services/svgExport';
+import { STORAGE_KEYS } from './constants';
+import { readLocalStorage } from './storage';
+import { inspectVectorEligibility, vectorizeImageToSvg } from './services/trueVectorExport';
 
 const { Title, Text, Paragraph } = Typography;
 type Provider = 'openai' | 'gemini';
 type ItemStatus = 'waiting' | 'recognizing' | 'recognized' | 'editing' | 'done' | 'error';
-interface Item { id: string; file: File; url: string; resultUrl?: string; resultBlob?: Blob; regions: PaperTextRegion[]; status: ItemStatus; error?: string; verification?: string }
+interface Item { id: string; file: File; url: string; resultUrl?: string; resultBlob?: Blob; vectorBlob?: Blob; vectorStatus?: 'checking' | 'converting' | 'ready' | 'skipped' | 'error'; vectorError?: string; regions: PaperTextRegion[]; status: ItemStatus; error?: string; verification?: string }
 const ACCEPTED = ['image/png', 'image/jpeg', 'image/webp'];
 const textKey = (value: string) => value.replace(/\s+/g, ' ').trim().toLocaleLowerCase();
+const OPENAI_TEXT_MODELS = [
+  { value: 'gpt-5.6-luna', label: 'GPT-5.6 Luna（快速低成本）' },
+  { value: 'gpt-5.6-terra', label: 'GPT-5.6 Terra（均衡）' },
+  { value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol（最高能力）' },
+];
+const GEMINI_TEXT_MODELS = [
+  { value: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash（推荐）' },
+  { value: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash' },
+  { value: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite（快速低成本）' },
+  { value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite' },
+  { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash（旧版）' },
+];
 const OPENAI_IMAGE_MODELS = [
   { value: 'gpt-image-2', label: 'GPT Image 2（推荐）' },
   { value: 'gpt-image-2-2026-04-21', label: 'GPT Image 2（2026-04-21 固定版本）' },
@@ -24,25 +39,36 @@ const GEMINI_IMAGE_MODELS = [
   { value: 'gemini-3-pro-image', label: 'Gemini 3 Pro Image（高质量）' },
   { value: 'gemini-2.5-flash-image', label: 'Gemini 2.5 Flash Image（旧版）' },
 ];
+interface PaperTextSettings {
+  languageProvider: Provider;
+  imageProvider: Provider;
+  openAiTextModel: string;
+  openAiImageModel: string;
+  geminiTextModel: string;
+  geminiImageModel: string;
+  quality: string;
+  concurrency: number;
+}
+const DEFAULT_PAPER_TEXT_SETTINGS: PaperTextSettings = {
+  languageProvider: 'openai', imageProvider: 'openai', openAiTextModel: 'gpt-5.6-luna', openAiImageModel: 'gpt-image-2',
+  geminiTextModel: 'gemini-3.6-flash', geminiImageModel: 'gemini-3.1-flash-image', quality: 'high', concurrency: 4,
+};
 
 export default function PaperTextComposer({ apiKey, openAiApiKey, apiBaseUrl, onRequestKey, onSessionStateChange, settingsHost }: { apiKey: string; openAiApiKey: string; apiBaseUrl: string | null; onRequestKey: () => void; onSessionStateChange?: (value: boolean) => void; settingsHost?: HTMLElement | null }) {
   const { message } = App.useApp();
   const [items, setItems] = useState<Item[]>([]);
   const [activeId, setActiveId] = useState<string>();
-  const [languageProvider, setLanguageProvider] = useState<Provider>('openai');
-  const [imageProvider, setImageProvider] = useState<Provider>('openai');
-  const [openAiTextModel, setOpenAiTextModel] = useState('gpt-5.6-luna');
-  const [openAiImageModel, setOpenAiImageModel] = useState('gpt-image-2');
-  const [geminiTextModel, setGeminiTextModel] = useState('gemini-3.1-flash-lite');
-  const [geminiImageModel, setGeminiImageModel] = useState('gemini-3.1-flash-image');
-  const [commonPrompt, setCommonPrompt] = useState('准确还原原文字的设计风格，让新文字自然融入花纸印刷效果；优先保证文字清晰、拼写准确。');
-  const [quality, setQuality] = useState('high');
-  const [concurrency, setConcurrency] = useState(4);
+  const [paperSettings, setPaperSettings] = useState<PaperTextSettings>(() => readLocalStorage(STORAGE_KEYS.paperTextSettings, DEFAULT_PAPER_TEXT_SETTINGS));
+  const { languageProvider, imageProvider, openAiTextModel, openAiImageModel, geminiTextModel, geminiImageModel, quality, concurrency } = paperSettings;
+  const patchSettings = (value: Partial<PaperTextSettings>) => setPaperSettings((current) => ({ ...current, ...value }));
+  const [commonPrompt, setCommonPrompt] = useState('');
   const [busy, setBusy] = useState(false);
+  const [vectorizing, setVectorizing] = useState(false);
   const [compareIds, setCompareIds] = useState<Set<string>>(() => new Set());
   const aborter = useRef<AbortController | undefined>(undefined);
   const active = items.find((item) => item.id === activeId) || items[0];
   useEffect(() => onSessionStateChange?.(items.length > 0), [items.length, onSessionStateChange]);
+  useEffect(() => { try { localStorage.setItem(STORAGE_KEYS.paperTextSettings, JSON.stringify(paperSettings)); } catch { /* 本地存储不可用时继续使用当前会话设置 */ } }, [paperSettings]);
   useEffect(() => () => { aborter.current?.abort(); items.forEach((item) => { URL.revokeObjectURL(item.url); if (item.resultUrl) URL.revokeObjectURL(item.resultUrl); }); }, []);
 
   const recognizedItems = items.filter((item) => item.regions.length > 0);
@@ -99,8 +125,38 @@ export default function PaperTextComposer({ apiKey, openAiApiKey, apiBaseUrl, on
       }
       if (!blob) throw new Error('图片编辑未返回结果');
       const resultUrl = URL.createObjectURL(blob); if (item.resultUrl) URL.revokeObjectURL(item.resultUrl);
-      patch(item.id, { status: 'done', resultBlob: blob, resultUrl, verification: verification.ok ? '复核通过' : `复核未通过：${verification.reason}` });
+      patch(item.id, { status: 'done', resultBlob: blob, resultUrl, vectorBlob: undefined, vectorStatus: 'checking', vectorError: undefined, verification: verification.ok ? '复核通过' : `复核未通过：${verification.reason}` });
+      void autoVectorize(item.id, blob);
     } catch (error) { patch(item.id, { status: signal.aborted ? 'recognized' : 'error', error: signal.aborted ? undefined : error instanceof Error ? error.message : '修改失败' }); }
+  };
+  const convertVector = async (id: string, blob: Blob, automatic = false) => {
+    patch(id, { vectorStatus: 'converting', vectorError: undefined });
+    try {
+      const vectorBlob = await vectorizeImageToSvg(blob);
+      patch(id, { vectorBlob, vectorStatus: 'ready' });
+      return true;
+    } catch (error) {
+      patch(id, { vectorStatus: automatic ? 'skipped' : 'error', vectorError: error instanceof Error ? error.message : '矢量化失败' });
+      return false;
+    }
+  };
+  const autoVectorize = async (id: string, blob: Blob) => {
+    try {
+      const analysis = await inspectVectorEligibility(blob);
+      if (!analysis.eligible) return void patch(id, { vectorStatus: 'skipped', vectorError: `检测到约 ${analysis.colorBins} 个颜色层级，未自动描摹` });
+      await convertVector(id, blob, true);
+    } catch (error) {
+      patch(id, { vectorStatus: 'skipped', vectorError: error instanceof Error ? error.message : '自动矢量检测失败' });
+    }
+  };
+  const batchVectorize = async () => {
+    const targets = items.filter((item) => item.resultBlob && item.vectorStatus !== 'ready');
+    if (!targets.length) return void message.info('当前结果均已生成真正矢量图');
+    setVectorizing(true);
+    let success = 0;
+    for (const item of targets) if (item.resultBlob && await convertVector(item.id, item.resultBlob)) success += 1;
+    setVectorizing(false);
+    message.success(`已完成 ${success}/${targets.length} 张真正矢量图转换`);
   };
   const applyItems = async (targets: Item[]) => {
     if (!ensureKey(imageProvider) || !ensureKey(languageProvider) || busy) return;
@@ -117,14 +173,17 @@ export default function PaperTextComposer({ apiKey, openAiApiKey, apiBaseUrl, on
       message.error(error instanceof Error ? error.message : 'SVG 导出失败');
     }
   };
+  const downloadVectorSvg = (item: Item) => {
+    if (item.vectorBlob) downloadBlob(item.vectorBlob, `${sanitizeFileName(item.file.name)}_真正矢量.svg`);
+  };
 
   const settings = <div className="composer-settings paper-text-settings"><Title level={4}>模型设置</Title><Form layout="vertical">
-    <Form.Item label="文字识别与复核"><Segmented block value={languageProvider} onChange={(value) => setLanguageProvider(value as Provider)} options={[{ label: 'GPT', value: 'openai' }, { label: 'Gemini', value: 'gemini' }]} /></Form.Item>
-    <Form.Item label="语言模型"><Input value={languageProvider === 'openai' ? openAiTextModel : geminiTextModel} onChange={(e) => languageProvider === 'openai' ? setOpenAiTextModel(e.target.value) : setGeminiTextModel(e.target.value)} /></Form.Item>
-    <Form.Item label="图片编辑"><Segmented block value={imageProvider} onChange={(value) => setImageProvider(value as Provider)} options={[{ label: 'GPT Image', value: 'openai' }, { label: 'Gemini', value: 'gemini' }]} /></Form.Item>
-    <Form.Item label="图片模型"><Select value={imageProvider === 'openai' ? openAiImageModel : geminiImageModel} onChange={(value) => imageProvider === 'openai' ? setOpenAiImageModel(value) : setGeminiImageModel(value)} options={imageProvider === 'openai' ? OPENAI_IMAGE_MODELS : GEMINI_IMAGE_MODELS} /></Form.Item>
-    {imageProvider === 'openai' && <Form.Item label="GPT 图片质量"><Select value={quality} onChange={setQuality} options={['high', 'medium', 'low'].map((value) => ({ value, label: value }))} /></Form.Item>}
-    <Form.Item label="识别与修改并发"><InputNumber min={1} max={8} value={concurrency} onChange={(value) => setConcurrency(value || 1)} style={{ width: '100%' }} /></Form.Item>
+    <Form.Item label="文字识别与复核"><Segmented block value={languageProvider} onChange={(value) => patchSettings({ languageProvider: value as Provider })} options={[{ label: 'GPT', value: 'openai' }, { label: 'Gemini', value: 'gemini' }]} /></Form.Item>
+    <Form.Item label="语言模型"><Select value={languageProvider === 'openai' ? openAiTextModel : geminiTextModel} onChange={(value) => patchSettings(languageProvider === 'openai' ? { openAiTextModel: value } : { geminiTextModel: value })} options={languageProvider === 'openai' ? OPENAI_TEXT_MODELS : GEMINI_TEXT_MODELS} /></Form.Item>
+    <Form.Item label="图片编辑"><Segmented block value={imageProvider} onChange={(value) => patchSettings({ imageProvider: value as Provider })} options={[{ label: 'GPT Image', value: 'openai' }, { label: 'Gemini', value: 'gemini' }]} /></Form.Item>
+    <Form.Item label="图片模型"><Select value={imageProvider === 'openai' ? openAiImageModel : geminiImageModel} onChange={(value) => patchSettings(imageProvider === 'openai' ? { openAiImageModel: value } : { geminiImageModel: value })} options={imageProvider === 'openai' ? OPENAI_IMAGE_MODELS : GEMINI_IMAGE_MODELS} /></Form.Item>
+    {imageProvider === 'openai' && <Form.Item label="GPT 图片质量"><Select value={quality} onChange={(value) => patchSettings({ quality: value })} options={['high', 'medium', 'low'].map((value) => ({ value, label: value }))} /></Form.Item>}
+    <Form.Item label="识别与修改并发"><InputNumber min={1} max={8} value={concurrency} onChange={(value) => patchSettings({ concurrency: value || 1 })} style={{ width: '100%' }} /></Form.Item>
   </Form><Alert type="info" showIcon title="默认使用 GPT 官方直连" description="OpenAI 请求固定直连 api.openai.com，不使用 Gemini 中转或自定义 Base URL。" /></div>;
   const statusLabel = (status: ItemStatus) => ({ waiting: '待识别', recognizing: '识别中', recognized: '可编辑', editing: '修改中', done: '已完成', error: '失败' })[status];
   const changedCount = active?.regions.filter((r) => r.text !== r.original).length || 0;
@@ -145,6 +204,6 @@ export default function PaperTextComposer({ apiKey, openAiApiKey, apiBaseUrl, on
       <Input.TextArea value={commonPrompt} onChange={(event) => setCommonPrompt(event.target.value)} autoSize={{ minRows: 3, maxRows: 8 }} placeholder="例如：保持金色烫印质感，文字边缘清晰，并匹配原图透视。" showCount maxLength={1200} />
     </Card>
     <Card className="action-card"><Flex justify="space-between" align="center" gap={12} wrap><div><Title level={4} style={{ margin: 0 }}>已修改 {changedItems.length} 张图片</Title><Text type="secondary">按右侧并发数同时执行文字修改和结果复核</Text></div><Space>{busy && <Button danger icon={<StopOutlined />} onClick={() => aborter.current?.abort()}>停止</Button>}<Button icon={<ReloadOutlined />} disabled={!active || busy} onClick={() => active && void recognizeOne(active, new AbortController().signal)}>重新识别当前图</Button><Button type="primary" size="large" icon={<RocketOutlined />} loading={busy} disabled={!changedItems.length} onClick={() => void applyItems(changedItems)}>应用到全部已修改图片</Button></Space></Flex>{busy && <Progress style={{ marginTop: 14 }} percent={items.length ? Math.round(completed / items.length * 100) : 0} status="active" />}</Card>
-    <section className="results-section"><Flex justify="space-between" align="center"><div><Title level={3}>文字修改结果</Title><Text type="secondary">点击图片可放大；支持 PNG 原图质量下载和 SVG 矢量容器导出</Text></div></Flex>{items.some((item) => item.resultUrl) ? <Image.PreviewGroup><div className="paper-results">{items.filter((item) => item.resultUrl).map((item) => <Card key={item.id} size="small" title={item.file.name} extra={item.resultBlob && <Space size={4}><Button size="small" type="text" icon={<DownloadOutlined />} onClick={() => downloadBlob(item.resultBlob!, `${sanitizeFileName(item.file.name)}_花纸文字修改.png`)}>PNG</Button><Button size="small" type="text" icon={<FileTextOutlined />} onClick={() => void exportSvg(item)}>SVG</Button></Space>}><div className="replace-result-image"><Image src={compareIds.has(item.id) ? item.url : item.resultUrl} alt={compareIds.has(item.id) ? '原始图片' : '文字修改结果'} /></div><Flex justify="space-between" align="center" style={{ marginTop: 8 }}><Space><Tag color={item.verification === '复核通过' ? 'success' : 'warning'}>{item.verification || '已生成'}</Tag><Tag>SVG 内嵌原图</Tag></Space><Button size="small" icon={<EyeOutlined />} onClick={() => setCompareIds((current) => { const next = new Set(current); next.has(item.id) ? next.delete(item.id) : next.add(item.id); return next; })}>{compareIds.has(item.id) ? '查看生成图' : '原图对比'}</Button></Flex></Card>)}</div></Image.PreviewGroup> : <Empty description="完成文字修改后，结果会显示在这里" />}</section>
+    <section className="results-section"><Flex justify="space-between" align="center" gap={12} wrap><div><Title level={3}>文字修改结果</Title><Text type="secondary">简单花纸会自动生成真实 SVG Path；复杂图片可使用批量转换强制描摹</Text></div><Button icon={<ThunderboltOutlined />} loading={vectorizing} disabled={!items.some((item) => item.resultBlob && item.vectorStatus !== 'ready')} onClick={() => void batchVectorize()}>批量转换为矢量图</Button></Flex>{items.some((item) => item.resultUrl) ? <Image.PreviewGroup><div className="paper-results">{items.filter((item) => item.resultUrl).map((item) => <Card key={item.id} size="small" title={item.file.name} extra={item.resultBlob && <Space size={4}><Button size="small" type="text" icon={<DownloadOutlined />} onClick={() => downloadBlob(item.resultBlob!, `${sanitizeFileName(item.file.name)}_花纸文字修改.png`)}>PNG</Button><Button size="small" type="text" icon={<FileTextOutlined />} onClick={() => void exportSvg(item)}>保真 SVG</Button><Button size="small" type="primary" ghost disabled={!item.vectorBlob} loading={item.vectorStatus === 'checking' || item.vectorStatus === 'converting'} icon={<ThunderboltOutlined />} onClick={() => downloadVectorSvg(item)}>矢量 SVG</Button></Space>}><div className="replace-result-image"><Image src={compareIds.has(item.id) ? item.url : item.resultUrl} alt={compareIds.has(item.id) ? '原始图片' : '文字修改结果'} /></div><Flex justify="space-between" align="center" style={{ marginTop: 8 }}><Space wrap><Tag color={item.verification === '复核通过' ? 'success' : 'warning'}>{item.verification || '已生成'}</Tag>{item.vectorStatus === 'ready' ? <Tag color="cyan">真实矢量路径已就绪</Tag> : item.vectorStatus === 'checking' || item.vectorStatus === 'converting' ? <Tag color="processing">正在矢量化</Tag> : item.vectorStatus === 'skipped' ? <Tag>未自动矢量化</Tag> : item.vectorStatus === 'error' ? <Tag color="error">矢量化失败</Tag> : null}</Space><Button size="small" icon={<EyeOutlined />} onClick={() => setCompareIds((current) => { const next = new Set(current); next.has(item.id) ? next.delete(item.id) : next.add(item.id); return next; })}>{compareIds.has(item.id) ? '查看生成图' : '原图对比'}</Button></Flex>{item.vectorError && <Text type="secondary" style={{ display: 'block', marginTop: 6 }}>{item.vectorError}</Text>}</Card>)}</div></Image.PreviewGroup> : <Empty description="完成文字修改后，结果会显示在这里" />}</section>
   </div>;
 }
