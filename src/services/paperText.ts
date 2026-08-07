@@ -30,6 +30,10 @@ export function buildPaperTextEditPrompt(regions: PaperTextRegion[], correction 
 
 const OPENAI_ROOT = 'https://api.openai.com/v1';
 
+export function supportsOpenAiInputFidelity(model: string): boolean {
+  return !model.trim().toLowerCase().startsWith('gpt-image-2');
+}
+
 async function openAiError(response: Response): Promise<Error> {
   const body = await response.json().catch(() => null) as { error?: { message?: string } } | null;
   return new Error(body?.error?.message || `OpenAI 请求失败（HTTP ${response.status}）`);
@@ -70,7 +74,8 @@ export async function editPaperTextOpenAi(options: { apiKey: string; model: stri
   const form = new FormData();
   form.append('image[]', options.image, options.image.name);
   form.append('prompt', options.prompt); form.append('model', options.model); form.append('n', '1');
-  form.append('size', 'auto'); form.append('quality', options.quality); form.append('input_fidelity', 'high'); form.append('output_format', 'png');
+  form.append('size', 'auto'); form.append('quality', options.quality); form.append('output_format', 'png');
+  if (supportsOpenAiInputFidelity(options.model)) form.append('input_fidelity', 'high');
   const response = await fetch(`${OPENAI_ROOT}/images/edits`, { method: 'POST', headers: { Authorization: `Bearer ${options.apiKey}` }, body: form, signal: options.signal });
   if (!response.ok) throw await openAiError(response);
   const data = await response.json() as { data?: Array<{ b64_json?: string; url?: string }> };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildPaperTextEditPrompt, normalizePaperTextRegions } from './paperText';
+import { buildPaperTextEditPrompt, normalizePaperTextRegions, supportsOpenAiInputFidelity } from './paperText';
 
 describe('paper text helpers', () => {
   it('filters malformed regions and clamps percentage boxes', () => {
@@ -18,5 +18,11 @@ describe('paper text helpers', () => {
     expect(prompt).toContain('将“OLD”准确替换为“NEW”');
     expect(prompt).not.toContain('“SAME”');
     expect(prompt).toContain('除指定文字外');
+  });
+
+  it('omits input fidelity for GPT Image 2 models', () => {
+    expect(supportsOpenAiInputFidelity('gpt-image-2')).toBe(false);
+    expect(supportsOpenAiInputFidelity('gpt-image-2-2026-04-21')).toBe(false);
+    expect(supportsOpenAiInputFidelity('gpt-image-1.5')).toBe(true);
   });
 });
