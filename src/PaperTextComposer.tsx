@@ -1,4 +1,4 @@
-import { DeleteOutlined, DownloadOutlined, EyeOutlined, FileImageOutlined, ReloadOutlined, RocketOutlined, ScanOutlined, StopOutlined } from '@ant-design/icons';
+import { DeleteOutlined, DownloadOutlined, EyeOutlined, FileImageOutlined, FileTextOutlined, ReloadOutlined, RocketOutlined, ScanOutlined, StopOutlined } from '@ant-design/icons';
 import { Alert, App, Button, Card, Empty, Flex, Form, Image, Input, InputNumber, Progress, Segmented, Select, Space, Tag, Typography, Upload } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -6,6 +6,7 @@ import { reportTaskProgress } from './services/taskProgress';
 import { buildPaperTextEditPrompt, editPaperTextOpenAi, recognizePaperTextOpenAi, verifyPaperTextOpenAi, type PaperTextRegion } from './services/paperText';
 import { editPaperTextGemini, recognizePaperTextGemini, verifyPaperTextGemini } from './services/gemini';
 import { createId, downloadBlob, sanitizeFileName } from './utils';
+import { createEmbeddedImageSvg } from './services/svgExport';
 
 const { Title, Text, Paragraph } = Typography;
 type Provider = 'openai' | 'gemini';
@@ -106,6 +107,16 @@ export default function PaperTextComposer({ apiKey, openAiApiKey, apiBaseUrl, on
     if (!targets.length) return void message.warning('请先修改至少一处文字');
     setBusy(true); await runPool(targets, processItem); setBusy(false); message.success('批量文字修改任务已完成');
   };
+  const exportSvg = async (item: Item) => {
+    if (!item.resultBlob) return;
+    try {
+      const name = `${sanitizeFileName(item.file.name)}_花纸文字修改`;
+      const svg = await createEmbeddedImageSvg(item.resultBlob, name);
+      downloadBlob(svg, `${name}.svg`);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : 'SVG 导出失败');
+    }
+  };
 
   const settings = <div className="composer-settings paper-text-settings"><Title level={4}>模型设置</Title><Form layout="vertical">
     <Form.Item label="文字识别与复核"><Segmented block value={languageProvider} onChange={(value) => setLanguageProvider(value as Provider)} options={[{ label: 'GPT', value: 'openai' }, { label: 'Gemini', value: 'gemini' }]} /></Form.Item>
@@ -134,6 +145,6 @@ export default function PaperTextComposer({ apiKey, openAiApiKey, apiBaseUrl, on
       <Input.TextArea value={commonPrompt} onChange={(event) => setCommonPrompt(event.target.value)} autoSize={{ minRows: 3, maxRows: 8 }} placeholder="例如：保持金色烫印质感，文字边缘清晰，并匹配原图透视。" showCount maxLength={1200} />
     </Card>
     <Card className="action-card"><Flex justify="space-between" align="center" gap={12} wrap><div><Title level={4} style={{ margin: 0 }}>已修改 {changedItems.length} 张图片</Title><Text type="secondary">按右侧并发数同时执行文字修改和结果复核</Text></div><Space>{busy && <Button danger icon={<StopOutlined />} onClick={() => aborter.current?.abort()}>停止</Button>}<Button icon={<ReloadOutlined />} disabled={!active || busy} onClick={() => active && void recognizeOne(active, new AbortController().signal)}>重新识别当前图</Button><Button type="primary" size="large" icon={<RocketOutlined />} loading={busy} disabled={!changedItems.length} onClick={() => void applyItems(changedItems)}>应用到全部已修改图片</Button></Space></Flex>{busy && <Progress style={{ marginTop: 14 }} percent={items.length ? Math.round(completed / items.length * 100) : 0} status="active" />}</Card>
-    <section className="results-section"><Flex justify="space-between" align="center"><div><Title level={3}>文字修改结果</Title><Text type="secondary">点击图片可放大，使用按钮切换原图和生成图</Text></div></Flex>{items.some((item) => item.resultUrl) ? <Image.PreviewGroup><div className="paper-results">{items.filter((item) => item.resultUrl).map((item) => <Card key={item.id} size="small" title={item.file.name} extra={item.resultBlob && <Button type="text" icon={<DownloadOutlined />} onClick={() => downloadBlob(item.resultBlob!, `${sanitizeFileName(item.file.name)}_花纸文字修改.png`)} />}><div className="replace-result-image"><Image src={compareIds.has(item.id) ? item.url : item.resultUrl} alt={compareIds.has(item.id) ? '原始图片' : '文字修改结果'} /></div><Flex justify="space-between" align="center" style={{ marginTop: 8 }}><Space><Tag color={item.verification === '复核通过' ? 'success' : 'warning'}>{item.verification || '已生成'}</Tag></Space><Button size="small" icon={<EyeOutlined />} onClick={() => setCompareIds((current) => { const next = new Set(current); next.has(item.id) ? next.delete(item.id) : next.add(item.id); return next; })}>{compareIds.has(item.id) ? '查看生成图' : '原图对比'}</Button></Flex></Card>)}</div></Image.PreviewGroup> : <Empty description="完成文字修改后，结果会显示在这里" />}</section>
+    <section className="results-section"><Flex justify="space-between" align="center"><div><Title level={3}>文字修改结果</Title><Text type="secondary">点击图片可放大；支持 PNG 原图质量下载和 SVG 矢量容器导出</Text></div></Flex>{items.some((item) => item.resultUrl) ? <Image.PreviewGroup><div className="paper-results">{items.filter((item) => item.resultUrl).map((item) => <Card key={item.id} size="small" title={item.file.name} extra={item.resultBlob && <Space size={4}><Button size="small" type="text" icon={<DownloadOutlined />} onClick={() => downloadBlob(item.resultBlob!, `${sanitizeFileName(item.file.name)}_花纸文字修改.png`)}>PNG</Button><Button size="small" type="text" icon={<FileTextOutlined />} onClick={() => void exportSvg(item)}>SVG</Button></Space>}><div className="replace-result-image"><Image src={compareIds.has(item.id) ? item.url : item.resultUrl} alt={compareIds.has(item.id) ? '原始图片' : '文字修改结果'} /></div><Flex justify="space-between" align="center" style={{ marginTop: 8 }}><Space><Tag color={item.verification === '复核通过' ? 'success' : 'warning'}>{item.verification || '已生成'}</Tag><Tag>SVG 内嵌原图</Tag></Space><Button size="small" icon={<EyeOutlined />} onClick={() => setCompareIds((current) => { const next = new Set(current); next.has(item.id) ? next.delete(item.id) : next.add(item.id); return next; })}>{compareIds.has(item.id) ? '查看生成图' : '原图对比'}</Button></Flex></Card>)}</div></Image.PreviewGroup> : <Empty description="完成文字修改后，结果会显示在这里" />}</section>
   </div>;
 }
