@@ -83,7 +83,7 @@ import {
   taskFileName,
 } from './services/downloads';
 import { generateSceneImage, optimizePrompt, testProxyConnection } from './services/gemini';
-import { reportTaskProgress, requestTaskNotifications, subscribeTaskProgress, type TaskProgress } from './services/taskProgress';
+import { buildTaskPageTitle, reportTaskProgress, requestTaskNotifications, subscribeTaskProgress, type TaskProgress } from './services/taskProgress';
 import { isCreationTool, readCreationTool, setCreationToolInUrl } from './services/creationToolUrl';
 import type {
   AppSettings,
@@ -391,7 +391,7 @@ function AppContent() {
   const globalCompleted = runningProgress.reduce((sum, item) => sum + item.completed, 0);
   const globalTotal = runningProgress.reduce((sum, item) => sum + item.total, 0);
   const globalFailed = globalProgress.reduce((sum, item) => sum + item.failed, 0);
-  const titleStatus = globalTotal > 0 ? 'running' : globalFailed > 0 ? 'failed' : 'ready';
+  const titleStatus = globalFailed > 0 ? 'failed' : globalTotal > 0 ? 'running' : 'ready';
   const activeDelimiter = splitMode === 'newline' ? '\n' : delimiter;
   const splitPreview = useMemo(
     () => splitPrompts(bulkText, activeDelimiter),
@@ -404,7 +404,7 @@ function AppContent() {
 
   useEffect(() => subscribeTaskProgress(setGlobalProgress), []);
   useEffect(() => { reportTaskProgress({ id: 'scene', label: '场景图生成', completed: completedCount, total: tasks.length, failed: tasks.filter((task) => task.status === 'failed').length, running: isProcessing }); }, [completedCount, tasks, isProcessing]);
-  useEffect(() => { document.title = globalTotal ? `[${globalCompleted}/${globalTotal}] Scene Studio` : 'Scene Studio'; return () => { document.title = 'Scene Studio'; }; }, [globalCompleted, globalTotal]);
+  useEffect(() => { document.title = buildTaskPageTitle(globalCompleted, globalTotal, globalFailed); return () => { document.title = 'Scene Studio'; }; }, [globalCompleted, globalTotal, globalFailed]);
 
   const handleTestProxy = async () => {
     if (!settings.proxyUrl.trim()) {
