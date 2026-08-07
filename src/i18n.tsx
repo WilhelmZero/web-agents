@@ -228,6 +228,7 @@ const translations: Record<string, string> = {
   '代理': 'Proxy',
   '直连': 'Direct',
   '发起 Gemini 请求后，状态和结果会显示在这里': 'Request status and results will appear here after a Gemini request starts.',
+  '发起 Gemini 或 GPT 请求后，状态和结果会显示在这里': 'Request status and results will appear here after a Gemini or GPT request starts.',
   '控制台不会记录 API Key、Base64 图片数据或完整请求正文，日志仅保留在当前页面会话。': 'The console does not record API keys, Base64 image data, or complete request bodies. Logs remain only for this page session.',
   '极浅': 'Very light',
   '中等': 'Medium',

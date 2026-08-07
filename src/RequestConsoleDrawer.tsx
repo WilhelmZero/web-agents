@@ -31,7 +31,7 @@ export default function RequestConsoleDrawer({ open, onClose }: { open: boolean;
         return <List.Item>
           <div style={{ width: '100%' }}>
             <Flex justify="space-between" align="center" gap={8}>
-              <Space wrap><Tag color={meta.color}>{meta.text}</Tag><Text strong>{entry.model}</Text><Tag>{entry.connection === 'proxy' ? '代理' : '直连'}</Tag></Space>
+              <Space wrap><Tag color={meta.color}>{meta.text}</Tag><Tag color={entry.model.toLowerCase().startsWith('gpt') ? 'green' : 'blue'}>{entry.model.toLowerCase().startsWith('gpt') ? 'GPT' : 'Gemini'}</Tag><Text strong>{entry.model}</Text><Tag>{entry.connection === 'proxy' ? '代理' : '直连'}</Tag></Space>
               <Text type="secondary">{new Date(entry.startedAt).toLocaleTimeString()}</Text>
             </Flex>
             <Descriptions size="small" column={2} style={{ marginTop: 10 }}>
@@ -45,7 +45,7 @@ export default function RequestConsoleDrawer({ open, onClose }: { open: boolean;
           </div>
         </List.Item>;
       }}
-    /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="发起 Gemini 请求后，状态和结果会显示在这里" />}
+    /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="发起 Gemini 或 GPT 请求后，状态和结果会显示在这里" />}
     <Text type="secondary" style={{ display: 'block', marginTop: 16 }}>控制台不会记录 API Key、Base64 图片数据或完整请求正文，日志仅保留在当前页面会话。</Text>
   </Drawer>;
 }

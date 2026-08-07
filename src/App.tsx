@@ -390,6 +390,8 @@ function AppContent() {
   const runningProgress = globalProgress.filter((item) => item.running && item.total > 0);
   const globalCompleted = runningProgress.reduce((sum, item) => sum + item.completed, 0);
   const globalTotal = runningProgress.reduce((sum, item) => sum + item.total, 0);
+  const globalFailed = globalProgress.reduce((sum, item) => sum + item.failed, 0);
+  const titleStatus = globalTotal > 0 ? 'running' : globalFailed > 0 ? 'failed' : 'ready';
   const activeDelimiter = splitMode === 'newline' ? '\n' : delimiter;
   const splitPreview = useMemo(
     () => splitPrompts(bulkText, activeDelimiter),
@@ -705,7 +707,10 @@ function AppContent() {
           <Flex align="center" gap={12}>
             <div className="brand-mark"><ExperimentOutlined /></div>
             <div className="brand-copy">
-              <Title level={3} className="brand-title">Scene Studio</Title>
+              <div className="brand-title-row" title={titleStatus === 'running' ? `任务执行中 ${globalCompleted}/${globalTotal}` : titleStatus === 'failed' ? `${globalFailed} 个任务失败` : '系统就绪'}>
+                <span className={`brand-status-light is-${titleStatus}`} aria-label={titleStatus === 'running' ? '任务执行中' : titleStatus === 'failed' ? '存在失败任务' : '系统就绪'} />
+                <Title level={3} className="brand-title">Scene Studio</Title>
+              </div>
               <Text type="secondary" className="brand-subtitle">AI 商业场景图工作台</Text>
             </div>
             <Divider orientation="vertical" className="header-divider" />

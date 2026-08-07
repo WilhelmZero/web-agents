@@ -1,7 +1,12 @@
-import { describe, expect, it } from 'vitest';
-import { buildPaperTextEditPrompt, normalizePaperTextRegions, supportsOpenAiInputFidelity } from './paperText';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildPaperTextEditPrompt, editPaperTextOpenAi, normalizePaperTextRegions, supportsOpenAiInputFidelity } from './paperText';
+import { clearRequestConsole, subscribeRequestConsole, type RequestConsoleEntry } from './requestConsole';
 
 describe('paper text helpers', () => {
+  beforeEach(() => {
+    clearRequestConsole();
+    vi.restoreAllMocks();
+  });
   it('filters malformed regions and clamps percentage boxes', () => {
     expect(normalizePaperTextRegions({ regions: [
       { text: 'Hello', box: [-5, 10, 120, 30] },
@@ -40,5 +45,15 @@ describe('paper text helpers', () => {
     expect(supportsOpenAiInputFidelity('gpt-image-2')).toBe(false);
     expect(supportsOpenAiInputFidelity('gpt-image-2-2026-04-21')).toBe(false);
     expect(supportsOpenAiInputFidelity('gpt-image-1.5')).toBe(true);
+  });
+
+  it('publishes GPT image edit requests to the request console', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [{ b64_json: 'aGVsbG8=' }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })));
+    const snapshots: RequestConsoleEntry[][] = [];
+    const unsubscribe = subscribeRequestConsole((entries) => snapshots.push(entries));
+    await editPaperTextOpenAi({ apiKey: 'test-key', model: 'gpt-image-2', image: new File(['image'], 'paper.png', { type: 'image/png' }), prompt: 'replace text', quality: 'high' });
+    expect(snapshots.at(-1)?.[0]).toMatchObject({ model: 'gpt-image-2', connection: 'direct', status: 'success', httpStatus: 200, resultSummary: '1 张编辑图片' });
+    expect(snapshots.at(-1)?.[0].requestSummary).toContain('OpenAI Images Edit');
+    unsubscribe();
   });
 });

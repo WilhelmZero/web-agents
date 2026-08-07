@@ -49,6 +49,12 @@ button, input, textarea { font: inherit; }
   box-shadow: 0 8px 22px rgba(105, 74, 220, .28);
 }
 .brand-copy { display: flex; flex-direction: column; justify-content: center; gap: 3px; }
+.brand-title-row { display: flex; align-items: center; gap: 8px; }
+.brand-status-light { width: 9px; height: 9px; border-radius: 50%; flex: none; background: #52c41a; box-shadow: 0 0 0 3px rgba(82,196,26,.14); }
+.brand-status-light.is-running { background: #1677ff; box-shadow: 0 0 0 3px rgba(22,119,255,.14); animation: status-light-pulse 1.35s ease-in-out infinite; }
+.brand-status-light.is-failed { background: #ff4d4f; box-shadow: 0 0 0 3px rgba(255,77,79,.14); }
+@keyframes status-light-pulse { 50% { opacity: .42; transform: scale(.82); } }
+@media (prefers-reduced-motion: reduce) { .brand-status-light.is-running { animation: none; } }
 .brand-title { margin: 0 !important; line-height: 1 !important; letter-spacing: -.4px; }
 .brand-subtitle { display: block; line-height: 1.15 !important; font-size: 13px; }
 .header-divider { height: 28px; margin-inline: 6px; }

@@ -1,4 +1,5 @@
 import { fileToBase64 } from '../utils';
+import { startRequestConsoleEntry, updateRequestConsoleEntry } from './requestConsole';
 
 export interface PaperTextRegion {
   original: string;
@@ -50,20 +51,33 @@ function outputText(data: unknown): string {
 async function requestOpenAiJson(options: { apiKey: string; model: string; image: File | Blob; prompt: string; schema: object; signal?: AbortSignal }): Promise<unknown> {
   const base64 = await fileToBase64(options.image);
   const mimeType = options.image.type || 'image/png';
-  const response = await fetch(`${OPENAI_ROOT}/responses`, {
-    method: 'POST', signal: options.signal,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${options.apiKey}` },
-    body: JSON.stringify({
-      model: options.model,
-      input: [{ role: 'user', content: [{ type: 'input_text', text: options.prompt }, { type: 'input_image', image_url: `data:${mimeType};base64,${base64}`, detail: 'high' }] }],
-      text: { format: { type: 'json_schema', name: 'paper_text_result', strict: true, schema: options.schema } },
-    }),
-  });
-  if (!response.ok) throw await openAiError(response);
-  const data = await response.json();
-  const text = outputText(data);
-  if (!text) throw new Error('OpenAI 未返回结构化文字结果');
-  try { return JSON.parse(text); } catch { throw new Error('OpenAI 返回的文字结果格式无效'); }
+  const startedAt = performance.now();
+  const consoleId = startRequestConsoleEntry({ model: options.model, connection: 'direct', requestSummary: 'OpenAI Responses · 1 张输入图片 · 结构化文字结果' });
+  let httpStatus: number | undefined;
+  try {
+    const response = await fetch(`${OPENAI_ROOT}/responses`, {
+      method: 'POST', signal: options.signal,
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${options.apiKey}` },
+      body: JSON.stringify({
+        model: options.model,
+        input: [{ role: 'user', content: [{ type: 'input_text', text: options.prompt }, { type: 'input_image', image_url: `data:${mimeType};base64,${base64}`, detail: 'high' }] }],
+        text: { format: { type: 'json_schema', name: 'paper_text_result', strict: true, schema: options.schema } },
+      }),
+    });
+    httpStatus = response.status;
+    if (!response.ok) throw await openAiError(response);
+    const data = await response.json();
+    const text = outputText(data);
+    if (!text) throw new Error('OpenAI 未返回结构化文字结果');
+    let value: unknown;
+    try { value = JSON.parse(text); } catch { throw new Error('OpenAI 返回的文字结果格式无效'); }
+    updateRequestConsoleEntry(consoleId, { status: 'success', httpStatus, durationMs: Math.round(performance.now() - startedAt), resultSummary: '结构化文字结果', message: 'GPT 请求完成' });
+    return value;
+  } catch (error) {
+    const stopped = options.signal?.aborted || (error instanceof DOMException && error.name === 'AbortError');
+    updateRequestConsoleEntry(consoleId, { status: stopped ? 'stopped' : 'failed', httpStatus, durationMs: Math.round(performance.now() - startedAt), message: stopped ? '用户中止请求' : error instanceof Error ? error.message : 'GPT 请求失败' });
+    throw error;
+  }
 }
 
 const regionsSchema = { type: 'object', additionalProperties: false, properties: { regions: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { text: { type: 'string' }, box: { type: 'array', items: { type: 'number' }, minItems: 4, maxItems: 4 } }, required: ['text', 'box'] } } }, required: ['regions'] };
@@ -79,13 +93,26 @@ export async function editPaperTextOpenAi(options: { apiKey: string; model: stri
   form.append('prompt', options.prompt); form.append('model', options.model); form.append('n', '1');
   form.append('size', 'auto'); form.append('quality', options.quality); form.append('output_format', 'png');
   if (supportsOpenAiInputFidelity(options.model)) form.append('input_fidelity', 'high');
-  const response = await fetch(`${OPENAI_ROOT}/images/edits`, { method: 'POST', headers: { Authorization: `Bearer ${options.apiKey}` }, body: form, signal: options.signal });
-  if (!response.ok) throw await openAiError(response);
-  const data = await response.json() as { data?: Array<{ b64_json?: string; url?: string }> };
-  const item = data.data?.[0];
-  if (item?.b64_json) return new Blob([Uint8Array.from(atob(item.b64_json), (c) => c.charCodeAt(0))], { type: 'image/png' });
-  if (item?.url) { const image = await fetch(item.url, { signal: options.signal }); if (image.ok) return image.blob(); }
-  throw new Error('OpenAI 未返回编辑后的图片');
+  const startedAt = performance.now();
+  const consoleId = startRequestConsoleEntry({ model: options.model, connection: 'direct', requestSummary: `OpenAI Images Edit · 1 张输入图片 · ${options.quality} 质量` });
+  let httpStatus: number | undefined;
+  try {
+    const response = await fetch(`${OPENAI_ROOT}/images/edits`, { method: 'POST', headers: { Authorization: `Bearer ${options.apiKey}` }, body: form, signal: options.signal });
+    httpStatus = response.status;
+    if (!response.ok) throw await openAiError(response);
+    const data = await response.json() as { data?: Array<{ b64_json?: string; url?: string }> };
+    const item = data.data?.[0];
+    let blob: Blob | undefined;
+    if (item?.b64_json) blob = new Blob([Uint8Array.from(atob(item.b64_json), (c) => c.charCodeAt(0))], { type: 'image/png' });
+    if (!blob && item?.url) { const image = await fetch(item.url, { signal: options.signal }); if (image.ok) blob = await image.blob(); }
+    if (!blob) throw new Error('OpenAI 未返回编辑后的图片');
+    updateRequestConsoleEntry(consoleId, { status: 'success', httpStatus, durationMs: Math.round(performance.now() - startedAt), resultSummary: '1 张编辑图片', message: 'GPT 图片编辑完成' });
+    return blob;
+  } catch (error) {
+    const stopped = options.signal?.aborted || (error instanceof DOMException && error.name === 'AbortError');
+    updateRequestConsoleEntry(consoleId, { status: stopped ? 'stopped' : 'failed', httpStatus, durationMs: Math.round(performance.now() - startedAt), message: stopped ? '用户中止请求' : error instanceof Error ? error.message : 'GPT 图片编辑失败' });
+    throw error;
+  }
 }
 
 export async function verifyPaperTextOpenAi(options: { apiKey: string; model: string; image: Blob; regions: PaperTextRegion[]; signal?: AbortSignal }): Promise<PaperTextVerification> {
