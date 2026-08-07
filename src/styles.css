@@ -330,6 +330,15 @@ button, input, textarea { font: inherit; }
 .background-source-grid .ant-image, .background-source-grid img { width: 100%; }
 .background-source-grid img { aspect-ratio: 1; object-fit: contain; border-radius: 8px; background: #f4f6f8; }
 .transparent-result-bg { background: conic-gradient(#e5e8ec 25%,#fff 0 50%,#e5e8ec 0 75%,#fff 0) 0/18px 18px; border-radius: 8px; overflow: hidden; }
+.outpaint-page { min-width: 0; }
+.outpaint-hero { background: radial-gradient(circle at 78% 18%, rgba(102,151,255,.38), transparent 29%), linear-gradient(130deg, #11192c, #243e76 55%, #3269c9); }
+.hero-strip.outpaint-hero .hero-description { color: #e5eeff !important; }
+.outpaint-results-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 16px; margin-top: 20px; align-items: start; }
+.outpaint-result-image { min-height: 220px; display: flex; align-items: center; justify-content: center; background: #eef1f6; border-radius: 8px; overflow: hidden; }
+.outpaint-result-image .ant-image, .outpaint-result-image img { width: 100%; }
+.outpaint-result-image img { max-height: 420px; object-fit: contain; }
+.outpaint-result-image .task-state-card { width: 100%; min-height: 220px; }
+@media (max-width: 560px) { .outpaint-results-grid { grid-template-columns: 1fr; } }
 .logo-replace-dev-page { min-width: 0; }
 .logo-replace-dev-hero { background: radial-gradient(circle at 78% 18%, rgba(240,82,180,.35), transparent 28%), linear-gradient(130deg, #25122d, #4a1b55 55%, #7c286c); }
 .hero-strip.logo-replace-dev-hero .hero-description { color: #f8dff3 !important; }

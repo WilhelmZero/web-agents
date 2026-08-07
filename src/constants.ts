@@ -21,6 +21,7 @@ export const STORAGE_KEYS = {
   productDetailSettings: 'scene-studio.product-detail-settings.v1',
   paperTextSettings: 'scene-studio.paper-text-settings.v1',
   backgroundRemovalSettings: 'scene-studio.background-removal-settings.v1',
+  outpaintSettings: 'scene-studio.outpaint-settings.v1',
 } as const;
 
 export const DEFAULT_LOGO_SETTINGS = {
