@@ -1,5 +1,5 @@
-import { DeleteOutlined, DownloadOutlined, FileImageOutlined, ReloadOutlined, RocketOutlined, ScanOutlined } from '@ant-design/icons';
-import { Alert, App, Button, Card, Empty, Flex, Form, Image, Input, InputNumber, Segmented, Select, Space, Tag, Typography, Upload } from 'antd';
+import { DeleteOutlined, DownloadOutlined, EyeOutlined, FileImageOutlined, ReloadOutlined, RocketOutlined, ScanOutlined, StopOutlined } from '@ant-design/icons';
+import { Alert, App, Button, Card, Empty, Flex, Form, Image, Input, InputNumber, Progress, Segmented, Select, Space, Tag, Typography, Upload } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { buildPaperTextEditPrompt, editPaperTextOpenAi, recognizePaperTextOpenAi, verifyPaperTextOpenAi, type PaperTextRegion } from './services/paperText';
@@ -11,6 +11,7 @@ type Provider = 'openai' | 'gemini';
 type ItemStatus = 'waiting' | 'recognizing' | 'recognized' | 'editing' | 'done' | 'error';
 interface Item { id: string; file: File; url: string; resultUrl?: string; resultBlob?: Blob; regions: PaperTextRegion[]; status: ItemStatus; error?: string; verification?: string }
 const ACCEPTED = ['image/png', 'image/jpeg', 'image/webp'];
+const textKey = (value: string) => value.replace(/\s+/g, ' ').trim().toLocaleLowerCase();
 
 export default function PaperTextComposer({ apiKey, openAiApiKey, apiBaseUrl, onRequestKey, onSessionStateChange, settingsHost }: { apiKey: string; openAiApiKey: string; apiBaseUrl: string | null; onRequestKey: () => void; onSessionStateChange?: (value: boolean) => void; settingsHost?: HTMLElement | null }) {
   const { message } = App.useApp();
@@ -25,20 +26,30 @@ export default function PaperTextComposer({ apiKey, openAiApiKey, apiBaseUrl, on
   const [quality, setQuality] = useState('high');
   const [concurrency, setConcurrency] = useState(4);
   const [busy, setBusy] = useState(false);
+  const [compareIds, setCompareIds] = useState<Set<string>>(() => new Set());
   const aborter = useRef<AbortController | undefined>(undefined);
   const active = items.find((item) => item.id === activeId) || items[0];
   useEffect(() => onSessionStateChange?.(items.length > 0), [items.length, onSessionStateChange]);
   useEffect(() => () => { aborter.current?.abort(); items.forEach((item) => { URL.revokeObjectURL(item.url); if (item.resultUrl) URL.revokeObjectURL(item.resultUrl); }); }, []);
 
+  const recognizedItems = items.filter((item) => item.regions.length > 0);
+  const commonTexts = useMemo(() => {
+    if (recognizedItems.length < 2) return [];
+    const first = new Map(recognizedItems[0].regions.map((region) => [textKey(region.original), region.original]));
+    return [...first].filter(([key]) => recognizedItems.every((item) => item.regions.some((region) => textKey(region.original) === key))).map(([key, original]) => ({ key, original }));
+  }, [items]);
+  const completed = items.filter((item) => ['done', 'error'].includes(item.status)).length;
+  const changedItems = items.filter((item) => item.regions.some((region) => region.text !== region.original));
+
   const requiredKey = (provider: Provider) => provider === 'openai' ? openAiApiKey : apiKey;
   const ensureKey = (provider: Provider) => { if (requiredKey(provider)) return true; onRequestKey(); message.warning(`请先配置 ${provider === 'openai' ? 'OpenAI' : 'Gemini'} API Key`); return false; };
+  const patch = (id: string, value: Partial<Item>) => setItems((current) => current.map((item) => item.id === id ? { ...item, ...value } : item));
   const addFiles = (files: File[]) => {
     const next = files.filter((file) => { if (!ACCEPTED.includes(file.type) || !file.size || file.size > 20 * 1024 * 1024) { message.error(`${file.name}：仅支持 20MB 内的 PNG、JPEG、WebP`); return false; } return true; }).map((file) => ({ id: createId(), file, url: URL.createObjectURL(file), regions: [], status: 'waiting' as const }));
     if (next.length) { setItems((current) => [...current, ...next]); setActiveId((current) => current || next[0].id); }
     return false;
   };
   const removeItem = (id: string) => setItems((current) => { const target = current.find((item) => item.id === id); if (target) { URL.revokeObjectURL(target.url); if (target.resultUrl) URL.revokeObjectURL(target.resultUrl); } const next = current.filter((item) => item.id !== id); if (id === activeId) setActiveId(next[0]?.id); return next; });
-  const patch = (id: string, value: Partial<Item>) => setItems((current) => current.map((item) => item.id === id ? { ...item, ...value } : item));
   const recognizeOne = async (item: Item, signal: AbortSignal) => {
     patch(item.id, { status: 'recognizing', error: undefined });
     try {
@@ -48,59 +59,64 @@ export default function PaperTextComposer({ apiKey, openAiApiKey, apiBaseUrl, on
       patch(item.id, { status: 'recognized', regions, error: regions.length ? undefined : '未识别到可编辑文字' });
     } catch (error) { patch(item.id, { status: 'error', error: error instanceof Error ? error.message : '识别失败' }); }
   };
-  const recognizeAll = async () => {
-    if (!ensureKey(languageProvider) || busy) return;
-    const jobs = items.filter((item) => item.status !== 'editing'); if (!jobs.length) return;
-    setBusy(true); const controller = new AbortController(); aborter.current = controller;
-    let cursor = 0; await Promise.all(Array.from({ length: Math.min(concurrency, jobs.length) }, async () => { while (cursor < jobs.length && !controller.signal.aborted) { const item = jobs[cursor++]; await recognizeOne(item, controller.signal); } }));
-    setBusy(false); aborter.current = undefined;
+  const runPool = async <T,>(jobs: T[], worker: (job: T, signal: AbortSignal) => Promise<void>) => {
+    const controller = new AbortController(); aborter.current = controller; let cursor = 0;
+    await Promise.all(Array.from({ length: Math.min(concurrency, jobs.length) }, async () => { while (cursor < jobs.length && !controller.signal.aborted) await worker(jobs[cursor++], controller.signal); }));
+    aborter.current = undefined;
   };
+  const recognizeAll = async () => { if (!ensureKey(languageProvider) || busy || !items.length) return; setBusy(true); await runPool(items, recognizeOne); setBusy(false); };
   const updateRegion = (index: number, text: string) => active && patch(active.id, { regions: active.regions.map((region, i) => i === index ? { ...region, text } : region) });
-  const applyEdit = async () => {
-    if (!active || !ensureKey(imageProvider) || !ensureKey(languageProvider)) return;
-    const changed = active.regions.filter((region) => region.text !== region.original); if (!changed.length) return void message.warning('请先修改至少一处文字');
-    setBusy(true); patch(active.id, { status: 'editing', error: undefined, verification: undefined }); const controller = new AbortController(); aborter.current = controller;
+  const updateCommonText = (key: string, replacement: string) => setItems((current) => current.map((item) => ({ ...item, regions: item.regions.map((region) => textKey(region.original) === key ? { ...region, text: replacement } : region) })));
+
+  const processItem = async (item: Item, signal: AbortSignal) => {
+    const changed = item.regions.filter((region) => region.text !== region.original); if (!changed.length) return;
+    patch(item.id, { status: 'editing', error: undefined, verification: undefined });
     try {
       let correction = ''; let blob: Blob | undefined; let verification = { ok: false, reason: '尚未复核' };
       for (let attempt = 0; attempt < 2; attempt += 1) {
-        const prompt = buildPaperTextEditPrompt(active.regions, correction);
+        const prompt = buildPaperTextEditPrompt(item.regions, correction);
         blob = imageProvider === 'openai'
-          ? await editPaperTextOpenAi({ apiKey: openAiApiKey, model: openAiImageModel, image: active.file, prompt, quality, signal: controller.signal })
-          : await editPaperTextGemini({ apiKey, model: geminiImageModel, image: active.file, prompt, signal: controller.signal, apiBaseUrl });
+          ? await editPaperTextOpenAi({ apiKey: openAiApiKey, model: openAiImageModel, image: item.file, prompt, quality, signal })
+          : await editPaperTextGemini({ apiKey, model: geminiImageModel, image: item.file, prompt, signal, apiBaseUrl });
         verification = languageProvider === 'openai'
-          ? await verifyPaperTextOpenAi({ apiKey: openAiApiKey, model: openAiTextModel, image: blob, regions: active.regions, signal: controller.signal })
-          : await verifyPaperTextGemini({ apiKey, model: geminiTextModel, image: blob, regions: active.regions, signal: controller.signal, apiBaseUrl });
+          ? await verifyPaperTextOpenAi({ apiKey: openAiApiKey, model: openAiTextModel, image: blob, regions: item.regions, signal })
+          : await verifyPaperTextGemini({ apiKey, model: geminiTextModel, image: blob, regions: item.regions, signal, apiBaseUrl });
         if (verification.ok) break; correction = verification.reason;
       }
       if (!blob) throw new Error('图片编辑未返回结果');
-      const resultUrl = URL.createObjectURL(blob); if (active.resultUrl) URL.revokeObjectURL(active.resultUrl);
-      patch(active.id, { status: 'done', resultBlob: blob, resultUrl, verification: verification.ok ? '复核通过' : `复核未通过：${verification.reason}` });
-      verification.ok ? message.success('文字修改完成并通过复核') : message.warning('已生成结果，但自动复核未通过，请检查');
-    } catch (error) { patch(active.id, { status: 'error', error: error instanceof Error ? error.message : '修改失败' }); }
-    finally { setBusy(false); aborter.current = undefined; }
+      const resultUrl = URL.createObjectURL(blob); if (item.resultUrl) URL.revokeObjectURL(item.resultUrl);
+      patch(item.id, { status: 'done', resultBlob: blob, resultUrl, verification: verification.ok ? '复核通过' : `复核未通过：${verification.reason}` });
+    } catch (error) { patch(item.id, { status: signal.aborted ? 'recognized' : 'error', error: signal.aborted ? undefined : error instanceof Error ? error.message : '修改失败' }); }
+  };
+  const applyItems = async (targets: Item[]) => {
+    if (!ensureKey(imageProvider) || !ensureKey(languageProvider) || busy) return;
+    if (!targets.length) return void message.warning('请先修改至少一处文字');
+    setBusy(true); await runPool(targets, processItem); setBusy(false); message.success('批量文字修改任务已完成');
   };
 
-  const settings = <div className="composer-settings"><Title level={4}>模型设置</Title><Form layout="vertical">
+  const settings = <div className="composer-settings paper-text-settings"><Title level={4}>模型设置</Title><Form layout="vertical">
     <Form.Item label="文字识别与复核"><Segmented block value={languageProvider} onChange={(value) => setLanguageProvider(value as Provider)} options={[{ label: 'GPT', value: 'openai' }, { label: 'Gemini', value: 'gemini' }]} /></Form.Item>
     <Form.Item label="语言模型"><Input value={languageProvider === 'openai' ? openAiTextModel : geminiTextModel} onChange={(e) => languageProvider === 'openai' ? setOpenAiTextModel(e.target.value) : setGeminiTextModel(e.target.value)} /></Form.Item>
     <Form.Item label="图片编辑"><Segmented block value={imageProvider} onChange={(value) => setImageProvider(value as Provider)} options={[{ label: 'GPT Image', value: 'openai' }, { label: 'Gemini', value: 'gemini' }]} /></Form.Item>
     <Form.Item label="图片模型"><Input value={imageProvider === 'openai' ? openAiImageModel : geminiImageModel} onChange={(e) => imageProvider === 'openai' ? setOpenAiImageModel(e.target.value) : setGeminiImageModel(e.target.value)} /></Form.Item>
     {imageProvider === 'openai' && <Form.Item label="GPT 图片质量"><Select value={quality} onChange={setQuality} options={['high', 'medium', 'low'].map((value) => ({ value, label: value }))} /></Form.Item>}
-    <Form.Item label="批量识别并发"><InputNumber min={1} max={8} value={concurrency} onChange={(value) => setConcurrency(value || 1)} style={{ width: '100%' }} /></Form.Item>
+    <Form.Item label="识别与修改并发"><InputNumber min={1} max={8} value={concurrency} onChange={(value) => setConcurrency(value || 1)} style={{ width: '100%' }} /></Form.Item>
   </Form><Alert type="info" showIcon title="默认使用 GPT 官方直连" description="OpenAI 请求固定直连 api.openai.com，不使用 Gemini 中转或自定义 Base URL。" /></div>;
   const statusLabel = (status: ItemStatus) => ({ waiting: '待识别', recognizing: '识别中', recognized: '可编辑', editing: '修改中', done: '已完成', error: '失败' })[status];
-  const changedCount = useMemo(() => active?.regions.filter((r) => r.text !== r.original).length || 0, [active]);
+  const changedCount = active?.regions.filter((r) => r.text !== r.original).length || 0;
 
   return <div className="paper-text-composer">
     {settingsHost && createPortal(settings, settingsHost)}
-    <section className="hero-strip"><div><Text className="eyebrow">PAPER TEXT EDITOR</Text><Title level={2}>花纸文字修改</Title><Paragraph className="hero-description">批量识别包装花纸文字，逐区域修改，并自动复核生成结果。</Paragraph></div><div className="hero-orb" /></section>
+    <section className="hero-strip"><div><Text className="eyebrow">PAPER TEXT EDITOR</Text><Title level={2}>花纸文字修改</Title><Paragraph className="hero-description">批量识别包装花纸文字，统一修改共有文字，并发生成和复核结果。</Paragraph></div><div className="hero-orb" /></section>
     <Card className="workflow-card" title={<Space><span className="step-badge">1</span>上传花纸场景图</Space>} extra={<Button icon={<ScanOutlined />} type="primary" loading={busy} disabled={!items.length} onClick={() => void recognizeAll()}>批量识别</Button>}>
       <Upload.Dragger accept={ACCEPTED.join(',')} multiple showUploadList={false} beforeUpload={(file) => addFiles([file as File])}><FileImageOutlined style={{ fontSize: 32 }} /><p>拖拽或点击上传 PNG / JPEG / WebP</p></Upload.Dragger>
-      {items.length > 0 && <div className="paper-queue">{items.map((item) => <Card key={item.id} size="small" hoverable className={item.id === active?.id ? 'is-active' : ''} onClick={() => setActiveId(item.id)}><img src={item.resultUrl || item.url} alt="" /><Flex justify="space-between" align="center"><Text ellipsis>{item.file.name}</Text><Tag>{statusLabel(item.status)}</Tag></Flex><Button danger type="text" icon={<DeleteOutlined />} onClick={(e) => { e.stopPropagation(); removeItem(item.id); }} /></Card>)}</div>}
+      {items.length > 0 && <div className="paper-queue">{items.map((item) => <Card key={item.id} size="small" hoverable className={item.id === active?.id ? 'is-active' : ''} onClick={() => setActiveId(item.id)}><img src={item.url} alt="" /><Flex justify="space-between" align="center"><Text ellipsis>{item.file.name}</Text><Tag>{statusLabel(item.status)}</Tag></Flex><Button danger type="text" icon={<DeleteOutlined />} onClick={(e) => { e.stopPropagation(); removeItem(item.id); }} /></Card>)}</div>}
     </Card>
-    <Card className="workflow-card" title={<Space><span className="step-badge">2</span>修改识别文字</Space>} extra={active && <Text type="secondary">{active.regions.length} 个区域 · {changedCount} 处已修改</Text>}>
-      {!active ? <Empty description="上传并识别图片后开始修改" /> : <div className="paper-editor"><div className="paper-stage"><Image preview src={active.resultUrl || active.url} /><div className="paper-box-layer">{active.regions.map((region, index) => <div key={index} className={region.text !== region.original ? 'paper-box is-changed' : 'paper-box'} style={{ left: `${region.box[0]}%`, top: `${region.box[1]}%`, width: `${region.box[2]}%`, height: `${region.box[3]}%` }}><span>{index + 1}</span></div>)}</div></div><div className="paper-fields">{active.regions.map((region, index) => <Card key={index} size="small" title={`区域 ${index + 1}`} extra={region.text !== region.original && <Tag color="purple">已修改</Tag>}><Text type="secondary">原文：{region.original}</Text><Input.TextArea value={region.text} autoSize={{ minRows: 2, maxRows: 5 }} onChange={(e) => updateRegion(index, e.target.value)} /></Card>)}{active.error && <Alert type="error" showIcon title={active.error} />}{active.verification && <Alert type={active.verification === '复核通过' ? 'success' : 'warning'} showIcon title={active.verification} />}</div></div>}
+    {commonTexts.length > 0 && <Card className="workflow-card paper-common-card" title={<Space><span className="step-badge">2</span>所有图片共有文字</Space>} extra={<Tag color="purple">{commonTexts.length} 项共有</Tag>}><Alert type="info" showIcon title="在这里修改会同步到全部已识别图片" style={{ marginBottom: 14 }} /><div className="paper-common-grid">{commonTexts.map((item) => { const region = recognizedItems[0].regions.find((value) => textKey(value.original) === item.key)!; return <Form.Item key={item.key} label={`原文：${item.original}`}><Input.TextArea value={region.text} autoSize={{ minRows: 1, maxRows: 4 }} onChange={(event) => updateCommonText(item.key, event.target.value)} /></Form.Item>; })}</div></Card>}
+    <Card className="workflow-card" title={<Space><span className="step-badge">{commonTexts.length ? 3 : 2}</span>逐图检查与修改</Space>} extra={active && <Text type="secondary">{active.regions.length} 个区域 · {changedCount} 处已修改</Text>}>
+      {!active ? <Empty description="上传并识别图片后开始修改" /> : <div className="paper-editor"><div className="paper-stage"><Image preview src={active.url} /><div className="paper-box-layer">{active.regions.map((region, index) => <div key={index} className={region.text !== region.original ? 'paper-box is-changed' : 'paper-box'} style={{ left: `${region.box[0]}%`, top: `${region.box[1]}%`, width: `${region.box[2]}%`, height: `${region.box[3]}%` }}><span>{index + 1}</span></div>)}</div></div><div className="paper-fields">{active.regions.map((region, index) => <Card key={index} size="small" title={`区域 ${index + 1}`} extra={region.text !== region.original && <Tag color="purple">已修改</Tag>}><Text type="secondary">原文：{region.original}</Text><Input.TextArea value={region.text} autoSize={{ minRows: 2, maxRows: 5 }} onChange={(e) => updateRegion(index, e.target.value)} /></Card>)}{active.error && <Alert type="error" showIcon title={active.error} />}</div></div>}
     </Card>
-    <Flex justify="end" gap={12}><Button icon={<ReloadOutlined />} disabled={!active || busy} onClick={() => active && void recognizeOne(active, new AbortController().signal)}>重新识别</Button>{active?.resultBlob && <Button icon={<DownloadOutlined />} onClick={() => downloadBlob(active.resultBlob!, `${sanitizeFileName(active.file.name)}_花纸文字修改.png`)}>下载结果</Button>}<Button type="primary" size="large" icon={<RocketOutlined />} loading={active?.status === 'editing'} disabled={!active || !changedCount || busy} onClick={() => void applyEdit()}>应用文字修改</Button></Flex>
+    <Card className="action-card"><Flex justify="space-between" align="center" gap={12} wrap><div><Title level={4} style={{ margin: 0 }}>已修改 {changedItems.length} 张图片</Title><Text type="secondary">按右侧并发数同时执行文字修改和结果复核</Text></div><Space>{busy && <Button danger icon={<StopOutlined />} onClick={() => aborter.current?.abort()}>停止</Button>}<Button icon={<ReloadOutlined />} disabled={!active || busy} onClick={() => active && void recognizeOne(active, new AbortController().signal)}>重新识别当前图</Button><Button type="primary" size="large" icon={<RocketOutlined />} loading={busy} disabled={!changedItems.length} onClick={() => void applyItems(changedItems)}>应用到全部已修改图片</Button></Space></Flex>{busy && <Progress style={{ marginTop: 14 }} percent={items.length ? Math.round(completed / items.length * 100) : 0} status="active" />}</Card>
+    <section className="results-section"><Flex justify="space-between" align="center"><div><Title level={3}>文字修改结果</Title><Text type="secondary">点击图片可放大，使用按钮切换原图和生成图</Text></div></Flex>{items.some((item) => item.resultUrl) ? <Image.PreviewGroup><div className="paper-results">{items.filter((item) => item.resultUrl).map((item) => <Card key={item.id} size="small" title={item.file.name} extra={item.resultBlob && <Button type="text" icon={<DownloadOutlined />} onClick={() => downloadBlob(item.resultBlob!, `${sanitizeFileName(item.file.name)}_花纸文字修改.png`)} />}><div className="replace-result-image"><Image src={compareIds.has(item.id) ? item.url : item.resultUrl} alt={compareIds.has(item.id) ? '原始图片' : '文字修改结果'} /></div><Flex justify="space-between" align="center" style={{ marginTop: 8 }}><Space><Tag color={item.verification === '复核通过' ? 'success' : 'warning'}>{item.verification || '已生成'}</Tag></Space><Button size="small" icon={<EyeOutlined />} onClick={() => setCompareIds((current) => { const next = new Set(current); next.has(item.id) ? next.delete(item.id) : next.add(item.id); return next; })}>{compareIds.has(item.id) ? '查看生成图' : '原图对比'}</Button></Flex></Card>)}</div></Image.PreviewGroup> : <Empty description="完成文字修改后，结果会显示在这里" />}</section>
   </div>;
 }

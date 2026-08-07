@@ -19,6 +19,12 @@
 .paper-box.is-changed span { background: #7c3aed; }
 .paper-fields { display: grid; gap: 10px; max-height: 680px; overflow: auto; padding-right: 3px; }
 .paper-fields .ant-input { margin-top: 8px; }
+.paper-text-settings { padding: 24px 20px; }
+.paper-text-settings .ant-form-item { margin-bottom: 17px; }
+.paper-common-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0 16px; }
+.paper-results { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin-top: 16px; }
+.paper-results .replace-result-image { aspect-ratio: 1 / 1; }
+.paper-results .replace-result-image .ant-image, .paper-results .replace-result-image img { width: 100%; height: 100%; object-fit: contain; }
 @media (max-width: 900px) { .paper-editor { grid-template-columns: 1fr; } }
 
 * { box-sizing: border-box; }
@@ -306,6 +312,9 @@ button, input, textarea { font: inherit; }
 .dev-logo-strip .ant-image, .dev-logo-strip img { width: 76px; height: 76px; object-fit: contain; }
 .dev-logo-strip .ant-btn { position: absolute; right: 1px; top: 1px; }
 .dev-mapping-list { display: grid; gap: 10px; margin-top: 18px; padding-top: 16px; border-top: 1px solid #eceef4; }
+.logo-replace-integrated { display: grid; gap: 14px; }
+.logo-replace-mode-card { border-color: #d8ccff; background: linear-gradient(120deg, #faf8ff, #f2f7ff); }
+.logo-replace-mode-card .ant-card-body { padding: 14px 18px; }
 @media (max-width: 900px) { .scene-replace-editor { grid-template-columns: 1fr; } .scene-preset-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); max-height: none; } }
 @media (max-width: 560px) { .scene-preset-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 560px) {

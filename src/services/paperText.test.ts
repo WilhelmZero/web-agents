@@ -10,6 +10,11 @@ describe('paper text helpers', () => {
     ] })).toEqual([{ original: 'Hello', text: 'Hello', box: [0, 10, 100, 30] }]);
   });
 
+  it('accepts named Gemini coordinates and normalizes 0-1000 values', () => {
+    expect(normalizePaperTextRegions({ regions: [{ text: 'Logo', left: 120, top: 250, width: 300, height: 80 }] }))
+      .toEqual([{ original: 'Logo', text: 'Logo', box: [12, 25, 30, 8] }]);
+  });
+
   it('only includes changed text and preserves strict editing rules', () => {
     const prompt = buildPaperTextEditPrompt([
       { original: 'OLD', text: 'NEW', box: [10, 20, 30, 40] },

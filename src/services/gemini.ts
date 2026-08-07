@@ -714,9 +714,9 @@ export async function generateInpaintImage(options: {
 export async function recognizePaperTextGemini(options: { apiKey: string; model: string; image: File; signal?: AbortSignal; apiBaseUrl?: string | null }): Promise<PaperTextRegion[]> {
   const imageData = await fileToBase64(options.image);
   const data = await postGemini(options.model, options.apiKey, { contents: [{ role: 'user', parts: [
-    { text: '识别图片中所有可见的包装花纸文字。按独立文字区域分组，严格保持原文、大小写、标点和换行。box 为 [左侧百分比, 顶部百分比, 宽度百分比, 高度百分比]，范围 0-100。不要把纯图形或不可见的猜测内容当作文字。' },
+    { text: '识别完整图片中所有可见的包装花纸文字，严禁裁剪、旋转或交换坐标轴。按独立文字区域分组，严格保持原文、大小写、标点和换行。left、top、width、height 分别是文字外接矩形相对完整原图宽高的左侧、顶部、宽度、高度百分比，全部范围 0-100；left/width 只能按横向像素计算，top/height 只能按纵向像素计算。不要返回右下角坐标，不要把纯图形或不可见的猜测内容当作文字。' },
     { inlineData: { mimeType: options.image.type, data: imageData } },
-  ] }], generationConfig: { responseMimeType: 'application/json', responseSchema: { type: 'OBJECT', properties: { regions: { type: 'ARRAY', items: { type: 'OBJECT', properties: { text: { type: 'STRING' }, box: { type: 'ARRAY', items: { type: 'NUMBER' }, minItems: 4, maxItems: 4 } }, required: ['text', 'box'] } } }, required: ['regions'] } } }, options.signal, options.apiBaseUrl);
+  ] }], generationConfig: { responseMimeType: 'application/json', responseSchema: { type: 'OBJECT', properties: { regions: { type: 'ARRAY', items: { type: 'OBJECT', properties: { text: { type: 'STRING' }, left: { type: 'NUMBER' }, top: { type: 'NUMBER' }, width: { type: 'NUMBER' }, height: { type: 'NUMBER' } }, required: ['text', 'left', 'top', 'width', 'height'] } } }, required: ['regions'] } } }, options.signal, options.apiBaseUrl);
   const raw = data.candidates?.flatMap((candidate) => candidate.content?.parts ?? []).map((part) => part.text || '').join('').trim();
   if (!raw) throw new Error('Gemini 未返回文字识别结果');
   try { return normalizePaperTextRegions(JSON.parse(raw)); } catch { throw new Error('Gemini 文字识别结果格式无效'); }

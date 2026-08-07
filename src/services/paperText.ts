@@ -15,9 +15,12 @@ export function normalizePaperTextRegions(value: unknown): PaperTextRegion[] {
   const regions = (value as { regions?: unknown[] } | null)?.regions;
   if (!Array.isArray(regions)) return [];
   return regions.flatMap((item) => {
-    const region = item as { text?: unknown; box?: unknown };
-    if (typeof region.text !== 'string' || !region.text.trim() || !Array.isArray(region.box) || region.box.length !== 4) return [];
-    const box = region.box.map((part) => Math.max(0, Math.min(100, Number(part) || 0))) as PaperTextRegion['box'];
+    const region = item as { text?: unknown; box?: unknown; left?: unknown; top?: unknown; width?: unknown; height?: unknown };
+    const usesArrayBox = Array.isArray(region.box) && region.box.length === 4;
+    const rawBox = usesArrayBox ? region.box as unknown[] : [region.left, region.top, region.width, region.height];
+    if (typeof region.text !== 'string' || !region.text.trim() || rawBox.some((part) => !Number.isFinite(Number(part)))) return [];
+    const scale = !usesArrayBox && rawBox.some((part) => Number(part) > 100) ? 0.1 : 1;
+    const box = rawBox.map((part) => Math.max(0, Math.min(100, Number(part) * scale))) as PaperTextRegion['box'];
     return [{ original: region.text, text: region.text, box }];
   });
 }

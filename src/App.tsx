@@ -64,7 +64,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DEFAULT_SETTINGS, localizeBuiltInScenePresets, MODEL_CAPABILITIES, PRICING, STORAGE_KEYS } from './constants';
 import LogoComposer from './LogoComposer';
 import LogoReplaceComposer from './LogoReplaceComposer';
-import LogoReplaceDevComposer from './LogoReplaceDevComposer';
 import ObjectReplaceComposer from './ObjectReplaceComposer';
 import SceneReplaceComposer from './SceneReplaceComposer';
 import InpaintComposer from './InpaintComposer';
@@ -327,7 +326,6 @@ function AppContent() {
   const [inpaintSettingsHost, setInpaintSettingsHost] = useState<HTMLElement | null>(null);
   const [productDetailSettingsHost, setProductDetailSettingsHost] = useState<HTMLElement | null>(null);
   const [logoReplaceSettingsHost, setLogoReplaceSettingsHost] = useState<HTMLElement | null>(null);
-  const [logoReplaceDevSettingsHost, setLogoReplaceDevSettingsHost] = useState<HTMLElement | null>(null);
   const [objectReplaceSettingsHost, setObjectReplaceSettingsHost] = useState<HTMLElement | null>(null);
   const [sceneReplaceSettingsHost, setSceneReplaceSettingsHost] = useState<HTMLElement | null>(null);
   const [paperTextSettingsHost, setPaperTextSettingsHost] = useState<HTMLElement | null>(null);
@@ -335,7 +333,6 @@ function AppContent() {
   const [inpaintHasSession, setInpaintHasSession] = useState(false);
   const [productDetailHasSession, setProductDetailHasSession] = useState(false);
   const [logoReplaceHasSession, setLogoReplaceHasSession] = useState(false);
-  const [logoReplaceDevHasSession, setLogoReplaceDevHasSession] = useState(false);
   const [objectReplaceHasSession, setObjectReplaceHasSession] = useState(false);
   const [sceneReplaceHasSession, setSceneReplaceHasSession] = useState(false);
   const [paperTextHasSession, setPaperTextHasSession] = useState(false);
@@ -398,14 +395,14 @@ function AppContent() {
   };
 
   useEffect(() => {
-    if (!sceneHasSession && !sceneReplaceHasSession && !logoHasSession && !logoReplaceHasSession && !logoReplaceDevHasSession && !paperTextHasSession && !objectReplaceHasSession && !inpaintHasSession && !productDetailHasSession) return;
+    if (!sceneHasSession && !sceneReplaceHasSession && !logoHasSession && !logoReplaceHasSession && !paperTextHasSession && !objectReplaceHasSession && !inpaintHasSession && !productDetailHasSession) return;
     const warnBeforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = '';
     };
     window.addEventListener('beforeunload', warnBeforeUnload);
     return () => window.removeEventListener('beforeunload', warnBeforeUnload);
-  }, [sceneHasSession, sceneReplaceHasSession, logoHasSession, logoReplaceHasSession, logoReplaceDevHasSession, paperTextHasSession, objectReplaceHasSession, inpaintHasSession, productDetailHasSession]);
+  }, [sceneHasSession, sceneReplaceHasSession, logoHasSession, logoReplaceHasSession, paperTextHasSession, objectReplaceHasSession, inpaintHasSession, productDetailHasSession]);
 
   const patchSettings = useCallback((patch: Partial<AppSettings>) => {
     setSettings((current) => {
@@ -685,7 +682,7 @@ function AppContent() {
               <Text type="secondary" className="brand-subtitle">AI 商业场景图工作台</Text>
             </div>
             <Divider orientation="vertical" className="header-divider" />
-            <Tag icon={<AppstoreOutlined />} color="purple">{creationTool === 'scene' ? '场景图生成' : creationTool === 'scene-replace' ? '场景替换' : creationTool === 'logo' ? 'Logo 合成' : creationTool === 'logo-replace' ? 'Logo 替换' : creationTool === 'logo-replace-dev' ? 'Logo 替换开发版' : creationTool === 'paper-text' ? '花纸文字修改' : creationTool === 'object-replace' ? '物体批量替换' : creationTool === 'inpaint' ? '局部重绘' : '详情长图生成'}</Tag>
+            <Tag icon={<AppstoreOutlined />} color="purple">{creationTool === 'scene' ? '场景图生成' : creationTool === 'scene-replace' ? '场景替换' : creationTool === 'logo' ? 'Logo 合成' : creationTool === 'logo-replace' ? 'Logo 替换' : creationTool === 'paper-text' ? '花纸文字修改' : creationTool === 'object-replace' ? '物体批量替换' : creationTool === 'inpaint' ? '局部重绘' : '详情长图生成'}</Tag>
           </Flex>
           <Space>
             <Segmented
@@ -719,7 +716,7 @@ function AppContent() {
             mode="inline"
             selectedKeys={[creationTool]}
             onClick={({ key }) => {
-              if (key === 'scene' || key === 'scene-replace' || key === 'logo' || key === 'logo-replace' || key === 'logo-replace-dev' || key === 'paper-text' || key === 'object-replace' || key === 'inpaint' || key === 'product-detail') setCreationTool(key);
+              if (key === 'scene' || key === 'scene-replace' || key === 'logo' || key === 'logo-replace' || key === 'paper-text' || key === 'object-replace' || key === 'inpaint' || key === 'product-detail') setCreationTool(key);
             }}
             items={[
               { key: 'create', type: 'group', label: '创作工具', children: [
@@ -727,7 +724,6 @@ function AppContent() {
                 { key: 'scene-replace', icon: <SwapOutlined />, label: '场景替换' },
                 { key: 'logo', icon: <ExperimentOutlined />, label: 'Logo 合成' },
                 { key: 'logo-replace', icon: <SwapOutlined />, label: 'Logo 替换' },
-                { key: 'logo-replace-dev', icon: <ExperimentOutlined />, label: 'Logo 替换开发版' },
                 { key: 'paper-text', icon: <EditOutlined />, label: '花纸文字修改' },
                 { key: 'object-replace', icon: <ReloadOutlined />, label: '物体批量替换' },
                 { key: 'inpaint', icon: <HighlightOutlined />, label: '局部重绘' },
@@ -766,9 +762,6 @@ function AppContent() {
                 onSessionStateChange={setLogoReplaceHasSession}
                 settingsHost={logoReplaceSettingsHost}
               />
-            </div>
-            <div hidden={creationTool !== 'logo-replace-dev'}>
-              <LogoReplaceDevComposer apiKey={settings.apiKey} apiBaseUrl={apiBaseUrl} connectionMode={settings.connectionMode} onRequestKey={() => setKeyOpen(true)} onSessionStateChange={setLogoReplaceDevHasSession} settingsHost={logoReplaceDevSettingsHost} />
             </div>
             <div hidden={creationTool !== 'paper-text'}>
               <PaperTextComposer apiKey={settings.apiKey} openAiApiKey={settings.openAiApiKey} apiBaseUrl={apiBaseUrl} onRequestKey={() => setKeyOpen(true)} onSessionStateChange={setPaperTextHasSession} settingsHost={paperTextSettingsHost} />
@@ -1060,9 +1053,6 @@ function AppContent() {
             <div ref={setLogoReplaceSettingsHost} />
           </Sider>
         )}
-        {!compact && creationTool === 'logo-replace-dev' && (
-          <Sider width={330} theme="light" className="settings-sider"><div ref={setLogoReplaceDevSettingsHost} /></Sider>
-        )}
         {!compact && creationTool === 'paper-text' && <Sider width={330} theme="light" className="settings-sider"><div ref={setPaperTextSettingsHost} /></Sider>}
         {!compact && creationTool === 'object-replace' && (
           <Sider width={330} theme="light" className="settings-sider">
@@ -1092,7 +1082,7 @@ function AppContent() {
         {creationTool === 'scene'
           ? settingsPanel
           : compact
-            ? <div ref={creationTool === 'logo' ? setLogoSettingsHost : creationTool === 'logo-replace' ? setLogoReplaceSettingsHost : creationTool === 'logo-replace-dev' ? setLogoReplaceDevSettingsHost : creationTool === 'paper-text' ? setPaperTextSettingsHost : creationTool === 'object-replace' ? setObjectReplaceSettingsHost : creationTool === 'scene-replace' ? setSceneReplaceSettingsHost : creationTool === 'inpaint' ? setInpaintSettingsHost : setProductDetailSettingsHost} />
+            ? <div ref={creationTool === 'logo' ? setLogoSettingsHost : creationTool === 'logo-replace' ? setLogoReplaceSettingsHost : creationTool === 'paper-text' ? setPaperTextSettingsHost : creationTool === 'object-replace' ? setObjectReplaceSettingsHost : creationTool === 'scene-replace' ? setSceneReplaceSettingsHost : creationTool === 'inpaint' ? setInpaintSettingsHost : setProductDetailSettingsHost} />
             : null}
       </Drawer>
 
