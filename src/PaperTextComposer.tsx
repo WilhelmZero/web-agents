@@ -10,6 +10,7 @@ import { createEmbeddedImageSvg } from './services/svgExport';
 import { STORAGE_KEYS } from './constants';
 import { readLocalStorage } from './storage';
 import { inspectVectorEligibility, vectorizeImageToSvg } from './services/trueVectorExport';
+import { prepareTransparentImageForEdit, restoreTransparentBackground } from './services/transparentImageEdit';
 
 const { Title, Text, Paragraph } = Typography;
 type Provider = 'openai' | 'gemini';
@@ -112,12 +113,14 @@ export default function PaperTextComposer({ apiKey, openAiApiKey, apiBaseUrl, on
     const changed = item.regions.filter((region) => region.text !== region.original); if (!changed.length) return;
     patch(item.id, { status: 'editing', error: undefined, verification: undefined });
     try {
+      const prepared = await prepareTransparentImageForEdit(item.file);
       let correction = ''; let blob: Blob | undefined; let verification = { ok: false, reason: '尚未复核' };
       for (let attempt = 0; attempt < 2; attempt += 1) {
-        const prompt = buildPaperTextEditPrompt(item.regions, correction, commonPrompt);
+        const prompt = buildPaperTextEditPrompt(item.regions, correction, commonPrompt) + prepared.promptSuffix;
         blob = imageProvider === 'openai'
-          ? await editPaperTextOpenAi({ apiKey: openAiApiKey, model: openAiImageModel, image: item.file, prompt, quality, signal })
-          : await editPaperTextGemini({ apiKey, model: geminiImageModel, image: item.file, prompt, signal, apiBaseUrl });
+          ? await editPaperTextOpenAi({ apiKey: openAiApiKey, model: openAiImageModel, image: prepared.image, prompt, quality, signal })
+          : await editPaperTextGemini({ apiKey, model: geminiImageModel, image: prepared.image, prompt, signal, apiBaseUrl });
+        if (prepared.matte) blob = await restoreTransparentBackground(blob, prepared.matte);
         verification = languageProvider === 'openai'
           ? await verifyPaperTextOpenAi({ apiKey: openAiApiKey, model: openAiTextModel, image: blob, regions: item.regions, signal })
           : await verifyPaperTextGemini({ apiKey, model: geminiTextModel, image: blob, regions: item.regions, signal, apiBaseUrl });
