@@ -17,23 +17,33 @@ export function closestAspectRatio(width: number, height: number, ratios: string
 
 const canvasToBlob = async (canvas: HTMLCanvasElement) => await new Promise<Blob>((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('无法生成扩图画布')), 'image/png'));
 
-export async function prepareOutpaintInput(file: File, targetWidth: number, targetHeight: number): Promise<{ file: File; placement: ExpansionPlacement }> {
+export async function prepareOutpaintInput(file: File, targetWidth: number, targetHeight: number): Promise<{ file: File; mask: File; placement: ExpansionPlacement }> {
   const bitmap = await createImageBitmap(file);
   try {
     const maxDimension = 1536; const scale = Math.min(1, maxDimension / Math.max(targetWidth, targetHeight));
     const width = Math.max(1, Math.round(targetWidth * scale)); const height = Math.max(1, Math.round(targetHeight * scale));
     const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
     const context = canvas.getContext('2d'); if (!context) throw new Error('当前浏览器无法创建扩图画布');
-    context.fillStyle = '#808080'; context.fillRect(0, 0, width, height);
     const placement = calculateExpansionPlacement(bitmap.width, bitmap.height, width, height);
+    const coverScale = Math.max(width / bitmap.width, height / bitmap.height) * 1.08;
+    const coverWidth = bitmap.width * coverScale; const coverHeight = bitmap.height * coverScale;
+    context.save(); context.filter = `blur(${Math.max(18, Math.round(Math.min(width, height) * 0.045))}px)`;
+    context.drawImage(bitmap, (width - coverWidth) / 2, (height - coverHeight) / 2, coverWidth, coverHeight); context.restore();
     context.drawImage(bitmap, placement.x, placement.y, placement.width, placement.height);
     const blob = await canvasToBlob(canvas);
-    return { file: new File([blob], `${file.name.replace(/\.[^.]+$/, '')}_outpaint-input.png`, { type: 'image/png' }), placement: calculateExpansionPlacement(bitmap.width, bitmap.height, targetWidth, targetHeight) };
+    const maskCanvas = document.createElement('canvas'); maskCanvas.width = width; maskCanvas.height = height;
+    const maskContext = maskCanvas.getContext('2d'); if (!maskContext) throw new Error('当前浏览器无法创建扩图遮罩');
+    maskContext.clearRect(0, 0, width, height);
+    const overlap = Math.max(4, Math.min(24, Math.round(Math.min(placement.width, placement.height) * 0.025)));
+    maskContext.fillStyle = '#fff'; maskContext.fillRect(placement.x + overlap, placement.y + overlap, Math.max(1, placement.width - overlap * 2), Math.max(1, placement.height - overlap * 2));
+    const maskBlob = await canvasToBlob(maskCanvas);
+    const baseName = file.name.replace(/\.[^.]+$/, '');
+    return { file: new File([blob], `${baseName}_outpaint-input.png`, { type: 'image/png' }), mask: new File([maskBlob], `${baseName}_outpaint-mask.png`, { type: 'image/png' }), placement: calculateExpansionPlacement(bitmap.width, bitmap.height, targetWidth, targetHeight) };
   } finally { bitmap.close(); }
 }
 
 export function buildOutpaintPrompt(customPrompt: string, targetWidth: number, targetHeight: number): string {
-  return `${customPrompt.trim()}\n\n扩图技术要求：输出画幅为 ${targetWidth}:${targetHeight} 的比例。输入图中央的原始画面必须完整保留，不得裁切、缩放变形、移动、重绘或修改其中任何人物、产品、文字、Logo、颜色和细节。只在四周纯灰色空白区域补充缺失的环境内容，让透视、光线、景深、纹理和边界衔接自然。不要保留灰色边框，不要添加水印、文字、拼图或边框。`;
+  return `${customPrompt.trim()}\n\n扩图技术要求：输出画幅为 ${targetWidth}:${targetHeight} 的比例。输入图中央的清晰原始画面必须完整保留，不得裁切、缩放变形、移动或修改其中任何人物、产品、文字、Logo、颜色和细节。外围模糊区域只是用于提供颜色、光线和空间上下文，必须将其自然重绘为清晰且合理延续的环境。重点保证原图边缘两侧的结构、透视、纹理、光线和景深连续，不得产生直线接缝、色块边界、重复纹理或突变。不要添加水印、文字、拼图或边框。`;
 }
 
 export async function composeExactOutpaint(generated: Blob, original: Blob, targetWidth: number, targetHeight: number): Promise<Blob> {
@@ -45,7 +55,16 @@ export async function composeExactOutpaint(generated: Blob, original: Blob, targ
     const generatedWidth = generatedBitmap.width * generatedScale; const generatedHeight = generatedBitmap.height * generatedScale;
     context.drawImage(generatedBitmap, (targetWidth - generatedWidth) / 2, (targetHeight - generatedHeight) / 2, generatedWidth, generatedHeight);
     const placement = calculateExpansionPlacement(originalBitmap.width, originalBitmap.height, targetWidth, targetHeight);
-    context.drawImage(originalBitmap, placement.x, placement.y, placement.width, placement.height);
+    const originalLayer = document.createElement('canvas'); originalLayer.width = targetWidth; originalLayer.height = targetHeight;
+    const originalContext = originalLayer.getContext('2d'); if (!originalContext) throw new Error('当前浏览器无法创建原图融合层');
+    originalContext.drawImage(originalBitmap, placement.x, placement.y, placement.width, placement.height);
+    const maskLayer = document.createElement('canvas'); maskLayer.width = targetWidth; maskLayer.height = targetHeight;
+    const maskContext = maskLayer.getContext('2d'); if (!maskContext) throw new Error('当前浏览器无法创建羽化遮罩');
+    const feather = Math.max(8, Math.min(48, Math.round(Math.min(placement.width, placement.height) * 0.018)));
+    maskContext.filter = `blur(${feather}px)`; maskContext.fillStyle = '#fff';
+    maskContext.fillRect(placement.x + feather, placement.y + feather, Math.max(1, placement.width - feather * 2), Math.max(1, placement.height - feather * 2));
+    originalContext.globalCompositeOperation = 'destination-in'; originalContext.drawImage(maskLayer, 0, 0);
+    context.drawImage(originalLayer, 0, 0);
     return await canvasToBlob(canvas);
   } finally { generatedBitmap.close(); originalBitmap.close(); }
 }

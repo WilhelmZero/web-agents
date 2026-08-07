@@ -41,7 +41,7 @@ export default function OutpaintComposer({ apiKey, openAiApiKey, apiBaseUrl, con
     try {
       const prepared = await prepareOutpaintInput(item.file, settings.width, settings.height); const prompt = buildOutpaintPrompt(settings.prompt, settings.width, settings.height);
       const generated = isOpenAiModel(settings.imageModel)
-        ? await editPaperTextOpenAi({ apiKey: openAiApiKey, model: settings.imageModel, image: prepared.file, prompt, quality: settings.quality, signal })
+        ? await editPaperTextOpenAi({ apiKey: openAiApiKey, model: settings.imageModel, image: prepared.file, mask: prepared.mask, prompt, quality: settings.quality, signal })
         : (await generateSceneReplacementImage({ apiKey, apiBaseUrl, signal, model: settings.imageModel as ImageModel, image: prepared.file, imageSize: settings.imageSize, aspectRatio: closestAspectRatio(settings.width, settings.height, MODEL_CAPABILITIES[settings.imageModel as ImageModel].aspectRatios), prompt })).blob;
       const resultBlob = await composeExactOutpaint(generated, item.file, settings.width, settings.height); const resultUrl = URL.createObjectURL(resultBlob);
       if (item.resultUrl) URL.revokeObjectURL(item.resultUrl); patchItem(item.id, { status: 'success', resultBlob, resultUrl });
