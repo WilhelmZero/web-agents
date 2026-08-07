@@ -308,13 +308,20 @@ button, input, textarea { font: inherit; }
 .hero-strip.scene-replace-hero .hero-description { color: #d8f7f5 !important; }
 .scene-replace-editor { display: grid; grid-template-columns: minmax(320px, .9fr) minmax(340px, 1.1fr); gap: 24px; align-items: start; }
 .scene-preset-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 12px; max-height: 370px; overflow: auto; padding: 2px; }
-.scene-preset-card { min-height: 72px; padding: 9px 5px; border: 1px solid #e3e8ed; border-radius: 11px; background: #fafcfd; color: #263744; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; transition: .18s ease; }
+.scene-preset-card { position: relative; min-height: 72px; padding: 9px 5px; border: 1px solid #e3e8ed; border-radius: 11px; background: #fafcfd; color: #263744; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; transition: .18s ease; }
 .scene-preset-card span { font-size: 20px; line-height: 1; }
 .scene-preset-card b { font-size: 12px; font-weight: 650; }
 .scene-preset-card:hover { border-color: #61bfc5; color: #087985; transform: translateY(-1px); }
 .scene-preset-card.is-selected { border-color: #20a6bd; color: #087985; background: #eafafb; box-shadow: 0 0 0 2px rgba(32,166,189,.1); }
 .scene-prompt-editor { display: flex; flex-direction: column; gap: 12px; }
 .scene-prompt-editor .ant-input-textarea { width: 100%; }
+.scene-preset-delete { position: absolute; top: 1px; right: 1px; opacity: 0; }
+.scene-preset-card:hover .scene-preset-delete, .scene-preset-card:focus-within .scene-preset-delete { opacity: 1; }
+.scene-emoji-picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(36px, 1fr)); gap: 7px; margin-top: 10px; }
+.scene-emoji-picker .ant-btn { padding-inline: 0; font-size: 18px; }
+.scene-emoji-picker .ant-btn.is-selected { border-color: #20a6bd; background: #eafafb; }
+.scene-replace-results-grid { align-items: start; }
+.scene-replace-results-grid .ant-card-head-title { min-width: 0; }
 .logo-replace-dev-page { min-width: 0; }
 .logo-replace-dev-hero { background: radial-gradient(circle at 78% 18%, rgba(240,82,180,.35), transparent 28%), linear-gradient(130deg, #25122d, #4a1b55 55%, #7c286c); }
 .hero-strip.logo-replace-dev-hero .hero-description { color: #f8dff3 !important; }

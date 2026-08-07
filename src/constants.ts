@@ -16,6 +16,7 @@ export const STORAGE_KEYS = {
   logoReplaceDevSettings: 'scene-studio.logo-replace-dev-settings.v1',
   objectReplaceSettings: 'scene-studio.object-replace-settings.v1',
   sceneReplaceSettings: 'scene-studio.scene-replace-settings.v1',
+  sceneReplacePresets: 'scene-studio.scene-replace-presets.v1',
   inpaintSettings: 'scene-studio.inpaint-settings.v1',
   productDetailSettings: 'scene-studio.product-detail-settings.v1',
   paperTextSettings: 'scene-studio.paper-text-settings.v1',

@@ -211,7 +211,7 @@ export async function generateSceneReplacementImage(options: {
   const base64 = await fileToBase64(options.image);
   const data = await postGemini(options.model, options.apiKey, {
     contents: [{ role: 'user', parts: [
-      { text: `请编辑这张原始场景图。只允许替换背景场景、环境光线和整体氛围。目标场景：${options.prompt}\n\n严格不变量：人物的身份、脸部、身体、姿势、手势、服装和发型必须尽量逐像素保持；所有产品的数量、位置、角度、轮廓、比例、材质、颜色、反光、Logo、图案和可见文字必须保持不变；相机视角、焦距、画幅、主体大小、遮挡关系和整体构图必须保持不变。不要新增、删除、重绘或移动任何人物或产品。只让新环境的光线自然作用于原有主体，并保持边缘真实。输出一张完成后的写实场景图，不要说明文字、拼图、前后对比或水印。` },
+      { text: options.prompt.trim() },
       { inlineData: { mimeType: options.image.type, data: base64 } },
     ]}],
     generationConfig: { responseModalities: ['IMAGE'], imageConfig: {
