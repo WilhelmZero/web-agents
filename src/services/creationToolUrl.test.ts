@@ -5,6 +5,7 @@ describe('creation tool URL helpers', () => {
   it('reads a valid tool from the address query', () => {
     expect(readCreationTool('?tool=paper-text')).toBe('paper-text');
     expect(readCreationTool('?foo=1&tool=logo-export')).toBe('logo-export');
+    expect(readCreationTool('?tool=background-removal')).toBe('background-removal');
   });
 
   it('falls back for missing or invalid tools', () => {

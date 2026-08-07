@@ -71,6 +71,7 @@ import InpaintComposer from './InpaintComposer';
 import ProductDetailComposer from './ProductDetailComposer';
 import PaperTextComposer from './PaperTextComposer';
 import PsdLogoExportComposer from './PsdLogoExportComposer';
+import BackgroundRemovalComposer from './BackgroundRemovalComposer';
 import RequestConsoleDrawer from './RequestConsoleDrawer';
 import GeneratingImage from './GeneratingImage';
 import { useLanguage } from './i18n';
@@ -336,6 +337,7 @@ function AppContent() {
   const [sceneReplaceSettingsHost, setSceneReplaceSettingsHost] = useState<HTMLElement | null>(null);
   const [paperTextSettingsHost, setPaperTextSettingsHost] = useState<HTMLElement | null>(null);
   const [logoExportSettingsHost, setLogoExportSettingsHost] = useState<HTMLElement | null>(null);
+  const [backgroundRemovalSettingsHost, setBackgroundRemovalSettingsHost] = useState<HTMLElement | null>(null);
   const [logoHasSession, setLogoHasSession] = useState(false);
   const [inpaintHasSession, setInpaintHasSession] = useState(false);
   const [productDetailHasSession, setProductDetailHasSession] = useState(false);
@@ -344,6 +346,7 @@ function AppContent() {
   const [sceneReplaceHasSession, setSceneReplaceHasSession] = useState(false);
   const [paperTextHasSession, setPaperTextHasSession] = useState(false);
   const [logoExportHasSession, setLogoExportHasSession] = useState(false);
+  const [backgroundRemovalHasSession, setBackgroundRemovalHasSession] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkText, setBulkText] = useState('');
   const [splitMode, setSplitMode] = useState<'delimiter' | 'newline'>('delimiter');
@@ -424,14 +427,14 @@ function AppContent() {
   };
 
   useEffect(() => {
-    if (!sceneHasSession && !sceneReplaceHasSession && !logoHasSession && !logoReplaceHasSession && !logoExportHasSession && !paperTextHasSession && !objectReplaceHasSession && !inpaintHasSession && !productDetailHasSession) return;
+    if (!sceneHasSession && !sceneReplaceHasSession && !logoHasSession && !logoReplaceHasSession && !logoExportHasSession && !paperTextHasSession && !backgroundRemovalHasSession && !objectReplaceHasSession && !inpaintHasSession && !productDetailHasSession) return;
     const warnBeforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = '';
     };
     window.addEventListener('beforeunload', warnBeforeUnload);
     return () => window.removeEventListener('beforeunload', warnBeforeUnload);
-  }, [sceneHasSession, sceneReplaceHasSession, logoHasSession, logoReplaceHasSession, logoExportHasSession, paperTextHasSession, objectReplaceHasSession, inpaintHasSession, productDetailHasSession]);
+  }, [sceneHasSession, sceneReplaceHasSession, logoHasSession, logoReplaceHasSession, logoExportHasSession, paperTextHasSession, backgroundRemovalHasSession, objectReplaceHasSession, inpaintHasSession, productDetailHasSession]);
 
   const patchSettings = useCallback((patch: Partial<AppSettings>) => {
     setSettings((current) => {
@@ -714,7 +717,7 @@ function AppContent() {
               <Text type="secondary" className="brand-subtitle">AI 商业场景图工作台</Text>
             </div>
             <Divider orientation="vertical" className="header-divider" />
-            <Tag icon={<AppstoreOutlined />} color="purple">{creationTool === 'scene' ? '场景图生成' : creationTool === 'scene-replace' ? '场景替换' : creationTool === 'logo' ? 'Logo 合成' : creationTool === 'logo-replace' ? 'Logo 替换' : creationTool === 'logo-export' ? '批量导出 Logo' : creationTool === 'paper-text' ? '花纸文字修改' : creationTool === 'object-replace' ? '物体批量替换' : creationTool === 'inpaint' ? '局部重绘' : '详情长图生成'}</Tag>
+            <Tag icon={<AppstoreOutlined />} color="purple">{creationTool === 'scene' ? '场景图生成' : creationTool === 'scene-replace' ? '场景替换' : creationTool === 'logo' ? 'Logo 合成' : creationTool === 'logo-replace' ? 'Logo 替换' : creationTool === 'logo-export' ? '批量导出 Logo' : creationTool === 'paper-text' ? '花纸文字修改' : creationTool === 'background-removal' ? '去除背景' : creationTool === 'object-replace' ? '物体批量替换' : creationTool === 'inpaint' ? '局部重绘' : '详情长图生成'}</Tag>
           </Flex>
           <Space>
             <Segmented
@@ -761,6 +764,7 @@ function AppContent() {
                 { key: 'logo-replace', icon: <SwapOutlined />, label: 'Logo 替换' },
                 { key: 'logo-export', icon: <DownloadOutlined />, label: '批量导出 Logo' },
                 { key: 'paper-text', icon: <EditOutlined />, label: '花纸文字修改' },
+                { key: 'background-removal', icon: <HighlightOutlined />, label: '去除背景' },
                 { key: 'object-replace', icon: <ReloadOutlined />, label: '物体批量替换' },
                 { key: 'inpaint', icon: <HighlightOutlined />, label: '局部重绘' },
                 { key: 'product-detail', icon: <FolderOpenOutlined />, label: '详情长图生成' },
@@ -804,6 +808,9 @@ function AppContent() {
             </div>
             <div hidden={creationTool !== 'logo-export'}>
               <PsdLogoExportComposer onSessionStateChange={setLogoExportHasSession} settingsHost={logoExportSettingsHost} />
+            </div>
+            <div hidden={creationTool !== 'background-removal'}>
+              <BackgroundRemovalComposer apiKey={settings.apiKey} apiBaseUrl={apiBaseUrl} connectionMode={settings.connectionMode} onRequestKey={() => setKeyOpen(true)} onSessionStateChange={setBackgroundRemovalHasSession} settingsHost={backgroundRemovalSettingsHost} />
             </div>
             <div hidden={creationTool !== 'object-replace'}>
               <ObjectReplaceComposer
@@ -1094,6 +1101,7 @@ function AppContent() {
         )}
         {!compact && creationTool === 'paper-text' && <Sider width={330} theme="light" className="settings-sider"><div ref={setPaperTextSettingsHost} /></Sider>}
         {!compact && creationTool === 'logo-export' && <Sider width={330} theme="light" className="settings-sider"><div ref={setLogoExportSettingsHost} /></Sider>}
+        {!compact && creationTool === 'background-removal' && <Sider width={330} theme="light" className="settings-sider"><div ref={setBackgroundRemovalSettingsHost} /></Sider>}
         {!compact && creationTool === 'object-replace' && (
           <Sider width={330} theme="light" className="settings-sider">
             <div ref={setObjectReplaceSettingsHost} />
@@ -1122,7 +1130,7 @@ function AppContent() {
         {creationTool === 'scene'
           ? settingsPanel
           : compact
-            ? <div ref={creationTool === 'logo' ? setLogoSettingsHost : creationTool === 'logo-replace' ? setLogoReplaceSettingsHost : creationTool === 'logo-export' ? setLogoExportSettingsHost : creationTool === 'paper-text' ? setPaperTextSettingsHost : creationTool === 'object-replace' ? setObjectReplaceSettingsHost : creationTool === 'scene-replace' ? setSceneReplaceSettingsHost : creationTool === 'inpaint' ? setInpaintSettingsHost : setProductDetailSettingsHost} />
+            ? <div ref={creationTool === 'logo' ? setLogoSettingsHost : creationTool === 'logo-replace' ? setLogoReplaceSettingsHost : creationTool === 'logo-export' ? setLogoExportSettingsHost : creationTool === 'paper-text' ? setPaperTextSettingsHost : creationTool === 'background-removal' ? setBackgroundRemovalSettingsHost : creationTool === 'object-replace' ? setObjectReplaceSettingsHost : creationTool === 'scene-replace' ? setSceneReplaceSettingsHost : creationTool === 'inpaint' ? setInpaintSettingsHost : setProductDetailSettingsHost} />
             : null}
       </Drawer>
 

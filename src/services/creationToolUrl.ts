@@ -7,6 +7,7 @@ export const CREATION_TOOLS: readonly CreationTool[] = [
   'logo-replace',
   'logo-export',
   'paper-text',
+  'background-removal',
   'object-replace',
   'inpaint',
   'product-detail',
