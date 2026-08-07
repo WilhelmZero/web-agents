@@ -37,6 +37,7 @@ import {
 } from './constants';
 import GeneratingImage from './GeneratingImage';
 import { generateInpaintImage, optimizePrompt } from './services/gemini';
+import { reportTaskProgress } from './services/taskProgress';
 import { readLocalStorage } from './storage';
 import type { InpaintSettings } from './types';
 import {
@@ -198,6 +199,7 @@ export default function InpaintComposer({
 
   useEffect(() => localStorage.setItem(STORAGE_KEYS.inpaintSettings, JSON.stringify(settings)), [settings]);
   useEffect(() => onSessionStateChange?.(Boolean(file || prompt.trim() || result)), [file, prompt, result, onSessionStateChange]);
+  useEffect(() => { reportTaskProgress({ id: 'inpaint', label: '局部重绘', completed: status === 'success' || status === 'failed' ? 1 : 0, total: status === 'idle' ? 0 : 1, failed: status === 'failed' ? 1 : 0, running: status === 'waiting' || status === 'running' }); }, [status]);
   useEffect(() => () => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     if (result) URL.revokeObjectURL(result.url);

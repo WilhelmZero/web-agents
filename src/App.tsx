@@ -4,6 +4,7 @@ import {
   ArrowDownOutlined,
   ArrowUpOutlined,
   BulbOutlined,
+  BellOutlined,
   CheckCircleFilled,
   CopyOutlined,
   CodeOutlined,
@@ -82,6 +83,8 @@ import {
   taskFileName,
 } from './services/downloads';
 import { generateSceneImage, optimizePrompt, testProxyConnection } from './services/gemini';
+import { reportTaskProgress, requestTaskNotifications, subscribeTaskProgress, type TaskProgress } from './services/taskProgress';
+import { isCreationTool, readCreationTool, setCreationToolInUrl } from './services/creationToolUrl';
 import type {
   AppSettings,
   CreationTool,
@@ -319,10 +322,12 @@ function AppContent() {
   ];
   const [tasks, setTasks] = useState<GenerationTask[]>([]);
   const [activePromptId, setActivePromptId] = useState(prompts[0].id);
-  const [creationTool, setCreationTool] = useState<CreationTool>('scene');
+  const [creationTool, setCreationTool] = useState<CreationTool>(() => readCreationTool(window.location.search));
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [keyOpen, setKeyOpen] = useState(false);
   const [requestConsoleOpen, setRequestConsoleOpen] = useState(false);
+  const [globalProgress, setGlobalProgress] = useState<TaskProgress[]>([]);
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | 'unsupported'>(() => typeof Notification === 'undefined' ? 'unsupported' : Notification.permission);
   const [logoSettingsHost, setLogoSettingsHost] = useState<HTMLElement | null>(null);
   const [inpaintSettingsHost, setInpaintSettingsHost] = useState<HTMLElement | null>(null);
   const [productDetailSettingsHost, setProductDetailSettingsHost] = useState<HTMLElement | null>(null);
@@ -348,6 +353,18 @@ function AppContent() {
   const [optimizingAll, setOptimizingAll] = useState(false);
   const [testingProxy, setTestingProxy] = useState(false);
   const runningIds = useRef(new Set<string>());
+
+  const navigateToCreationTool = useCallback((tool: CreationTool) => {
+    if (tool === creationTool) return;
+    setCreationTool(tool);
+    window.history.pushState({ ...window.history.state, creationTool: tool }, '', setCreationToolInUrl(window.location.href, tool));
+  }, [creationTool]);
+
+  useEffect(() => {
+    const handlePopState = () => setCreationTool(readCreationTool(window.location.search));
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
   const aborters = useRef(new Map<string, AbortController>());
   const productsRef = useRef(products);
   const settingsRef = useRef(settings);
@@ -370,6 +387,9 @@ function AppContent() {
   const completedCount = tasks.filter((task) => ['success', 'failed', 'stopped'].includes(task.status)).length;
   const successCount = tasks.filter((task) => task.status === 'success').length;
   const isProcessing = tasks.some((task) => ['waiting', 'running'].includes(task.status));
+  const runningProgress = globalProgress.filter((item) => item.running && item.total > 0);
+  const globalCompleted = runningProgress.reduce((sum, item) => sum + item.completed, 0);
+  const globalTotal = runningProgress.reduce((sum, item) => sum + item.total, 0);
   const activeDelimiter = splitMode === 'newline' ? '\n' : delimiter;
   const splitPreview = useMemo(
     () => splitPrompts(bulkText, activeDelimiter),
@@ -379,6 +399,10 @@ function AppContent() {
     ? settings.proxyUrl.trim().replace(/\/+$/, '')
     : null;
   const sceneHasSession = Boolean(products.length || tasks.length || prompts.some((item) => item.content.trim()));
+
+  useEffect(() => subscribeTaskProgress(setGlobalProgress), []);
+  useEffect(() => { reportTaskProgress({ id: 'scene', label: '场景图生成', completed: completedCount, total: tasks.length, failed: tasks.filter((task) => task.status === 'failed').length, running: isProcessing }); }, [completedCount, tasks, isProcessing]);
+  useEffect(() => { document.title = globalTotal ? `[${globalCompleted}/${globalTotal}] Scene Studio` : 'Scene Studio'; return () => { document.title = 'Scene Studio'; }; }, [globalCompleted, globalTotal]);
 
   const handleTestProxy = async () => {
     if (!settings.proxyUrl.trim()) {
@@ -701,6 +725,9 @@ function AppContent() {
               <Badge status={isProcessing ? 'processing' : 'success'} text={`${completedCount}/${tasks.length}`} />
             )}
             <Button icon={<CodeOutlined />} onClick={() => setRequestConsoleOpen(true)}>控制台</Button>
+            {globalTotal > 0 && <Tooltip title={runningProgress.map((item) => `${item.label} ${item.completed}/${item.total}`).join(' · ')}><Tag color="processing"><Progress type="circle" size={18} percent={Math.round(globalCompleted / globalTotal * 100)} showInfo={false} /> {globalCompleted}/{globalTotal}</Tag></Tooltip>}
+            {notificationPermission !== 'granted' && notificationPermission !== 'unsupported' && <Tooltip title="任务完成后发送浏览器系统通知"><Button icon={<BellOutlined />} onClick={async () => setNotificationPermission(await requestTaskNotifications())}>开启通知</Button></Tooltip>}
+            {notificationPermission === 'granted' && <Tooltip title="系统通知已开启"><Button icon={<BellOutlined />} type="text" aria-label="系统通知已开启" /></Tooltip>}
             {compact && <Button icon={<SettingOutlined />} onClick={() => setSettingsOpen(true)}>设置</Button>}
             <Button
               type={settings.apiKey || settings.openAiApiKey ? 'default' : 'primary'}
@@ -719,7 +746,7 @@ function AppContent() {
             mode="inline"
             selectedKeys={[creationTool]}
             onClick={({ key }) => {
-              if (key === 'scene' || key === 'scene-replace' || key === 'logo' || key === 'logo-replace' || key === 'logo-export' || key === 'paper-text' || key === 'object-replace' || key === 'inpaint' || key === 'product-detail') setCreationTool(key);
+              if (isCreationTool(key)) navigateToCreationTool(key);
             }}
             items={[
               { key: 'create', type: 'group', label: '创作工具', children: [

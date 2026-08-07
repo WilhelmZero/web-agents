@@ -36,6 +36,7 @@ import {
 } from 'antd';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { reportTaskProgress } from './services/taskProgress';
 import {
   DEFAULT_PRODUCT_DETAIL_SETTINGS,
   MODEL_CAPABILITIES,
@@ -113,6 +114,7 @@ export default function ProductDetailComposer({
   const successfulTasks = tasks.filter((task) => task.resultBlob);
   const processing = tasks.some((task) => task.status === 'waiting' || task.status === 'running');
   const completed = tasks.filter((task) => ['success', 'failed', 'stopped'].includes(task.status)).length;
+  useEffect(() => { reportTaskProgress({ id: 'product-detail', label: '详情长图生成', completed, total: tasks.length, failed: tasks.filter((task) => task.status === 'failed').length, running: processing }); }, [completed, tasks, processing]);
   const estimatedCost = estimateImageCost(settings.imageModel, settings.imageSize, prompts.length)
     + prompts.length * PRICING.models[settings.imageModel].inputImage;
 

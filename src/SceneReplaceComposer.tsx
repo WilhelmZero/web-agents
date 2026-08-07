@@ -3,6 +3,7 @@ import { Alert, App as AntApp, Button, Card, Empty, Flex, Form, Image, Input, In
 import JSZip from 'jszip';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { reportTaskProgress } from './services/taskProgress';
 import { DEFAULT_SCENE_REPLACE_SETTINGS, MODEL_CAPABILITIES, PRICING, STORAGE_KEYS } from './constants';
 import GeneratingImage from './GeneratingImage';
 import { generateSceneReplacementImage } from './services/gemini';
@@ -84,6 +85,7 @@ export default function SceneReplaceComposer({ apiKey, apiBaseUrl, connectionMod
   const stop = () => { aborters.current.forEach((item) => item.abort()); setTasks((current) => current.map((item) => item.status === 'waiting' ? { ...item, status: 'stopped' } : item)); };
   const retry = (task: SceneReplaceTask) => { const next = { ...task, status: 'running' as const, error: undefined, retryCount: task.retryCount + 1 }; setTasks((current) => current.map((item) => item.id === task.id ? next : item)); void execute(next); };
   const success = tasks.filter((item) => item.status === 'success' && item.resultBlob); const busy = tasks.some((item) => item.status === 'waiting' || item.status === 'running'); const done = tasks.filter((item) => ['success', 'failed', 'stopped'].includes(item.status)).length;
+  useEffect(() => { reportTaskProgress({ id: 'scene-replace', label: '场景替换', completed: done, total: tasks.length, failed: tasks.filter((task) => task.status === 'failed').length, running: busy }); }, [done, tasks, busy]);
   const groups = useMemo(() => scenes.map((scene) => ({ scene, tasks: tasks.filter((item) => item.sceneId === scene.id) })).filter((item) => item.tasks.length), [scenes, tasks]);
   const fileName = (task: SceneReplaceTask, scene: LogoAsset) => `${String(task.sceneIndex + 1).padStart(2, '0')}_${sanitizeFileName(scene.name)}_场景替换_${String(task.copyIndex + 1).padStart(2, '0')}.${mimeExtension(task.resultMimeType)}`;
   const downloadAll = async () => { const zip = new JSZip(); groups.forEach(({ scene, tasks: items }) => items.forEach((item) => item.resultBlob && zip.file(fileName(item, scene), item.resultBlob))); downloadBlob(await zip.generateAsync({ type: 'blob' }), 'SceneStudio_场景替换结果.zip'); };

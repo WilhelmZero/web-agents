@@ -25,6 +25,17 @@ describe('paper text helpers', () => {
     expect(prompt).toContain('除指定文字外');
   });
 
+  it('adds the editable common prompt to every image edit prompt', () => {
+    const prompt = buildPaperTextEditPrompt(
+      [{ original: 'OLD', text: 'NEW', box: [10, 20, 30, 40] }],
+      '',
+      '保持金色烫印质感，并匹配原图透视。',
+    );
+    expect(prompt).toContain('公共修改提示词（应用于全部图片）');
+    expect(prompt).toContain('保持金色烫印质感，并匹配原图透视。');
+    expect(prompt).toContain('除指定文字外');
+  });
+
   it('omits input fidelity for GPT Image 2 models', () => {
     expect(supportsOpenAiInputFidelity('gpt-image-2')).toBe(false);
     expect(supportsOpenAiInputFidelity('gpt-image-2-2026-04-21')).toBe(false);

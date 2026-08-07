@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { canvasToPngBlob, parsePsdLogoLayers, renderPsdLogoLayer, safePsdLayerName, type LogoFitMode, type LogoQualityMode, type PsdLogoLayer } from './services/psdLogoExport';
 import { downloadBlob } from './utils';
+import { reportTaskProgress } from './services/taskProgress';
 
 const { Title, Text, Paragraph } = Typography;
 interface FileInfo { name: string; width: number; height: number }
@@ -13,9 +14,11 @@ export default function PsdLogoExportComposer({ onSessionStateChange, settingsHo
   const { message } = App.useApp();
   const [layers, setLayers] = useState<PsdLogoLayer[]>([]); const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set()); const [activeId, setActiveId] = useState('');
   const [fileInfo, setFileInfo] = useState<FileInfo>(); const [query, setQuery] = useState(''); const [loading, setLoading] = useState(false); const [exporting, setExporting] = useState(false);
+  const [exportCompleted, setExportCompleted] = useState(0); const [exportTotal, setExportTotal] = useState(0); const [exportFailed, setExportFailed] = useState(0);
   const [width, setWidth] = useState(1024); const [height, setHeight] = useState(1024); const [linked, setLinked] = useState(true); const [mode, setMode] = useState<LogoFitMode>('contain'); const [quality, setQuality] = useState<LogoQualityMode>('sharp'); const [background, setBackground] = useState<string | null>(null); const [pattern, setPattern] = useState('{layerName}');
   const active = layers.find((layer) => layer.id === activeId) || layers[0]; const shown = useMemo(() => layers.filter((layer) => `${layer.name} ${layer.path}`.toLowerCase().includes(query.toLowerCase())), [layers, query]);
   useEffect(() => onSessionStateChange?.(layers.length > 0), [layers.length, onSessionStateChange]);
+  useEffect(() => { reportTaskProgress({ id: 'logo-export', label: '批量导出 Logo', completed: exportCompleted, total: exportTotal, failed: exportFailed, running: exporting }); }, [exportCompleted, exportTotal, exportFailed, exporting]);
   const reset = () => { setLayers([]); setSelectedIds(new Set()); setActiveId(''); setFileInfo(undefined); setQuery(''); setBackground(null); };
   const load = async (file: File) => {
     if (!file.name.toLowerCase().endsWith('.psd')) { message.error('请选择 PSD 文件'); return false; }
@@ -33,16 +36,17 @@ export default function PsdLogoExportComposer({ onSessionStateChange, settingsHo
   const toggle = (id: string) => setSelectedIds((current) => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next; });
   const exportAll = async () => {
     const targets = layers.filter((layer) => selectedIds.has(layer.id)); if (!targets.length) return void message.warning('请至少选择一个图层');
-    setExporting(true);
+    setExporting(true); setExportCompleted(0); setExportTotal(targets.length); setExportFailed(0);
     try {
       const zip = new JSZip(); const used = new Set<string>();
       for (let index = 0; index < targets.length; index += 1) {
         const layer = targets[index]; const base = safePsdLayerName(pattern.replaceAll('{layerName}', layer.name).replaceAll('{index}', String(index + 1).padStart(2, '0'))); let filename = `${base}.png`; let suffix = 2;
         while (used.has(filename.toLowerCase())) filename = `${base}-${suffix++}.png`; used.add(filename.toLowerCase());
         zip.file(filename, await canvasToPngBlob(await renderPsdLogoLayer(layer.canvas, width, height, mode, quality, background)));
+        setExportCompleted(index + 1);
       }
       downloadBlob(await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' }), `${safePsdLayerName(fileInfo?.name.replace(/\.psd$/i, '') || 'logos')}-${width}x${height}.zip`); message.success(`已导出 ${targets.length} 个 PNG`);
-    } catch (error) { message.error(error instanceof Error ? error.message : '导出失败'); }
+    } catch (error) { setExportFailed(1); message.error(error instanceof Error ? error.message : '导出失败'); }
     finally { setExporting(false); }
   };
   const upscale = active ? (mode === 'cover' ? Math.max(width / active.width, height / active.height) : Math.min(width / active.width, height / active.height)) : 1;

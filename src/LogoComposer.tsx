@@ -47,6 +47,7 @@ import {
 } from 'antd';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { reportTaskProgress } from './services/taskProgress';
 import {
   DEFAULT_LOGO_SETTINGS,
   localizeBuiltInLogoPresets,
@@ -454,6 +455,7 @@ export default function LogoComposer({
   const completedCount = tasks.filter((task) => ['success', 'failed', 'stopped'].includes(task.status)).length;
   const successCount = tasks.filter((task) => task.status === 'success').length;
   const isProcessing = tasks.some((task) => ['waiting', 'running'].includes(task.status));
+  useEffect(() => { reportTaskProgress({ id: 'logo-compose', label: 'Logo 合成', completed: completedCount, total: tasks.length, failed: tasks.filter((task) => task.status === 'failed').length, running: isProcessing }); }, [completedCount, tasks, isProcessing]);
   const capability = MODEL_CAPABILITIES[settings.imageModel];
   const allPresets: LogoPromptPreset[] = [
     ...(localizeBuiltInLogoPresets(language) as readonly LogoPromptPreset[]),

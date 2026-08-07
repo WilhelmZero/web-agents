@@ -42,6 +42,7 @@ import { createPortal } from 'react-dom';
 import { DEFAULT_LOGO_REPLACE_SETTINGS, MODEL_CAPABILITIES, PRICING, STORAGE_KEYS } from './constants';
 import GeneratingImage from './GeneratingImage';
 import LogoReplaceDevComposer from './LogoReplaceDevComposer';
+import { reportTaskProgress } from './services/taskProgress';
 import { buildLogoReplacementInstruction, generateLogoReplacement, verifyLogoReplacement } from './services/gemini';
 import { assignReplacementLogos, buildLogoReplaceTasks } from './services/logoReplaceUtils';
 import { readLocalStorage } from './storage';
@@ -321,6 +322,7 @@ function LogoReplaceSingleComposer({
   const downloadable = successful.filter((task) => task.verificationStatus !== 'failed' || task.acceptedVerificationRisk);
   const processing = tasks.some((task) => task.status === 'waiting' || task.status === 'running');
   const completed = tasks.filter((task) => ['success', 'failed', 'stopped'].includes(task.status)).length;
+  useEffect(() => { reportTaskProgress({ id: 'logo-replace', label: 'Logo 替换', completed, total: tasks.length, failed: tasks.filter((task) => task.status === 'failed').length, running: processing }); }, [completed, tasks, processing]);
   const taskCount = scenes.length * settings.copiesPerScene;
   const baseEstimatedCost = estimateImageCost(settings.imageModel, settings.imageSize, taskCount) + taskCount * PRICING.models[settings.imageModel].inputImage * (settings.useOldLogoReference && oldLogo ? 2 : 1);
   const worstCaseImageCost = baseEstimatedCost * (settings.strictTextVerification ? settings.verificationRetries + 1 : 1);

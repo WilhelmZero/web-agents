@@ -3,6 +3,7 @@ import { Alert, App as AntApp, Button, Card, Empty, Flex, Form, Image, InputNumb
 import JSZip from 'jszip';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { reportTaskProgress } from './services/taskProgress';
 import { DEFAULT_LOGO_REPLACE_SETTINGS, MODEL_CAPABILITIES } from './constants';
 import GeneratingImage from './GeneratingImage';
 import { analyzeSceneLogoStyles, generateMultiLogoReplacement } from './services/gemini';
@@ -80,6 +81,7 @@ export default function LogoReplaceDevComposer({ apiKey, apiBaseUrl, connectionM
   };
   const retry = (task: LogoReplaceDevTask) => { if (task.resultUrl) URL.revokeObjectURL(task.resultUrl); const next = { ...task, status: 'waiting' as const, resultBlob: undefined, resultUrl: undefined, resultMimeType: undefined, retryCount: task.retryCount + 1, error: undefined }; setCompareIds((current) => { const ids = new Set(current); ids.delete(task.id); return ids; }); setTasks((current) => current.map((item) => item.id === task.id ? next : item)); };
   const busy = tasks.some((item) => item.status === 'waiting' || item.status === 'running'); const done = tasks.filter((item) => ['success', 'failed', 'stopped'].includes(item.status)).length; const successful = tasks.filter((item) => item.resultBlob);
+  useEffect(() => { reportTaskProgress({ id: 'logo-replace-multi', label: '多 Logo 替换', completed: done, total: tasks.length, failed: tasks.filter((task) => task.status === 'failed').length, running: busy }); }, [done, tasks, busy]);
   const outputName = (task: LogoReplaceDevTask) => `${String(task.sceneIndex + 1).padStart(2, '0')}_multi-logo_${task.copyIndex + 1}.${mimeExtension(task.resultMimeType)}`;
   const downloadAll = async () => { const zip = new JSZip(); tasks.forEach((task) => task.resultBlob && zip.file(outputName(task), task.resultBlob)); downloadBlob(await zip.generateAsync({ type: 'blob' }), 'Logo替换开发版结果.zip'); };
 

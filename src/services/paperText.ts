@@ -25,10 +25,10 @@ export function normalizePaperTextRegions(value: unknown): PaperTextRegion[] {
   });
 }
 
-export function buildPaperTextEditPrompt(regions: PaperTextRegion[], correction = ''): string {
+export function buildPaperTextEditPrompt(regions: PaperTextRegion[], correction = '', commonPrompt = ''): string {
   const changes = regions.filter((region) => region.text !== region.original);
   const lines = changes.map((region, index) => `${index + 1}. 在百分比区域 [${region.box.join(', ')}]，将“${region.original}”准确替换为“${region.text}”`).join('\n');
-  return `执行严格的包装花纸文字局部修改。原图是最终画面的唯一基准，只允许修改以下文字区域：\n${lines}\n保持每处新文字与原文字完全相同的字体风格、字重、字号、字距、行距、排版、弧度、透视、颜色、印刷油墨质感、磨损、反光、遮挡和载体曲面贴合关系。完整清除旧文字，不得残留、重影或新增文字。除指定文字外，花纸图案、Logo、插画、器物轮廓、材质、背景、构图、光影和所有像素对应内容必须保持不变。输出完整原尺寸图片，不显示标注框。${correction ? `\n上次复核问题，必须修正：${correction}` : ''}`;
+  return `执行严格的包装花纸文字局部修改。原图是最终画面的唯一基准，只允许修改以下文字区域：\n${lines}\n保持每处新文字与原文字完全相同的字体风格、字重、字号、字距、行距、排版、弧度、透视、颜色、印刷油墨质感、磨损、反光、遮挡和载体曲面贴合关系。完整清除旧文字，不得残留、重影或新增文字。除指定文字外，花纸图案、Logo、插画、器物轮廓、材质、背景、构图、光影和所有像素对应内容必须保持不变。输出完整原尺寸图片，不显示标注框。${commonPrompt.trim() ? `\n公共修改提示词（应用于全部图片）：${commonPrompt.trim()}` : ''}${correction ? `\n上次复核问题，必须修正：${correction}` : ''}`;
 }
 
 const OPENAI_ROOT = 'https://api.openai.com/v1';

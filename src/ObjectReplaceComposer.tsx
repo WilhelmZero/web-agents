@@ -3,6 +3,7 @@ import { Alert, App as AntApp, Button, Card, Checkbox, Empty, Flex, Form, Image,
 import JSZip from 'jszip';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { reportTaskProgress } from './services/taskProgress';
 import { DEFAULT_OBJECT_REPLACE_SETTINGS, MODEL_CAPABILITIES, PRICING, STORAGE_KEYS } from './constants';
 import GeneratingImage from './GeneratingImage';
 import { buildObjectReplacementInstruction, generateObjectReplacementImage } from './services/gemini';
@@ -143,6 +144,7 @@ export default function ObjectReplaceComposer({ apiKey, apiBaseUrl, connectionMo
   const successful = tasks.filter((item) => item.status === 'success' && item.resultBlob);
   const busy = tasks.some((item) => item.status === 'waiting' || item.status === 'running');
   const done = tasks.filter((item) => ['success', 'failed', 'stopped'].includes(item.status)).length;
+  useEffect(() => { reportTaskProgress({ id: 'object-replace', label: '物体批量替换', completed: done, total: tasks.length, failed: tasks.filter((task) => task.status === 'failed').length, running: busy }); }, [done, tasks, busy]);
   const count = scenes.length * settings.copiesPerScene;
   const groups = useMemo(() => scenes.map((scene) => ({ scene, tasks: tasks.filter((item) => item.sceneId === scene.id) })).filter((item) => item.tasks.length), [scenes, tasks]);
   const downloadOne = (task: ObjectReplaceTask, scene: LogoAsset) => task.resultBlob && downloadBlob(task.resultBlob, outputName(task, scene, settings.imageModel));

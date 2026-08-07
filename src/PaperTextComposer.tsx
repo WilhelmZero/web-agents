@@ -2,6 +2,7 @@ import { DeleteOutlined, DownloadOutlined, EyeOutlined, FileImageOutlined, Reloa
 import { Alert, App, Button, Card, Empty, Flex, Form, Image, Input, InputNumber, Progress, Segmented, Select, Space, Tag, Typography, Upload } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { reportTaskProgress } from './services/taskProgress';
 import { buildPaperTextEditPrompt, editPaperTextOpenAi, recognizePaperTextOpenAi, verifyPaperTextOpenAi, type PaperTextRegion } from './services/paperText';
 import { editPaperTextGemini, recognizePaperTextGemini, verifyPaperTextGemini } from './services/gemini';
 import { createId, downloadBlob, sanitizeFileName } from './utils';
@@ -12,6 +13,16 @@ type ItemStatus = 'waiting' | 'recognizing' | 'recognized' | 'editing' | 'done' 
 interface Item { id: string; file: File; url: string; resultUrl?: string; resultBlob?: Blob; regions: PaperTextRegion[]; status: ItemStatus; error?: string; verification?: string }
 const ACCEPTED = ['image/png', 'image/jpeg', 'image/webp'];
 const textKey = (value: string) => value.replace(/\s+/g, ' ').trim().toLocaleLowerCase();
+const OPENAI_IMAGE_MODELS = [
+  { value: 'gpt-image-2', label: 'GPT Image 2（推荐）' },
+  { value: 'gpt-image-2-2026-04-21', label: 'GPT Image 2（2026-04-21 固定版本）' },
+];
+const GEMINI_IMAGE_MODELS = [
+  { value: 'gemini-3.1-flash-image', label: 'Gemini 3.1 Flash Image（推荐）' },
+  { value: 'gemini-3.1-flash-lite-image', label: 'Gemini 3.1 Flash Lite Image（快速低成本）' },
+  { value: 'gemini-3-pro-image', label: 'Gemini 3 Pro Image（高质量）' },
+  { value: 'gemini-2.5-flash-image', label: 'Gemini 2.5 Flash Image（旧版）' },
+];
 
 export default function PaperTextComposer({ apiKey, openAiApiKey, apiBaseUrl, onRequestKey, onSessionStateChange, settingsHost }: { apiKey: string; openAiApiKey: string; apiBaseUrl: string | null; onRequestKey: () => void; onSessionStateChange?: (value: boolean) => void; settingsHost?: HTMLElement | null }) {
   const { message } = App.useApp();
@@ -23,6 +34,7 @@ export default function PaperTextComposer({ apiKey, openAiApiKey, apiBaseUrl, on
   const [openAiImageModel, setOpenAiImageModel] = useState('gpt-image-2');
   const [geminiTextModel, setGeminiTextModel] = useState('gemini-3.1-flash-lite');
   const [geminiImageModel, setGeminiImageModel] = useState('gemini-3.1-flash-image');
+  const [commonPrompt, setCommonPrompt] = useState('准确还原原文字的设计风格，让新文字自然融入花纸印刷效果；优先保证文字清晰、拼写准确。');
   const [quality, setQuality] = useState('high');
   const [concurrency, setConcurrency] = useState(4);
   const [busy, setBusy] = useState(false);
@@ -40,6 +52,7 @@ export default function PaperTextComposer({ apiKey, openAiApiKey, apiBaseUrl, on
   }, [items]);
   const completed = items.filter((item) => ['done', 'error'].includes(item.status)).length;
   const changedItems = items.filter((item) => item.regions.some((region) => region.text !== region.original));
+  useEffect(() => { reportTaskProgress({ id: 'paper-text', label: '花纸文字修改', completed, total: busy ? Math.max(changedItems.length, items.length) : items.filter((item) => item.resultBlob).length, failed: items.filter((item) => item.status === 'error').length, running: busy }); }, [completed, items, busy, changedItems.length]);
 
   const requiredKey = (provider: Provider) => provider === 'openai' ? openAiApiKey : apiKey;
   const ensureKey = (provider: Provider) => { if (requiredKey(provider)) return true; onRequestKey(); message.warning(`请先配置 ${provider === 'openai' ? 'OpenAI' : 'Gemini'} API Key`); return false; };
@@ -74,7 +87,7 @@ export default function PaperTextComposer({ apiKey, openAiApiKey, apiBaseUrl, on
     try {
       let correction = ''; let blob: Blob | undefined; let verification = { ok: false, reason: '尚未复核' };
       for (let attempt = 0; attempt < 2; attempt += 1) {
-        const prompt = buildPaperTextEditPrompt(item.regions, correction);
+        const prompt = buildPaperTextEditPrompt(item.regions, correction, commonPrompt);
         blob = imageProvider === 'openai'
           ? await editPaperTextOpenAi({ apiKey: openAiApiKey, model: openAiImageModel, image: item.file, prompt, quality, signal })
           : await editPaperTextGemini({ apiKey, model: geminiImageModel, image: item.file, prompt, signal, apiBaseUrl });
@@ -98,7 +111,7 @@ export default function PaperTextComposer({ apiKey, openAiApiKey, apiBaseUrl, on
     <Form.Item label="文字识别与复核"><Segmented block value={languageProvider} onChange={(value) => setLanguageProvider(value as Provider)} options={[{ label: 'GPT', value: 'openai' }, { label: 'Gemini', value: 'gemini' }]} /></Form.Item>
     <Form.Item label="语言模型"><Input value={languageProvider === 'openai' ? openAiTextModel : geminiTextModel} onChange={(e) => languageProvider === 'openai' ? setOpenAiTextModel(e.target.value) : setGeminiTextModel(e.target.value)} /></Form.Item>
     <Form.Item label="图片编辑"><Segmented block value={imageProvider} onChange={(value) => setImageProvider(value as Provider)} options={[{ label: 'GPT Image', value: 'openai' }, { label: 'Gemini', value: 'gemini' }]} /></Form.Item>
-    <Form.Item label="图片模型"><Input value={imageProvider === 'openai' ? openAiImageModel : geminiImageModel} onChange={(e) => imageProvider === 'openai' ? setOpenAiImageModel(e.target.value) : setGeminiImageModel(e.target.value)} /></Form.Item>
+    <Form.Item label="图片模型"><Select value={imageProvider === 'openai' ? openAiImageModel : geminiImageModel} onChange={(value) => imageProvider === 'openai' ? setOpenAiImageModel(value) : setGeminiImageModel(value)} options={imageProvider === 'openai' ? OPENAI_IMAGE_MODELS : GEMINI_IMAGE_MODELS} /></Form.Item>
     {imageProvider === 'openai' && <Form.Item label="GPT 图片质量"><Select value={quality} onChange={setQuality} options={['high', 'medium', 'low'].map((value) => ({ value, label: value }))} /></Form.Item>}
     <Form.Item label="识别与修改并发"><InputNumber min={1} max={8} value={concurrency} onChange={(value) => setConcurrency(value || 1)} style={{ width: '100%' }} /></Form.Item>
   </Form><Alert type="info" showIcon title="默认使用 GPT 官方直连" description="OpenAI 请求固定直连 api.openai.com，不使用 Gemini 中转或自定义 Base URL。" /></div>;
@@ -115,6 +128,10 @@ export default function PaperTextComposer({ apiKey, openAiApiKey, apiBaseUrl, on
     {commonTexts.length > 0 && <Card className="workflow-card paper-common-card" title={<Space><span className="step-badge">2</span>所有图片共有文字</Space>} extra={<Tag color="purple">{commonTexts.length} 项共有</Tag>}><Alert type="info" showIcon title="在这里修改会同步到全部已识别图片" style={{ marginBottom: 14 }} /><div className="paper-common-grid">{commonTexts.map((item) => { const region = recognizedItems[0].regions.find((value) => textKey(value.original) === item.key)!; return <Form.Item key={item.key} label={`原文：${item.original}`}><Input.TextArea value={region.text} autoSize={{ minRows: 1, maxRows: 4 }} onChange={(event) => updateCommonText(item.key, event.target.value)} /></Form.Item>; })}</div></Card>}
     <Card className="workflow-card" title={<Space><span className="step-badge">{commonTexts.length ? 3 : 2}</span>逐图检查与修改</Space>} extra={active && <Text type="secondary">{active.regions.length} 个区域 · {changedCount} 处已修改</Text>}>
       {!active ? <Empty description="上传并识别图片后开始修改" /> : <div className="paper-editor"><div className="paper-stage"><Image preview src={active.url} /><div className="paper-box-layer">{active.regions.map((region, index) => <div key={index} className={region.text !== region.original ? 'paper-box is-changed' : 'paper-box'} style={{ left: `${region.box[0]}%`, top: `${region.box[1]}%`, width: `${region.box[2]}%`, height: `${region.box[3]}%` }}><span>{index + 1}</span></div>)}</div></div><div className="paper-fields">{active.regions.map((region, index) => <Card key={index} size="small" title={`区域 ${index + 1}`} extra={region.text !== region.original && <Tag color="purple">已修改</Tag>}><Text type="secondary">原文：{region.original}</Text><Input.TextArea value={region.text} autoSize={{ minRows: 2, maxRows: 5 }} onChange={(e) => updateRegion(index, e.target.value)} /></Card>)}{active.error && <Alert type="error" showIcon title={active.error} />}</div></div>}
+    </Card>
+    <Card className="workflow-card" title="公共修改提示词" extra={<Tag color="blue">应用于全部生成图片</Tag>}>
+      <Alert type="info" showIcon title="可在这里补充统一的画面、字体或印刷效果要求；指定区域和原图保护规则会继续强制保留。" style={{ marginBottom: 14 }} />
+      <Input.TextArea value={commonPrompt} onChange={(event) => setCommonPrompt(event.target.value)} autoSize={{ minRows: 3, maxRows: 8 }} placeholder="例如：保持金色烫印质感，文字边缘清晰，并匹配原图透视。" showCount maxLength={1200} />
     </Card>
     <Card className="action-card"><Flex justify="space-between" align="center" gap={12} wrap><div><Title level={4} style={{ margin: 0 }}>已修改 {changedItems.length} 张图片</Title><Text type="secondary">按右侧并发数同时执行文字修改和结果复核</Text></div><Space>{busy && <Button danger icon={<StopOutlined />} onClick={() => aborter.current?.abort()}>停止</Button>}<Button icon={<ReloadOutlined />} disabled={!active || busy} onClick={() => active && void recognizeOne(active, new AbortController().signal)}>重新识别当前图</Button><Button type="primary" size="large" icon={<RocketOutlined />} loading={busy} disabled={!changedItems.length} onClick={() => void applyItems(changedItems)}>应用到全部已修改图片</Button></Space></Flex>{busy && <Progress style={{ marginTop: 14 }} percent={items.length ? Math.round(completed / items.length * 100) : 0} status="active" />}</Card>
     <section className="results-section"><Flex justify="space-between" align="center"><div><Title level={3}>文字修改结果</Title><Text type="secondary">点击图片可放大，使用按钮切换原图和生成图</Text></div></Flex>{items.some((item) => item.resultUrl) ? <Image.PreviewGroup><div className="paper-results">{items.filter((item) => item.resultUrl).map((item) => <Card key={item.id} size="small" title={item.file.name} extra={item.resultBlob && <Button type="text" icon={<DownloadOutlined />} onClick={() => downloadBlob(item.resultBlob!, `${sanitizeFileName(item.file.name)}_花纸文字修改.png`)} />}><div className="replace-result-image"><Image src={compareIds.has(item.id) ? item.url : item.resultUrl} alt={compareIds.has(item.id) ? '原始图片' : '文字修改结果'} /></div><Flex justify="space-between" align="center" style={{ marginTop: 8 }}><Space><Tag color={item.verification === '复核通过' ? 'success' : 'warning'}>{item.verification || '已生成'}</Tag></Space><Button size="small" icon={<EyeOutlined />} onClick={() => setCompareIds((current) => { const next = new Set(current); next.has(item.id) ? next.delete(item.id) : next.add(item.id); return next; })}>{compareIds.has(item.id) ? '查看生成图' : '原图对比'}</Button></Flex></Card>)}</div></Image.PreviewGroup> : <Empty description="完成文字修改后，结果会显示在这里" />}</section>
