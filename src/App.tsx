@@ -810,7 +810,7 @@ function AppContent() {
               <PsdLogoExportComposer onSessionStateChange={setLogoExportHasSession} settingsHost={logoExportSettingsHost} />
             </div>
             <div hidden={creationTool !== 'background-removal'}>
-              <BackgroundRemovalComposer apiKey={settings.apiKey} apiBaseUrl={apiBaseUrl} connectionMode={settings.connectionMode} onRequestKey={() => setKeyOpen(true)} onSessionStateChange={setBackgroundRemovalHasSession} settingsHost={backgroundRemovalSettingsHost} />
+              <BackgroundRemovalComposer apiKey={settings.apiKey} openAiApiKey={settings.openAiApiKey} apiBaseUrl={apiBaseUrl} connectionMode={settings.connectionMode} onRequestKey={() => setKeyOpen(true)} onSessionStateChange={setBackgroundRemovalHasSession} settingsHost={backgroundRemovalSettingsHost} />
             </div>
             <div hidden={creationTool !== 'object-replace'}>
               <ObjectReplaceComposer

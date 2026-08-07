@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { DEFAULT_BACKGROUND_REMOVAL_PROMPT, buildBackgroundRemovalPrompt, chooseBackgroundRemovalMatte, restoreTransparentBackground } from './services/backgroundRemoval';
 import { generateSceneReplacementImage } from './services/gemini';
+import { editPaperTextOpenAi } from './services/paperText';
 import { reportTaskProgress } from './services/taskProgress';
 import { vectorizeImageToSvg } from './services/trueVectorExport';
 import { MODEL_CAPABILITIES, STORAGE_KEYS } from './constants';
@@ -14,12 +15,15 @@ import { createId, downloadBlob, sanitizeFileName } from './utils';
 
 const { Text, Title, Paragraph } = Typography;
 const ACCEPTED = ['image/png', 'image/jpeg', 'image/webp'];
-interface Settings { imageModel: ImageModel; imageSize: ImageSize; concurrency: number; prompt: string }
+type OpenAiImageModel = 'gpt-image-2' | 'gpt-image-2-2026-04-21';
+type BackgroundRemovalModel = ImageModel | OpenAiImageModel;
+interface Settings { imageModel: BackgroundRemovalModel; imageSize: ImageSize; quality: 'high' | 'medium' | 'low'; concurrency: number; prompt: string }
 interface Item { id: string; file: File; sourceUrl: string; status: 'waiting' | 'running' | 'success' | 'failed' | 'stopped'; resultBlob?: Blob; resultUrl?: string; vectorBlob?: Blob; vectorStatus?: 'converting' | 'ready' | 'failed'; error?: string }
-const DEFAULT_SETTINGS: Settings = { imageModel: 'gemini-3.1-flash-image', imageSize: '1K', concurrency: 3, prompt: DEFAULT_BACKGROUND_REMOVAL_PROMPT };
+const DEFAULT_SETTINGS: Settings = { imageModel: 'gemini-3.1-flash-image', imageSize: '1K', quality: 'high', concurrency: 3, prompt: DEFAULT_BACKGROUND_REMOVAL_PROMPT };
+const isOpenAiModel = (model: BackgroundRemovalModel): model is OpenAiImageModel => model.startsWith('gpt-image-');
 
-export default function BackgroundRemovalComposer({ apiKey, apiBaseUrl, connectionMode, onRequestKey, onSessionStateChange, settingsHost }: {
-  apiKey: string; apiBaseUrl: string | null; connectionMode: 'direct' | 'proxy'; onRequestKey: () => void; onSessionStateChange?: (value: boolean) => void; settingsHost?: HTMLElement | null;
+export default function BackgroundRemovalComposer({ apiKey, openAiApiKey, apiBaseUrl, connectionMode, onRequestKey, onSessionStateChange, settingsHost }: {
+  apiKey: string; openAiApiKey: string; apiBaseUrl: string | null; connectionMode: 'direct' | 'proxy'; onRequestKey: () => void; onSessionStateChange?: (value: boolean) => void; settingsHost?: HTMLElement | null;
 }) {
   const { message } = App.useApp();
   const [settings, setSettings] = useState<Settings>(() => ({ ...DEFAULT_SETTINGS, ...readLocalStorage(STORAGE_KEYS.backgroundRemovalSettings, {}) }));
@@ -46,15 +50,19 @@ export default function BackgroundRemovalComposer({ apiKey, apiBaseUrl, connecti
     patchItem(item.id, { status: 'running', error: undefined });
     try {
       const matte = await chooseBackgroundRemovalMatte(item.file);
-      const generated = await generateSceneReplacementImage({ apiKey, apiBaseUrl, signal, model: settings.imageModel, image: item.file, imageSize: settings.imageSize, prompt: buildBackgroundRemovalPrompt(settings.prompt, matte) });
-      const resultBlob = await restoreTransparentBackground(generated.blob, matte);
+      const prompt = buildBackgroundRemovalPrompt(settings.prompt, matte);
+      const generatedBlob = isOpenAiModel(settings.imageModel)
+        ? await editPaperTextOpenAi({ apiKey: openAiApiKey, model: settings.imageModel, image: item.file, prompt, quality: settings.quality, signal })
+        : (await generateSceneReplacementImage({ apiKey, apiBaseUrl, signal, model: settings.imageModel as ImageModel, image: item.file, imageSize: settings.imageSize, prompt })).blob;
+      const resultBlob = await restoreTransparentBackground(generatedBlob, matte);
       const resultUrl = URL.createObjectURL(resultBlob);
       if (item.resultUrl) URL.revokeObjectURL(item.resultUrl);
       patchItem(item.id, { status: 'success', resultBlob, resultUrl, vectorBlob: undefined, vectorStatus: undefined });
     } catch (error) { patchItem(item.id, { status: signal.aborted ? 'stopped' : 'failed', error: signal.aborted ? '任务已停止' : error instanceof Error ? error.message : '去除背景失败' }); }
   };
   const run = async (targets = items) => {
-    if (!apiKey) return onRequestKey(); if (connectionMode === 'proxy' && !apiBaseUrl) return onRequestKey();
+    if (isOpenAiModel(settings.imageModel) ? !openAiApiKey : !apiKey) return onRequestKey();
+    if (!isOpenAiModel(settings.imageModel) && connectionMode === 'proxy' && !apiBaseUrl) return onRequestKey();
     if (!targets.length || busy) return; if (!settings.prompt.trim()) return void message.warning('请填写抠图提示词');
     const controller = new AbortController(); aborter.current = controller; setBusy(true); let cursor = 0;
     await Promise.all(Array.from({ length: Math.min(settings.concurrency, targets.length) }, async () => { while (cursor < targets.length && !controller.signal.aborted) await processItem(targets[cursor++], controller.signal); }));
@@ -67,8 +75,8 @@ export default function BackgroundRemovalComposer({ apiKey, apiBaseUrl, connecti
   };
   const clearAll = () => { aborter.current?.abort(); setItems((current) => { current.forEach((item) => { URL.revokeObjectURL(item.sourceUrl); if (item.resultUrl) URL.revokeObjectURL(item.resultUrl); }); return []; }); setCompareIds(new Set()); };
   const downloadAll = async () => { const zip = new JSZip(); successful.forEach((item) => item.resultBlob && zip.file(`${sanitizeFileName(item.file.name)}_透明.png`, item.resultBlob)); downloadBlob(await zip.generateAsync({ type: 'blob' }), '去除背景结果.zip'); };
-  const modelOptions = useMemo(() => Object.entries(MODEL_CAPABILITIES).map(([value, item]) => ({ value, label: item.label })), []);
-  const panel = <div className="settings-panel"><Title level={4}>去除背景设置</Title><Form layout="vertical"><Form.Item label="图片模型"><Select value={settings.imageModel} options={modelOptions} onChange={(imageModel) => patchSettings({ imageModel })} /></Form.Item><Form.Item label="输出分辨率"><Select value={settings.imageSize} options={MODEL_CAPABILITIES[settings.imageModel].imageSizes.map((value) => ({ value, label: value }))} onChange={(imageSize) => patchSettings({ imageSize })} /></Form.Item><Form.Item label="并发任务数"><InputNumber min={1} max={8} value={settings.concurrency} onChange={(concurrency) => patchSettings({ concurrency: concurrency || 1 })} style={{ width: '100%' }} /></Form.Item></Form><Text type="secondary">模型先生成自动选色的纯色底，再由本地脚本恢复透明通道。</Text></div>;
+  const modelOptions = useMemo(() => [{ label: 'GPT（OpenAI 官方直连）', options: [{ value: 'gpt-image-2', label: 'GPT Image 2（推荐）' }, { value: 'gpt-image-2-2026-04-21', label: 'GPT Image 2（2026-04-21）' }] }, { label: 'Gemini', options: Object.entries(MODEL_CAPABILITIES).map(([value, item]) => ({ value, label: item.label })) }], []);
+  const panel = <div className="settings-panel"><Title level={4}>去除背景设置</Title><Form layout="vertical"><Form.Item label="图片模型"><Select value={settings.imageModel} options={modelOptions} onChange={(imageModel) => patchSettings({ imageModel })} /></Form.Item>{isOpenAiModel(settings.imageModel) ? <Form.Item label="GPT 输出质量"><Select value={settings.quality} options={['high', 'medium', 'low'].map((value) => ({ value, label: value }))} onChange={(quality) => patchSettings({ quality })} /></Form.Item> : <Form.Item label="输出分辨率"><Select value={settings.imageSize} options={MODEL_CAPABILITIES[settings.imageModel as ImageModel].imageSizes.map((value: ImageSize) => ({ value, label: value }))} onChange={(imageSize) => patchSettings({ imageSize })} /></Form.Item>}<Form.Item label="并发任务数"><InputNumber min={1} max={8} value={settings.concurrency} onChange={(concurrency) => patchSettings({ concurrency: concurrency || 1 })} style={{ width: '100%' }} /></Form.Item></Form><Text type="secondary">GPT 使用右上角 OpenAI Key 官方直连；两类模型都会先生成纯色底，再由本地脚本恢复透明通道。</Text></div>;
 
   return <div className="background-removal-page"><section className="hero-strip background-removal-hero"><div><Text className="eyebrow">BACKGROUND REMOVER</Text><Title level={2}>批量去除背景，保留清晰透明边缘</Title><Paragraph className="hero-description">自动选择避开主体的抠图底色，生成后在本地恢复 Alpha；结果可继续转换为真实 SVG 路径。</Paragraph></div><div className="hero-orb" /></section>
     <Card className="workflow-card" title="1. 上传待抠图图片" extra={<Space><Text type="secondary">{items.length} 张</Text>{items.length > 0 && <Popconfirm title="清空全部图片？" onConfirm={clearAll}><Button danger size="small" icon={<ClearOutlined />}>清空</Button></Popconfirm>}</Space>}><Upload.Dragger accept={ACCEPTED.join(',')} multiple showUploadList={false} beforeUpload={(file) => addFiles([file as File])}><FileImageOutlined style={{ fontSize: 32 }} /><p>拖拽或点击批量上传 PNG / JPEG / WebP</p></Upload.Dragger>{items.length > 0 && <div className="background-source-grid">{items.map((item) => <Card key={item.id} size="small"><Image src={item.sourceUrl} /><Button danger type="text" block icon={<DeleteOutlined />} disabled={item.status === 'running'} onClick={() => removeItem(item.id)}>删除</Button></Card>)}</div>}</Card>
