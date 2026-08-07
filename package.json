@@ -13,8 +13,10 @@
   "dependencies": {
     "@ant-design/icons": "^6.1.0",
     "@ant-design/x": "^2.3.0",
+    "ag-psd": "^27.0.0",
     "antd": "^6.1.0",
     "jszip": "^3.10.1",
+    "pica": "^10.0.2",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

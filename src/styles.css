@@ -315,6 +315,23 @@ button, input, textarea { font: inherit; }
 .logo-replace-integrated { display: grid; gap: 14px; }
 .logo-replace-mode-card { border-color: #d8ccff; background: linear-gradient(120deg, #faf8ff, #f2f7ff); }
 .logo-replace-mode-card .ant-card-body { padding: 14px 18px; }
+.psd-logo-export-composer { display: grid; gap: 18px; }
+.psd-export-hero { background: radial-gradient(circle at 80% 20%, rgba(55, 180, 255, .32), transparent 30%), linear-gradient(130deg, #101b32, #163d65 58%, #176ff2); }
+.psd-export-workspace { display: grid; grid-template-columns: minmax(280px, .75fr) minmax(0, 1.25fr); gap: 16px; min-height: 560px; }
+.psd-layer-panel .ant-card-body { padding: 14px; }
+.psd-layer-list { max-height: 500px; overflow: auto; margin-top: 12px; }
+.psd-layer-row { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 6px; border-bottom: 1px solid #eef0f4; border-radius: 8px; }
+.psd-layer-row.is-active { background: #f0f5ff; box-shadow: inset 3px 0 #176ff2; }
+.psd-layer-row > button { display: grid; grid-template-columns: 24px 48px minmax(0, 1fr); align-items: center; gap: 8px; flex: 1; min-width: 0; padding: 0; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.psd-layer-row > button > span:last-child { min-width: 0; display: flex; flex-direction: column; }
+.transparent-grid, .psd-preview-canvas { background-color: #fff; background-image: linear-gradient(45deg,#edf0f3 25%,transparent 25%),linear-gradient(-45deg,#edf0f3 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#edf0f3 75%),linear-gradient(-45deg,transparent 75%,#edf0f3 75%); background-size: 18px 18px; background-position: 0 0,0 9px,9px -9px,-9px 0; }
+.transparent-grid { width: 46px; height: 46px; display: grid; place-items: center; overflow: hidden; border: 1px solid #d8dde4; border-radius: 6px; }
+.transparent-grid img { width: 40px; height: 40px; object-fit: contain; }
+.psd-preview-panel .ant-card-body { height: 500px; }
+.psd-preview-canvas { width: 100%; height: 100%; display: grid; place-items: center; overflow: auto; border: 1px solid #dfe3e9; border-radius: 10px; }
+.psd-preview-canvas .ant-image, .psd-preview-canvas img { max-width: 100%; max-height: 440px; object-fit: contain; }
+.transparent-swatch { width: 36px; height: 36px; border: 1px solid #d8dde4; border-radius: 6px; background: conic-gradient(#e1e5ea 25%,white 0 50%,#e1e5ea 0 75%,white 0) 0/12px 12px; }
+@media (max-width: 800px) { .psd-export-workspace { grid-template-columns: 1fr; } .psd-preview-panel .ant-card-body { height: 420px; } }
 @media (max-width: 900px) { .scene-replace-editor { grid-template-columns: 1fr; } .scene-preset-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); max-height: none; } }
 @media (max-width: 560px) { .scene-preset-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 560px) {
