@@ -3,6 +3,23 @@
   background: #f2f4f8;
   font-synthesis: none;
 }
+.paper-text-composer { display: grid; gap: 18px; }
+.paper-queue { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; margin-top: 16px; }
+.paper-queue .ant-card { position: relative; overflow: hidden; }
+.paper-queue .ant-card.is-active { border-color: #7c3aed; box-shadow: 0 0 0 2px rgb(124 58 237 / 12%); }
+.paper-queue img { width: 100%; height: 112px; object-fit: cover; border-radius: 8px; margin-bottom: 8px; }
+.paper-queue .ant-btn-dangerous { position: absolute; right: 5px; top: 5px; background: rgb(255 255 255 / 88%); }
+.paper-editor { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(280px, .65fr); gap: 18px; align-items: start; }
+.paper-stage { position: relative; border-radius: 12px; overflow: hidden; background: #f3f4f6; }
+.paper-stage .ant-image, .paper-stage img { display: block; width: 100%; }
+.paper-box-layer { position: absolute; inset: 0; pointer-events: none; }
+.paper-box { position: absolute; border: 2px solid #1677ff; background: rgb(22 119 255 / 8%); }
+.paper-box.is-changed { border-color: #7c3aed; background: rgb(124 58 237 / 12%); }
+.paper-box span { position: absolute; left: -2px; top: -23px; min-width: 21px; padding: 1px 5px; color: white; background: #1677ff; border-radius: 5px 5px 0 0; font-size: 12px; }
+.paper-box.is-changed span { background: #7c3aed; }
+.paper-fields { display: grid; gap: 10px; max-height: 680px; overflow: auto; padding-right: 3px; }
+.paper-fields .ant-input { margin-top: 8px; }
+@media (max-width: 900px) { .paper-editor { grid-template-columns: 1fr; } }
 
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; background: #f2f4f8; }

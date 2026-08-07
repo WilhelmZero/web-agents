@@ -69,6 +69,7 @@ import ObjectReplaceComposer from './ObjectReplaceComposer';
 import SceneReplaceComposer from './SceneReplaceComposer';
 import InpaintComposer from './InpaintComposer';
 import ProductDetailComposer from './ProductDetailComposer';
+import PaperTextComposer from './PaperTextComposer';
 import RequestConsoleDrawer from './RequestConsoleDrawer';
 import GeneratingImage from './GeneratingImage';
 import { useLanguage } from './i18n';
@@ -329,6 +330,7 @@ function AppContent() {
   const [logoReplaceDevSettingsHost, setLogoReplaceDevSettingsHost] = useState<HTMLElement | null>(null);
   const [objectReplaceSettingsHost, setObjectReplaceSettingsHost] = useState<HTMLElement | null>(null);
   const [sceneReplaceSettingsHost, setSceneReplaceSettingsHost] = useState<HTMLElement | null>(null);
+  const [paperTextSettingsHost, setPaperTextSettingsHost] = useState<HTMLElement | null>(null);
   const [logoHasSession, setLogoHasSession] = useState(false);
   const [inpaintHasSession, setInpaintHasSession] = useState(false);
   const [productDetailHasSession, setProductDetailHasSession] = useState(false);
@@ -336,6 +338,7 @@ function AppContent() {
   const [logoReplaceDevHasSession, setLogoReplaceDevHasSession] = useState(false);
   const [objectReplaceHasSession, setObjectReplaceHasSession] = useState(false);
   const [sceneReplaceHasSession, setSceneReplaceHasSession] = useState(false);
+  const [paperTextHasSession, setPaperTextHasSession] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkText, setBulkText] = useState('');
   const [splitMode, setSplitMode] = useState<'delimiter' | 'newline'>('delimiter');
@@ -395,14 +398,14 @@ function AppContent() {
   };
 
   useEffect(() => {
-    if (!sceneHasSession && !sceneReplaceHasSession && !logoHasSession && !logoReplaceHasSession && !logoReplaceDevHasSession && !objectReplaceHasSession && !inpaintHasSession && !productDetailHasSession) return;
+    if (!sceneHasSession && !sceneReplaceHasSession && !logoHasSession && !logoReplaceHasSession && !logoReplaceDevHasSession && !paperTextHasSession && !objectReplaceHasSession && !inpaintHasSession && !productDetailHasSession) return;
     const warnBeforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = '';
     };
     window.addEventListener('beforeunload', warnBeforeUnload);
     return () => window.removeEventListener('beforeunload', warnBeforeUnload);
-  }, [sceneHasSession, sceneReplaceHasSession, logoHasSession, logoReplaceHasSession, logoReplaceDevHasSession, objectReplaceHasSession, inpaintHasSession, productDetailHasSession]);
+  }, [sceneHasSession, sceneReplaceHasSession, logoHasSession, logoReplaceHasSession, logoReplaceDevHasSession, paperTextHasSession, objectReplaceHasSession, inpaintHasSession, productDetailHasSession]);
 
   const patchSettings = useCallback((patch: Partial<AppSettings>) => {
     setSettings((current) => {
@@ -682,7 +685,7 @@ function AppContent() {
               <Text type="secondary" className="brand-subtitle">AI 商业场景图工作台</Text>
             </div>
             <Divider orientation="vertical" className="header-divider" />
-            <Tag icon={<AppstoreOutlined />} color="purple">{creationTool === 'scene' ? '场景图生成' : creationTool === 'scene-replace' ? '场景替换' : creationTool === 'logo' ? 'Logo 合成' : creationTool === 'logo-replace' ? 'Logo 替换' : creationTool === 'logo-replace-dev' ? 'Logo 替换开发版' : creationTool === 'object-replace' ? '物体批量替换' : creationTool === 'inpaint' ? '局部重绘' : '详情长图生成'}</Tag>
+            <Tag icon={<AppstoreOutlined />} color="purple">{creationTool === 'scene' ? '场景图生成' : creationTool === 'scene-replace' ? '场景替换' : creationTool === 'logo' ? 'Logo 合成' : creationTool === 'logo-replace' ? 'Logo 替换' : creationTool === 'logo-replace-dev' ? 'Logo 替换开发版' : creationTool === 'paper-text' ? '花纸文字修改' : creationTool === 'object-replace' ? '物体批量替换' : creationTool === 'inpaint' ? '局部重绘' : '详情长图生成'}</Tag>
           </Flex>
           <Space>
             <Segmented
@@ -700,11 +703,11 @@ function AppContent() {
             <Button icon={<CodeOutlined />} onClick={() => setRequestConsoleOpen(true)}>控制台</Button>
             {compact && <Button icon={<SettingOutlined />} onClick={() => setSettingsOpen(true)}>设置</Button>}
             <Button
-              type={settings.apiKey ? 'default' : 'primary'}
-              icon={settings.apiKey ? <CheckCircleFilled /> : <KeyOutlined />}
+              type={settings.apiKey || settings.openAiApiKey ? 'default' : 'primary'}
+              icon={settings.apiKey || settings.openAiApiKey ? <CheckCircleFilled /> : <KeyOutlined />}
               onClick={() => setKeyOpen(true)}
             >
-              {settings.apiKey ? 'Key 已配置' : '配置 API Key'}
+              {settings.apiKey || settings.openAiApiKey ? 'Key 已配置' : '配置 API Key'}
             </Button>
           </Space>
         </Flex>
@@ -716,7 +719,7 @@ function AppContent() {
             mode="inline"
             selectedKeys={[creationTool]}
             onClick={({ key }) => {
-              if (key === 'scene' || key === 'scene-replace' || key === 'logo' || key === 'logo-replace' || key === 'logo-replace-dev' || key === 'object-replace' || key === 'inpaint' || key === 'product-detail') setCreationTool(key);
+              if (key === 'scene' || key === 'scene-replace' || key === 'logo' || key === 'logo-replace' || key === 'logo-replace-dev' || key === 'paper-text' || key === 'object-replace' || key === 'inpaint' || key === 'product-detail') setCreationTool(key);
             }}
             items={[
               { key: 'create', type: 'group', label: '创作工具', children: [
@@ -725,6 +728,7 @@ function AppContent() {
                 { key: 'logo', icon: <ExperimentOutlined />, label: 'Logo 合成' },
                 { key: 'logo-replace', icon: <SwapOutlined />, label: 'Logo 替换' },
                 { key: 'logo-replace-dev', icon: <ExperimentOutlined />, label: 'Logo 替换开发版' },
+                { key: 'paper-text', icon: <EditOutlined />, label: '花纸文字修改' },
                 { key: 'object-replace', icon: <ReloadOutlined />, label: '物体批量替换' },
                 { key: 'inpaint', icon: <HighlightOutlined />, label: '局部重绘' },
                 { key: 'product-detail', icon: <FolderOpenOutlined />, label: '详情长图生成' },
@@ -765,6 +769,9 @@ function AppContent() {
             </div>
             <div hidden={creationTool !== 'logo-replace-dev'}>
               <LogoReplaceDevComposer apiKey={settings.apiKey} apiBaseUrl={apiBaseUrl} connectionMode={settings.connectionMode} onRequestKey={() => setKeyOpen(true)} onSessionStateChange={setLogoReplaceDevHasSession} settingsHost={logoReplaceDevSettingsHost} />
+            </div>
+            <div hidden={creationTool !== 'paper-text'}>
+              <PaperTextComposer apiKey={settings.apiKey} openAiApiKey={settings.openAiApiKey} apiBaseUrl={apiBaseUrl} onRequestKey={() => setKeyOpen(true)} onSessionStateChange={setPaperTextHasSession} settingsHost={paperTextSettingsHost} />
             </div>
             <div hidden={creationTool !== 'object-replace'}>
               <ObjectReplaceComposer
@@ -1056,6 +1063,7 @@ function AppContent() {
         {!compact && creationTool === 'logo-replace-dev' && (
           <Sider width={330} theme="light" className="settings-sider"><div ref={setLogoReplaceDevSettingsHost} /></Sider>
         )}
+        {!compact && creationTool === 'paper-text' && <Sider width={330} theme="light" className="settings-sider"><div ref={setPaperTextSettingsHost} /></Sider>}
         {!compact && creationTool === 'object-replace' && (
           <Sider width={330} theme="light" className="settings-sider">
             <div ref={setObjectReplaceSettingsHost} />
@@ -1084,15 +1092,15 @@ function AppContent() {
         {creationTool === 'scene'
           ? settingsPanel
           : compact
-            ? <div ref={creationTool === 'logo' ? setLogoSettingsHost : creationTool === 'logo-replace' ? setLogoReplaceSettingsHost : creationTool === 'logo-replace-dev' ? setLogoReplaceDevSettingsHost : creationTool === 'object-replace' ? setObjectReplaceSettingsHost : creationTool === 'scene-replace' ? setSceneReplaceSettingsHost : creationTool === 'inpaint' ? setInpaintSettingsHost : setProductDetailSettingsHost} />
+            ? <div ref={creationTool === 'logo' ? setLogoSettingsHost : creationTool === 'logo-replace' ? setLogoReplaceSettingsHost : creationTool === 'logo-replace-dev' ? setLogoReplaceDevSettingsHost : creationTool === 'paper-text' ? setPaperTextSettingsHost : creationTool === 'object-replace' ? setObjectReplaceSettingsHost : creationTool === 'scene-replace' ? setSceneReplaceSettingsHost : creationTool === 'inpaint' ? setInpaintSettingsHost : setProductDetailSettingsHost} />
             : null}
       </Drawer>
 
-      <Modal title="配置 Gemini API" open={keyOpen} onCancel={() => setKeyOpen(false)} onOk={() => setKeyOpen(false)} okText="保存到本地">
+      <Modal title="配置 API Keys" open={keyOpen} onCancel={() => setKeyOpen(false)} onOk={() => setKeyOpen(false)} okText="保存到本地">
         <Alert
           type="warning"
           showIcon
-          title="Key 会保存在当前浏览器"
+          title="Keys 会保存在当前浏览器"
           description={settings.connectionMode === 'proxy'
             ? 'Key 与代理地址保存在当前浏览器，请求将通过你配置的代理转发到 Gemini。'
             : 'Key 保存在当前浏览器，并由浏览器直接请求 Gemini。请勿在不受信任的设备上配置。'}
@@ -1133,6 +1141,16 @@ function AppContent() {
           placeholder="AIza..."
           autoComplete="off"
         />
+          </Form.Item>
+          <Divider titlePlacement="start">OpenAI 官方直连</Divider>
+          <Form.Item label="OpenAI API Key" extra="仅直连 https://api.openai.com/v1，不经过中转站" style={{ marginBottom: 0 }}>
+            <Input.Password
+              value={settings.openAiApiKey}
+              onChange={(event) => patchSettings({ openAiApiKey: event.target.value.trim() })}
+              prefix={<KeyOutlined />}
+              placeholder="sk-..."
+              autoComplete="off"
+            />
           </Form.Item>
         </Form>
       </Modal>

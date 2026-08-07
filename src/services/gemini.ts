@@ -1,6 +1,7 @@
 import type { GeneratedImage, GlassLogoEtchOptions, ImageModel, ImageSize, LogoVerificationResult, ObjectPreservationOptions, OptimizerModel, SceneLogoStyle } from '../types';
 import { fileToBase64 } from '../utils';
 import { startRequestConsoleEntry, summarizeGeminiRequest, updateRequestConsoleEntry } from './requestConsole';
+import { normalizePaperTextRegions, type PaperTextRegion, type PaperTextVerification } from './paperText';
 
 const GOOGLE_API_ROOT = 'https://generativelanguage.googleapis.com/v1beta';
 
@@ -708,6 +709,34 @@ export async function generateInpaintImage(options: {
     mimeType,
     usageTokens: data.usageMetadata?.totalTokenCount,
   };
+}
+
+export async function recognizePaperTextGemini(options: { apiKey: string; model: string; image: File; signal?: AbortSignal; apiBaseUrl?: string | null }): Promise<PaperTextRegion[]> {
+  const imageData = await fileToBase64(options.image);
+  const data = await postGemini(options.model, options.apiKey, { contents: [{ role: 'user', parts: [
+    { text: '识别图片中所有可见的包装花纸文字。按独立文字区域分组，严格保持原文、大小写、标点和换行。box 为 [左侧百分比, 顶部百分比, 宽度百分比, 高度百分比]，范围 0-100。不要把纯图形或不可见的猜测内容当作文字。' },
+    { inlineData: { mimeType: options.image.type, data: imageData } },
+  ] }], generationConfig: { responseMimeType: 'application/json', responseSchema: { type: 'OBJECT', properties: { regions: { type: 'ARRAY', items: { type: 'OBJECT', properties: { text: { type: 'STRING' }, box: { type: 'ARRAY', items: { type: 'NUMBER' }, minItems: 4, maxItems: 4 } }, required: ['text', 'box'] } } }, required: ['regions'] } } }, options.signal, options.apiBaseUrl);
+  const raw = data.candidates?.flatMap((candidate) => candidate.content?.parts ?? []).map((part) => part.text || '').join('').trim();
+  if (!raw) throw new Error('Gemini 未返回文字识别结果');
+  try { return normalizePaperTextRegions(JSON.parse(raw)); } catch { throw new Error('Gemini 文字识别结果格式无效'); }
+}
+
+export async function editPaperTextGemini(options: { apiKey: string; model: string; image: File; prompt: string; signal?: AbortSignal; apiBaseUrl?: string | null }): Promise<Blob> {
+  const imageData = await fileToBase64(options.image);
+  const data = await postGemini(options.model, options.apiKey, { contents: [{ role: 'user', parts: [{ text: options.prompt }, { inlineData: { mimeType: options.image.type, data: imageData } }] }], generationConfig: { responseModalities: ['IMAGE'] } }, options.signal, options.apiBaseUrl);
+  const part = data.candidates?.flatMap((candidate) => candidate.content?.parts ?? []).find((item) => item.inlineData?.data);
+  if (!part?.inlineData?.data) throw new Error('Gemini 未返回编辑后的图片');
+  return new Blob([Uint8Array.from(atob(part.inlineData.data), (c) => c.charCodeAt(0))], { type: part.inlineData.mimeType || 'image/png' });
+}
+
+export async function verifyPaperTextGemini(options: { apiKey: string; model: string; image: Blob; regions: PaperTextRegion[]; signal?: AbortSignal; apiBaseUrl?: string | null }): Promise<PaperTextVerification> {
+  const imageData = await fileToBase64(options.image);
+  const targets = options.regions.filter((r) => r.text !== r.original).map((r) => `“${r.original}”→“${r.text}”`).join('\n');
+  const data = await postGemini(options.model, options.apiKey, { contents: [{ role: 'user', parts: [{ text: `严格检查图片中的花纸文字修改：\n${targets}\n只有全部新文字准确、旧文字消失、非目标区域没有变化时 ok 才能为 true。reason 使用简体中文。` }, { inlineData: { mimeType: options.image.type || 'image/png', data: imageData } }] }], generationConfig: { responseMimeType: 'application/json', responseSchema: { type: 'OBJECT', properties: { ok: { type: 'BOOLEAN' }, reason: { type: 'STRING' } }, required: ['ok', 'reason'] } } }, options.signal, options.apiBaseUrl);
+  const raw = data.candidates?.flatMap((candidate) => candidate.content?.parts ?? []).map((part) => part.text || '').join('').trim();
+  if (!raw) throw new Error('Gemini 未返回复核结果');
+  try { return JSON.parse(raw) as PaperTextVerification; } catch { throw new Error('Gemini 复核结果格式无效'); }
 }
 
 export async function analyzeProductDetailPrompts(options: {

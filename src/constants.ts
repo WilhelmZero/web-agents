@@ -203,6 +203,7 @@ export function localizeBuiltInLogoPresets(language: 'zh-CN' | 'en-US') {
 
 export const DEFAULT_SETTINGS: AppSettings = {
   apiKey: '',
+  openAiApiKey: '',
   connectionMode: import.meta.env.VITE_GEMINI_PROXY_URL ? 'proxy' : 'direct',
   proxyUrl: import.meta.env.VITE_GEMINI_PROXY_URL || '',
   imageModel: 'gemini-3.1-flash-image',
