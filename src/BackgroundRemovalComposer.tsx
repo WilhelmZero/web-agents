@@ -3,7 +3,7 @@ import { App, Button, Card, Empty, Flex, Form, Image, Input, InputNumber, Popcon
 import JSZip from 'jszip';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { DEFAULT_BACKGROUND_REMOVAL_PROMPT, buildBackgroundRemovalPrompt, chooseBackgroundRemovalMatte, restoreTransparentBackground } from './services/backgroundRemoval';
+import { DEFAULT_BACKGROUND_REMOVAL_PROMPT, autoRemoveSolidBackground, buildBackgroundRemovalPrompt, chooseBackgroundRemovalMatte } from './services/backgroundRemoval';
 import { generateSceneReplacementImage } from './services/gemini';
 import { editPaperTextOpenAi } from './services/paperText';
 import { reportTaskProgress } from './services/taskProgress';
@@ -18,7 +18,7 @@ const ACCEPTED = ['image/png', 'image/jpeg', 'image/webp'];
 type OpenAiImageModel = 'gpt-image-2' | 'gpt-image-2-2026-04-21';
 type BackgroundRemovalModel = ImageModel | OpenAiImageModel;
 interface Settings { imageModel: BackgroundRemovalModel; imageSize: ImageSize; quality: 'high' | 'medium' | 'low'; concurrency: number; prompt: string }
-interface Item { id: string; file: File; sourceUrl: string; status: 'waiting' | 'running' | 'success' | 'failed' | 'stopped'; resultBlob?: Blob; resultUrl?: string; vectorBlob?: Blob; vectorStatus?: 'converting' | 'ready' | 'failed'; error?: string }
+interface Item { id: string; file: File; sourceUrl: string; status: 'waiting' | 'running' | 'success' | 'failed' | 'stopped'; rawResultBlob?: Blob; resultBlob?: Blob; resultUrl?: string; vectorBlob?: Blob; vectorStatus?: 'converting' | 'ready' | 'failed'; error?: string }
 const DEFAULT_SETTINGS: Settings = { imageModel: 'gemini-3.1-flash-image', imageSize: '1K', quality: 'high', concurrency: 3, prompt: DEFAULT_BACKGROUND_REMOVAL_PROMPT };
 const isOpenAiModel = (model: BackgroundRemovalModel): model is OpenAiImageModel => model.startsWith('gpt-image-');
 
@@ -29,6 +29,7 @@ export default function BackgroundRemovalComposer({ apiKey, openAiApiKey, apiBas
   const [settings, setSettings] = useState<Settings>(() => ({ ...DEFAULT_SETTINGS, ...readLocalStorage(STORAGE_KEYS.backgroundRemovalSettings, {}) }));
   const [items, setItems] = useState<Item[]>([]);
   const [busy, setBusy] = useState(false);
+  const [manualConverting, setManualConverting] = useState(false);
   const [compareIds, setCompareIds] = useState<Set<string>>(() => new Set());
   const aborter = useRef<AbortController | undefined>(undefined);
   const patchSettings = (value: Partial<Settings>) => setSettings((current) => ({ ...current, ...value }));
@@ -54,10 +55,10 @@ export default function BackgroundRemovalComposer({ apiKey, openAiApiKey, apiBas
       const generatedBlob = isOpenAiModel(settings.imageModel)
         ? await editPaperTextOpenAi({ apiKey: openAiApiKey, model: settings.imageModel, image: item.file, prompt, quality: settings.quality, signal })
         : (await generateSceneReplacementImage({ apiKey, apiBaseUrl, signal, model: settings.imageModel as ImageModel, image: item.file, imageSize: settings.imageSize, prompt })).blob;
-      const resultBlob = await restoreTransparentBackground(generatedBlob, matte);
+      const resultBlob = (await autoRemoveSolidBackground(generatedBlob, matte)).blob;
       const resultUrl = URL.createObjectURL(resultBlob);
       if (item.resultUrl) URL.revokeObjectURL(item.resultUrl);
-      patchItem(item.id, { status: 'success', resultBlob, resultUrl, vectorBlob: undefined, vectorStatus: undefined });
+      patchItem(item.id, { status: 'success', rawResultBlob: generatedBlob, resultBlob, resultUrl, vectorBlob: undefined, vectorStatus: undefined });
     } catch (error) { patchItem(item.id, { status: signal.aborted ? 'stopped' : 'failed', error: signal.aborted ? '任务已停止' : error instanceof Error ? error.message : '去除背景失败' }); }
   };
   const run = async (targets = items) => {
@@ -73,6 +74,21 @@ export default function BackgroundRemovalComposer({ apiKey, openAiApiKey, apiBas
     try { patchItem(item.id, { vectorBlob: await vectorizeImageToSvg(item.resultBlob), vectorStatus: 'ready' }); }
     catch (error) { patchItem(item.id, { vectorStatus: 'failed', error: error instanceof Error ? error.message : '矢量化失败' }); }
   };
+  const manuallyConvertAll = async () => {
+    const targets = items.filter((item) => item.rawResultBlob);
+    if (!targets.length || manualConverting) return;
+    setManualConverting(true); let converted = 0;
+    await Promise.all(targets.map(async (item) => {
+      if (!item.rawResultBlob) return;
+      try {
+        const fallback = await chooseBackgroundRemovalMatte(item.file);
+        const resultBlob = (await autoRemoveSolidBackground(item.rawResultBlob, fallback)).blob;
+        const resultUrl = URL.createObjectURL(resultBlob); if (item.resultUrl) URL.revokeObjectURL(item.resultUrl);
+        patchItem(item.id, { resultBlob, resultUrl, vectorBlob: undefined, vectorStatus: undefined, error: undefined }); converted += 1;
+      } catch (error) { patchItem(item.id, { error: error instanceof Error ? error.message : '手动透明化失败' }); }
+    }));
+    setManualConverting(false); message.success(`已重新识别并透明化 ${converted}/${targets.length} 张图片`);
+  };
   const clearAll = () => { aborter.current?.abort(); setItems((current) => { current.forEach((item) => { URL.revokeObjectURL(item.sourceUrl); if (item.resultUrl) URL.revokeObjectURL(item.resultUrl); }); return []; }); setCompareIds(new Set()); };
   const downloadAll = async () => { const zip = new JSZip(); successful.forEach((item) => item.resultBlob && zip.file(`${sanitizeFileName(item.file.name)}_透明.png`, item.resultBlob)); downloadBlob(await zip.generateAsync({ type: 'blob' }), '去除背景结果.zip'); };
   const modelOptions = useMemo(() => [{ label: 'GPT（OpenAI 官方直连）', options: [{ value: 'gpt-image-2', label: 'GPT Image 2（推荐）' }, { value: 'gpt-image-2-2026-04-21', label: 'GPT Image 2（2026-04-21）' }] }, { label: 'Gemini', options: Object.entries(MODEL_CAPABILITIES).map(([value, item]) => ({ value, label: item.label })) }], []);
@@ -82,7 +98,7 @@ export default function BackgroundRemovalComposer({ apiKey, openAiApiKey, apiBas
     <Card className="workflow-card" title="1. 上传待抠图图片" extra={<Space><Text type="secondary">{items.length} 张</Text>{items.length > 0 && <Popconfirm title="清空全部图片？" onConfirm={clearAll}><Button danger size="small" icon={<ClearOutlined />}>清空</Button></Popconfirm>}</Space>}><Upload.Dragger accept={ACCEPTED.join(',')} multiple showUploadList={false} beforeUpload={(file) => addFiles([file as File])}><FileImageOutlined style={{ fontSize: 32 }} /><p>拖拽或点击批量上传 PNG / JPEG / WebP</p></Upload.Dragger>{items.length > 0 && <div className="background-source-grid">{items.map((item) => <Card key={item.id} size="small"><Image src={item.sourceUrl} /><Button danger type="text" block icon={<DeleteOutlined />} disabled={item.status === 'running'} onClick={() => removeItem(item.id)}>删除</Button></Card>)}</div>}</Card>
     <Card className="workflow-card" title="2. 修改抠图提示词"><Input.TextArea value={settings.prompt} onChange={(event) => patchSettings({ prompt: event.target.value })} autoSize={{ minRows: 5, maxRows: 12 }} maxLength={3000} showCount /><Text type="secondary">系统会在请求末尾加入每张图片对应的纯色底技术要求，避免棋盘格、阴影和底色污染。</Text></Card>
     <Card className="action-card"><Flex justify="space-between" align="center" wrap gap={12}><div><Title level={4} style={{ margin: 0 }}>准备处理 {items.length} 张图片</Title><Text type="secondary">最多 {settings.concurrency} 个任务并发执行</Text></div><Space>{busy && <Button danger icon={<StopOutlined />} onClick={() => aborter.current?.abort()}>停止</Button>}<Button type="primary" size="large" icon={<RocketOutlined />} loading={busy} disabled={!items.length} onClick={() => void run()}>开始批量去除背景</Button></Space></Flex>{items.length > 0 && <Progress style={{ marginTop: 16 }} percent={Math.round(completed / items.length * 100)} status={busy ? 'active' : successful.length ? 'success' : 'normal'} />}</Card>
-    <section className="results-section"><Flex justify="space-between" align="center" wrap gap={8}><div><Title level={3}>透明背景结果</Title><Text type="secondary">点击图片可放大，并可切换原图对比</Text></div><Button icon={<DownloadOutlined />} disabled={!successful.length} onClick={() => void downloadAll()}>下载全部 ZIP</Button></Flex>{items.length ? <Image.PreviewGroup><div className="logo-replace-results">{items.map((item) => <Card key={item.id} size="small" title={item.file.name} extra={item.resultBlob && <Button type="text" icon={<DownloadOutlined />} onClick={() => downloadBlob(item.resultBlob!, `${sanitizeFileName(item.file.name)}_透明.png`)} />}><div className="replace-result-image transparent-result-bg">{item.resultUrl ? <Image src={compareIds.has(item.id) ? item.sourceUrl : item.resultUrl} /> : <div className={`task-state-card is-${item.status}`}><Text strong>{item.status === 'running' ? '处理中' : item.status === 'failed' ? '处理失败' : item.status === 'stopped' ? '已停止' : '等待处理'}</Text><Text type="secondary">{item.error}</Text></div>}</div><Flex justify="space-between" align="center" style={{ marginTop: 8 }}><Tag color={item.status === 'success' ? 'success' : item.status === 'failed' ? 'error' : item.status === 'running' ? 'processing' : 'default'}>{item.status}</Tag><Space>{item.resultUrl && <Button size="small" icon={<EyeOutlined />} onClick={() => setCompareIds((current) => { const next = new Set(current); next.has(item.id) ? next.delete(item.id) : next.add(item.id); return next; })}>{compareIds.has(item.id) ? '查看透明图' : '原图对比'}</Button>}<Button size="small" icon={<ReloadOutlined />} disabled={busy} onClick={() => void run([item])}>重新生成</Button>{item.resultBlob && <Button size="small" type="primary" ghost icon={<ThunderboltOutlined />} loading={item.vectorStatus === 'converting'} onClick={() => item.vectorBlob ? downloadBlob(item.vectorBlob, `${sanitizeFileName(item.file.name)}_矢量.svg`) : void vectorize(item)}>{item.vectorBlob ? '下载 SVG' : '转为矢量图'}</Button>}</Space></Flex></Card>)}</div></Image.PreviewGroup> : <Empty description="处理结果会显示在这里" />}</section>
+    <section className="results-section"><Flex justify="space-between" align="center" wrap gap={8}><div><Title level={3}>透明背景结果</Title><Text type="secondary">自动识别图片四周的实际纯色并移除；也可手动重新处理全部结果</Text></div><Space><Button icon={<ThunderboltOutlined />} loading={manualConverting} disabled={!items.some((item) => item.rawResultBlob)} onClick={() => void manuallyConvertAll()}>手动识别并转透明</Button><Button icon={<DownloadOutlined />} disabled={!successful.length} onClick={() => void downloadAll()}>下载全部 ZIP</Button></Space></Flex>{items.length ? <Image.PreviewGroup><div className="logo-replace-results">{items.map((item) => <Card key={item.id} size="small" title={item.file.name} extra={item.resultBlob && <Button type="text" icon={<DownloadOutlined />} onClick={() => downloadBlob(item.resultBlob!, `${sanitizeFileName(item.file.name)}_透明.png`)} />}><div className="replace-result-image transparent-result-bg">{item.resultUrl ? <Image src={compareIds.has(item.id) ? item.sourceUrl : item.resultUrl} /> : <div className={`task-state-card is-${item.status}`}><Text strong>{item.status === 'running' ? '处理中' : item.status === 'failed' ? '处理失败' : item.status === 'stopped' ? '已停止' : '等待处理'}</Text><Text type="secondary">{item.error}</Text></div>}</div><Flex justify="space-between" align="center" style={{ marginTop: 8 }}><Tag color={item.status === 'success' ? 'success' : item.status === 'failed' ? 'error' : item.status === 'running' ? 'processing' : 'default'}>{item.status}</Tag><Space>{item.resultUrl && <Button size="small" icon={<EyeOutlined />} onClick={() => setCompareIds((current) => { const next = new Set(current); next.has(item.id) ? next.delete(item.id) : next.add(item.id); return next; })}>{compareIds.has(item.id) ? '查看透明图' : '原图对比'}</Button>}<Button size="small" icon={<ReloadOutlined />} disabled={busy} onClick={() => void run([item])}>重新生成</Button>{item.resultBlob && <Button size="small" type="primary" ghost icon={<ThunderboltOutlined />} loading={item.vectorStatus === 'converting'} onClick={() => item.vectorBlob ? downloadBlob(item.vectorBlob, `${sanitizeFileName(item.file.name)}_矢量.svg`) : void vectorize(item)}>{item.vectorBlob ? '下载 SVG' : '转为矢量图'}</Button>}</Space></Flex></Card>)}</div></Image.PreviewGroup> : <Empty description="处理结果会显示在这里" />}</section>
     {!settingsHost && <aside className="logo-settings">{panel}</aside>}{settingsHost && createPortal(panel, settingsHost)}
   </div>;
 }
