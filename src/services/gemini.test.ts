@@ -34,17 +34,35 @@ describe('Logo 结果校验', () => {
 
   it('提交参考图、生成图和准确文字并解析结构化结果', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
-      candidates: [{ content: { parts: [{ text: JSON.stringify({ passed: false, referenceText: 'NAME', generatedText: 'N4ME', differences: ['A 被替换为 4'], graphicConsistent: true, summary: '字符不一致' }) }] } }],
+      candidates: [{ content: { parts: [{ text: JSON.stringify({ passed: false, referenceText: 'NAME', generatedText: 'N4ME', differences: ['A 被替换为 4'], graphicConsistent: true, materialIntegrated: true, placementConsistent: true, originalLogoRemoved: true, flatOverlayDetected: false, summary: '字符不一致' }) }] } }],
     }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
     const reference = new File(['logo'], 'logo.png', { type: 'image/png' });
+    const originalScene = new File(['scene'], 'scene.png', { type: 'image/png' });
     const generated = new Blob(['result'], { type: 'image/png' });
-    const result = await verifyLogoReplacement({ apiKey: 'test-key', model: 'gemini-3.1-flash-lite', referenceLogo: reference, generatedImage: generated, expectedText: 'NAME', apiBaseUrl: null });
+    const result = await verifyLogoReplacement({ apiKey: 'test-key', model: 'gemini-3.1-flash-lite', referenceLogo: reference, originalScene, generatedImage: generated, expectedText: 'NAME', apiBaseUrl: null });
     expect(result).toMatchObject({ passed: false, referenceText: 'NAME', generatedText: 'N4ME', graphicConsistent: true });
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
     expect(body.contents[0].parts[0].text).toContain('准确文字必须逐字符等于〈NAME〉');
     expect(body.contents[0].parts[0].text).toContain('differences 数组中的每一项和 summary 必须使用简体中文描述');
     expect(body.contents[0].parts[0].text).toContain('referenceText 和 generatedText 只记录图片中实际识别到的原始字符');
-    expect(body.contents[0].parts.filter((part: { inlineData?: unknown }) => part.inlineData)).toHaveLength(2);
+    expect(body.contents[0].parts[0].text).toContain('flatOverlayDetected=true');
+    expect(body.contents[0].parts[0].text).toContain('宽度不超过杯肚最大宽度约 42%');
+    expect(body.contents[0].parts.filter((part: { inlineData?: unknown }) => part.inlineData)).toHaveLength(3);
+  });
+
+  it('模型误报通过时，平面覆盖或融合失败会被代码强制判为失败', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      candidates: [{ content: { parts: [{ text: JSON.stringify({ passed: true, referenceText: 'NAME', generatedText: 'NAME', differences: ['检测到平面覆盖'], graphicConsistent: true, materialIntegrated: false, placementConsistent: true, originalLogoRemoved: true, flatOverlayDetected: true, summary: 'Logo 像悬浮贴纸' }) }] } }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const result = await verifyLogoReplacement({
+      apiKey: 'test-key', model: 'gemini-3.1-flash-lite',
+      referenceLogo: new File(['logo'], 'logo.png', { type: 'image/png' }),
+      originalScene: new File(['scene'], 'scene.png', { type: 'image/png' }),
+      generatedImage: new Blob(['result'], { type: 'image/png' }), apiBaseUrl: null,
+    });
+    expect(result.passed).toBe(false);
+    expect(result.flatOverlayDetected).toBe(true);
+    expect(result.materialIntegrated).toBe(false);
   });
 });
 describe('玻璃杯 Logo 雕刻技能指令', () => {
@@ -64,6 +82,8 @@ describe('玻璃杯 Logo 雕刻技能指令', () => {
     expect(instruction).toContain('仅对画面层级最靠前');
     expect(instruction).toContain('原图像素');
     expect(instruction).toContain('其他内容完全不变');
+    expect(instruction).toContain('Logo 宽度不得超过杯肚最大宽度的 42%');
+    expect(instruction).toContain('严禁把原始 Logo 作为矩形贴纸');
   });
 });
 
@@ -95,7 +115,8 @@ describe('Logo 替换指令', () => {
     expect(instruction).toContain('〈NAME’S CLASS 2026〉');
     expect(instruction).toContain('大小写、空格、数字和标点完全一致');
     expect(instruction).toContain('生成结果把 CLASS 写成了 CL4SS');
-    expect(instruction).toContain('不得改变位置、曲面贴合、工艺或场景其他内容');
+    expect(instruction).toContain('位置尺寸、曲面贴合或材质融合问题逐项修复');
+    expect(instruction).toContain('不得用平面覆盖来规避问题');
   });
   it('自动模式逐个识别并沿用同一场景中的多种原工艺', () => {
     const instruction = buildLogoReplacementInstruction({ hasOldLogo: true, logoColorMode: 'white', engravingMode: 'auto' });

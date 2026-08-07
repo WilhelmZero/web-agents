@@ -267,3 +267,36 @@ button, input, textarea { font: inherit; }
 .hero-strip.object-replace-hero .hero-description { color: #eeeaff !important; }
 .object-result-groups { display: grid; gap: 18px; margin-top: 20px; }
 .object-result-group > .ant-card-body { padding-top: 8px; }
+
+.scene-replace-page { min-width: 0; }
+.scene-replace-hero { background: radial-gradient(circle at 78% 18%, rgba(58, 212, 203, .32), transparent 29%), linear-gradient(130deg, #101d28, #15384a 55%, #176a78); }
+.hero-strip.scene-replace-hero .hero-description { color: #d8f7f5 !important; }
+.scene-replace-editor { display: grid; grid-template-columns: minmax(320px, .9fr) minmax(340px, 1.1fr); gap: 24px; align-items: start; }
+.scene-preset-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 12px; max-height: 370px; overflow: auto; padding: 2px; }
+.scene-preset-card { min-height: 72px; padding: 9px 5px; border: 1px solid #e3e8ed; border-radius: 11px; background: #fafcfd; color: #263744; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; transition: .18s ease; }
+.scene-preset-card span { font-size: 20px; line-height: 1; }
+.scene-preset-card b { font-size: 12px; font-weight: 650; }
+.scene-preset-card:hover { border-color: #61bfc5; color: #087985; transform: translateY(-1px); }
+.scene-preset-card.is-selected { border-color: #20a6bd; color: #087985; background: #eafafb; box-shadow: 0 0 0 2px rgba(32,166,189,.1); }
+.scene-prompt-editor { display: flex; flex-direction: column; gap: 12px; }
+.scene-prompt-editor .ant-input-textarea { width: 100%; }
+.logo-replace-dev-page { min-width: 0; }
+.logo-replace-dev-hero { background: radial-gradient(circle at 78% 18%, rgba(240,82,180,.35), transparent 28%), linear-gradient(130deg, #25122d, #4a1b55 55%, #7c286c); }
+.hero-strip.logo-replace-dev-hero .hero-description { color: #f8dff3 !important; }
+.dev-scene-analysis-list { display: grid; gap: 12px; }
+.dev-logo-strip { display: flex; gap: 10px; margin-top: 14px; overflow-x: auto; padding-bottom: 4px; }
+.dev-logo-strip > div { position: relative; flex: 0 0 92px; padding: 7px; border: 1px solid #e7e9f0; border-radius: 10px; background: #fafbfc; }
+.dev-logo-strip .ant-image, .dev-logo-strip img { width: 76px; height: 76px; object-fit: contain; }
+.dev-logo-strip .ant-btn { position: absolute; right: 1px; top: 1px; }
+.dev-mapping-list { display: grid; gap: 10px; margin-top: 18px; padding-top: 16px; border-top: 1px solid #eceef4; }
+@media (max-width: 900px) { .scene-replace-editor { grid-template-columns: 1fr; } .scene-preset-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); max-height: none; } }
+@media (max-width: 560px) { .scene-preset-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 560px) {
+  .logo-replace-dev-page .workflow-card .ant-card-head-wrapper { flex-wrap: wrap; gap: 8px; padding-block: 10px; }
+  .logo-replace-dev-page .workflow-card .ant-card-extra { width: 100%; margin-inline-start: 0; }
+  .logo-replace-dev-page .workflow-card .ant-card-extra > .ant-flex { justify-content: space-between; width: 100%; }
+  .logo-replace-dev-page .action-card > .ant-card-body > .ant-flex { align-items: stretch !important; flex-direction: column; }
+  .logo-replace-dev-page .action-card > .ant-card-body > .ant-flex > .ant-space { justify-content: flex-end; }
+  .logo-replace-dev-page .dev-mapping-list > .ant-flex { align-items: stretch !important; flex-direction: column; }
+  .logo-replace-dev-page .dev-mapping-list > .ant-flex > .ant-typography { width: auto !important; }
+}

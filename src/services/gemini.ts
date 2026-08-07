@@ -1,4 +1,4 @@
-import type { GeneratedImage, GlassLogoEtchOptions, ImageModel, ImageSize, LogoVerificationResult, ObjectPreservationOptions, OptimizerModel } from '../types';
+import type { GeneratedImage, GlassLogoEtchOptions, ImageModel, ImageSize, LogoVerificationResult, ObjectPreservationOptions, OptimizerModel, SceneLogoStyle } from '../types';
 import { fileToBase64 } from '../utils';
 import { startRequestConsoleEntry, summarizeGeminiRequest, updateRequestConsoleEntry } from './requestConsole';
 
@@ -197,6 +197,34 @@ export async function generateSceneImage(options: {
   };
 }
 
+export async function generateSceneReplacementImage(options: {
+  apiKey: string;
+  model: ImageModel;
+  prompt: string;
+  image: File;
+  aspectRatio?: string;
+  imageSize: ImageSize;
+  signal?: AbortSignal;
+  apiBaseUrl?: string | null;
+}): Promise<GeneratedImage> {
+  const base64 = await fileToBase64(options.image);
+  const data = await postGemini(options.model, options.apiKey, {
+    contents: [{ role: 'user', parts: [
+      { text: `请编辑这张原始场景图。只允许替换背景场景、环境光线和整体氛围。目标场景：${options.prompt}\n\n严格不变量：人物的身份、脸部、身体、姿势、手势、服装和发型必须尽量逐像素保持；所有产品的数量、位置、角度、轮廓、比例、材质、颜色、反光、Logo、图案和可见文字必须保持不变；相机视角、焦距、画幅、主体大小、遮挡关系和整体构图必须保持不变。不要新增、删除、重绘或移动任何人物或产品。只让新环境的光线自然作用于原有主体，并保持边缘真实。输出一张完成后的写实场景图，不要说明文字、拼图、前后对比或水印。` },
+      { inlineData: { mimeType: options.image.type, data: base64 } },
+    ]}],
+    generationConfig: { responseModalities: ['IMAGE'], imageConfig: {
+      imageSize: options.imageSize,
+      ...(options.aspectRatio ? { aspectRatio: options.aspectRatio } : {}),
+    } },
+  }, options.signal, options.apiBaseUrl);
+  const imagePart = data.candidates?.flatMap((candidate) => candidate.content?.parts ?? []).find((part) => part.inlineData?.data);
+  if (!imagePart?.inlineData?.data) throw new Error('模型未返回场景替换图片，请调整提示词后重试');
+  const bytes = Uint8Array.from(atob(imagePart.inlineData.data), (char) => char.charCodeAt(0));
+  const mimeType = imagePart.inlineData.mimeType || 'image/png';
+  return { blob: new Blob([bytes], { type: mimeType }), mimeType, usageTokens: data.usageMetadata?.totalTokenCount };
+}
+
 export async function optimizePrompt(options: {
   apiKey: string;
   model: OptimizerModel;
@@ -233,7 +261,7 @@ export async function optimizePrompt(options: {
 }
 
 export function buildGlassLogoEtchInstruction(options: GlassLogoEtchOptions): string {
-  return `启用“玻璃杯 LOGO 雕刻合成”专用流程。先识别所有可见玻璃杯的杯口顶端、杯口下缘、杯身左右边界、杯肚底边和整杯底边；区分平底杯与高脚杯，高脚和底座不计入贴图区。以杯口下缘到杯肚底边为有效高度 H，杯身正面左右边界为宽度 W；Logo 正方形边长为 min(W,H) × ${options.scaleRatio}，顶部位置为杯口下缘 + H × ${options.topMarginRatio}，水平居中。越过杯肚底边时先上移，仍无法容纳时等比缩小，不得拉伸 Logo。Logo 颜色为${options.logoColor === 'white' ? '白色' : '黑色'}，材质为${options.textureMode === 'laser_etch' ? '半透明磨砂、细微凹凸的玻璃内部激光蚀刻' : '实色表面油墨印刷'}。${options.applyAllCups ? '对所有可正面展示 Logo 的有效杯逐一应用；明显侧向或遮挡严重的杯不应强行贴图。' : '仅对画面层级最靠前且视觉尺寸最大的有效主体杯应用。'}保持原场景的背景、酒水、道具、构图、光线和其他内容完全不变，仅在选定杯身增加 Logo。按杯身曲率进行水平包裹、透视压缩和边缘渐缩，匹配遮挡、景深、反光、折射、阴影、颗粒和清晰度。内部分析坐标使用 ${options.outputCoordinateMode === 'relative_percent' ? '[0,1] 相对比例' : '原图像素'} 基准。若未检测到可贴图杯，不得凭空生成杯子或改动场景。`;
+  return `启用“玻璃杯 LOGO 雕刻合成”专用流程。先识别所有可见玻璃杯的杯口顶端、杯口下缘、杯身左右边界、杯肚底边和整杯底边；区分平底杯与高脚杯，高脚和底座绝不计入贴图区。以杯口下缘到杯肚底边为有效高度 H，杯身正面左右边界为宽度 W；Logo 正方形边长为 min(W,H) × ${options.scaleRatio}，顶部位置为杯口下缘 + H × ${options.topMarginRatio}，水平居中。若识别为高脚杯、葡萄酒杯、香槟杯或鸡尾酒杯，必须启用更严格规则：只允许在杯肚上半部正面合成，Logo 宽度不得超过杯肚最大宽度的 42%，Logo 中心必须位于杯肚有效高度的 32% 至 46% 区间，Logo 底边不得低于杯肚有效高度的 62%，不得触碰杯肚收窄处、杯梗或底座；宁可缩小并上移，也不得放大或下移。越过杯肚底边时先上移，仍无法容纳时等比缩小，不得拉伸 Logo。Logo 颜色为${options.logoColor === 'white' ? '白色' : '黑色'}，材质为${options.textureMode === 'laser_etch' ? '半透明磨砂、细微凹凸的玻璃内部激光蚀刻' : '实色表面油墨印刷'}。${options.applyAllCups ? '对所有可正面展示 Logo 的有效杯逐一应用；明显侧向或遮挡严重的杯不应强行贴图。' : '仅对画面层级最靠前且视觉尺寸最大的有效主体杯应用。'}保持原场景的背景、酒水、道具、构图、光线和其他内容完全不变，仅在选定杯身增加 Logo。Logo 必须随杯体曲率产生连续的水平包裹、透视压缩、折射、反射、局部明暗和边缘渐缩，并继承原图颗粒、景深和清晰度。严禁把原始 Logo 作为矩形贴纸、平面图层、水印或不透明覆盖物直接叠加；严禁出现与杯体曲率无关的笔直边缘、统一亮度、悬浮感或遮住原有高光与折射。内部分析坐标使用 ${options.outputCoordinateMode === 'relative_percent' ? '[0,1] 相对比例' : '原图像素'} 基准。若未检测到可贴图杯，不得凭空生成杯子或改动场景。`;
 }
 export async function generateLogoComposite(options: {
   apiKey: string;
@@ -378,13 +406,15 @@ export function buildLogoReplacementInstruction(options: {
     ? '【准确文字最高优先级】新 Logo 中必须准确呈现以下字符序列：〈' + options.expectedText + '〉。必须逐字符保持内容、顺序、大小写、空格、数字和标点完全一致，禁止翻译、纠错、补全或替换。'
     : '';
   const correctionInstruction = options.correctionFeedback?.trim()
-    ? '【上次结果校验失败，必须修复】' + options.correctionFeedback + '。只修复 Logo 图形和字符，不得改变位置、曲面贴合、工艺或场景其他内容。'
+    ? '【上次结果校验失败，必须修复】' + options.correctionFeedback + '。针对校验指出的字符、旧 Logo 残留、位置尺寸、曲面贴合或材质融合问题逐项修复；不得用平面覆盖来规避问题，也不得改变场景其他内容。'
     : '';
   const surfaceConformanceInstruction = '【杯体及曲面贴合强制规则】旧 Logo 可能本身没有正确贴合杯面，因此旧 Logo 只用于确定替换目标、中心位置和大致覆盖范围，严禁复制或继承旧 Logo 的平面形状、错误弧度、错误透视缩短或局部变形。若旧 Logo 位于杯子、玻璃杯、保温杯、瓶子或任何弧形载体上，必须忽略旧 Logo 的现有弯曲方式，直接从无 Logo 的杯身轮廓、杯口与杯底椭圆、侧壁收放曲线、杯身中心轴线、局部表面法线和相机视角重新估算该位置真实的圆柱形、锥形或不规则三维曲率，再把新 Logo 当作附着于该三维表面的二维纹理进行 UV 投影，投影输入必须是新 Logo 原始平面图。新 Logo 必须沿杯体真实横向曲率连续包裹，并随离开正面中心的角度增大而使左右两侧逐渐横向压缩；左右两侧的压缩量应由杯体截面半径和视角决定，而不是照抄旧 Logo。其上下边缘、文字基线、字符、图形和每条笔画必须共享同一连续曲面映射，不得保持平面矩形，也不得对不同局部单独拉伸。曲面投影只能改变新 Logo 在画面中的物理投影视形，不能改变 Logo 的字符内容、图形拓扑、笔画数量、相对布局或中心区域比例。保持旧 Logo 的中心位置和大致可见覆盖范围，但最终可见宽高、两侧收缩、旋转、透视缩短和杯体边缘遮挡必须以重新识别的杯面几何为准，不得跨出杯体轮廓。同步继承杯体上的高光、阴影、透明度、反射、折射和材质颗粒，使这些光学效果连续穿过 Logo。禁止平面贴纸感、悬浮感、正视图硬贴、左右宽度不收缩、边缘翘起、照抄错误旧弧度或与杯体真实曲率不一致。输出前沿 Logo 上、中、下三条水平带分别检查其曲率和两侧压缩是否与对应高度的杯身截面一致；若任何笔画看起来是平的、浮在杯子前方或沿用了旧 Logo 的错误弧度，必须按实际杯面重新投影后再输出。';
   const zeroColorFinalCheck = !automaticEngraving && options.woodEngravingEnabled && options.woodEngravingStyle === 'natural-recessed' && woodColorDepth === 0
     ? '【输出前最终强制验收】新 Logo 参考图中的黑色、白色及任何颜色像素只能用于确定凹槽的形状和位置，严禁复制到木盒表面。最终木盒 Logo 不得出现棕色或黑色线条、轮廓、描边、实心笔画、填充或烧灼色；Logo 笔画内部与周围木材必须是相同原木颜色并连续保留木纹。唯一可见差异只能是无着色浅凹槽的微小几何起伏及其自然光影。如果初步结果看起来像深色线稿、印刷或烧蚀，则该结果不合格，必须在输出前改为零着色同色凹刻。'
     : '';
-  return `执行严格的 Logo 替换任务。第一张图片是原始场景图，${referenceInstruction}${colorInstruction}${effectInstruction}${microTextInstruction}${exactTextInstruction}${correctionInstruction}${surfaceConformanceInstruction}${zeroColorFinalCheck} 只允许改变旧 Logo 覆盖的区域：保持每个 Logo 原有的中心位置、大致覆盖范围、遮挡关系和材质融合方式；角度、透视和曲面包裹必须依据载体真实几何重新计算，不能照抄可能错误的旧 Logo 形变，并用新 Logo 准确替换。若同一场景存在多个旧 Logo，必须全部替换。除 Logo 外，原图所有像素对应内容必须保持不变，包括画幅、构图、裁切、镜头、主体、产品结构、杯体、背景、人物、道具、已有非 Logo 文字、颜色、光线、阴影、反射、折射、景深、噪点和清晰度。不得移动、删除、增加、重绘或重新设计任何非 Logo 内容，不得在原本没有 Logo 的位置新增 Logo。`;
+  const stemwareInstruction = '【高脚杯专项】若载体是高脚杯、葡萄酒杯、香槟杯或鸡尾酒杯，先分割杯肚、杯梗和底座，杯梗与底座永远禁止放置 Logo。Logo 仅可位于杯肚正面上半部；其可见宽度不得超过杯肚最大可见宽度的 42%，中心应位于杯口下缘至杯肚底边有效高度的 32% 至 46%，底边不得低于该有效高度的 62%。若旧 Logo 本身过大或偏下，不得继承其错误尺寸和位置，必须将新 Logo 等比缩小并上移到上述安全区。宁可小而自然，也不得覆盖杯肚大面积、进入收窄区、靠近杯梗或底座。';
+  const antiOverlayInstruction = '【禁止直接覆盖】必须先完整清除旧 Logo 的图形、文字、颜色和边缘，再按载体真实制作工艺重建新 Logo。严禁把新 Logo 原图作为矩形贴纸、平面图层、水印或不透明蒙版直接盖在原场景上；严禁保留参考图背景、方形边界、统一亮度或与载体无关的锐利边缘。新 Logo 内部必须连续继承载体原有的高光、阴影、透明度、反射、折射、纹理、颗粒、景深与遮挡，任何缺少这些变化的结果都视为不合格。';
+  return `执行严格的 Logo 替换任务。第一张图片是原始场景图，${referenceInstruction}${colorInstruction}${effectInstruction}${microTextInstruction}${exactTextInstruction}${correctionInstruction}${surfaceConformanceInstruction}${stemwareInstruction}${antiOverlayInstruction}${zeroColorFinalCheck} 只允许改变旧 Logo 覆盖的区域：保持每个 Logo 原有的合理中心位置、大致覆盖范围、遮挡关系和材质融合方式；若旧 Logo 的位置、尺寸或融合本身明显错误，则必须按载体几何和上述安全区修正。角度、透视和曲面包裹必须依据载体真实几何重新计算，不能照抄可能错误的旧 Logo 形变，并用新 Logo 准确替换。若同一场景存在多个旧 Logo，必须全部替换。除 Logo 外，原图所有像素对应内容必须保持不变，包括画幅、构图、裁切、镜头、主体、产品结构、杯体、背景、人物、道具、已有非 Logo 文字、颜色、光线、阴影、反射、折射、景深、噪点和清晰度。不得移动、删除、增加、重绘或重新设计任何非 Logo 内容，不得在原本没有 Logo 的位置新增 Logo。`;
 }
 
 async function normalizedLogoReference(file: File): Promise<{ data: string; mimeType: string }> {
@@ -448,21 +478,77 @@ export async function generateLogoReplacement(options: {
   const mimeType = imagePart.inlineData.mimeType || 'image/png';
   return { blob: new Blob([bytes], { type: mimeType }), mimeType, usageTokens: data.usageMetadata?.totalTokenCount };
 }
+
+export async function analyzeSceneLogoStyles(options: {
+  apiKey: string;
+  model: OptimizerModel;
+  scene: File;
+  signal?: AbortSignal;
+  apiBaseUrl?: string | null;
+}): Promise<{ styles: SceneLogoStyle[]; summary: string }> {
+  const sceneData = await fileToBase64(options.scene);
+  const data = await postGemini(options.model, options.apiKey, {
+    contents: [{ role: 'user', parts: [
+      { text: '分析这张场景图中所有需要替换的品牌 Logo。把视觉图形、文字排版、外轮廓或配色明显不同的 Logo 归为不同“样式”；同一样式出现在多个位置时只建立一个样式组，并统计出现次数。不要把装饰文字、产品说明、刻度或非品牌图案误判为 Logo。输出 JSON。label 使用“样式 1、样式 2”格式；description 简述可用于定位该样式的文字/图形特征；carrier 描述所在载体；occurrences 为该样式在图中的位置数量。' },
+      { inlineData: { mimeType: options.scene.type, data: sceneData } },
+    ] }],
+    generationConfig: { responseMimeType: 'application/json', responseSchema: {
+      type: 'OBJECT', properties: {
+        styles: { type: 'ARRAY', items: { type: 'OBJECT', properties: { id: { type: 'STRING' }, label: { type: 'STRING' }, description: { type: 'STRING' }, occurrences: { type: 'INTEGER' }, carrier: { type: 'STRING' } }, required: ['id', 'label', 'description', 'occurrences', 'carrier'] } },
+        summary: { type: 'STRING' },
+      }, required: ['styles', 'summary'],
+    } },
+  }, options.signal, options.apiBaseUrl);
+  const raw = data.candidates?.flatMap((candidate) => candidate.content?.parts ?? []).map((part) => part.text || '').join('').trim();
+  if (!raw) throw new Error('场景解析模型未返回结果');
+  const parsed = JSON.parse(raw) as { styles?: SceneLogoStyle[]; summary?: string };
+  const styles = (parsed.styles || []).map((style, index) => ({ ...style, id: style.id || `style-${index + 1}`, occurrences: Math.max(1, Number(style.occurrences) || 1) }));
+  return { styles, summary: String(parsed.summary || '') };
+}
+
+export async function generateMultiLogoReplacement(options: {
+  apiKey: string;
+  model: ImageModel;
+  scene: File;
+  logos: File[];
+  styles: SceneLogoStyle[];
+  instruction: string;
+  aspectRatio?: string;
+  imageSize: ImageSize;
+  signal?: AbortSignal;
+  apiBaseUrl?: string | null;
+}): Promise<GeneratedImage> {
+  const [sceneData, ...logoData] = await Promise.all([fileToBase64(options.scene), ...options.logos.map(fileToBase64)]);
+  const mapping = options.styles.map((style, index) => `原场景${style.label}（特征：${style.description}；载体：${style.carrier}；共 ${style.occurrences} 个位置）必须全部替换为第 ${index + 2} 张图片的新 Logo`).join('；');
+  const parts: GeminiPart[] = [
+    { text: `执行多样式 Logo 一对一替换。第一张图是必须保持不变的原场景。后续每张图分别是不同的新 Logo，禁止混用。映射关系：${mapping}。同一样式的所有位置必须使用映射到的同一个新 Logo，不同样式必须使用各自不同的新 Logo；不得遗漏、串换或在无 Logo 处新增。必须先清除每处旧 Logo，再按该位置原有载体、曲率、透视、雕刻/印刷工艺、反射、折射、纹理、光线、景深和颗粒自然重建新 Logo，严禁平面贴图、水印或直接覆盖。除 Logo 区域外不得改变场景任何内容。${options.instruction}` },
+    { inlineData: { mimeType: options.scene.type, data: sceneData } },
+    ...options.logos.map((logo, index) => ({ inlineData: { mimeType: logo.type, data: logoData[index] } })),
+  ];
+  const data = await postGemini(options.model, options.apiKey, { contents: [{ role: 'user', parts }], generationConfig: { responseModalities: ['IMAGE'], imageConfig: { imageSize: options.imageSize, ...(options.aspectRatio ? { aspectRatio: options.aspectRatio } : {}) } } }, options.signal, options.apiBaseUrl);
+  const imagePart = data.candidates?.flatMap((candidate) => candidate.content?.parts ?? []).find((part) => part.inlineData?.data);
+  if (!imagePart?.inlineData?.data) throw new Error('模型未返回多 Logo 替换图片');
+  const bytes = Uint8Array.from(atob(imagePart.inlineData.data), (char) => char.charCodeAt(0));
+  const mimeType = imagePart.inlineData.mimeType || 'image/png';
+  return { blob: new Blob([bytes], { type: mimeType }), mimeType, usageTokens: data.usageMetadata?.totalTokenCount };
+}
 export async function verifyLogoReplacement(options: {
   apiKey: string;
   model: OptimizerModel;
   referenceLogo: File;
+  originalScene: File;
   generatedImage: Blob;
   expectedText?: string;
   signal?: AbortSignal;
   apiBaseUrl?: string | null;
 }): Promise<LogoVerificationResult> {
-  const [reference, generated] = await Promise.all([normalizedLogoReference(options.referenceLogo), fileToBase64(options.generatedImage)]);
+  const [reference, original, generated] = await Promise.all([normalizedLogoReference(options.referenceLogo), fileToBase64(options.originalScene), fileToBase64(options.generatedImage)]);
   const expected = options.expectedText?.trim();
   const data = await postGemini(options.model, options.apiKey, {
     contents: [{ role: 'user', parts: [
-      { text: `第一张图片是原始 Logo 参考，第二张图片是生成后的场景图。只检查场景图中新替换 Logo 的字符和图形是否与参考一致。${expected ? `准确文字必须逐字符等于〈${expected}〉，包括大小写、空格、数字和标点。` : '未提供准确文字，请直接比较参考 Logo 与生成 Logo 的全部可见字符、笔画、布局和图形。'}任何字符替换、乱码、缺失、多余、大小写或标点变化都判定失败。输出 JSON 时，differences 数组中的每一项和 summary 必须使用简体中文描述，禁止输出英文审核说明；referenceText 和 generatedText 只记录图片中实际识别到的原始字符，必须保持原文、大小写、空格和标点，不得翻译或改写。` },
+      { text: `第一张图片是新 Logo 参考，第二张图片是替换前的原始场景，第三张图片是生成后的场景。执行严格的 Logo 替换验收，以下四项必须全部通过才允许 passed=true：一、新 Logo 的字符、图形和比例与参考一致；二、原 Logo 已完整移除，没有新旧 Logo 重叠或残影；三、新 Logo 真实贴合原 Logo 所在载体的曲面、透视、折射、反射、纹理、凹凸、环境光、景深和颗粒；四、新 Logo 的位置和尺寸处于原 Logo 所在载体的合理视觉区域，不能异常偏大、偏下或越出载体。${expected ? `准确文字必须逐字符等于〈${expected}〉，包括大小写、空格、数字和标点。` : '未提供准确文字，请直接比较参考 Logo 与生成 Logo 的全部可见字符、笔画、布局和图形。'}重点识别“直接覆盖”：如果新 Logo 像平面贴纸、水印或图层一样叠在场景上，具有矩形边界、统一亮度、缺少曲率变形、未继承反光/折射/纹理、遮住原有高光，或相对载体有悬浮感，必须设置 flatOverlayDetected=true、materialIntegrated=false、passed=false。对于高脚杯、葡萄酒杯、香槟杯和鸡尾酒杯，Logo 必须位于杯肚上半部，宽度不超过杯肚最大宽度约 42%，不得接近杯梗或底座；过大或偏下必须 placementConsistent=false、passed=false。任何字符错误、旧 Logo 残留、平面覆盖、材质未融合或位置尺寸异常都判定失败。differences 数组中的每一项和 summary 必须使用简体中文描述；referenceText 和 generatedText 只记录图片中实际识别到的原始字符，必须保持原文、大小写、空格和标点，不得翻译或改写。` },
       { inlineData: { mimeType: reference.mimeType, data: reference.data } },
+      { inlineData: { mimeType: options.originalScene.type, data: original } },
       { inlineData: { mimeType: options.generatedImage.type || 'image/png', data: generated } },
     ] }],
     generationConfig: {
@@ -471,9 +557,9 @@ export async function verifyLogoReplacement(options: {
         type: 'OBJECT',
         properties: {
           passed: { type: 'BOOLEAN' }, referenceText: { type: 'STRING' }, generatedText: { type: 'STRING' },
-          differences: { type: 'ARRAY', items: { type: 'STRING' } }, graphicConsistent: { type: 'BOOLEAN' }, summary: { type: 'STRING' },
+          differences: { type: 'ARRAY', items: { type: 'STRING' } }, graphicConsistent: { type: 'BOOLEAN' }, materialIntegrated: { type: 'BOOLEAN' }, placementConsistent: { type: 'BOOLEAN' }, originalLogoRemoved: { type: 'BOOLEAN' }, flatOverlayDetected: { type: 'BOOLEAN' }, summary: { type: 'STRING' },
         },
-        required: ['passed', 'referenceText', 'generatedText', 'differences', 'graphicConsistent', 'summary'],
+        required: ['passed', 'referenceText', 'generatedText', 'differences', 'graphicConsistent', 'materialIntegrated', 'placementConsistent', 'originalLogoRemoved', 'flatOverlayDetected', 'summary'],
       },
     },
   }, options.signal, options.apiBaseUrl);
@@ -481,8 +567,9 @@ export async function verifyLogoReplacement(options: {
   if (!raw) throw new Error('Logo 校验模型未返回结果');
   try {
     const parsed = JSON.parse(raw) as LogoVerificationResult;
-    if (typeof parsed.passed !== 'boolean' || !Array.isArray(parsed.differences) || typeof parsed.graphicConsistent !== 'boolean') throw new Error('invalid');
-    return { passed: parsed.passed, referenceText: String(parsed.referenceText || ''), generatedText: String(parsed.generatedText || ''), differences: parsed.differences.map(String), graphicConsistent: parsed.graphicConsistent, summary: String(parsed.summary || '') };
+    if (typeof parsed.passed !== 'boolean' || !Array.isArray(parsed.differences) || typeof parsed.graphicConsistent !== 'boolean' || typeof parsed.materialIntegrated !== 'boolean' || typeof parsed.placementConsistent !== 'boolean' || typeof parsed.originalLogoRemoved !== 'boolean' || typeof parsed.flatOverlayDetected !== 'boolean') throw new Error('invalid');
+    const passed = parsed.passed && parsed.graphicConsistent && parsed.materialIntegrated && parsed.placementConsistent && parsed.originalLogoRemoved && !parsed.flatOverlayDetected;
+    return { ...parsed, passed, referenceText: String(parsed.referenceText || ''), generatedText: String(parsed.generatedText || ''), differences: parsed.differences.map(String), summary: String(parsed.summary || '') };
   } catch {
     throw new Error('Logo 校验结果格式无效，请重试');
   }

@@ -13,7 +13,9 @@ export const STORAGE_KEYS = {
   logoSettings: 'scene-studio.logo-settings.v1',
   logoPresets: 'scene-studio.logo-presets.v1',
   logoReplaceSettings: 'scene-studio.logo-replace-settings.v1',
+  logoReplaceDevSettings: 'scene-studio.logo-replace-dev-settings.v1',
   objectReplaceSettings: 'scene-studio.object-replace-settings.v1',
+  sceneReplaceSettings: 'scene-studio.scene-replace-settings.v1',
   inpaintSettings: 'scene-studio.inpaint-settings.v1',
   productDetailSettings: 'scene-studio.product-detail-settings.v1',
 } as const;
@@ -27,8 +29,8 @@ export const DEFAULT_LOGO_SETTINGS = {
   concurrency: 3,
   copiesPerGroup: 1,
   useGlassLogoEtchSkill: false,
-  glassEtchScaleRatio: 0.7,
-  glassEtchTopMarginRatio: 0.1,
+  glassEtchScaleRatio: 0.45,
+  glassEtchTopMarginRatio: 0.16,
   glassEtchLogoColor: 'white',
   glassEtchTextureMode: 'laser_etch',
   glassEtchApplyAllCups: true,
@@ -71,6 +73,14 @@ export const DEFAULT_OBJECT_REPLACE_SETTINGS = {
   sourceObjectName: '杯子',
   targetObjectName: '',
   preservation: { print: false, logo: false, engraving: false, liquid: false, foam: false, custom: [] },
+} as const;
+export const DEFAULT_SCENE_REPLACE_SETTINGS = {
+  imageModel: 'gemini-3.1-flash-image',
+  ratioMode: 'original',
+  aspectRatio: '1:1',
+  imageSize: '1K',
+  concurrency: 3,
+  copiesPerScene: 1,
 } as const;
 export const DEFAULT_INPAINT_SETTINGS = {
   imageModel: 'gemini-3.1-flash-image',

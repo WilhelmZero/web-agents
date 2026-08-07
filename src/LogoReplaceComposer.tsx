@@ -256,7 +256,7 @@ export default function LogoReplaceComposer({
         setTasks((current) => current.map((item) => item.id === task.id ? { ...item, verificationStatus: 'verifying', verificationAttempts: verificationAttempt + 1 } : item));
         let verification;
         try {
-          verification = await verifyLogoReplacement({ apiKey, apiBaseUrl, model: currentSettings.verificationModel, referenceLogo: replacement.file, generatedImage: result.blob, expectedText, signal: controller.signal });
+          verification = await verifyLogoReplacement({ apiKey, apiBaseUrl, model: currentSettings.verificationModel, referenceLogo: replacement.file, originalScene: scene.file, generatedImage: result.blob, expectedText, signal: controller.signal });
         } catch (error) {
           const resultUrl = URL.createObjectURL(result.blob);
           const summary = error instanceof Error ? error.message : 'Logo 校验失败';

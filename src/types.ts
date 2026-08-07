@@ -12,7 +12,7 @@ export type OptimizerModel =
 export type CombinationMode = 'cartesian' | 'paired';
 export type TaskStatus = 'waiting' | 'running' | 'success' | 'failed' | 'stopped';
 export type ImageSize = '0.5K' | '1K' | '2K' | '4K';
-export type CreationTool = 'scene' | 'logo' | 'logo-replace' | 'object-replace' | 'inpaint' | 'product-detail';
+export type CreationTool = 'scene' | 'scene-replace' | 'logo' | 'logo-replace' | 'logo-replace-dev' | 'object-replace' | 'inpaint' | 'product-detail';
 
 export interface AppSettings {
   apiKey: string;
@@ -220,6 +220,29 @@ export interface ObjectReplaceTask {
   error?: string;
   retryCount: number;
 }
+
+export interface SceneReplaceSettings {
+  imageModel: ImageModel;
+  ratioMode: 'original' | 'fixed';
+  aspectRatio: string;
+  imageSize: ImageSize;
+  concurrency: number;
+  copiesPerScene: number;
+}
+
+export interface SceneReplaceTask {
+  id: string;
+  sceneId: string;
+  sceneIndex: number;
+  copyIndex: number;
+  status: TaskStatus;
+  prompt: string;
+  resultBlob?: Blob;
+  resultUrl?: string;
+  resultMimeType?: string;
+  error?: string;
+  retryCount: number;
+}
 export interface LogoExpectedText {
   logoId: string;
   text: string;
@@ -232,6 +255,10 @@ export interface LogoVerificationResult {
   differences: string[];
   graphicConsistent: boolean;
   summary: string;
+  materialIntegrated?: boolean;
+  placementConsistent?: boolean;
+  originalLogoRemoved?: boolean;
+  flatOverlayDetected?: boolean;
 }
 export interface LogoReplaceTask {
   id: string;
@@ -249,6 +276,36 @@ export interface LogoReplaceTask {
   verificationResult?: LogoVerificationResult;
   verificationAttempts?: number;
   acceptedVerificationRisk?: boolean;
+}
+
+export interface SceneLogoStyle {
+  id: string;
+  label: string;
+  description: string;
+  occurrences: number;
+  carrier: string;
+}
+
+export interface SceneLogoAnalysis {
+  sceneId: string;
+  status: 'waiting' | 'analyzing' | 'success' | 'failed';
+  styles: SceneLogoStyle[];
+  summary?: string;
+  error?: string;
+}
+
+export interface LogoReplaceDevTask {
+  id: string;
+  sceneId: string;
+  sceneIndex: number;
+  newLogoIds: string[];
+  copyIndex: number;
+  status: TaskStatus;
+  resultBlob?: Blob;
+  resultUrl?: string;
+  resultMimeType?: string;
+  error?: string;
+  retryCount: number;
 }
 export interface InpaintSettings {
   imageModel: ImageModel;
