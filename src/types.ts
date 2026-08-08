@@ -254,8 +254,6 @@ export interface SceneReplaceTask {
   resultUrl?: string;
   resultMimeType?: string;
   outpaintStatus?: 'idle' | 'running' | 'success' | 'failed' | 'stopped';
-  outpaintAiBlob?: Blob;
-  outpaintAiUrl?: string;
   outpaintBlob?: Blob;
   outpaintUrl?: string;
   outpaintError?: string;
