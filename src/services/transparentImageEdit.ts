@@ -7,6 +7,23 @@ const MATTE_CANDIDATES: RgbColor[] = [
 ];
 const clampByte = (value: number) => Math.max(0, Math.min(255, Math.round(value)));
 const colorHex = ({ r, g, b }: RgbColor) => `#${[r, g, b].map((value) => value.toString(16).padStart(2, '0')).join('').toUpperCase()}`;
+const smoothstep = (lower: number, upper: number, value: number) => {
+  const normalized = Math.max(0, Math.min(1, (value - lower) / (upper - lower)));
+  return normalized * normalized * (3 - 2 * normalized);
+};
+
+function rgbToHsv(r: number, g: number, b: number): [number, number, number] {
+  const red = r / 255; const green = g / 255; const blue = b / 255;
+  const maximum = Math.max(red, green, blue); const minimum = Math.min(red, green, blue); const delta = maximum - minimum;
+  let hue = 0;
+  if (delta > 0) {
+    if (maximum === red) hue = ((green - blue) / delta) % 6;
+    else if (maximum === green) hue = (blue - red) / delta + 2;
+    else hue = (red - green) / delta + 4;
+    hue = ((hue / 6) + 1) % 1;
+  }
+  return [hue, maximum === 0 ? 0 : delta / maximum, maximum];
+}
 
 export function hasTransparentPixels(data: Uint8ClampedArray): boolean {
   for (let index = 3; index < data.length; index += 4) if (data[index] < 255) return true;
@@ -30,15 +47,27 @@ export function chooseChromaMatte(data: Uint8ClampedArray): RgbColor {
 
 export function removeChromaFromPixels(data: Uint8ClampedArray, matte: RgbColor): Uint8ClampedArray {
   const result = new Uint8ClampedArray(data);
+  const [matteHue, matteSaturation, matteValue] = rgbToHsv(matte.r, matte.g, matte.b);
   for (let index = 0; index < result.length; index += 4) {
-    const distance = Math.max(Math.abs(result[index] - matte.r), Math.abs(result[index + 1] - matte.g), Math.abs(result[index + 2] - matte.b));
-    const coverage = distance <= 18 ? 0 : distance >= 100 ? 1 : (distance - 18) / 82;
+    let backgroundConfidence: number;
+    if (matteSaturation < 0.2 || matteValue < 0.2) {
+      const distance = Math.max(Math.abs(result[index] - matte.r), Math.abs(result[index + 1] - matte.g), Math.abs(result[index + 2] - matte.b));
+      backgroundConfidence = 1 - smoothstep(18, 100, distance);
+    } else {
+      const [hue, saturation, value] = rgbToHsv(result[index], result[index + 1], result[index + 2]);
+      const hueDistance = Math.min(Math.abs(hue - matteHue), 1 - Math.abs(hue - matteHue));
+      const hueConfidence = 1 - smoothstep(0.035, 0.14, hueDistance);
+      const saturationConfidence = smoothstep(Math.max(0.18, matteSaturation * 0.3), Math.max(0.42, matteSaturation * 0.72), saturation);
+      const valueConfidence = smoothstep(Math.max(0.12, matteValue * 0.22), Math.max(0.35, matteValue * 0.62), value);
+      backgroundConfidence = hueConfidence * saturationConfidence * valueConfidence;
+    }
+    const coverage = 1 - backgroundConfidence;
     const outputAlpha = (result[index + 3] / 255) * coverage;
-    if (outputAlpha <= 0) {
+    if (outputAlpha <= 0.01) {
       result[index] = 0; result[index + 1] = 0; result[index + 2] = 0; result[index + 3] = 0;
       continue;
     }
-    if (coverage < 1) {
+    if (coverage < 0.995) {
       result[index] = clampByte((result[index] - (1 - coverage) * matte.r) / coverage);
       result[index + 1] = clampByte((result[index + 1] - (1 - coverage) * matte.g) / coverage);
       result[index + 2] = clampByte((result[index + 2] - (1 - coverage) * matte.b) / coverage);
