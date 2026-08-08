@@ -5,6 +5,7 @@ export const CREATION_TOOLS: readonly CreationTool[] = [
   'scene-replace',
   'logo',
   'logo-replace',
+  'logo-replace-tabs',
   'logo-export',
   'paper-text',
   'background-removal',

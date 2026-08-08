@@ -68,6 +68,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { DEFAULT_SETTINGS, localizeBuiltInScenePresets, MODEL_CAPABILITIES, PRICING, STORAGE_KEYS } from './constants';
 import LogoComposer from './LogoComposer';
 import LogoReplaceComposer from './LogoReplaceComposer';
+import MultiTabLogoReplaceComposer from './MultiTabLogoReplaceComposer';
 import ObjectReplaceComposer from './ObjectReplaceComposer';
 import SceneReplaceComposer from './SceneReplaceComposer';
 import InpaintComposer from './InpaintComposer';
@@ -120,6 +121,7 @@ const CREATION_TOOL_ITEMS: Array<{ key: CreationTool; label: string; icon: React
   { key: 'scene-replace', icon: <SwapOutlined />, label: '场景替换' },
   { key: 'logo', icon: <ExperimentOutlined />, label: 'Logo 合成' },
   { key: 'logo-replace', icon: <SwapOutlined />, label: 'Logo 替换' },
+  { key: 'logo-replace-tabs', icon: <AppstoreOutlined />, label: '多标签 Logo 替换' },
   { key: 'logo-export', icon: <DownloadOutlined />, label: '批量导出 Logo' },
   { key: 'paper-text', icon: <EditOutlined />, label: '花纸文字修改' },
   { key: 'background-removal', icon: <HighlightOutlined />, label: '去除背景' },
@@ -354,6 +356,7 @@ function AppContent() {
   const [inpaintSettingsHost, setInpaintSettingsHost] = useState<HTMLElement | null>(null);
   const [productDetailSettingsHost, setProductDetailSettingsHost] = useState<HTMLElement | null>(null);
   const [logoReplaceSettingsHost, setLogoReplaceSettingsHost] = useState<HTMLElement | null>(null);
+  const [multiTabLogoSettingsHost, setMultiTabLogoSettingsHost] = useState<HTMLElement | null>(null);
   const [objectReplaceSettingsHost, setObjectReplaceSettingsHost] = useState<HTMLElement | null>(null);
   const [sceneReplaceSettingsHost, setSceneReplaceSettingsHost] = useState<HTMLElement | null>(null);
   const [paperTextSettingsHost, setPaperTextSettingsHost] = useState<HTMLElement | null>(null);
@@ -832,6 +835,9 @@ function AppContent() {
                 settingsHost={logoReplaceSettingsHost}
               />
             </div>
+            <div hidden={creationTool !== 'logo-replace-tabs'}>
+              <MultiTabLogoReplaceComposer apiKey={settings.apiKey} openAiApiKey={settings.openAiApiKey} apiBaseUrl={apiBaseUrl} connectionMode={settings.connectionMode} onRequestKey={() => setKeyOpen(true)} settingsHost={multiTabLogoSettingsHost} />
+            </div>
             <div hidden={creationTool !== 'paper-text'}>
               <PaperTextComposer apiKey={settings.apiKey} openAiApiKey={settings.openAiApiKey} apiBaseUrl={apiBaseUrl} onRequestKey={() => setKeyOpen(true)} onSessionStateChange={setPaperTextHasSession} settingsHost={paperTextSettingsHost} />
             </div>
@@ -1132,6 +1138,7 @@ function AppContent() {
             <div ref={setLogoReplaceSettingsHost} />
           </Sider>
         )}
+        {!compact && creationTool === 'logo-replace-tabs' && new URLSearchParams(window.location.search).get('worker') === '1' && <Sider width={330} theme="light" className="settings-sider"><div ref={setMultiTabLogoSettingsHost} /></Sider>}
         {!compact && creationTool === 'paper-text' && <Sider width={330} theme="light" className="settings-sider"><div ref={setPaperTextSettingsHost} /></Sider>}
         {!compact && creationTool === 'logo-export' && <Sider width={330} theme="light" className="settings-sider"><div ref={setLogoExportSettingsHost} /></Sider>}
         {!compact && creationTool === 'background-removal' && <Sider width={330} theme="light" className="settings-sider"><div ref={setBackgroundRemovalSettingsHost} /></Sider>}
@@ -1164,7 +1171,7 @@ function AppContent() {
         {creationTool === 'scene'
           ? settingsPanel
           : compact
-            ? <div ref={creationTool === 'logo' ? setLogoSettingsHost : creationTool === 'logo-replace' ? setLogoReplaceSettingsHost : creationTool === 'logo-export' ? setLogoExportSettingsHost : creationTool === 'paper-text' ? setPaperTextSettingsHost : creationTool === 'background-removal' ? setBackgroundRemovalSettingsHost : creationTool === 'outpaint' ? setOutpaintSettingsHost : creationTool === 'object-replace' ? setObjectReplaceSettingsHost : creationTool === 'scene-replace' ? setSceneReplaceSettingsHost : creationTool === 'inpaint' ? setInpaintSettingsHost : setProductDetailSettingsHost} />
+            ? <div ref={creationTool === 'logo' ? setLogoSettingsHost : creationTool === 'logo-replace' ? setLogoReplaceSettingsHost : creationTool === 'logo-replace-tabs' ? setMultiTabLogoSettingsHost : creationTool === 'logo-export' ? setLogoExportSettingsHost : creationTool === 'paper-text' ? setPaperTextSettingsHost : creationTool === 'background-removal' ? setBackgroundRemovalSettingsHost : creationTool === 'outpaint' ? setOutpaintSettingsHost : creationTool === 'object-replace' ? setObjectReplaceSettingsHost : creationTool === 'scene-replace' ? setSceneReplaceSettingsHost : creationTool === 'inpaint' ? setInpaintSettingsHost : setProductDetailSettingsHost} />
             : null}
       </Drawer>
 
