@@ -82,6 +82,15 @@ export function preserveVectorOutputSize(svg: string, width: number, height: num
   return svg.replace(/<svg\s+/i, `<svg width="${width}" height="${height}" `);
 }
 
+export function serializeVisibleSvg(svg: SVGSVGElement, width: number, height: number): string {
+  svg.removeAttribute('id'); svg.removeAttribute('style'); svg.removeAttribute('hidden');
+  svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  if (!svg.hasAttribute('width')) svg.setAttribute('width', String(width));
+  if (!svg.hasAttribute('height')) svg.setAttribute('height', String(height));
+  if (!svg.hasAttribute('viewBox')) svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  return svg.outerHTML;
+}
+
 export async function inspectVectorEligibility(blob: Blob) {
   const { imageData } = await blobToImageData(blob, 512);
   return analyzeVectorEligibility(imageData);
@@ -103,7 +112,7 @@ async function vectorizeComplexImage(imageData: ImageData): Promise<string> {
     try {
       converter.init();
       while (!converter.tick()) await new Promise<void>((resolve) => setTimeout(resolve, 0));
-      return svg.outerHTML;
+      return serializeVisibleSvg(svg, imageData.width, imageData.height);
     } finally { converter.free(); }
   } finally { canvas.remove(); svg.remove(); }
 }

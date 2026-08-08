@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { analyzeVectorEligibility, buildVectorTraceConfig, buildVTracerConfig, extractColorPreservingPalette, preserveVectorOutputSize } from './trueVectorExport';
+import { analyzeVectorEligibility, buildVectorTraceConfig, buildVTracerConfig, extractColorPreservingPalette, preserveVectorOutputSize, serializeVisibleSvg } from './trueVectorExport';
 
 describe('true vector export eligibility', () => {
   it('accepts simple two-color artwork', () => {
@@ -48,5 +48,15 @@ describe('true vector export eligibility', () => {
       mode: 'spline', hierarchical: 'stacked', color_precision: 2,
       layer_difference: 16, filter_speckle: 2, path_precision: 2,
     });
+  });
+
+  it('removes temporary hidden styles before exporting VTracer SVG', () => {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.id = 'temporary'; svg.style.display = 'none'; svg.innerHTML = '<path d="M0 0L1 1"/>';
+    const output = serializeVisibleSvg(svg, 1024, 1536);
+    expect(output).not.toContain('display: none');
+    expect(output).not.toContain('id="temporary"');
+    expect(output).toContain('xmlns="http://www.w3.org/2000/svg"');
+    expect(output).toContain('viewBox="0 0 1024 1536"');
   });
 });
