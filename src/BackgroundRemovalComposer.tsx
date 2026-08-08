@@ -1,10 +1,12 @@
 import { ClearOutlined, DeleteOutlined, DownloadOutlined, EyeOutlined, FileImageOutlined, ReloadOutlined, RocketOutlined, ThunderboltOutlined } from '@ant-design/icons';
-import { App, Button, Card, Empty, Flex, Form, Image, Popconfirm, Progress, Select, Space, Tag, Typography, Upload } from 'antd';
+import { App, Button, Card, Empty, Flex, Form, Image, Popconfirm, Progress, Select, Slider, Space, Tag, Typography, Upload } from 'antd';
 import JSZip from 'jszip';
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { GPT_BACKGROUND_REMOVAL_PROMPT, hasUsableTransparency, removeImageBackground } from './services/backgroundRemoval';
 import { editPaperTextOpenAi } from './services/paperText';
+import { STORAGE_KEYS } from './constants';
+import { readLocalStorage } from './storage';
 import { reportTaskProgress } from './services/taskProgress';
 import { vectorizeImageToSvg } from './services/trueVectorExport';
 import { createId, downloadBlob, sanitizeFileName } from './utils';
@@ -12,6 +14,7 @@ import { createId, downloadBlob, sanitizeFileName } from './utils';
 const { Text, Title, Paragraph } = Typography;
 const ACCEPTED = ['image/png', 'image/jpeg', 'image/webp'];
 type RemovalMode = 'local' | 'gpt-hybrid';
+interface RemovalSettings { mode: RemovalMode; quality: 'high' | 'medium' | 'low'; edgeExpansion: number; edgeFeather: number }
 interface Item { id: string; file: File; sourceUrl: string; status: 'waiting' | 'running' | 'success' | 'failed'; progress?: number; stage?: string; resultBlob?: Blob; resultUrl?: string; vectorBlob?: Blob; vectorStatus?: 'converting' | 'ready' | 'failed'; error?: string }
 const CONCURRENCY = 2;
 
@@ -21,11 +24,12 @@ export default function BackgroundRemovalComposer({ openAiApiKey, onRequestKey, 
   const { message } = App.useApp();
   const [items, setItems] = useState<Item[]>([]);
   const [busy, setBusy] = useState(false);
-  const [mode, setMode] = useState<RemovalMode>('local');
-  const [quality, setQuality] = useState<'high' | 'medium' | 'low'>('high');
+  const [settings, setSettings] = useState<RemovalSettings>(() => readLocalStorage<RemovalSettings>(STORAGE_KEYS.backgroundRemovalSettings, { mode: 'local', quality: 'high', edgeExpansion: 2, edgeFeather: 1 }));
+  const patchSettings = (value: Partial<RemovalSettings>) => setSettings((current) => ({ ...current, ...value }));
   const [compareIds, setCompareIds] = useState<Set<string>>(() => new Set());
   const patchItem = (id: string, value: Partial<Item>) => setItems((current) => current.map((item) => item.id === id ? { ...item, ...value } : item));
   useEffect(() => onSessionStateChange?.(items.length > 0), [items.length, onSessionStateChange]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEYS.backgroundRemovalSettings, JSON.stringify(settings)); }, [settings]);
   useEffect(() => () => { items.forEach((item) => { URL.revokeObjectURL(item.sourceUrl); if (item.resultUrl) URL.revokeObjectURL(item.resultUrl); }); }, []);
   const completed = items.filter((item) => ['success', 'failed'].includes(item.status)).length;
   const successful = items.filter((item) => item.resultBlob);
@@ -38,16 +42,16 @@ export default function BackgroundRemovalComposer({ openAiApiKey, onRequestKey, 
   };
   const removeItem = (id: string) => setItems((current) => { const target = current.find((item) => item.id === id); if (target) { URL.revokeObjectURL(target.sourceUrl); if (target.resultUrl) URL.revokeObjectURL(target.resultUrl); } return current.filter((item) => item.id !== id); });
   const processItem = async (item: Item) => {
-    patchItem(item.id, { status: 'running', progress: 0, stage: mode === 'gpt-hybrid' ? 'GPT 正在分离复杂主体' : '本地模型正在分析主体', error: undefined });
+    patchItem(item.id, { status: 'running', progress: 0, stage: settings.mode === 'gpt-hybrid' ? 'GPT 正在分离复杂主体' : '本地模型正在分析主体', error: undefined });
     try {
       let intermediate: Blob = item.file;
-      if (mode === 'gpt-hybrid') {
-        intermediate = await editPaperTextOpenAi({ apiKey: openAiApiKey, model: 'gpt-image-2', image: item.file, prompt: GPT_BACKGROUND_REMOVAL_PROMPT, quality });
+      if (settings.mode === 'gpt-hybrid') {
+        intermediate = await editPaperTextOpenAi({ apiKey: openAiApiKey, model: 'gpt-image-2', image: item.file, prompt: GPT_BACKGROUND_REMOVAL_PROMPT, quality: settings.quality });
         patchItem(item.id, { progress: 0, stage: '正在生成精细透明边缘' });
       }
       const resultBlob = await hasUsableTransparency(intermediate)
         ? intermediate
-        : await removeImageBackground(intermediate, ({ percent }) => patchItem(item.id, { progress: percent }));
+        : await removeImageBackground(intermediate, ({ percent }) => patchItem(item.id, { progress: percent }), settings);
       const resultUrl = URL.createObjectURL(resultBlob);
       if (item.resultUrl) URL.revokeObjectURL(item.resultUrl);
       patchItem(item.id, { status: 'success', progress: 100, resultBlob, resultUrl, vectorBlob: undefined, vectorStatus: undefined });
@@ -55,7 +59,7 @@ export default function BackgroundRemovalComposer({ openAiApiKey, onRequestKey, 
   };
   const run = async (targets = items) => {
     if (!targets.length || busy) return;
-    if (mode === 'gpt-hybrid' && !openAiApiKey) return onRequestKey();
+    if (settings.mode === 'gpt-hybrid' && !openAiApiKey) return onRequestKey();
     setBusy(true); let cursor = 0;
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, targets.length) }, async () => { while (cursor < targets.length) await processItem(targets[cursor++]); }));
     setBusy(false);
@@ -67,12 +71,12 @@ export default function BackgroundRemovalComposer({ openAiApiKey, onRequestKey, 
   };
   const clearAll = () => { setItems((current) => { current.forEach((item) => { URL.revokeObjectURL(item.sourceUrl); if (item.resultUrl) URL.revokeObjectURL(item.resultUrl); }); return []; }); setCompareIds(new Set()); };
   const downloadAll = async () => { const zip = new JSZip(); successful.forEach((item) => item.resultBlob && zip.file(`${sanitizeFileName(item.file.name)}_透明.png`, item.resultBlob)); downloadBlob(await zip.generateAsync({ type: 'blob' }), '去除背景结果.zip'); };
-  const panel = <div className="settings-panel"><Title level={4}>智能抠图</Title><Form layout="vertical"><Form.Item label="处理方式"><Select value={mode} onChange={setMode} options={[{ value: 'local', label: '本地智能抠图（快速）' }, { value: 'gpt-hybrid', label: 'GPT 复杂图精细抠图' }]} /></Form.Item>{mode === 'gpt-hybrid' && <Form.Item label="GPT 输出质量"><Select value={quality} onChange={setQuality} options={['high', 'medium', 'low'].map((value) => ({ value, label: value }))} /></Form.Item>}</Form><Text type="secondary">{mode === 'local' ? '浏览器本地处理，不需要 API Key，也不会上传或重绘图片。' : 'GPT 负责识别并分离复杂主体，本地模型负责生成稳定的透明 Alpha；GPT Image 2 本身不支持透明背景。'}</Text></div>;
+  const panel = <div className="settings-panel"><Title level={4}>智能抠图</Title><Form layout="vertical"><Form.Item label="处理方式"><Select value={settings.mode} onChange={(mode) => patchSettings({ mode })} options={[{ value: 'local', label: '本地智能抠图（快速）' }, { value: 'gpt-hybrid', label: 'GPT 复杂图精细抠图' }]} /></Form.Item>{settings.mode === 'gpt-hybrid' && <Form.Item label="GPT 输出质量"><Select value={settings.quality} onChange={(quality) => patchSettings({ quality })} options={['high', 'medium', 'low'].map((value) => ({ value, label: value }))} /></Form.Item>}<Form.Item label={`主体保留：扩展 ${settings.edgeExpansion}px`} tooltip="主体被抠掉太多时调大；背景残留时调小"><Slider min={0} max={8} step={1} value={settings.edgeExpansion} onChange={(edgeExpansion) => patchSettings({ edgeExpansion })} marks={{ 0: '精确', 2: '推荐', 8: '保留更多' }} /></Form.Item><Form.Item label={`边缘柔化：${settings.edgeFeather}px`} tooltip="减少锯齿；过大会让边缘发虚"><Slider min={0} max={4} step={1} value={settings.edgeFeather} onChange={(edgeFeather) => patchSettings({ edgeFeather })} marks={{ 0: '清晰', 1: '推荐', 4: '柔和' }} /></Form.Item></Form><Text type="secondary">{settings.mode === 'local' ? '浏览器本地处理，不需要 API Key。主体被误删时提高“主体保留”，结果会使用原图像素恢复边缘。' : 'GPT 负责识别复杂主体，本地模型生成 Alpha；以上参数用于最后的透明边缘调整。'}</Text></div>;
 
   return <div className="background-removal-page"><section className="hero-strip background-removal-hero"><div><Text className="eyebrow">BACKGROUND REMOVER</Text><Title level={2}>一键智能抠图，直接生成透明背景</Title><Paragraph className="hero-description">专用分割模型直接识别主体与精细边缘，不使用提示词、不重绘图片，也不再通过绿色底色转换透明。</Paragraph></div><div className="hero-orb" /></section>
     <Card className="workflow-card" title="1. 上传待抠图图片" extra={<Space><Text type="secondary">{items.length} 张</Text>{items.length > 0 && <Popconfirm title="清空全部图片？" onConfirm={clearAll}><Button danger size="small" icon={<ClearOutlined />}>清空</Button></Popconfirm>}</Space>}><Upload.Dragger accept={ACCEPTED.join(',')} multiple showUploadList={false} beforeUpload={(file) => addFiles([file as File])}><FileImageOutlined style={{ fontSize: 32 }} /><p>拖拽或点击批量上传 PNG / JPEG / WebP</p></Upload.Dragger>{items.length > 0 && <div className="background-source-grid">{items.map((item) => <Card key={item.id} size="small"><Image src={item.sourceUrl} /><Button danger type="text" block icon={<DeleteOutlined />} disabled={item.status === 'running'} onClick={() => removeItem(item.id)}>删除</Button></Card>)}</div>}</Card>
-    <Card className="action-card"><Flex justify="space-between" align="center" wrap gap={12}><div><Title level={4} style={{ margin: 0 }}>准备处理 {items.length} 张图片</Title><Text type="secondary">{mode === 'gpt-hybrid' ? 'GPT 识别复杂主体 + 本地 Alpha Matting，最终稳定输出透明 PNG' : '点击后直接生成透明 PNG；首次处理需要加载本地抠图模型'}</Text></div><Button type="primary" size="large" icon={<RocketOutlined />} loading={busy} disabled={!items.length} onClick={() => void run()}>一键批量抠图</Button></Flex>{items.length > 0 && <Progress style={{ marginTop: 16 }} percent={Math.round(completed / items.length * 100)} status={busy ? 'active' : successful.length ? 'success' : 'normal'} />}</Card>
-    <section className="results-section"><Flex justify="space-between" align="center" wrap gap={8}><div><Title level={3}>透明背景结果</Title><Text type="secondary">{mode === 'gpt-hybrid' ? '复杂主体由 GPT 识别，透明通道由本地模型兜底生成' : '主体原始像素与分辨率保持不变，透明边缘由 Alpha Matting 模型直接生成'}</Text></div><Button icon={<DownloadOutlined />} disabled={!successful.length} onClick={() => void downloadAll()}>下载全部 ZIP</Button></Flex>{items.length ? <Image.PreviewGroup><div className="logo-replace-results">{items.map((item) => <Card key={item.id} size="small" title={item.file.name} extra={item.resultBlob && <Button type="text" icon={<DownloadOutlined />} onClick={() => downloadBlob(item.resultBlob!, `${sanitizeFileName(item.file.name)}_透明.png`)} />}><div className="replace-result-image transparent-result-bg">{item.resultUrl ? <Image src={compareIds.has(item.id) ? item.sourceUrl : item.resultUrl} /> : <div className={`task-state-card is-${item.status}`}><Text strong>{item.status === 'running' ? item.stage || '模型处理中' : item.status === 'failed' ? '处理失败' : '等待处理'}</Text><Text type="secondary">{item.error}</Text>{item.status === 'running' && <Progress percent={item.progress || 0} size="small" />}</div>}</div><Flex justify="space-between" align="center" style={{ marginTop: 8 }}><Tag color={item.status === 'success' ? 'success' : item.status === 'failed' ? 'error' : item.status === 'running' ? 'processing' : 'default'}>{item.status}</Tag><Space>{item.resultUrl && <Button size="small" icon={<EyeOutlined />} onClick={() => setCompareIds((current) => { const next = new Set(current); next.has(item.id) ? next.delete(item.id) : next.add(item.id); return next; })}>{compareIds.has(item.id) ? '查看透明图' : '原图对比'}</Button>}<Button size="small" icon={<ReloadOutlined />} disabled={busy} onClick={() => void run([item])}>重新抠图</Button>{item.resultBlob && <Button size="small" type="primary" ghost icon={<ThunderboltOutlined />} loading={item.vectorStatus === 'converting'} onClick={() => item.vectorBlob ? downloadBlob(item.vectorBlob, `${sanitizeFileName(item.file.name)}_矢量.svg`) : void vectorize(item)}>{item.vectorBlob ? '下载 SVG' : '转为矢量图'}</Button>}</Space></Flex></Card>)}</div></Image.PreviewGroup> : <Empty description="处理结果会显示在这里" />}</section>
+    <Card className="action-card"><Flex justify="space-between" align="center" wrap gap={12}><div><Title level={4} style={{ margin: 0 }}>准备处理 {items.length} 张图片</Title><Text type="secondary">{settings.mode === 'gpt-hybrid' ? 'GPT 识别复杂主体 + 本地 Alpha Matting，最终稳定输出透明 PNG' : '点击后直接生成透明 PNG；首次处理需要加载本地抠图模型'}</Text></div><Button type="primary" size="large" icon={<RocketOutlined />} loading={busy} disabled={!items.length} onClick={() => void run()}>一键批量抠图</Button></Flex>{items.length > 0 && <Progress style={{ marginTop: 16 }} percent={Math.round(completed / items.length * 100)} status={busy ? 'active' : successful.length ? 'success' : 'normal'} />}</Card>
+    <section className="results-section"><Flex justify="space-between" align="center" wrap gap={8}><div><Title level={3}>透明背景结果</Title><Text type="secondary">{settings.mode === 'gpt-hybrid' ? '复杂主体由 GPT 识别，透明通道由本地模型兜底生成' : '主体原始像素与分辨率保持不变，透明边缘支持保留与柔化调整'}</Text></div><Button icon={<DownloadOutlined />} disabled={!successful.length} onClick={() => void downloadAll()}>下载全部 ZIP</Button></Flex>{items.length ? <Image.PreviewGroup><div className="logo-replace-results">{items.map((item) => <Card key={item.id} size="small" title={item.file.name} extra={item.resultBlob && <Button type="text" icon={<DownloadOutlined />} onClick={() => downloadBlob(item.resultBlob!, `${sanitizeFileName(item.file.name)}_透明.png`)} />}><div className="replace-result-image transparent-result-bg">{item.resultUrl ? <Image src={compareIds.has(item.id) ? item.sourceUrl : item.resultUrl} /> : <div className={`task-state-card is-${item.status}`}><Text strong>{item.status === 'running' ? item.stage || '模型处理中' : item.status === 'failed' ? '处理失败' : '等待处理'}</Text><Text type="secondary">{item.error}</Text>{item.status === 'running' && <Progress percent={item.progress || 0} size="small" />}</div>}</div><Flex justify="space-between" align="center" style={{ marginTop: 8 }}><Tag color={item.status === 'success' ? 'success' : item.status === 'failed' ? 'error' : item.status === 'running' ? 'processing' : 'default'}>{item.status}</Tag><Space>{item.resultUrl && <Button size="small" icon={<EyeOutlined />} onClick={() => setCompareIds((current) => { const next = new Set(current); next.has(item.id) ? next.delete(item.id) : next.add(item.id); return next; })}>{compareIds.has(item.id) ? '查看透明图' : '原图对比'}</Button>}<Button size="small" icon={<ReloadOutlined />} disabled={busy} onClick={() => void run([item])}>按当前参数重抠</Button>{item.resultBlob && <Button size="small" type="primary" ghost icon={<ThunderboltOutlined />} loading={item.vectorStatus === 'converting'} onClick={() => item.vectorBlob ? downloadBlob(item.vectorBlob, `${sanitizeFileName(item.file.name)}_矢量.svg`) : void vectorize(item)}>{item.vectorBlob ? '下载 SVG' : '转为矢量图'}</Button>}</Space></Flex></Card>)}</div></Image.PreviewGroup> : <Empty description="处理结果会显示在这里" />}</section>
     {!settingsHost && <aside className="logo-settings">{panel}</aside>}{settingsHost && createPortal(panel, settingsHost)}
   </div>;
 }
