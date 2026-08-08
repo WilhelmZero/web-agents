@@ -5,6 +5,7 @@ export interface VectorEligibility {
 }
 interface TraceColor { r: number; g: number; b: number; a: number }
 export interface VectorTraceConfig { detailed: boolean; colors: number; ltres: number; qtres: number; pathomit: number; rightangleenhance: boolean; linefilter: boolean; roundcoords: number }
+export interface VTracerConfig { mode: 'spline'; hierarchical: 'stacked'; corner_threshold: number; length_threshold: number; max_iterations: number; splice_threshold: number; filter_speckle: number; color_precision: number; layer_difference: number; path_precision: number }
 
 export function analyzeVectorEligibility(imageData: Pick<ImageData, 'data' | 'width' | 'height'>): VectorEligibility {
   const bins = new Set<number>();
@@ -52,6 +53,15 @@ export function buildVectorTraceConfig(analysis: VectorEligibility, requestedCol
     : { detailed, colors: requestedColors || Math.max(8, analysis.suggestedColors), ltres: 1, qtres: 1, pathomit: 4, rightangleenhance: true, linefilter: true, roundcoords: 2 };
 }
 
+export function buildVTracerConfig(): VTracerConfig {
+  return {
+    mode: 'spline', hierarchical: 'stacked',
+    corner_threshold: Math.PI / 3, length_threshold: 4, max_iterations: 10,
+    splice_threshold: Math.PI / 4, filter_speckle: 2,
+    color_precision: 2, layer_difference: 16, path_precision: 2,
+  };
+}
+
 async function blobToImageData(blob: Blob, maxDimension = 1600) {
   const bitmap = await createImageBitmap(blob);
   const scale = Math.min(1, maxDimension / Math.max(bitmap.width, bitmap.height));
@@ -77,10 +87,36 @@ export async function inspectVectorEligibility(blob: Blob) {
   return analyzeVectorEligibility(imageData);
 }
 
+async function vectorizeComplexImage(imageData: ImageData): Promise<string> {
+  const canvas = document.createElement('canvas'); canvas.width = imageData.width; canvas.height = imageData.height;
+  const context = canvas.getContext('2d'); if (!context) throw new Error('当前浏览器无法创建 VTracer 画布');
+  context.putImageData(imageData, 0, 0);
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  const id = `vtracer-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  canvas.id = `${id}-canvas`; svg.id = `${id}-svg`; canvas.hidden = true; svg.style.display = 'none';
+  document.body.append(canvas, svg);
+  try {
+    const moduleUrl = `${import.meta.env.BASE_URL}vtracer_webapp.js`;
+    const glue = await import(/* @vite-ignore */ moduleUrl) as { default: () => Promise<unknown>; ColorImageConverter: { new_with_string: (params: string) => { init: () => void; tick: () => boolean; free: () => void } } };
+    await glue.default();
+    const converter = glue.ColorImageConverter.new_with_string(JSON.stringify({ canvas_id: canvas.id, svg_id: svg.id, ...buildVTracerConfig() }));
+    try {
+      converter.init();
+      while (!converter.tick()) await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      return svg.outerHTML;
+    } finally { converter.free(); }
+  } finally { canvas.remove(); svg.remove(); }
+}
+
 export async function vectorizeImageToSvg(blob: Blob, colorCount?: number) {
   const { imageData, original } = await blobToImageData(blob);
   const analysis = analyzeVectorEligibility(imageData);
   await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  if (!analysis.eligible && colorCount === undefined) {
+    const svg = await vectorizeComplexImage(imageData);
+    if (!/<path\b/i.test(svg)) throw new Error('VTracer 未能提取有效矢量路径');
+    return new Blob([preserveVectorOutputSize(svg, original.width, original.height)], { type: 'image/svg+xml;charset=utf-8' });
+  }
   const imported = await import('imagetracerjs');
   const tracer = imported.default;
   const config = buildVectorTraceConfig(analysis, colorCount);

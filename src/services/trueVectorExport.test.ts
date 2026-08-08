@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { analyzeVectorEligibility, buildVectorTraceConfig, extractColorPreservingPalette, preserveVectorOutputSize } from './trueVectorExport';
+import { analyzeVectorEligibility, buildVectorTraceConfig, buildVTracerConfig, extractColorPreservingPalette, preserveVectorOutputSize } from './trueVectorExport';
 
 describe('true vector export eligibility', () => {
   it('accepts simple two-color artwork', () => {
@@ -41,5 +41,12 @@ describe('true vector export eligibility', () => {
 
   it('keeps a lighter trace for simple logos', () => {
     expect(buildVectorTraceConfig({ eligible: true, colorBins: 3, suggestedColors: 3 })).toMatchObject({ detailed: false, colors: 8, pathomit: 4 });
+  });
+
+  it('uses compact stacked color clustering for complex artwork', () => {
+    expect(buildVTracerConfig()).toMatchObject({
+      mode: 'spline', hierarchical: 'stacked', color_precision: 2,
+      layer_difference: 16, filter_speckle: 2, path_precision: 2,
+    });
   });
 });
