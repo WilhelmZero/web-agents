@@ -4,6 +4,7 @@ export interface VectorEligibility {
   suggestedColors: number;
 }
 interface TraceColor { r: number; g: number; b: number; a: number }
+export interface VectorTraceConfig { detailed: boolean; colors: number; ltres: number; qtres: number; pathomit: number; rightangleenhance: boolean; linefilter: boolean; roundcoords: number }
 
 export function analyzeVectorEligibility(imageData: Pick<ImageData, 'data' | 'width' | 'height'>): VectorEligibility {
   const bins = new Set<number>();
@@ -44,6 +45,13 @@ export function extractColorPreservingPalette(imageData: Pick<ImageData, 'data' 
   return choices.map((choice) => choice.best || { r: Math.round(choice.target.r), g: Math.round(choice.target.g), b: Math.round(choice.target.b), a: Math.round(choice.target.a) });
 }
 
+export function buildVectorTraceConfig(analysis: VectorEligibility, requestedColors?: number): VectorTraceConfig {
+  const detailed = !analysis.eligible;
+  return detailed
+    ? { detailed, colors: requestedColors || 128, ltres: 0.45, qtres: 0.45, pathomit: 1, rightangleenhance: false, linefilter: false, roundcoords: 2 }
+    : { detailed, colors: requestedColors || Math.max(8, analysis.suggestedColors), ltres: 1, qtres: 1, pathomit: 4, rightangleenhance: true, linefilter: true, roundcoords: 2 };
+}
+
 async function blobToImageData(blob: Blob, maxDimension = 1600) {
   const bitmap = await createImageBitmap(blob);
   const scale = Math.min(1, maxDimension / Math.max(bitmap.width, bitmap.height));
@@ -75,21 +83,22 @@ export async function vectorizeImageToSvg(blob: Blob, colorCount?: number) {
   await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
   const imported = await import('imagetracerjs');
   const tracer = imported.default;
-  const palette = extractColorPreservingPalette(imageData, colorCount || Math.max(8, analysis.suggestedColors));
+  const config = buildVectorTraceConfig(analysis, colorCount);
+  const palette = extractColorPreservingPalette(imageData, config.colors);
   const svg = tracer.imagedataToSVG(imageData, {
-    ltres: 1,
-    qtres: 1,
-    pathomit: 8,
-    rightangleenhance: true,
+    ltres: config.ltres,
+    qtres: config.qtres,
+    pathomit: config.pathomit,
+    rightangleenhance: config.rightangleenhance,
     colorsampling: 2,
     numberofcolors: palette.length,
     colorquantcycles: 1,
     pal: palette,
     layering: 0,
     strokewidth: 0,
-    linefilter: true,
+    linefilter: config.linefilter,
     scale: 1,
-    roundcoords: 1,
+    roundcoords: config.roundcoords,
     viewbox: true,
     desc: true,
   });

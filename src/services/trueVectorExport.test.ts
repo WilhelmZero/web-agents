@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { analyzeVectorEligibility, extractColorPreservingPalette, preserveVectorOutputSize } from './trueVectorExport';
+import { analyzeVectorEligibility, buildVectorTraceConfig, extractColorPreservingPalette, preserveVectorOutputSize } from './trueVectorExport';
 
 describe('true vector export eligibility', () => {
   it('accepts simple two-color artwork', () => {
@@ -30,5 +30,16 @@ describe('true vector export eligibility', () => {
     expect(palette).toContainEqual({ r: 237, g: 96, b: 151, a: 255 });
     expect(palette).toContainEqual({ r: 15, g: 12, b: 18, a: 255 });
     expect(palette).toContainEqual({ r: 0, g: 0, b: 0, a: 0 });
+  });
+
+  it('uses many colors and fine curves for complex illustrations', () => {
+    expect(buildVectorTraceConfig({ eligible: false, colorBins: 25, suggestedColors: 24 })).toEqual({
+      detailed: true, colors: 128, ltres: 0.45, qtres: 0.45, pathomit: 1,
+      rightangleenhance: false, linefilter: false, roundcoords: 2,
+    });
+  });
+
+  it('keeps a lighter trace for simple logos', () => {
+    expect(buildVectorTraceConfig({ eligible: true, colorBins: 3, suggestedColors: 3 })).toMatchObject({ detailed: false, colors: 8, pathomit: 4 });
   });
 });
