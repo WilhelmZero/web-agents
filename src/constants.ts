@@ -22,6 +22,7 @@ export const STORAGE_KEYS = {
   paperTextSettings: 'scene-studio.paper-text-settings.v1',
   backgroundRemovalSettings: 'scene-studio.background-removal-settings.v1',
   outpaintSettings: 'scene-studio.outpaint-settings.v1',
+  pinnedCreationTools: 'scene-studio.pinned-creation-tools.v1',
 } as const;
 
 export const DEFAULT_LOGO_SETTINGS = {

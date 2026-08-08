@@ -76,6 +76,24 @@ button, input, textarea { font: inherit; }
 }
 .nav-sider .ant-layout-sider-children { height: 100%; min-height: 0; display: flex; flex-direction: column; }
 .nav-sider .ant-menu { min-height: 0; border-inline-end: none !important; padding-top: 16px; flex: 1; overflow-y: auto; }
+.pinned-tools { flex: none; margin: 14px 10px 0; padding: 10px; border: 1px solid #ddd6fe; border-radius: 14px; background: linear-gradient(145deg, #faf7ff, #f3efff); box-shadow: 0 6px 18px rgba(109, 73, 214, .08); }
+.pinned-tools-title { display: flex; align-items: center; gap: 6px; padding: 0 4px 7px; color: #6d49d6; font-size: 12px; font-weight: 700; }
+.pinned-tools-list { display: grid; gap: 4px; }
+.pinned-tool-row { display: flex; align-items: center; border-radius: 9px; transition: background .2s ease, color .2s ease; }
+.pinned-tool-row:hover { background: rgba(255,255,255,.85); }
+.pinned-tool-row.is-active { color: #6844d6; background: #fff; box-shadow: 0 2px 8px rgba(109,73,214,.1); }
+.pinned-tool-button { min-width: 0; flex: 1; display: flex; align-items: center; gap: 9px; padding: 7px 8px; border: 0; background: transparent; color: inherit; cursor: pointer; text-align: left; }
+.pinned-tool-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
+.pinned-tool-remove,.tool-pin-button { display: inline-grid; place-items: center; border: 0; background: transparent; color: #a4a0af; cursor: pointer; border-radius: 6px; }
+.pinned-tool-remove { width: 28px; height: 28px; margin-right: 2px; color: #7654dd; }
+.pinned-tool-remove:hover,.tool-pin-button:hover,.tool-pin-button.is-pinned { color: #6844d6; background: #eee8ff; }
+.creation-tool-menu-label { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 0; }
+.creation-tool-menu-label > span:first-child { overflow: hidden; text-overflow: ellipsis; }
+.tool-pin-button { width: 24px; height: 24px; opacity: 0; transition: opacity .15s ease, color .15s ease; }
+.ant-menu-item:hover .tool-pin-button,.tool-pin-button:focus-visible,.tool-pin-button.is-pinned { opacity: 1; }
+.nav-sider.ant-layout-sider-collapsed .pinned-tools { margin-inline: 7px; padding: 6px 4px; }
+.nav-sider.ant-layout-sider-collapsed .pinned-tools-title,.nav-sider.ant-layout-sider-collapsed .pinned-tool-label,.nav-sider.ant-layout-sider-collapsed .pinned-tool-remove { display: none; }
+.nav-sider.ant-layout-sider-collapsed .pinned-tool-button { justify-content: center; padding-inline: 0; }
 .sider-foot { flex: none; display: flex; gap: 8px; padding: 18px; border-top: 1px solid #eef0f5; white-space: nowrap; overflow: hidden; background: #fff; }
 .main-content { min-width: 0; }
 .content-inner { max-width: 1120px; margin: 0 auto; padding: 28px; }

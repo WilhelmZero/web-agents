@@ -21,6 +21,8 @@ import {
   KeyOutlined,
   MenuFoldOutlined,
   PlusOutlined,
+  PushpinFilled,
+  PushpinOutlined,
   ReloadOutlined,
   RocketOutlined,
   SaveOutlined,
@@ -62,7 +64,7 @@ import {
   Typography,
   Upload,
 } from 'antd';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { DEFAULT_SETTINGS, localizeBuiltInScenePresets, MODEL_CAPABILITIES, PRICING, STORAGE_KEYS } from './constants';
 import LogoComposer from './LogoComposer';
 import LogoReplaceComposer from './LogoReplaceComposer';
@@ -112,6 +114,20 @@ const { Header, Sider, Content } = Layout;
 const { Text, Title, Paragraph } = Typography;
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
 const ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+
+const CREATION_TOOL_ITEMS: Array<{ key: CreationTool; label: string; icon: ReactNode; disabled?: boolean }> = [
+  { key: 'scene', icon: <FileImageOutlined />, label: '场景图生成' },
+  { key: 'scene-replace', icon: <SwapOutlined />, label: '场景替换' },
+  { key: 'logo', icon: <ExperimentOutlined />, label: 'Logo 合成' },
+  { key: 'logo-replace', icon: <SwapOutlined />, label: 'Logo 替换' },
+  { key: 'logo-export', icon: <DownloadOutlined />, label: '批量导出 Logo' },
+  { key: 'paper-text', icon: <EditOutlined />, label: '花纸文字修改' },
+  { key: 'background-removal', icon: <HighlightOutlined />, label: '去除背景' },
+  { key: 'outpaint', icon: <ExpandOutlined />, label: '扩图' },
+  { key: 'object-replace', icon: <ReloadOutlined />, label: '物体批量替换' },
+  { key: 'inpaint', icon: <HighlightOutlined />, label: '局部重绘' },
+  { key: 'product-detail', icon: <FolderOpenOutlined />, label: '详情长图生成' },
+];
 
 function SettingsPanel({
   settings,
@@ -326,6 +342,9 @@ function AppContent() {
   const [tasks, setTasks] = useState<GenerationTask[]>([]);
   const [activePromptId, setActivePromptId] = useState(prompts[0].id);
   const [creationTool, setCreationTool] = useState<CreationTool>(() => readCreationTool(window.location.search));
+  const [pinnedCreationTools, setPinnedCreationTools] = useState<CreationTool[]>(() =>
+    readLocalStorage<CreationTool[]>(STORAGE_KEYS.pinnedCreationTools, []).filter((tool) => isCreationTool(tool) && CREATION_TOOL_ITEMS.some((item) => item.key === tool && !item.disabled)),
+  );
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [keyOpen, setKeyOpen] = useState(false);
   const [requestConsoleOpen, setRequestConsoleOpen] = useState(false);
@@ -366,6 +385,19 @@ function AppContent() {
     setCreationTool(tool);
     window.history.pushState({ ...window.history.state, creationTool: tool }, '', setCreationToolInUrl(window.location.href, tool));
   }, [creationTool]);
+
+  const togglePinnedCreationTool = useCallback((tool: CreationTool) => {
+    setPinnedCreationTools((current) => current.includes(tool) ? current.filter((item) => item !== tool) : [...current, tool]);
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.pinnedCreationTools, JSON.stringify(pinnedCreationTools));
+  }, [pinnedCreationTools]);
+
+  const creationToolMenuItems = useMemo(() => CREATION_TOOL_ITEMS.map((item) => ({
+    ...item,
+    label: <span className="creation-tool-menu-label"><span>{item.label}</span>{!item.disabled && <Tooltip title={pinnedCreationTools.includes(item.key) ? '取消置顶' : '置顶常用功能'}><button type="button" className={pinnedCreationTools.includes(item.key) ? 'tool-pin-button is-pinned' : 'tool-pin-button'} aria-label={`${pinnedCreationTools.includes(item.key) ? '取消置顶' : '置顶'}${item.label}`} onClick={(event) => { event.preventDefault(); event.stopPropagation(); togglePinnedCreationTool(item.key); }}>{pinnedCreationTools.includes(item.key) ? <PushpinFilled /> : <PushpinOutlined />}</button></Tooltip>}</span>,
+  })), [pinnedCreationTools, togglePinnedCreationTool]);
 
   useEffect(() => {
     const handlePopState = () => setCreationTool(readCreationTool(window.location.search));
@@ -754,6 +786,10 @@ function AppContent() {
 
       <Layout className="workspace-layout">
         <Sider width={214} className="nav-sider" breakpoint="lg" collapsedWidth={64}>
+          {pinnedCreationTools.length > 0 && <div className="pinned-tools"><Text className="pinned-tools-title"><PushpinFilled /> 已置顶</Text><div className="pinned-tools-list">{pinnedCreationTools.map((tool) => {
+            const item = CREATION_TOOL_ITEMS.find((candidate) => candidate.key === tool); if (!item) return null;
+            return <div key={tool} className={creationTool === tool ? 'pinned-tool-row is-active' : 'pinned-tool-row'}><Tooltip title={item.label} placement="right"><button type="button" className="pinned-tool-button" onClick={() => navigateToCreationTool(tool)}><span className="pinned-tool-icon">{item.icon}</span><span className="pinned-tool-label">{item.label}</span></button></Tooltip><Tooltip title="取消置顶"><button type="button" className="pinned-tool-remove" aria-label={`取消置顶${item.label}`} onClick={() => togglePinnedCreationTool(tool)}><PushpinFilled /></button></Tooltip></div>;
+          })}</div></div>}
           <Menu
             mode="inline"
             selectedKeys={[creationTool]}
@@ -761,20 +797,7 @@ function AppContent() {
               if (isCreationTool(key)) navigateToCreationTool(key);
             }}
             items={[
-              { key: 'create', type: 'group', label: '创作工具', children: [
-                { key: 'scene', icon: <FileImageOutlined />, label: '场景图生成' },
-                { key: 'scene-replace', icon: <SwapOutlined />, label: '场景替换' },
-                { key: 'logo', icon: <ExperimentOutlined />, label: 'Logo 合成' },
-                { key: 'logo-replace', icon: <SwapOutlined />, label: 'Logo 替换' },
-                { key: 'logo-export', icon: <DownloadOutlined />, label: '批量导出 Logo' },
-                { key: 'paper-text', icon: <EditOutlined />, label: '花纸文字修改' },
-                { key: 'background-removal', icon: <HighlightOutlined />, label: '去除背景' },
-                { key: 'outpaint', icon: <ExpandOutlined />, label: '扩图' },
-                { key: 'object-replace', icon: <ReloadOutlined />, label: '物体批量替换' },
-                { key: 'inpaint', icon: <HighlightOutlined />, label: '局部重绘' },
-                { key: 'product-detail', icon: <FolderOpenOutlined />, label: '详情长图生成' },
-                { key: 'video', icon: <VideoCameraOutlined />, label: '视频生成', disabled: true },
-              ] },
+              { key: 'create', type: 'group', label: '创作工具', children: [...creationToolMenuItems, { key: 'video', icon: <VideoCameraOutlined />, label: '视频生成', disabled: true }] },
               { key: 'manage', type: 'group', label: '管理', children: [
                 { key: 'history', icon: <MenuFoldOutlined />, label: '历史记录', disabled: true },
               ] },
