@@ -78,8 +78,11 @@ async function blobToImageData(blob: Blob, maxDimension = 1600) {
 }
 
 export function preserveVectorOutputSize(svg: string, width: number, height: number) {
-  if (/<svg\s+width=/i.test(svg)) return svg.replace(/<svg\s+width="[^"]+"\s+height="[^"]+"/i, `<svg width="${width}" height="${height}"`);
-  return svg.replace(/<svg\s+/i, `<svg width="${width}" height="${height}" `);
+  const openingTag = svg.match(/<svg\b[^>]*>/i)?.[0];
+  if (!openingTag) return svg;
+  const withoutDimensions = openingTag.replace(/\s(?:width|height)\s*=\s*(?:"[^"]*"|'[^']*')/gi, '');
+  const sizedOpeningTag = withoutDimensions.replace(/<svg\b/i, `<svg width="${width}" height="${height}"`);
+  return svg.replace(openingTag, sizedOpeningTag);
 }
 
 export function serializeVisibleSvg(svg: SVGSVGElement, width: number, height: number): string {

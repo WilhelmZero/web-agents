@@ -21,6 +21,23 @@ describe('true vector export eligibility', () => {
       .toContain('<svg width="1000" height="1000" viewBox="0 0 800 800"');
   });
 
+  it('keeps exactly one size pair when namespace precedes existing dimensions', () => {
+    const output = preserveVectorOutputSize(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1200" viewBox="0 0 800 1200"><path d="M0 0"/></svg>',
+      1024,
+      1536,
+    );
+    expect(output.match(/\bwidth=/g)).toHaveLength(1);
+    expect(output.match(/\bheight=/g)).toHaveLength(1);
+    expect(output).toContain('<svg width="1024" height="1536" xmlns="http://www.w3.org/2000/svg"');
+  });
+
+  it('normalizes an already duplicated SVG size pair', () => {
+    const output = preserveVectorOutputSize('<svg width="1024" height="1536" width="800" height="1200"><path/></svg>', 1024, 1536);
+    expect(output.match(/\bwidth=/g)).toHaveLength(1);
+    expect(output.match(/\bheight=/g)).toHaveLength(1);
+  });
+
   it('builds the trace palette from exact source colors including transparency', () => {
     const data = new Uint8ClampedArray([
       237, 96, 151, 255, 237, 96, 151, 255,
