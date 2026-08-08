@@ -6,6 +6,7 @@ export interface VectorEligibility {
 interface TraceColor { r: number; g: number; b: number; a: number }
 export interface VectorTraceConfig { detailed: boolean; colors: number; ltres: number; qtres: number; pathomit: number; rightangleenhance: boolean; linefilter: boolean; roundcoords: number }
 export interface VTracerConfig { mode: 'spline'; hierarchical: 'stacked'; corner_threshold: number; length_threshold: number; max_iterations: number; splice_threshold: number; filter_speckle: number; color_precision: number; layer_difference: number; path_precision: number }
+export type VectorTraceEngine = 'auto' | 'imagetracer' | 'vtracer';
 
 export function analyzeVectorEligibility(imageData: Pick<ImageData, 'data' | 'width' | 'height'>): VectorEligibility {
   const bins = new Set<number>();
@@ -60,6 +61,11 @@ export function buildVTracerConfig(): VTracerConfig {
     splice_threshold: Math.PI / 4, filter_speckle: 2,
     color_precision: 2, layer_difference: 16, path_precision: 2,
   };
+}
+
+export function resolveVectorTraceEngine(analysis: VectorEligibility, requestedColors: number | undefined, engine: VectorTraceEngine): Exclude<VectorTraceEngine, 'auto'> {
+  if (engine !== 'auto') return engine;
+  return !analysis.eligible && requestedColors === undefined ? 'vtracer' : 'imagetracer';
 }
 
 async function blobToImageData(blob: Blob, maxDimension = 1600) {
@@ -120,11 +126,11 @@ async function vectorizeComplexImage(imageData: ImageData): Promise<string> {
   } finally { canvas.remove(); svg.remove(); }
 }
 
-export async function vectorizeImageToSvg(blob: Blob, colorCount?: number) {
+export async function vectorizeImageToSvg(blob: Blob, colorCount?: number, engine: VectorTraceEngine = 'auto') {
   const { imageData, original } = await blobToImageData(blob);
   const analysis = analyzeVectorEligibility(imageData);
   await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-  if (!analysis.eligible && colorCount === undefined) {
+  if (resolveVectorTraceEngine(analysis, colorCount, engine) === 'vtracer') {
     const svg = await vectorizeComplexImage(imageData);
     if (!/<path\b/i.test(svg)) throw new Error('VTracer 未能提取有效矢量路径');
     return new Blob([preserveVectorOutputSize(svg, original.width, original.height)], { type: 'image/svg+xml;charset=utf-8' });

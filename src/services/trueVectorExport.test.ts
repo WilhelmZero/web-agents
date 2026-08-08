@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { analyzeVectorEligibility, buildVectorTraceConfig, buildVTracerConfig, extractColorPreservingPalette, preserveVectorOutputSize, serializeVisibleSvg } from './trueVectorExport';
+import { analyzeVectorEligibility, buildVectorTraceConfig, buildVTracerConfig, extractColorPreservingPalette, preserveVectorOutputSize, resolveVectorTraceEngine, serializeVisibleSvg } from './trueVectorExport';
 
 describe('true vector export eligibility', () => {
   it('accepts simple two-color artwork', () => {
@@ -65,6 +65,13 @@ describe('true vector export eligibility', () => {
       mode: 'spline', hierarchical: 'stacked', color_precision: 2,
       layer_difference: 16, filter_speckle: 2, path_precision: 2,
     });
+  });
+
+  it('keeps automatic routing while allowing either tracer to be forced', () => {
+    const complex = { eligible: false, colorBins: 25, suggestedColors: 24 };
+    expect(resolveVectorTraceEngine(complex, undefined, 'auto')).toBe('vtracer');
+    expect(resolveVectorTraceEngine(complex, undefined, 'imagetracer')).toBe('imagetracer');
+    expect(resolveVectorTraceEngine({ eligible: true, colorBins: 2, suggestedColors: 2 }, undefined, 'vtracer')).toBe('vtracer');
   });
 
   it('removes temporary hidden styles before exporting VTracer SVG', () => {

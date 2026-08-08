@@ -8,7 +8,7 @@ import { editPaperTextOpenAi } from './services/paperText';
 import { STORAGE_KEYS } from './constants';
 import { readLocalStorage } from './storage';
 import { reportTaskProgress } from './services/taskProgress';
-import { vectorizeImageToSvg } from './services/trueVectorExport';
+import { vectorizeImageToSvg, type VectorTraceEngine } from './services/trueVectorExport';
 import { upscaleTransparentPng } from './services/imageUpscale';
 import { detectBorderMatte, restoreTransparentBackground, type RgbColor } from './services/transparentImageEdit';
 import { createId, downloadBlob, sanitizeFileName } from './utils';
@@ -16,7 +16,7 @@ import { createId, downloadBlob, sanitizeFileName } from './utils';
 const { Text, Title, Paragraph } = Typography;
 const ACCEPTED = ['image/png', 'image/jpeg', 'image/webp'];
 type RemovalMode = 'local' | 'hsv-only' | 'gpt-hybrid' | 'gpt-color-key' | 'gpt-direct';
-interface RemovalSettings { mode: RemovalMode; quality: 'high' | 'medium' | 'low'; gptBackground: string; edgeExpansion: number; edgeFeather: number; autoVectorize: boolean; outputHd: boolean; hdScale: 2 | 4 }
+interface RemovalSettings { mode: RemovalMode; quality: 'high' | 'medium' | 'low'; gptBackground: string; edgeExpansion: number; edgeFeather: number; autoVectorize: boolean; vectorEngine: VectorTraceEngine; outputHd: boolean; hdScale: 2 | 4 }
 type PreviewMode = 'source' | 'ai' | 'result';
 interface Item { id: string; file: File; sourceUrl: string; status: 'waiting' | 'running' | 'success' | 'failed'; progress?: number; stage?: string; matteColor?: string; aiResultBlob?: Blob; aiResultUrl?: string; resultBlob?: Blob; resultUrl?: string; resultMode?: RemovalMode; resultResolution?: string; alphaStatus?: 'valid' | 'missing'; vectorBlob?: Blob; vectorStatus?: 'converting' | 'ready' | 'failed'; error?: string }
 const CONCURRENCY = 2;
@@ -29,7 +29,7 @@ export default function BackgroundRemovalComposer({ openAiApiKey, onRequestKey, 
   const { message } = App.useApp();
   const [items, setItems] = useState<Item[]>([]);
   const [busy, setBusy] = useState(false);
-  const [settings, setSettings] = useState<RemovalSettings>(() => readLocalStorage<RemovalSettings>(STORAGE_KEYS.backgroundRemovalSettings, { mode: 'local', quality: 'high', gptBackground: 'auto', edgeExpansion: 2, edgeFeather: 1, autoVectorize: false, outputHd: false, hdScale: 2 }));
+  const [settings, setSettings] = useState<RemovalSettings>(() => readLocalStorage<RemovalSettings>(STORAGE_KEYS.backgroundRemovalSettings, { mode: 'local', quality: 'high', gptBackground: 'auto', edgeExpansion: 2, edgeFeather: 1, autoVectorize: false, vectorEngine: 'auto', outputHd: false, hdScale: 2 }));
   const patchSettings = (value: Partial<RemovalSettings>) => setSettings((current) => ({ ...current, ...value }));
   const [previewModes, setPreviewModes] = useState<Record<string, PreviewMode>>({});
   const patchItem = (id: string, value: Partial<Item>) => setItems((current) => current.map((item) => item.id === id ? { ...item, ...value } : item));
@@ -92,7 +92,7 @@ export default function BackgroundRemovalComposer({ openAiApiKey, onRequestKey, 
       patchItem(item.id, { status: 'success', progress: 100, resultBlob, resultUrl, resultMode: settings.mode, resultResolution, alphaStatus: settings.mode === 'gpt-direct' ? (hasAlpha ? 'valid' : 'missing') : settings.mode === 'gpt-color-key' || settings.mode === 'hsv-only' ? 'valid' : undefined, vectorBlob: undefined, vectorStatus: settings.autoVectorize ? 'converting' : undefined });
       setPreviewModes((current) => ({ ...current, [item.id]: 'result' }));
       if (settings.autoVectorize) {
-        try { patchItem(item.id, { vectorBlob: await vectorizeImageToSvg(resultBlob), vectorStatus: 'ready' }); }
+        try { patchItem(item.id, { vectorBlob: await vectorizeImageToSvg(resultBlob, undefined, settings.vectorEngine), vectorStatus: 'ready' }); }
         catch (error) { patchItem(item.id, { vectorStatus: 'failed', error: error instanceof Error ? error.message : '自动矢量化失败' }); }
       }
     } catch (error) { patchItem(item.id, { status: 'failed', error: error instanceof Error ? error.message : '去除背景失败' }); }
@@ -106,7 +106,7 @@ export default function BackgroundRemovalComposer({ openAiApiKey, onRequestKey, 
   };
   const vectorize = async (item: Item) => {
     if (!item.resultBlob) return; patchItem(item.id, { vectorStatus: 'converting' });
-    try { patchItem(item.id, { vectorBlob: await vectorizeImageToSvg(item.resultBlob), vectorStatus: 'ready' }); }
+    try { patchItem(item.id, { vectorBlob: await vectorizeImageToSvg(item.resultBlob, undefined, settings.vectorEngine), vectorStatus: 'ready' }); }
     catch (error) { patchItem(item.id, { vectorStatus: 'failed', error: error instanceof Error ? error.message : '矢量化失败' }); }
   };
   const clearAll = () => { setItems((current) => { current.forEach((item) => { URL.revokeObjectURL(item.sourceUrl); if (item.aiResultUrl) URL.revokeObjectURL(item.aiResultUrl); if (item.resultUrl) URL.revokeObjectURL(item.resultUrl); }); return []; }); setPreviewModes({}); };
@@ -116,6 +116,7 @@ export default function BackgroundRemovalComposer({ openAiApiKey, onRequestKey, 
     const mode = previewModes[item.id] || (item.resultUrl ? 'result' : item.aiResultUrl ? 'ai' : 'source');
     return mode === 'source' ? item.sourceUrl : mode === 'ai' ? item.aiResultUrl : item.resultUrl;
   };
+  const vectorEnginePanel = <div className="settings-panel"><Title level={4}>矢量化算法</Title><Form layout="vertical"><Form.Item label="处理引擎" tooltip="透明黑色素材建议选择 ImageTracer；复杂彩色插画可选择 VTracer"><Select value={settings.vectorEngine} onChange={(vectorEngine) => patchSettings({ vectorEngine })} options={[{ value: 'auto', label: '自动识别（默认）' }, { value: 'imagetracer', label: 'ImageTracer（透明图推荐）' }, { value: 'vtracer', label: 'VTracer（复杂彩色图）' }]} /></Form.Item></Form><Text type="secondary">该选择同时作用于自动矢量化和结果卡片中的手动转换。</Text></div>;
   const outputPanel = <div className="settings-panel"><Title level={4}>输出设置</Title><Form layout="vertical"><Form.Item label="自动矢量化" tooltip="抠图完成后自动生成可编辑 SVG 路径"><Switch checked={settings.autoVectorize} onChange={(autoVectorize) => patchSettings({ autoVectorize })} checkedChildren="开启" unCheckedChildren="关闭" /></Form.Item><Form.Item label="输出高清图" tooltip="本地高质量重采样放大并保留透明 Alpha，不消耗 API"><Switch checked={settings.outputHd} onChange={(outputHd) => patchSettings({ outputHd })} checkedChildren="开启" unCheckedChildren="关闭" /></Form.Item>{settings.outputHd && <Form.Item label="高清倍率"><Select value={settings.hdScale} onChange={(hdScale) => patchSettings({ hdScale })} options={[{ value: 2, label: '2× 高清（推荐）' }, { value: 4, label: '4× 超高清' }]} /></Form.Item>}</Form><Text type="secondary">高清图使用本地高质量重采样，保留透明背景；超大图片会自动限制到浏览器安全尺寸。</Text></div>;
   const panel = <div className="settings-panel"><Title level={4}>智能抠图</Title><Form layout="vertical"><Form.Item label="处理方式"><Select value={settings.mode} onChange={(mode) => patchSettings({ mode })} options={[{ value: 'hsv-only', label: '仅 HSV 透明化（无需 AI）' }, { value: 'gpt-color-key', label: 'GPT 纯色分离 + HSV 透明（推荐）' }, { value: 'local', label: '本地智能抠图（快速）' }, { value: 'gpt-hybrid', label: 'GPT 复杂图精细抠图' }, { value: 'gpt-direct', label: 'GPT 直接透明返回（实验）' }]} /></Form.Item>{settings.mode !== 'local' && settings.mode !== 'hsv-only' && <Form.Item label="GPT 输出质量"><Select value={settings.quality} onChange={(quality) => patchSettings({ quality })} options={['high', 'medium', 'low'].map((value) => ({ value, label: value }))} /></Form.Item>}{(settings.mode === 'gpt-hybrid' || settings.mode === 'gpt-color-key' || settings.mode === 'hsv-only') && <Form.Item label={settings.mode === 'hsv-only' ? '原图背景色' : 'GPT 分离底色'} tooltip="自动模式会从原图边缘识别主背景色"><Select value={settings.gptBackground} onChange={(gptBackground) => patchSettings({ gptBackground })} options={[{ value: 'auto', label: settings.mode === 'hsv-only' ? '自动识别图片边缘背景色（推荐）' : '自动避开主体颜色（推荐）' }, { value: '#FF00FF', label: '🟪 品红 #FF00FF' }, { value: '#00FFFF', label: '🟦 青色 #00FFFF' }, { value: '#00FF00', label: '🟩 绿色 #00FF00' }, { value: '#FFFF00', label: '🟨 黄色 #FFFF00' }, { value: '#000000', label: '⬛ 黑色 #000000' }, { value: '#FFFFFF', label: '⬜ 白色 #FFFFFF' }]} /></Form.Item>}{(settings.mode === 'local' || settings.mode === 'gpt-hybrid') && <><Form.Item label={`主体保留：扩展 ${settings.edgeExpansion}px`} tooltip="主体被抠掉太多时调大；背景残留时调小"><Slider min={0} max={8} step={1} value={settings.edgeExpansion} onChange={(edgeExpansion) => patchSettings({ edgeExpansion })} marks={{ 0: '精确', 2: '推荐', 8: '保留更多' }} /></Form.Item><Form.Item label={`边缘柔化：${settings.edgeFeather}px`} tooltip="减少锯齿；过大会让边缘发虚"><Slider min={0} max={4} step={1} value={settings.edgeFeather} onChange={(edgeFeather) => patchSettings({ edgeFeather })} marks={{ 0: '清晰', 1: '推荐', 4: '柔和' }} /></Form.Item></>}</Form><Text type="secondary">{settings.mode === 'local' ? '浏览器本地处理，不需要 API Key。主体被误删时提高“主体保留”。' : settings.mode === 'hsv-only' ? '直接从原图边缘识别纯色背景并转换为 Alpha，不请求 AI，也不运行本地抠图模型。' : settings.mode === 'gpt-direct' ? 'GPT 直接返回透明 PNG，不经过本地模型。系统会检测 Alpha；若未检测到透明通道，会保留原始返回供调试。' : settings.mode === 'gpt-color-key' ? '复刻 ChatGPT 下载附件流程：GPT 只生成纯色底，浏览器分析 HSV 色域、去除色边并输出 RGBA PNG，不运行本地抠图模型。' : 'GPT 先生成高反差纯色底，本地模型再生成透明 Alpha；可通过 AI 返回图检查底色效果。'}</Text></div>;
 
@@ -133,6 +134,6 @@ export default function BackgroundRemovalComposer({ openAiApiKey, onRequestKey, 
         </div>
       </Card>)}</div></Image.PreviewGroup> : <Empty description="处理结果会显示在这里" />}
     </section>
-    {!settingsHost && <aside className="logo-settings">{panel}{outputPanel}</aside>}{settingsHost && createPortal(<>{panel}{outputPanel}</>, settingsHost)}
+    {!settingsHost && <aside className="logo-settings">{panel}{outputPanel}{vectorEnginePanel}</aside>}{settingsHost && createPortal(<>{panel}{outputPanel}{vectorEnginePanel}</>, settingsHost)}
   </div>;
 }
