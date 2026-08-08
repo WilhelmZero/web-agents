@@ -21,6 +21,14 @@ describe('dedicated background removal', () => {
     expect(prompt).not.toContain('透明背景');
   });
 
+  it('provides a direct transparent prompt that forbids subject redrawing', async () => {
+    const { buildGptDirectTransparentPrompt } = await import('./backgroundRemoval');
+    const prompt = buildGptDirectTransparentPrompt();
+    expect(prompt).toContain('real transparent PNG with an alpha channel');
+    expect(prompt).toContain('Do not redraw');
+    expect(prompt).toContain('geometry');
+  });
+
   it('uses the quality matting model and returns a transparent PNG', async () => {
     const { removeImageBackground } = await import('./backgroundRemoval');
     const input = new Blob(['image'], { type: 'image/jpeg' });

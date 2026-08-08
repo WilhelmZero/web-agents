@@ -56,4 +56,13 @@ describe('paper text helpers', () => {
     expect(snapshots.at(-1)?.[0].requestSummary).toContain('OpenAI Images Edit');
     unsubscribe();
   });
+
+  it('passes an explicitly requested transparent background to the Images API', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [{ b64_json: 'aGVsbG8=' }] }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    await editPaperTextOpenAi({ apiKey: 'test-key', model: 'gpt-image-1.5', image: new File(['image'], 'subject.png', { type: 'image/png' }), prompt: 'remove background', quality: 'high', background: 'transparent' });
+    const body = fetchMock.mock.calls[0][1].body as FormData;
+    expect(body.get('background')).toBe('transparent');
+    expect(body.get('output_format')).toBe('png');
+  });
 });

@@ -87,12 +87,13 @@ export async function recognizePaperTextOpenAi(options: { apiKey: string; model:
   return normalizePaperTextRegions(value);
 }
 
-export async function editPaperTextOpenAi(options: { apiKey: string; model: string; image: File; mask?: File; prompt: string; quality: string; signal?: AbortSignal }): Promise<Blob> {
+export async function editPaperTextOpenAi(options: { apiKey: string; model: string; image: File; mask?: File; prompt: string; quality: string; background?: 'transparent' | 'opaque' | 'auto'; signal?: AbortSignal }): Promise<Blob> {
   const form = new FormData();
   form.append('image[]', options.image, options.image.name);
   if (options.mask) form.append('mask', options.mask, options.mask.name);
   form.append('prompt', options.prompt); form.append('model', options.model); form.append('n', '1');
   form.append('size', 'auto'); form.append('quality', options.quality); form.append('output_format', 'png');
+  if (options.background) form.append('background', options.background);
   if (supportsOpenAiInputFidelity(options.model)) form.append('input_fidelity', 'high');
   const startedAt = performance.now();
   const consoleId = startRequestConsoleEntry({ model: options.model, connection: 'direct', requestSummary: `OpenAI Images Edit · 1 张输入图片 · ${options.quality} 质量` });

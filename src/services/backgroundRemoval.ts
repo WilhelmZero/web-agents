@@ -9,6 +9,10 @@ export function buildGptBackgroundRemovalPrompt(backgroundColor: string): string
   return `精确分离图片中的完整前景主体。保持主体的构图、位置、尺寸、比例、姿态、轮廓、颜色、材质、文字、Logo 和所有内部细节不变，不要重新设计、补画、裁切或移动主体。必须保留细发、绒毛、透明材质、镂空区域、轮辐、缝隙和细小零件。移除主体之外的全部背景、投影、背景反光和颜色溢出，把所有背景区域（包括主体内部孔洞）替换为完全均匀、准确的纯色 ${backgroundColor}。主体与 ${backgroundColor} 背景之间必须有清晰自然的高反差边缘；不要描边、光晕、棋盘格、渐变、纹理、阴影或残留背景。背景每一个像素都必须保持相同的 ${backgroundColor}，不得把该颜色混入主体。输出完整图片，不要添加说明文字。`;
 }
 
+export function buildGptDirectTransparentPrompt(): string {
+  return 'Remove the background and return a real transparent PNG with an alpha channel. Preserve the foreground subject exactly: keep its original geometry, silhouette, position, scale, proportions, pose, facial features, hands, text, logos, colors, materials, texture, fine hair, translucent areas, holes, and every internal detail unchanged. Do not redraw, reshape, beautify, repair, crop, move, enlarge, or reinterpret any part of the subject. Remove only the background, background reflections, and background color spill. Keep natural antialiased edges without halos. The background must be genuinely transparent, not white, solid color, or a checkerboard pattern.';
+}
+
 const AUTO_MATTE_COLORS = ['#FF00FF', '#00FF00', '#00FFFF', '#FFFF00'] as const;
 
 export async function chooseContrastingBackground(image: Blob): Promise<string> {
