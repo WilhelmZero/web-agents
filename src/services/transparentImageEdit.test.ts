@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chooseChromaMatte, hasTransparentPixels, removeChromaFromPixels } from './transparentImageEdit';
+import { chooseChromaMatte, detectBorderMatteFromPixels, hasTransparentPixels, removeChromaFromPixels } from './transparentImageEdit';
 
 describe('transparent image editing helpers', () => {
   it('detects alpha transparency', () => {
@@ -29,5 +29,14 @@ describe('transparent image editing helpers', () => {
   it('keeps low-saturation detail even when its hue is close to the matte', () => {
     const restored = removeChromaFromPixels(new Uint8ClampedArray([110, 120, 130, 255]), { r: 30, g: 144, b: 241 });
     expect(restored[3]).toBe(255);
+  });
+
+  it('detects the dominant high-contrast background from image borders', () => {
+    const pixels = new Uint8ClampedArray([
+      30, 144, 241, 255, 31, 145, 242, 255, 30, 144, 241, 255,
+      29, 143, 240, 255, 10, 10, 10, 255, 31, 145, 242, 255,
+      30, 144, 241, 255, 29, 143, 240, 255, 30, 144, 241, 255,
+    ]);
+    expect(detectBorderMatteFromPixels(pixels, 3, 3)).toEqual({ r: 30, g: 144, b: 241 });
   });
 });

@@ -3,6 +3,7 @@ export interface VectorEligibility {
   colorBins: number;
   suggestedColors: number;
 }
+interface TraceColor { r: number; g: number; b: number; a: number }
 
 export function analyzeVectorEligibility(imageData: Pick<ImageData, 'data' | 'width' | 'height'>): VectorEligibility {
   const bins = new Set<number>();
@@ -18,7 +19,29 @@ export function analyzeVectorEligibility(imageData: Pick<ImageData, 'data' | 'wi
     bins.add((red << 6) | (green << 3) | blue);
     if (bins.size > 24) break;
   }
-  return { eligible: bins.size <= 12, colorBins: bins.size, suggestedColors: Math.max(2, Math.min(8, bins.size)) };
+  return { eligible: bins.size <= 12, colorBins: bins.size, suggestedColors: Math.max(2, Math.min(24, bins.size)) };
+}
+
+export function extractColorPreservingPalette(imageData: Pick<ImageData, 'data' | 'width' | 'height'>, maximumColors: number): TraceColor[] {
+  const bins = new Map<number, { count: number; r: number; g: number; b: number; a: number }>();
+  const pixels = imageData.width * imageData.height;
+  for (let pixel = 0; pixel < pixels; pixel += 1) {
+    const offset = pixel * 4; const alpha = imageData.data[offset + 3];
+    const key = alpha < 16 ? -1 : ((imageData.data[offset] >> 4) << 12) | ((imageData.data[offset + 1] >> 4) << 8) | ((imageData.data[offset + 2] >> 4) << 4) | (alpha >> 4);
+    const bin = bins.get(key) || { count: 0, r: 0, g: 0, b: 0, a: 0 };
+    bin.count += 1; bin.r += imageData.data[offset]; bin.g += imageData.data[offset + 1]; bin.b += imageData.data[offset + 2]; bin.a += alpha; bins.set(key, bin);
+  }
+  const selected = [...bins.entries()].sort((left, right) => right[1].count - left[1].count).slice(0, Math.max(2, maximumColors));
+  const choices = selected.map(([key, bin]) => ({ key, target: { r: bin.r / bin.count, g: bin.g / bin.count, b: bin.b / bin.count, a: bin.a / bin.count }, best: key === -1 ? { r: 0, g: 0, b: 0, a: 0 } : undefined as TraceColor | undefined, distance: Number.POSITIVE_INFINITY }));
+  const choiceByKey = new Map(choices.map((choice) => [choice.key, choice]));
+  for (let pixel = 0; pixel < pixels; pixel += 1) {
+    const offset = pixel * 4; const alpha = imageData.data[offset + 3];
+    const key = alpha < 16 ? -1 : ((imageData.data[offset] >> 4) << 12) | ((imageData.data[offset + 1] >> 4) << 8) | ((imageData.data[offset + 2] >> 4) << 4) | (alpha >> 4);
+    const choice = choiceByKey.get(key); if (!choice || key === -1) continue;
+    const distance = (imageData.data[offset] - choice.target.r) ** 2 + (imageData.data[offset + 1] - choice.target.g) ** 2 + (imageData.data[offset + 2] - choice.target.b) ** 2 + (alpha - choice.target.a) ** 2;
+    if (distance < choice.distance) { choice.distance = distance; choice.best = { r: imageData.data[offset], g: imageData.data[offset + 1], b: imageData.data[offset + 2], a: alpha }; }
+  }
+  return choices.map((choice) => choice.best || { r: Math.round(choice.target.r), g: Math.round(choice.target.g), b: Math.round(choice.target.b), a: Math.round(choice.target.a) });
 }
 
 async function blobToImageData(blob: Blob, maxDimension = 1600) {
@@ -52,14 +75,16 @@ export async function vectorizeImageToSvg(blob: Blob, colorCount?: number) {
   await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
   const imported = await import('imagetracerjs');
   const tracer = imported.default;
+  const palette = extractColorPreservingPalette(imageData, colorCount || Math.max(8, analysis.suggestedColors));
   const svg = tracer.imagedataToSVG(imageData, {
     ltres: 1,
     qtres: 1,
     pathomit: 8,
     rightangleenhance: true,
     colorsampling: 2,
-    numberofcolors: colorCount || analysis.suggestedColors,
-    colorquantcycles: 3,
+    numberofcolors: palette.length,
+    colorquantcycles: 1,
+    pal: palette,
     layering: 0,
     strokewidth: 0,
     linefilter: true,
