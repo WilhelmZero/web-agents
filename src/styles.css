@@ -273,7 +273,6 @@ button, input, textarea { font: inherit; }
 .scene-preview-compare-action { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 6px; color: rgba(255,255,255,.72); background: transparent; cursor: pointer; font-size: 18px; }
 .scene-preview-compare-action:hover,.scene-preview-compare-action.is-active { color: #fff; background: rgba(255,255,255,.18); }
 .folder-group-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; margin-top: 14px; }
-.multi-tab-logo-page input[webkitdirectory] { width: 100%; padding: 18px; border: 1px dashed #b9b0da; border-radius: 12px; background: #faf8ff; }
 
 @media (max-width: 640px) {
   .topbar { height: 64px; padding: 0 12px; }

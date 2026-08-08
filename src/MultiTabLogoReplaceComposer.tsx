@@ -1,4 +1,4 @@
-import { App, Alert, Button, Card, Empty, Flex, InputNumber, Space, Tag, Typography, Upload } from 'antd';
+import { App, Alert, Button, Card, Empty, Flex, InputNumber, Modal, Space, Tag, Typography, Upload } from 'antd';
 import { FileImageOutlined, FolderOpenOutlined, RocketOutlined, SyncOutlined } from '@ant-design/icons';
 import { useEffect, useRef, useState } from 'react';
 import LogoReplaceComposer from './LogoReplaceComposer';
@@ -60,6 +60,7 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
   const [globalConcurrency, setGlobalConcurrency] = useState(6);
   const [activeBatchId, setActiveBatchId] = useState<string>();
   const [pendingPsdFile, setPendingPsdFile] = useState<File>();
+  const [blockedWorkerUrls, setBlockedWorkerUrls] = useState<Array<{ name: string; url: string }>>([]);
   const [workerBatch, setWorkerBatch] = useState<SharedBatch>(); const [workerGroup, setWorkerGroup] = useState<FolderGroup>(); const [injected, setInjected] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null); const loadedLogoKeys = useRef(new Set<string>());
   const [channel, setChannel] = useState<BroadcastChannel>();
@@ -110,11 +111,14 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
 
   const openWorkers = async () => {
     if (!groups.length) return void message.warning('请先选择包含各组图片的根文件夹'); if (!logos.length) return void message.warning('请先上传公共 Logo');
-    const selected = groups.slice(0, tabLimit); const windows = selected.map(() => window.open('about:blank', '_blank')); const id = `batch-${Date.now()}`;
+    const selected = groups.slice(0, tabLimit); const id = `batch-${Date.now()}`;
+    const placeholders = selected.map((_group, index) => window.open('', `scene-studio-logo-worker-${id}-${index}`));
     await saveBatch({ id, createdAt: Date.now(), groups, logos, globalConcurrency });
     setActiveBatchId(id);
-    selected.forEach((group, index) => { const url = new URL(location.href); url.searchParams.set('tool', 'logo-replace-tabs'); url.searchParams.set('worker', '1'); url.searchParams.set('batch', id); url.searchParams.set('group', group.id); if (windows[index]) windows[index]!.location.href = url.toString(); });
-    const blocked = windows.filter((item) => !item).length; if (blocked) message.warning(`${blocked} 个标签被浏览器拦截，请允许本站弹出窗口后重试`);
+    const targets = selected.map((group) => { const url = new URL(location.href); url.searchParams.set('tool', 'logo-replace-tabs'); url.searchParams.set('worker', '1'); url.searchParams.set('batch', id); url.searchParams.set('group', group.id); return { name: group.name, url: url.toString() }; });
+    const blocked: typeof targets = [];
+    targets.forEach((target, index) => { const opened = placeholders[index]; if (opened) opened.location.href = target.url; else blocked.push(target); });
+    setBlockedWorkerUrls(blocked); if (blocked.length) message.warning(`${blocked.length} 个标签被浏览器拦截，请在弹窗中逐个打开或允许本站弹出窗口`);
     if (selected.length < groups.length) message.info(`已打开 ${selected.length} 组，其余 ${groups.length - selected.length} 组可提高同时标签数后再次打开`);
   };
   const syncLogos = async () => { const id = activeBatchId || batchId; if (!id) return; const batch = await readBatch(id); if (!batch) return; batch.logos = logos; await saveBatch(batch); channel?.postMessage({ type: 'logos-updated', batchId: id }); message.success('公共 Logo 更新已广播'); };
@@ -122,10 +126,11 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
   if (worker) return <div ref={rootRef}><Alert type={injected ? 'success' : 'info'} showIcon title={workerGroup ? `工作标签：${workerGroup.name}` : '正在加载分组任务'} description={workerGroup ? `${workerGroup.path} · ${workerGroup.files.length} 张场景图 · 公共 Logo ${workerBatch?.logos.length || 0} 个${injected ? '，已自动导入' : '，正在自动导入…'}` : '请保留主控标签页以便接收公共 Logo 更新。'} style={{ marginBottom: 16 }} /><LogoReplaceComposer {...props} /></div>;
 
   return <div className="multi-tab-logo-page"><section className="hero-strip logo-replace-hero"><div><Text className="eyebrow">MULTI-TAB LOGO REPLACER</Text><Title level={2}>一个主控页，分发多组 Logo 替换任务</Title><Paragraph className="hero-description">一次选择场景根文件夹和公共 Logo，每个最深层子目录自动分配到独立标签页；工作页完整使用现有 Logo 替换功能。</Paragraph></div><div className="hero-orb" /></section>
-    <Card className="workflow-card" title="1. 选择场景根文件夹"><input aria-label="选择场景根文件夹" type="file" multiple {...({ webkitdirectory: '', directory: '' } as object)} onChange={(event) => { const next = groupFolderFiles([...event.currentTarget.files || []]); setGroups(next); message.success(`识别到 ${next.length} 个图片分组`); }} /><Paragraph type="secondary">支持“测试图片/AM058/AM058”这类两层目录，按最深层图片目录自动分组。</Paragraph>{groups.length ? <div className="folder-group-grid">{groups.map((group) => <Card key={group.id} size="small"><FolderOpenOutlined /> <Text strong>{group.name}</Text><br /><Text type="secondary">{group.path} · {group.files.length} 张</Text></Card>)}</div> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="选择文件夹后显示分组" />}</Card>
+    <Card className="workflow-card" title="1. 选择场景根文件夹"><Upload.Dragger directory multiple showUploadList={false} accept="image/png,image/jpeg,image/webp" beforeUpload={(_file, fileList) => { const next = groupFolderFiles(fileList as File[]); setGroups(next); message.success(`识别到 ${next.length} 个图片分组`); return Upload.LIST_IGNORE; }}><FolderOpenOutlined style={{ fontSize: 34, color: '#7654dd' }} /><p className="ant-upload-text">拖拽或点击选择场景根文件夹</p><p className="ant-upload-hint">支持“测试图片/AM058/AM058”这类两层目录，按最深层图片目录自动分组</p></Upload.Dragger>{groups.length ? <div className="folder-group-grid">{groups.map((group) => <Card key={group.id} size="small"><FolderOpenOutlined /> <Text strong>{group.name}</Text><br /><Text type="secondary">{group.path} · {group.files.length} 张</Text></Card>)}</div> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="选择文件夹后显示分组" />}</Card>
     <Card className="workflow-card" title="2. 上传所有标签共用的 Logo"><Upload.Dragger multiple showUploadList accept="image/png,image/jpeg,image/webp,.psd,image/vnd.adobe.photoshop" beforeUpload={(file) => { const next = file as File; if (next.name.toLowerCase().endsWith('.psd') || next.type === 'image/vnd.adobe.photoshop') setPendingPsdFile(next); else setLogos((current) => [...current, next]); return false; }} onRemove={(file) => setLogos((current) => current.filter((item) => !(item.name === file.name && item.size === file.size))) }><FileImageOutlined style={{ fontSize: 30 }} /><p>拖拽或选择公共 Logo / PSD</p></Upload.Dragger><Flex gap={8} wrap style={{ marginTop: 12 }}>{logos.map((logo) => <Tag key={`${logo.name}-${logo.lastModified}`}>{logo.name}</Tag>)}</Flex>{activeBatchId && <Button icon={<SyncOutlined />} onClick={() => void syncLogos()}>同步到已打开标签</Button>}</Card>
     <Card className="action-card"><Flex justify="space-between" align="center" wrap gap={12}><div><Title level={4} style={{ margin: 0 }}>准备分发 {groups.length} 组任务</Title><Text type="secondary">公共 Logo {logos.length} 个；Web Locks 将所有标签的 AI 请求合计限制在 {globalConcurrency} 个</Text></div><Space wrap><Text>同时打开</Text><InputNumber min={1} max={10} value={tabLimit} onChange={(value) => setTabLimit(value || 1)} /><Text>个标签</Text><Text>全局并发</Text><InputNumber min={1} max={12} value={globalConcurrency} onChange={(value) => setGlobalConcurrency(value || 1)} /><Button type="primary" size="large" icon={<RocketOutlined />} onClick={() => void openWorkers()}>保存批次并打开标签</Button></Space></Flex></Card>
     <Alert type="info" showIcon title="公共 Logo 采用批次锁定" description="工作标签从 IndexedDB 读取同一组 Logo；新增公共 Logo 后可广播同步。为避免运行中的校验基准变化，删除或替换 Logo 建议创建新批次。" />
     <PsdLogoImportModal file={pendingPsdFile} onClose={() => setPendingPsdFile(undefined)} onImport={(files) => { setLogos((current) => [...current, ...files]); message.success(`已加入 ${files.length} 个 PSD Logo 图层`); }} />
+    <Modal title="部分工作标签被浏览器拦截" open={blockedWorkerUrls.length > 0} footer={<Button onClick={() => setBlockedWorkerUrls([])}>关闭</Button>} onCancel={() => setBlockedWorkerUrls([])}><Alert type="warning" showIcon title="请允许本站弹出窗口，或点击下方按钮逐个打开" description="这是浏览器的多弹窗安全限制；批次已经保存，不需要重新选择文件夹和 Logo。" style={{ marginBottom: 14 }} /><Flex vertical gap={8}>{blockedWorkerUrls.map((target) => <Button key={target.url} icon={<RocketOutlined />} onClick={() => { const opened = window.open(target.url, '_blank'); if (opened) setBlockedWorkerUrls((current) => current.filter((item) => item.url !== target.url)); }}>{target.name} · 打开工作标签</Button>)}</Flex></Modal>
   </div>;
 }
