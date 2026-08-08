@@ -834,6 +834,7 @@ function AppContent() {
             <div hidden={creationTool !== 'scene-replace'}>
               <SceneReplaceComposer
                 apiKey={settings.apiKey}
+                openAiApiKey={settings.openAiApiKey}
                 apiBaseUrl={apiBaseUrl}
                 connectionMode={settings.connectionMode}
                 onRequestKey={() => setKeyOpen(true)}

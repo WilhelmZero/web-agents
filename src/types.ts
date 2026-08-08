@@ -227,12 +227,20 @@ export interface ObjectReplaceTask {
 }
 
 export interface SceneReplaceSettings {
-  imageModel: ImageModel;
+  imageModel: ImageModel | 'gpt-image-2' | 'gpt-image-2-2026-04-21';
+  imageQuality: 'high' | 'medium' | 'low';
   ratioMode: 'original' | 'fixed';
   aspectRatio: string;
   imageSize: ImageSize;
   concurrency: number;
   copiesPerScene: number;
+  autoOutpaint: boolean;
+  outpaintImageModel: ImageModel | 'gpt-image-2' | 'gpt-image-2-2026-04-21';
+  outpaintImageSize: ImageSize;
+  outpaintQuality: 'high' | 'medium' | 'low';
+  outpaintWidth: number;
+  outpaintHeight: number;
+  outpaintPrompt: string;
 }
 
 export interface SceneReplaceTask {
@@ -245,6 +253,12 @@ export interface SceneReplaceTask {
   resultBlob?: Blob;
   resultUrl?: string;
   resultMimeType?: string;
+  outpaintStatus?: 'idle' | 'running' | 'success' | 'failed' | 'stopped';
+  outpaintAiBlob?: Blob;
+  outpaintAiUrl?: string;
+  outpaintBlob?: Blob;
+  outpaintUrl?: string;
+  outpaintError?: string;
   error?: string;
   retryCount: number;
 }

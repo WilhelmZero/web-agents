@@ -84,11 +84,19 @@ export const DEFAULT_OBJECT_REPLACE_SETTINGS = {
 } as const;
 export const DEFAULT_SCENE_REPLACE_SETTINGS = {
   imageModel: 'gemini-3.1-flash-image',
+  imageQuality: 'high',
   ratioMode: 'original',
   aspectRatio: '1:1',
   imageSize: '1K',
   concurrency: 3,
   copiesPerScene: 1,
+  autoOutpaint: false,
+  outpaintImageModel: 'gemini-3.1-flash-image',
+  outpaintImageSize: '2K',
+  outpaintQuality: 'high',
+  outpaintWidth: 3200,
+  outpaintHeight: 1310,
+  outpaintPrompt: '自然延展原图场景，补充画面之外合理存在的环境内容，保持真实摄影质感和自然景深。',
 } as const;
 export const DEFAULT_INPAINT_SETTINGS = {
   imageModel: 'gemini-3.1-flash-image',
