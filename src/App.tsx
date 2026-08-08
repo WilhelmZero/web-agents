@@ -801,6 +801,7 @@ function AppContent() {
             <div hidden={creationTool !== 'logo-replace'}>
               <LogoReplaceComposer
                 apiKey={settings.apiKey}
+                openAiApiKey={settings.openAiApiKey}
                 apiBaseUrl={apiBaseUrl}
                 connectionMode={settings.connectionMode}
                 onRequestKey={() => setKeyOpen(true)}

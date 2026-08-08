@@ -163,7 +163,9 @@ export interface LogoSettings {
 
 export interface LogoReplaceSettings {
   useOldLogoReference: boolean;
+  imageProvider: 'gemini' | 'openai';
   imageModel: ImageModel;
+  openAiImageModel: 'gpt-image-2';
   ratioMode: 'original' | 'fixed';
   aspectRatio: string;
   imageSize: ImageSize;
@@ -184,7 +186,9 @@ export interface LogoReplaceSettings {
   customizeReplacementPrompt: boolean;
   replacementPrompt: string;
   strictTextVerification: boolean;
+  languageProvider: 'gemini' | 'openai';
   verificationModel: OptimizerModel;
+  openAiLanguageModel: 'gpt-5.6-sol' | 'gpt-5.6-terra' | 'gpt-5.6-luna';
   verificationRetries: number;
 }
 

@@ -43,7 +43,9 @@ export const DEFAULT_LOGO_SETTINGS = {
 
 export const DEFAULT_LOGO_REPLACE_SETTINGS = {
   useOldLogoReference: false,
+  imageProvider: 'gemini',
   imageModel: 'gemini-3.1-flash-image',
+  openAiImageModel: 'gpt-image-2',
   ratioMode: 'original',
   aspectRatio: '1:1',
   imageSize: '1K',
@@ -64,7 +66,9 @@ export const DEFAULT_LOGO_REPLACE_SETTINGS = {
   customizeReplacementPrompt: false,
   replacementPrompt: '',
   strictTextVerification: true,
+  languageProvider: 'gemini',
   verificationModel: 'gemini-3.1-flash-lite',
+  openAiLanguageModel: 'gpt-5.6-terra',
   verificationRetries: 2,
 } as const;
 export const DEFAULT_OBJECT_REPLACE_SETTINGS = {

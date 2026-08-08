@@ -44,6 +44,7 @@ import GeneratingImage from './GeneratingImage';
 import LogoReplaceDevComposer from './LogoReplaceDevComposer';
 import { reportTaskProgress } from './services/taskProgress';
 import { buildLogoReplacementInstruction, generateLogoReplacement, verifyLogoReplacement } from './services/gemini';
+import { generateLogoReplacementOpenAi, verifyLogoReplacementOpenAi } from './services/logoReplaceOpenAi';
 import { assignReplacementLogos, buildLogoReplaceTasks } from './services/logoReplaceUtils';
 import { readLocalStorage } from './storage';
 import type { LogoAsset, LogoReplaceSettings, LogoReplaceTask } from './types';
@@ -87,6 +88,7 @@ function buildActualReplacementPrompt(settings: LogoReplaceSettings, hasOldLogo:
 }
 interface LogoReplaceComposerProps {
   apiKey: string;
+  openAiApiKey: string;
   apiBaseUrl: string | null;
   connectionMode: 'direct' | 'proxy';
   onRequestKey: () => void;
@@ -96,6 +98,7 @@ interface LogoReplaceComposerProps {
 
 function LogoReplaceSingleComposer({
   apiKey,
+  openAiApiKey,
   apiBaseUrl,
   connectionMode,
   onRequestKey,
@@ -244,20 +247,16 @@ function LogoReplaceSingleComposer({
       const expectedText = expectedTexts[replacement.id]?.trim() || '';
       let correctionFeedback = '';
       for (let verificationAttempt = 0; verificationAttempt <= currentSettings.verificationRetries; verificationAttempt += 1) {
-        const result = await generateLogoReplacement({
-          apiKey,
-          model: currentSettings.imageModel,
+        const commonGenerateOptions = {
           scene: scene.file,
           oldLogo: currentSettings.useOldLogoReference ? oldLogoRef.current?.file : undefined,
           newLogo: replacement.file,
-          logoColorMode: currentSettings.logoColorMode,
-          customLogoColor: currentSettings.customLogoColor,
-          promptOverride: buildActualReplacementPrompt(currentSettings, currentSettings.useOldLogoReference && Boolean(oldLogoRef.current), expectedText, correctionFeedback),
-          aspectRatio: currentSettings.ratioMode === 'fixed' ? currentSettings.aspectRatio : undefined,
-          imageSize: currentSettings.imageSize,
           signal: controller.signal,
-          apiBaseUrl,
-        });
+        };
+        const replacementPrompt = buildActualReplacementPrompt(currentSettings, currentSettings.useOldLogoReference && Boolean(oldLogoRef.current), expectedText, correctionFeedback);
+        const result = currentSettings.imageProvider === 'openai'
+          ? await generateLogoReplacementOpenAi({ ...commonGenerateOptions, apiKey: openAiApiKey, model: currentSettings.openAiImageModel, prompt: replacementPrompt })
+          : await generateLogoReplacement({ ...commonGenerateOptions, apiKey, model: currentSettings.imageModel, logoColorMode: currentSettings.logoColorMode, customLogoColor: currentSettings.customLogoColor, promptOverride: replacementPrompt, aspectRatio: currentSettings.ratioMode === 'fixed' ? currentSettings.aspectRatio : undefined, imageSize: currentSettings.imageSize, apiBaseUrl });
         if (!currentSettings.strictTextVerification) {
           const resultUrl = URL.createObjectURL(result.blob);
           setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status: 'success', resultBlob: result.blob, resultUrl, resultMimeType: result.mimeType, verificationStatus: 'skipped' } : item));
@@ -266,7 +265,10 @@ function LogoReplaceSingleComposer({
         setTasks((current) => current.map((item) => item.id === task.id ? { ...item, verificationStatus: 'verifying', verificationAttempts: verificationAttempt + 1 } : item));
         let verification;
         try {
-          verification = await verifyLogoReplacement({ apiKey, apiBaseUrl, model: currentSettings.verificationModel, referenceLogo: replacement.file, originalScene: scene.file, generatedImage: result.blob, expectedText, signal: controller.signal });
+          const verifyOptions = { referenceLogo: replacement.file, originalScene: scene.file, generatedImage: result.blob, expectedText, signal: controller.signal };
+          verification = currentSettings.languageProvider === 'openai'
+            ? await verifyLogoReplacementOpenAi({ ...verifyOptions, apiKey: openAiApiKey, model: currentSettings.openAiLanguageModel })
+            : await verifyLogoReplacement({ ...verifyOptions, apiKey, apiBaseUrl, model: currentSettings.verificationModel });
         } catch (error) {
           const resultUrl = URL.createObjectURL(result.blob);
           const summary = error instanceof Error ? error.message : 'Logo 校验失败';
@@ -293,15 +295,16 @@ function LogoReplaceSingleComposer({
       runningIds.current.delete(task.id);
       aborters.current.delete(task.id);
     }
-  }, [apiKey, apiBaseUrl, expectedTexts]);
+  }, [apiKey, openAiApiKey, apiBaseUrl, expectedTexts]);
   useEffect(() => {
     const available = Math.max(0, settings.concurrency - runningIds.current.size);
     tasks.filter((task) => task.status === 'waiting' && !runningIds.current.has(task.id)).slice(0, available).forEach((task) => void executeTask(task));
   }, [tasks, settings.concurrency, executeTask]);
 
   const start = () => {
-    if (!apiKey) return onRequestKey();
-    if (connectionMode === 'proxy' && !apiBaseUrl) { message.warning('请先配置代理地址'); return onRequestKey(); }
+    if (settings.imageProvider === 'openai' || (settings.strictTextVerification && settings.languageProvider === 'openai')) { if (!openAiApiKey) return onRequestKey(); }
+    else if (!apiKey) return onRequestKey();
+    if ((settings.imageProvider === 'gemini' || (settings.strictTextVerification && settings.languageProvider === 'gemini')) && connectionMode === 'proxy' && !apiBaseUrl) { message.warning('请先配置代理地址'); return onRequestKey(); }
     if (!scenes.length) return void message.warning('请至少上传一张已贴 Logo 的场景图');
     if (!newLogos.length) return void message.warning('请至少上传一个新 Logo');
     if (pairings.some((pairing) => !pairing.logo)) return void message.warning('存在尚未匹配新 Logo 的场景图');
@@ -330,7 +333,7 @@ function LogoReplaceSingleComposer({
   const completed = tasks.filter((task) => ['success', 'failed', 'stopped'].includes(task.status)).length;
   useEffect(() => { reportTaskProgress({ id: 'logo-replace', label: 'Logo 替换', completed, total: tasks.length, failed: tasks.filter((task) => task.status === 'failed').length, running: processing }); }, [completed, tasks, processing]);
   const taskCount = scenes.length * settings.copiesPerScene;
-  const baseEstimatedCost = estimateImageCost(settings.imageModel, settings.imageSize, taskCount) + taskCount * PRICING.models[settings.imageModel].inputImage * (settings.useOldLogoReference && oldLogo ? 2 : 1);
+  const baseEstimatedCost = settings.imageProvider === 'openai' ? 0 : estimateImageCost(settings.imageModel, settings.imageSize, taskCount) + taskCount * PRICING.models[settings.imageModel].inputImage * (settings.useOldLogoReference && oldLogo ? 2 : 1);
   const worstCaseImageCost = baseEstimatedCost * (settings.strictTextVerification ? settings.verificationRetries + 1 : 1);
   const groups = useMemo(() => scenes.map((scene) => ({ scene, tasks: tasks.filter((task) => task.sceneId === scene.id) })).filter((group) => group.tasks.length), [scenes, tasks]);
   const downloadTask = (task: LogoReplaceTask) => {
@@ -383,7 +386,10 @@ function LogoReplaceSingleComposer({
           <Flex justify="space-between" align="center"><Text>生成后自动检查 Logo 字符</Text><Switch checked={settings.strictTextVerification} onChange={(strictTextVerification) => patchSettings({ strictTextVerification })} /></Flex>
           <Text type="secondary" className="field-help">默认开启。校验失败会携带字符差异自动重新生成。</Text>
           {settings.strictTextVerification && <Space direction="vertical" style={{ width: '100%', marginTop: 10 }}>
-            <Select value={settings.verificationModel} onChange={(verificationModel) => patchSettings({ verificationModel })} options={[{ value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite' }, { value: 'gemini-3.1-flash', label: 'Gemini 3.1 Flash' }, { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' }]} />
+            <Segmented block value={settings.languageProvider} onChange={(languageProvider) => patchSettings({ languageProvider: languageProvider as LogoReplaceSettings['languageProvider'] })} options={[{ value: 'gemini', label: 'Gemini' }, { value: 'openai', label: 'GPT' }]} />
+            {settings.languageProvider === 'openai'
+              ? <Select value={settings.openAiLanguageModel} onChange={(openAiLanguageModel) => patchSettings({ openAiLanguageModel })} options={[{ value: 'gpt-5.6-terra', label: 'GPT-5.6 Terra（推荐）' }, { value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol（最高质量）' }, { value: 'gpt-5.6-luna', label: 'GPT-5.6 Luna（低成本）' }]} />
+              : <Select value={settings.verificationModel} onChange={(verificationModel) => patchSettings({ verificationModel })} options={[{ value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite' }, { value: 'gemini-3.1-flash', label: 'Gemini 3.1 Flash' }, { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' }]} />}
             <Flex justify="space-between" align="center"><Text>自动修复次数</Text><InputNumber min={0} max={3} value={settings.verificationRetries} onChange={(verificationRetries) => patchSettings({ verificationRetries: verificationRetries ?? 2 })} /></Flex>
           </Space>}
         </Form.Item>
@@ -440,12 +446,13 @@ function LogoReplaceSingleComposer({
           {settings.customizeReplacementPrompt && <><Text strong style={{ display: 'block', marginTop: 10 }}>最终实际发送提示词</Text><Input.TextArea readOnly value={actualReplacementPrompt} autoSize={{ minRows: 6, maxRows: 12 }} style={{ marginTop: 6 }} /></>}
           <Text type="secondary" className="field-help">图片按“场景图、可选旧 Logo、新 Logo”的顺序作为独立图片内容提交。</Text>
         </Form.Item>
-        <Form.Item label="图片模型"><Select value={settings.imageModel} onChange={(imageModel) => patchSettings({ imageModel })} options={Object.entries(MODEL_CAPABILITIES).map(([value, item]) => ({ value, label: item.label }))} /></Form.Item>
-        <Form.Item label="画面比例">
+        <Form.Item label="图片服务"><Segmented block value={settings.imageProvider} onChange={(imageProvider) => patchSettings({ imageProvider: imageProvider as LogoReplaceSettings['imageProvider'] })} options={[{ value: 'gemini', label: 'Gemini' }, { value: 'openai', label: 'GPT' }]} /></Form.Item>
+        <Form.Item label="图片模型">{settings.imageProvider === 'openai' ? <Select value={settings.openAiImageModel} options={[{ value: 'gpt-image-2', label: 'GPT Image 2' }]} /> : <Select value={settings.imageModel} onChange={(imageModel) => patchSettings({ imageModel })} options={Object.entries(MODEL_CAPABILITIES).map(([value, item]) => ({ value, label: item.label }))} />}</Form.Item>
+        {settings.imageProvider === 'gemini' ? <><Form.Item label="画面比例">
           <Radio.Group value={settings.ratioMode} onChange={(event) => patchSettings({ ratioMode: event.target.value })}><Radio value="original">跟随场景原图</Radio><Radio value="fixed">指定比例</Radio></Radio.Group>
           {settings.ratioMode === 'fixed' && <Select style={{ marginTop: 10 }} value={settings.aspectRatio} onChange={(aspectRatio) => patchSettings({ aspectRatio })} options={MODEL_CAPABILITIES[settings.imageModel].aspectRatios.map((value) => ({ value, label: value }))} />}
         </Form.Item>
-        <Form.Item label="输出分辨率"><Segmented block value={settings.imageSize} onChange={(imageSize) => patchSettings({ imageSize: imageSize as LogoReplaceSettings['imageSize'] })} options={MODEL_CAPABILITIES[settings.imageModel].imageSizes} /></Form.Item>
+        <Form.Item label="输出分辨率"><Segmented block value={settings.imageSize} onChange={(imageSize) => patchSettings({ imageSize: imageSize as LogoReplaceSettings['imageSize'] })} options={MODEL_CAPABILITIES[settings.imageModel].imageSizes} /></Form.Item></> : <Alert type="info" showIcon title="GPT Image 2 使用自动尺寸" description="通过 OpenAI Images Edit 直接编辑场景图，并按输入画面自动选择输出尺寸。" style={{ marginBottom: 18 }} />}
         <Form.Item label="每张场景生成张数"><InputNumber min={1} max={8} value={settings.copiesPerScene} onChange={(copiesPerScene) => patchSettings({ copiesPerScene: copiesPerScene || 1 })} style={{ width: '100%' }} /></Form.Item>
         <Form.Item label="并发任务数"><InputNumber min={1} max={6} value={settings.concurrency} onChange={(concurrency) => patchSettings({ concurrency: concurrency || 1 })} style={{ width: '100%' }} /></Form.Item>
       </Form>
