@@ -115,7 +115,7 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
     const placeholders = selected.map((_group, index) => window.open('', `scene-studio-logo-worker-${id}-${index}`));
     await saveBatch({ id, createdAt: Date.now(), groups, logos, globalConcurrency });
     setActiveBatchId(id);
-    const targets = selected.map((group) => { const url = new URL(location.href); url.searchParams.set('tool', 'logo-replace-tabs'); url.searchParams.set('worker', '1'); url.searchParams.set('batch', id); url.searchParams.set('group', group.id); return { name: group.name, url: url.toString() }; });
+    const targets = selected.map((group) => { const url = new URL(location.href); url.searchParams.set('tool', 'logo-replace-tabs'); url.searchParams.set('worker', '1'); url.searchParams.set('batch', id); url.searchParams.set('group', group.id); url.searchParams.set('folder', group.name); return { name: group.name, url: url.toString() }; });
     const blocked: typeof targets = [];
     targets.forEach((target, index) => { const opened = placeholders[index]; if (opened) opened.location.href = target.url; else blocked.push(target); });
     setBlockedWorkerUrls(blocked); if (blocked.length) message.warning(`${blocked.length} 个标签被浏览器拦截，请在弹窗中逐个打开或允许本站弹出窗口`);

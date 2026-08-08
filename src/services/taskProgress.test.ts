@@ -14,4 +14,10 @@ describe('task progress center', () => {
     expect(buildTaskPageTitle(2, 3, 1)).toBe('🔴 [2/3] Scene Studio');
     expect(buildTaskPageTitle(3, 0, 0)).toBe('🟢 Scene Studio');
   });
+
+  it('keeps the worker folder name while status and progress change', () => {
+    expect(buildTaskPageTitle(0, 0, 0, 'AM058')).toContain('AM058 - Scene Studio');
+    expect(buildTaskPageTitle(3, 10, 0, 'AM058')).toContain('[3/10] AM058 - Scene Studio');
+    expect(buildTaskPageTitle(7, 10, 1, 'AM058')).toContain('[7/10] AM058 - Scene Studio');
+  });
 });

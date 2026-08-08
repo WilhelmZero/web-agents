@@ -16,7 +16,8 @@ export function reportTaskProgress(input: Omit<TaskProgress, 'updatedAt'>) {
 export function clearTaskProgress(id: string) { progress.delete(id); notify(); }
 export async function requestTaskNotifications() { if (typeof Notification === 'undefined') return 'unsupported' as const; return Notification.requestPermission(); }
 
-export function buildTaskPageTitle(completed: number, runningTotal: number, failed: number) {
+export function buildTaskPageTitle(completed: number, runningTotal: number, failed: number, contextLabel?: string) {
   const light = failed > 0 ? '🔴' : runningTotal > 0 ? '🟡' : '🟢';
-  return runningTotal > 0 ? `${light} [${completed}/${runningTotal}] Scene Studio` : `${light} Scene Studio`;
+  const pageName = contextLabel?.trim() ? `${contextLabel.trim()} - Scene Studio` : 'Scene Studio';
+  return runningTotal > 0 ? `${light} [${completed}/${runningTotal}] ${pageName}` : `${light} ${pageName}`;
 }

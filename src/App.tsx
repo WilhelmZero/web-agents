@@ -434,6 +434,20 @@ function AppContent() {
   const globalTotal = runningProgress.reduce((sum, item) => sum + item.total, 0);
   const globalFailed = globalProgress.reduce((sum, item) => sum + item.failed, 0);
   const titleStatus = globalFailed > 0 ? 'failed' : globalTotal > 0 ? 'running' : 'ready';
+  const workerFolderTitle = useMemo(() => {
+    if (creationTool !== 'logo-replace-tabs') return undefined;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('worker') !== '1') return undefined;
+    const explicitName = params.get('folder')?.trim();
+    if (explicitName) return explicitName;
+    const groupId = params.get('group');
+    if (!groupId) return undefined;
+    try {
+      return decodeURIComponent(groupId).split('/').filter(Boolean).at(-1);
+    } catch {
+      return groupId.split('/').filter(Boolean).at(-1);
+    }
+  }, [creationTool]);
   const activeDelimiter = splitMode === 'newline' ? '\n' : delimiter;
   const splitPreview = useMemo(
     () => splitPrompts(bulkText, activeDelimiter),
@@ -446,7 +460,7 @@ function AppContent() {
 
   useEffect(() => subscribeTaskProgress(setGlobalProgress), []);
   useEffect(() => { reportTaskProgress({ id: 'scene', label: '场景图生成', completed: completedCount, total: tasks.length, failed: tasks.filter((task) => task.status === 'failed').length, running: isProcessing }); }, [completedCount, tasks, isProcessing]);
-  useEffect(() => { document.title = buildTaskPageTitle(globalCompleted, globalTotal, globalFailed); return () => { document.title = 'Scene Studio'; }; }, [globalCompleted, globalTotal, globalFailed]);
+  useEffect(() => { document.title = buildTaskPageTitle(globalCompleted, globalTotal, globalFailed, workerFolderTitle); return () => { document.title = 'Scene Studio'; }; }, [globalCompleted, globalTotal, globalFailed, workerFolderTitle]);
 
   const handleTestProxy = async () => {
     if (!settings.proxyUrl.trim()) {
