@@ -1,4 +1,12 @@
 export interface ExpansionPlacement { x: number; y: number; width: number; height: number }
+export type ExpansionAxis = 'horizontal' | 'vertical' | 'none';
+
+export function expansionAxis(placement: ExpansionPlacement, targetWidth: number, targetHeight: number): ExpansionAxis {
+  const horizontalGap = Math.max(0, targetWidth - placement.width);
+  const verticalGap = Math.max(0, targetHeight - placement.height);
+  if (horizontalGap < 0.5 && verticalGap < 0.5) return 'none';
+  return horizontalGap > verticalGap ? 'horizontal' : 'vertical';
+}
 
 export function calculateExpansionPlacement(sourceWidth: number, sourceHeight: number, targetWidth: number, targetHeight: number): ExpansionPlacement {
   if (sourceWidth <= 0 || sourceHeight <= 0 || targetWidth <= 0 || targetHeight <= 0) throw new Error('图片尺寸必须大于 0');
@@ -35,7 +43,11 @@ export async function prepareOutpaintInput(file: File, targetWidth: number, targ
     const maskContext = maskCanvas.getContext('2d'); if (!maskContext) throw new Error('当前浏览器无法创建扩图遮罩');
     maskContext.clearRect(0, 0, width, height);
     const overlap = Math.max(4, Math.min(24, Math.round(Math.min(placement.width, placement.height) * 0.025)));
-    maskContext.fillStyle = '#fff'; maskContext.fillRect(placement.x + overlap, placement.y + overlap, Math.max(1, placement.width - overlap * 2), Math.max(1, placement.height - overlap * 2));
+    const axis = expansionAxis(placement, width, height);
+    maskContext.fillStyle = '#fff';
+    if (axis === 'vertical') maskContext.fillRect(0, placement.y + overlap, width, Math.max(1, placement.height - overlap * 2));
+    else if (axis === 'horizontal') maskContext.fillRect(placement.x + overlap, 0, Math.max(1, placement.width - overlap * 2), height);
+    else maskContext.fillRect(0, 0, width, height);
     const maskBlob = await canvasToBlob(maskCanvas);
     const baseName = file.name.replace(/\.[^.]+$/, '');
     return { file: new File([blob], `${baseName}_outpaint-input.png`, { type: 'image/png' }), mask: new File([maskBlob], `${baseName}_outpaint-mask.png`, { type: 'image/png' }), placement: calculateExpansionPlacement(bitmap.width, bitmap.height, targetWidth, targetHeight) };
@@ -43,7 +55,7 @@ export async function prepareOutpaintInput(file: File, targetWidth: number, targ
 }
 
 export function buildOutpaintPrompt(customPrompt: string, targetWidth: number, targetHeight: number): string {
-  return `${customPrompt.trim()}\n\n扩图技术要求：输出画幅为 ${targetWidth}:${targetHeight} 的比例。输入图中央的清晰原始画面必须完整保留，不得裁切、缩放变形、移动或修改其中任何人物、产品、文字、Logo、颜色和细节。外围模糊区域只是用于提供颜色、光线和空间上下文，必须将其自然重绘为清晰且合理延续的环境。重点保证原图边缘两侧的结构、透视、纹理、光线和景深连续，不得产生直线接缝、色块边界、重复纹理或突变。不要添加水印、文字、拼图或边框。`;
+  return `${customPrompt.trim()}\n\n扩图技术要求：输出画幅为 ${targetWidth}:${targetHeight} 的比例。只允许沿目标比例缺少的一个轴扩图：宽度不足时只补左、右，高度不足时只补上、下，禁止同时向四周扩展。原图必须按 contain 方式完整居中，长边刚好贴满输出画布对应边界，不得在该方向制造留白或新内容。输入图中央的清晰原始画面必须完整保留，不得裁切、缩放变形、移动或修改其中任何人物、产品、文字、Logo、颜色和细节。外围模糊区域只是用于提供颜色、光线和空间上下文，必须将其自然重绘为清晰且合理延续的环境。重点保证新增区域与原图边界的结构、透视、纹理、光线和景深连续，不得产生直线接缝、色块边界、重复纹理或突变。不要添加水印、文字、拼图或边框。`;
 }
 
 export async function composeExactOutpaint(generated: Blob, original: Blob, targetWidth: number, targetHeight: number): Promise<Blob> {
@@ -61,8 +73,18 @@ export async function composeExactOutpaint(generated: Blob, original: Blob, targ
     const maskLayer = document.createElement('canvas'); maskLayer.width = targetWidth; maskLayer.height = targetHeight;
     const maskContext = maskLayer.getContext('2d'); if (!maskContext) throw new Error('当前浏览器无法创建羽化遮罩');
     const feather = Math.max(8, Math.min(48, Math.round(Math.min(placement.width, placement.height) * 0.018)));
-    maskContext.filter = `blur(${feather}px)`; maskContext.fillStyle = '#fff';
-    maskContext.fillRect(placement.x + feather, placement.y + feather, Math.max(1, placement.width - feather * 2), Math.max(1, placement.height - feather * 2));
+    const axis = expansionAxis(placement, targetWidth, targetHeight);
+    if (axis === 'vertical') {
+      const gradient = maskContext.createLinearGradient(0, placement.y, 0, placement.y + placement.height);
+      const edge = Math.min(0.49, feather / placement.height);
+      gradient.addColorStop(0, 'rgba(255,255,255,0)'); gradient.addColorStop(edge, '#fff'); gradient.addColorStop(1 - edge, '#fff'); gradient.addColorStop(1, 'rgba(255,255,255,0)');
+      maskContext.fillStyle = gradient; maskContext.fillRect(0, placement.y, targetWidth, placement.height);
+    } else if (axis === 'horizontal') {
+      const gradient = maskContext.createLinearGradient(placement.x, 0, placement.x + placement.width, 0);
+      const edge = Math.min(0.49, feather / placement.width);
+      gradient.addColorStop(0, 'rgba(255,255,255,0)'); gradient.addColorStop(edge, '#fff'); gradient.addColorStop(1 - edge, '#fff'); gradient.addColorStop(1, 'rgba(255,255,255,0)');
+      maskContext.fillStyle = gradient; maskContext.fillRect(placement.x, 0, placement.width, targetHeight);
+    } else { maskContext.fillStyle = '#fff'; maskContext.fillRect(0, 0, targetWidth, targetHeight); }
     originalContext.globalCompositeOperation = 'destination-in'; originalContext.drawImage(maskLayer, 0, 0);
     context.drawImage(originalLayer, 0, 0);
     return await canvasToBlob(canvas);
