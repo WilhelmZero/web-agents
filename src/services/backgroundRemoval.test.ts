@@ -4,6 +4,13 @@ const removeBackground = vi.fn(async (_input: Blob, _configuration?: unknown) =>
 vi.mock('@imgly/background-removal', () => ({ removeBackground }));
 
 describe('dedicated background removal', () => {
+  it('uses a fixed GPT prompt that requests a clean solid matte instead of unsupported transparency', async () => {
+    const { GPT_BACKGROUND_REMOVAL_PROMPT } = await import('./backgroundRemoval');
+    expect(GPT_BACKGROUND_REMOVAL_PROMPT).toContain('纯白色 #FFFFFF');
+    expect(GPT_BACKGROUND_REMOVAL_PROMPT).toContain('内部孔洞');
+    expect(GPT_BACKGROUND_REMOVAL_PROMPT).not.toContain('透明背景');
+  });
+
   it('uses the quality matting model and returns a transparent PNG', async () => {
     const { removeImageBackground } = await import('./backgroundRemoval');
     const input = new Blob(['image'], { type: 'image/jpeg' });
