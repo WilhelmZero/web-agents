@@ -5,7 +5,37 @@ export interface BackgroundRemovalProgress {
 }
 export interface BackgroundRemovalTuning { edgeExpansion: number; edgeFeather: number }
 
-export const GPT_BACKGROUND_REMOVAL_PROMPT = `精确分离图片中的完整前景主体。保持主体的构图、位置、尺寸、比例、姿态、轮廓、颜色、材质、文字、Logo 和所有内部细节不变，不要重新设计、补画、裁切或移动主体。必须保留细发、绒毛、透明材质、镂空区域、轮辐、缝隙和细小零件。移除主体之外的全部背景、投影、背景反光和颜色溢出，把所有背景区域（包括主体内部孔洞）替换为完全均匀的纯白色 #FFFFFF。主体与白色背景之间边缘清晰自然，不要描边、光晕、棋盘格、渐变、纹理或残留背景。输出完整图片，不要添加说明文字。`;
+export function buildGptBackgroundRemovalPrompt(backgroundColor: string): string {
+  return `精确分离图片中的完整前景主体。保持主体的构图、位置、尺寸、比例、姿态、轮廓、颜色、材质、文字、Logo 和所有内部细节不变，不要重新设计、补画、裁切或移动主体。必须保留细发、绒毛、透明材质、镂空区域、轮辐、缝隙和细小零件。移除主体之外的全部背景、投影、背景反光和颜色溢出，把所有背景区域（包括主体内部孔洞）替换为完全均匀、准确的纯色 ${backgroundColor}。主体与 ${backgroundColor} 背景之间必须有清晰自然的高反差边缘；不要描边、光晕、棋盘格、渐变、纹理、阴影或残留背景。背景每一个像素都必须保持相同的 ${backgroundColor}，不得把该颜色混入主体。输出完整图片，不要添加说明文字。`;
+}
+
+const AUTO_MATTE_COLORS = ['#FF00FF', '#00FF00', '#00FFFF', '#FFFF00'] as const;
+
+export async function chooseContrastingBackground(image: Blob): Promise<string> {
+  const bitmap = await createImageBitmap(image);
+  try {
+    const canvas = document.createElement('canvas');
+    const scale = Math.min(1, 384 / Math.max(bitmap.width, bitmap.height));
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale)); canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    if (!context) return AUTO_MATTE_COLORS[0];
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    let winner: string = AUTO_MATTE_COLORS[0]; let winnerScore = -1;
+    for (const color of AUTO_MATTE_COLORS) {
+      const r = Number.parseInt(color.slice(1, 3), 16); const g = Number.parseInt(color.slice(3, 5), 16); const b = Number.parseInt(color.slice(5, 7), 16);
+      let minimumDistance = Number.POSITIVE_INFINITY;
+      const step = Math.max(4, Math.floor(data.length / 4 / 12000) * 4);
+      for (let index = 0; index < data.length; index += step) {
+        if (data[index + 3] < 96) continue;
+        const distance = (data[index] - r) ** 2 + (data[index + 1] - g) ** 2 + (data[index + 2] - b) ** 2;
+        minimumDistance = Math.min(minimumDistance, distance);
+      }
+      if (minimumDistance > winnerScore) { winner = color; winnerScore = minimumDistance; }
+    }
+    return winner;
+  } finally { bitmap.close(); }
+}
 
 export async function hasUsableTransparency(image: Blob): Promise<boolean> {
   const bitmap = await createImageBitmap(image);

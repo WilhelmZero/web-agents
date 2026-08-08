@@ -14,10 +14,11 @@ describe('dedicated background removal', () => {
   });
 
   it('uses a fixed GPT prompt that requests a clean solid matte instead of unsupported transparency', async () => {
-    const { GPT_BACKGROUND_REMOVAL_PROMPT } = await import('./backgroundRemoval');
-    expect(GPT_BACKGROUND_REMOVAL_PROMPT).toContain('纯白色 #FFFFFF');
-    expect(GPT_BACKGROUND_REMOVAL_PROMPT).toContain('内部孔洞');
-    expect(GPT_BACKGROUND_REMOVAL_PROMPT).not.toContain('透明背景');
+    const { buildGptBackgroundRemovalPrompt } = await import('./backgroundRemoval');
+    const prompt = buildGptBackgroundRemovalPrompt('#FF00FF');
+    expect(prompt).toContain('纯色 #FF00FF');
+    expect(prompt).toContain('内部孔洞');
+    expect(prompt).not.toContain('透明背景');
   });
 
   it('uses the quality matting model and returns a transparent PNG', async () => {
