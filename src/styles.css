@@ -330,6 +330,10 @@ button, input, textarea { font: inherit; }
 .background-source-grid .ant-image, .background-source-grid img { width: 100%; }
 .background-source-grid img { aspect-ratio: 1; object-fit: contain; border-radius: 8px; background: #f4f6f8; }
 .transparent-result-bg { background: conic-gradient(#e5e8ec 25%,#fff 0 50%,#e5e8ec 0 75%,#fff 0) 0/18px 18px; border-radius: 8px; overflow: hidden; }
+.background-result-footer { display: grid; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid #edf0f4; }
+.background-result-status, .background-result-actions { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.background-result-status .ant-tag { margin-inline-end: 0; max-width: 100%; }
+.background-result-actions .ant-btn { flex: 1 1 132px; min-width: 0; }
 .outpaint-page { min-width: 0; }
 .outpaint-hero { background: radial-gradient(circle at 78% 18%, rgba(102,151,255,.38), transparent 29%), linear-gradient(130deg, #11192c, #243e76 55%, #3269c9); }
 .hero-strip.outpaint-hero .hero-description { color: #e5eeff !important; }
