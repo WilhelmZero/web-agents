@@ -48,7 +48,7 @@ import { generateLogoReplacementOpenAi, verifyLogoReplacementOpenAi } from './se
 import { assignReplacementLogos, buildLogoReplaceTasks } from './services/logoReplaceUtils';
 import { readLocalStorage } from './storage';
 import type { LogoAsset, LogoReplaceSettings, LogoReplaceTask } from './types';
-import { createId, downloadBlob, estimateImageCost, normalizeSettingsForModel, sanitizeFileName } from './utils';
+import { createId, downloadBlob, estimateGptImage2HighOutputCostRange, estimateImageCost, normalizeSettingsForModel, sanitizeFileName } from './utils';
 import { logoReplaceResultFileName } from './services/logoReplaceFileName';
 import PsdLogoImportModal from './PsdLogoImportModal';
 
@@ -333,7 +333,8 @@ function LogoReplaceSingleComposer({
   const completed = tasks.filter((task) => ['success', 'failed', 'stopped'].includes(task.status)).length;
   useEffect(() => { reportTaskProgress({ id: 'logo-replace', label: 'Logo 替换', completed, total: tasks.length, failed: tasks.filter((task) => task.status === 'failed').length, running: processing }); }, [completed, tasks, processing]);
   const taskCount = scenes.length * settings.copiesPerScene;
-  const baseEstimatedCost = settings.imageProvider === 'openai' ? 0 : estimateImageCost(settings.imageModel, settings.imageSize, taskCount) + taskCount * PRICING.models[settings.imageModel].inputImage * (settings.useOldLogoReference && oldLogo ? 2 : 1);
+  const gptOutputCostRange = estimateGptImage2HighOutputCostRange(taskCount);
+  const baseEstimatedCost = settings.imageProvider === 'openai' ? gptOutputCostRange.max : estimateImageCost(settings.imageModel, settings.imageSize, taskCount) + taskCount * PRICING.models[settings.imageModel].inputImage * (settings.useOldLogoReference && oldLogo ? 2 : 1);
   const worstCaseImageCost = baseEstimatedCost * (settings.strictTextVerification ? settings.verificationRetries + 1 : 1);
   const groups = useMemo(() => scenes.map((scene) => ({ scene, tasks: tasks.filter((task) => task.sceneId === scene.id) })).filter((group) => group.tasks.length), [scenes, tasks]);
   const downloadTask = (task: LogoReplaceTask) => {
@@ -456,7 +457,7 @@ function LogoReplaceSingleComposer({
         <Form.Item label="每张场景生成张数"><InputNumber min={1} max={8} value={settings.copiesPerScene} onChange={(copiesPerScene) => patchSettings({ copiesPerScene: copiesPerScene || 1 })} style={{ width: '100%' }} /></Form.Item>
         <Form.Item label="并发任务数"><InputNumber min={1} max={6} value={settings.concurrency} onChange={(concurrency) => patchSettings({ concurrency: concurrency || 1 })} style={{ width: '100%' }} /></Form.Item>
       </Form>
-      <Card className="price-card" variant="borderless"><Flex gap={20} wrap><Statistic title="基础预计价格" prefix="$" precision={3} value={baseEstimatedCost} />{settings.strictTextVerification && <Statistic title="最坏情况生图价格" prefix="$" precision={3} value={worstCaseImageCost} />}</Flex><Text type="secondary">基础费用按 {taskCount} 个请求估算。{settings.strictTextVerification ? `最坏情况下每项会重新生成 ${settings.verificationRetries} 次；校验模型的文本 token 费用另计。` : ''}</Text></Card>
+      <Card className="price-card" variant="borderless"><Flex gap={20} wrap><Statistic title={settings.imageProvider === 'openai' ? 'GPT 预计图片输出费用（上限）' : '基础预计价格'} prefix="$" precision={3} value={baseEstimatedCost} />{settings.strictTextVerification && <Statistic title="最坏情况生图价格" prefix="$" precision={3} value={worstCaseImageCost} />}</Flex>{settings.imageProvider === 'openai' ? <Text type="secondary">GPT Image 2 当前使用 high 质量与 auto 尺寸，按官方常见尺寸每张约 US$0.165–0.211 估算；本次 {taskCount} 个请求的输出费用约 US${gptOutputCostRange.min.toFixed(3)}–{gptOutputCostRange.max.toFixed(3)}。输入场景图、Logo 和提示词 token 会按实际大小另计，因此最终账单可能略高。<a href="https://developers.openai.com/api/docs/guides/image-generation#calculating-costs" target="_blank" rel="noreferrer">OpenAI 官方计价</a></Text> : <Text type="secondary">基础费用按 {taskCount} 个请求估算。{settings.strictTextVerification ? `最坏情况下每项会重新生成 ${settings.verificationRetries} 次；校验模型的文本 token 费用另计。` : ''}</Text>}</Card>
     </div>
   );
 

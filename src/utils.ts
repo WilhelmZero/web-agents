@@ -68,6 +68,11 @@ export function estimateImageCost(model: ImageModel, size: ImageSize, taskCount:
   return taskCount * (output + pricing.inputImage);
 }
 
+export function estimateGptImage2HighOutputCostRange(taskCount: number) {
+  const count = Math.max(0, taskCount);
+  return { min: count * 0.165, max: count * 0.211 };
+}
+
 export function sanitizeFileName(name: string): string {
   const withoutExtension = name.replace(/\.[^.]+$/, '');
   return withoutExtension.replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_').trim() || '未命名产品';
