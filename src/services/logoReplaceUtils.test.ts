@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { LogoAsset } from '../types';
-import { assignReplacementLogos, buildLogoReplaceTasks } from './logoReplaceUtils';
+import { assignReplacementLogos, buildLogoReplaceTasks, shouldAutoRetryLogoError } from './logoReplaceUtils';
 
 const file = new File(['x'], 'asset.png', { type: 'image/png' });
 const assets = (prefix: string, count: number): LogoAsset[] => Array.from({ length: count }, (_, index) => ({
@@ -42,5 +42,11 @@ describe('Logo 替换配对', () => {
   it('存在未配对场景时阻止创建任务', () => {
     const pairings = assignReplacementLogos(assets('scene', 2), assets('logo', 1), false, 'seed');
     expect(() => buildLogoReplaceTasks(pairings, 1)).toThrow('必须匹配');
+  });
+  it('错误自动重试严格遵守启用状态和次数上限', () => {
+    expect(shouldAutoRetryLogoError(0, true, 3)).toBe(true);
+    expect(shouldAutoRetryLogoError(2, true, 3)).toBe(true);
+    expect(shouldAutoRetryLogoError(3, true, 3)).toBe(false);
+    expect(shouldAutoRetryLogoError(0, false, 3)).toBe(false);
   });
 });

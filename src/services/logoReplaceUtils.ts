@@ -41,3 +41,7 @@ export function buildLogoReplaceTasks(pairings: LogoReplacementPairing[], copies
     retryCount: 0,
   })));
 }
+
+export function shouldAutoRetryLogoError(retryCount: number, enabled: boolean, retryLimit: number) {
+  return enabled && retryCount < Math.max(0, retryLimit);
+}

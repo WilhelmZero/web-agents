@@ -45,9 +45,9 @@ import LogoReplaceDevComposer from './LogoReplaceDevComposer';
 import { reportTaskProgress } from './services/taskProgress';
 import { buildLogoReplacementInstruction, generateLogoReplacement, verifyLogoReplacement } from './services/gemini';
 import { generateLogoReplacementOpenAi, verifyLogoReplacementOpenAi } from './services/logoReplaceOpenAi';
-import { assignReplacementLogos, buildLogoReplaceTasks } from './services/logoReplaceUtils';
+import { assignReplacementLogos, buildLogoReplaceTasks, shouldAutoRetryLogoError } from './services/logoReplaceUtils';
 import { readLocalStorage } from './storage';
-import type { LogoAsset, LogoReplaceSettings, LogoReplaceTask } from './types';
+import type { LogoAsset, LogoReplaceProgressSnapshot, LogoReplaceSettings, LogoReplaceTask } from './types';
 import { createId, downloadBlob, estimateGptImage2HighOutputCostRange, estimateImageCost, normalizeSettingsForModel, sanitizeFileName } from './utils';
 import { logoReplaceResultFileName } from './services/logoReplaceFileName';
 import PsdLogoImportModal from './PsdLogoImportModal';
@@ -94,6 +94,8 @@ interface LogoReplaceComposerProps {
   onRequestKey: () => void;
   onSessionStateChange?: (hasContent: boolean) => void;
   settingsHost?: HTMLElement | null;
+  automationStartToken?: string;
+  onProgressChange?: (progress: LogoReplaceProgressSnapshot) => void;
 }
 
 function LogoReplaceSingleComposer({
@@ -104,6 +106,8 @@ function LogoReplaceSingleComposer({
   onRequestKey,
   onSessionStateChange,
   settingsHost,
+  automationStartToken,
+  onProgressChange,
 }: LogoReplaceComposerProps) {
   const { message } = AntApp.useApp();
   const [settings, setSettings] = useState<LogoReplaceSettings>(() => {
@@ -125,6 +129,8 @@ function LogoReplaceSingleComposer({
   const [pendingPsdFile, setPendingPsdFile] = useState<File>();
   const runningIds = useRef(new Set<string>());
   const aborters = useRef(new Map<string, AbortController>());
+  const retryTimers = useRef(new Map<string, number>());
+  const handledAutomationStart = useRef<string | undefined>(undefined);
   const scenesRef = useRef(scenes);
   const oldLogoRef = useRef(oldLogo);
   const newLogosRef = useRef(newLogos);
@@ -136,6 +142,7 @@ function LogoReplaceSingleComposer({
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => localStorage.setItem(STORAGE_KEYS.logoReplaceSettings, JSON.stringify(settings)), [settings]);
   useEffect(() => onSessionStateChange?.(Boolean(scenes.length || oldLogo || newLogos.length || tasks.length)), [scenes.length, oldLogo, newLogos.length, tasks.length, onSessionStateChange]);
+  useEffect(() => () => { retryTimers.current.forEach((timer) => window.clearTimeout(timer)); }, []);
 
   const validateFile = (file: File) => {
     if (!ACCEPTED_TYPES.includes(file.type)) return void message.error(`${file.name}：仅支持 PNG、JPEG、WebP`);
@@ -145,6 +152,8 @@ function LogoReplaceSingleComposer({
   const makeAsset = (file: File): LogoAsset => ({ id: createId(), file, name: file.name, mimeType: file.type, previewUrl: URL.createObjectURL(file) });
   const resetTasks = () => {
     aborters.current.forEach((controller) => controller.abort());
+    retryTimers.current.forEach((timer) => window.clearTimeout(timer));
+    retryTimers.current.clear();
     setTasks((current) => {
       current.forEach((task) => task.resultUrl && URL.revokeObjectURL(task.resultUrl));
       return [];
@@ -290,7 +299,20 @@ function LogoReplaceSingleComposer({
       }
     } catch (error) {
       const stopped = controller.signal.aborted;
-      setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status: stopped ? 'stopped' : 'failed', error: stopped ? '任务已停止' : error instanceof Error ? error.message : 'Logo 替换失败' } : item));
+      const currentSettings = settingsRef.current;
+      const detail = error instanceof Error ? error.message : 'Logo 替换失败';
+      if (!stopped && shouldAutoRetryLogoError(task.retryCount, currentSettings.autoRetryErrors, currentSettings.errorRetryLimit)) {
+        const delayMs = Math.max(1, currentSettings.errorRetryDelaySeconds) * 1000;
+        const nextRetryAt = Date.now() + delayMs;
+        setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status: 'waiting', error: `${detail}；将在 ${currentSettings.errorRetryDelaySeconds} 秒后自动重试`, retryCount: item.retryCount + 1, nextRetryAt, verificationStatus: currentSettings.strictTextVerification ? 'pending' : 'skipped' } : item));
+        const timer = window.setTimeout(() => {
+          retryTimers.current.delete(task.id);
+          setTasks((current) => current.map((item) => item.id === task.id && item.status === 'waiting' && !item.autoRetryStopped ? { ...item, nextRetryAt: undefined, error: undefined } : item));
+        }, delayMs);
+        retryTimers.current.set(task.id, timer);
+      } else {
+        setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status: stopped ? 'stopped' : 'failed', error: stopped ? '任务已停止' : detail, nextRetryAt: undefined } : item));
+      }
     } finally {
       runningIds.current.delete(task.id);
       aborters.current.delete(task.id);
@@ -298,7 +320,7 @@ function LogoReplaceSingleComposer({
   }, [apiKey, openAiApiKey, apiBaseUrl, expectedTexts]);
   useEffect(() => {
     const available = Math.max(0, settings.concurrency - runningIds.current.size);
-    tasks.filter((task) => task.status === 'waiting' && !runningIds.current.has(task.id)).slice(0, available).forEach((task) => void executeTask(task));
+    tasks.filter((task) => task.status === 'waiting' && !task.nextRetryAt && !task.autoRetryStopped && !runningIds.current.has(task.id)).slice(0, available).forEach((task) => void executeTask(task));
   }, [tasks, settings.concurrency, executeTask]);
 
   const start = () => {
@@ -312,30 +334,48 @@ function LogoReplaceSingleComposer({
     setCompareOriginalIds(new Set());
     setTasks(buildLogoReplaceTasks(pairings, settings.copiesPerScene));
   };
+  useEffect(() => {
+    if (!automationStartToken || handledAutomationStart.current === automationStartToken || !scenes.length || !newLogos.length) return;
+    handledAutomationStart.current = automationStartToken;
+    start();
+  }, [automationStartToken, scenes.length, newLogos.length]);
   const stop = () => {
     aborters.current.forEach((controller) => controller.abort());
+    retryTimers.current.forEach((timer) => window.clearTimeout(timer));
+    retryTimers.current.clear();
     setTasks((current) => current.map((task) => task.status === 'waiting' ? { ...task, status: 'stopped' } : task));
+  };
+  const stopTaskRetry = (id: string) => {
+    const timer = retryTimers.current.get(id);
+    if (timer) window.clearTimeout(timer);
+    retryTimers.current.delete(id);
+    aborters.current.get(id)?.abort();
+    setTasks((current) => current.map((item) => item.id === id ? { ...item, status: 'stopped', autoRetryStopped: true, nextRetryAt: undefined, error: '已停止该图片，不再自动重试' } : item));
   };
   const retry = (id: string) => {
     const task = tasks.find((item) => item.id === id);
     if (!task) return;
     if (task.resultUrl) URL.revokeObjectURL(task.resultUrl);
-    const next = { ...task, status: 'running' as const, error: undefined, resultBlob: undefined, resultUrl: undefined, resultMimeType: undefined, retryCount: task.retryCount + 1, verificationStatus: settings.strictTextVerification ? 'pending' as const : 'skipped' as const, verificationResult: undefined, verificationAttempts: 0, acceptedVerificationRisk: false };
+    const timer = retryTimers.current.get(id);
+    if (timer) window.clearTimeout(timer);
+    retryTimers.current.delete(id);
+    const next = { ...task, status: 'waiting' as const, error: undefined, resultBlob: undefined, resultUrl: undefined, resultMimeType: undefined, retryCount: 0, nextRetryAt: undefined, autoRetryStopped: false, verificationStatus: settings.strictTextVerification ? 'pending' as const : 'skipped' as const, verificationResult: undefined, verificationAttempts: 0, acceptedVerificationRisk: false };
     setCompareOriginalIds((current) => { const ids = new Set(current); ids.delete(id); return ids; });
     setSelectedResultIds((current) => { const ids = new Set(current); ids.delete(id); return ids; });
     setTasks((current) => current.map((item) => item.id === id ? next : item));
-    void executeTask(next);
   };
   const clearResults = () => resetTasks();
   const successful = tasks.filter((task) => task.status === 'success' && task.resultBlob);
   const downloadable = successful.filter((task) => task.verificationStatus !== 'failed' || task.acceptedVerificationRisk);
   const processing = tasks.some((task) => task.status === 'waiting' || task.status === 'running');
   const completed = tasks.filter((task) => ['success', 'failed', 'stopped'].includes(task.status)).length;
+  const retryingCount = tasks.filter((task) => task.retryCount > 0 && (task.status === 'waiting' || task.status === 'running')).length;
   useEffect(() => { reportTaskProgress({ id: 'logo-replace', label: 'Logo 替换', completed, total: tasks.length, failed: tasks.filter((task) => task.status === 'failed').length, running: processing }); }, [completed, tasks, processing]);
+  useEffect(() => { onProgressChange?.({ total: tasks.length, success: tasks.filter((task) => task.status === 'success').length, failed: tasks.filter((task) => task.status === 'failed').length, stopped: tasks.filter((task) => task.status === 'stopped').length, waiting: tasks.filter((task) => task.status === 'waiting').length, running: tasks.filter((task) => task.status === 'running').length, retrying: retryingCount }); }, [tasks, retryingCount, onProgressChange]);
   const taskCount = scenes.length * settings.copiesPerScene;
   const gptOutputCostRange = estimateGptImage2HighOutputCostRange(taskCount);
   const baseEstimatedCost = settings.imageProvider === 'openai' ? gptOutputCostRange.max : estimateImageCost(settings.imageModel, settings.imageSize, taskCount) + taskCount * PRICING.models[settings.imageModel].inputImage * (settings.useOldLogoReference && oldLogo ? 2 : 1);
-  const worstCaseImageCost = baseEstimatedCost * (settings.strictTextVerification ? settings.verificationRetries + 1 : 1);
+  const worstCaseImageCost = baseEstimatedCost * (settings.strictTextVerification ? settings.verificationRetries + 1 : 1) * (settings.autoRetryErrors ? settings.errorRetryLimit + 1 : 1);
   const groups = useMemo(() => scenes.map((scene) => ({ scene, tasks: tasks.filter((task) => task.sceneId === scene.id) })).filter((group) => group.tasks.length), [scenes, tasks]);
   const downloadTask = (task: LogoReplaceTask) => {
     const scene = scenes.find((item) => item.id === task.sceneId);
@@ -456,8 +496,16 @@ function LogoReplaceSingleComposer({
         <Form.Item label="输出分辨率"><Segmented block value={settings.imageSize} onChange={(imageSize) => patchSettings({ imageSize: imageSize as LogoReplaceSettings['imageSize'] })} options={MODEL_CAPABILITIES[settings.imageModel].imageSizes} /></Form.Item></> : <Alert type="info" showIcon title="GPT Image 2 使用自动尺寸" description="通过 OpenAI Images Edit 直接编辑场景图，并按输入画面自动选择输出尺寸。" style={{ marginBottom: 18 }} />}
         <Form.Item label="每张场景生成张数"><InputNumber min={1} max={8} value={settings.copiesPerScene} onChange={(copiesPerScene) => patchSettings({ copiesPerScene: copiesPerScene || 1 })} style={{ width: '100%' }} /></Form.Item>
         <Form.Item label="并发任务数"><InputNumber min={1} max={6} value={settings.concurrency} onChange={(concurrency) => patchSettings({ concurrency: concurrency || 1 })} style={{ width: '100%' }} /></Form.Item>
+        <Form.Item label="错误自动重试">
+          <Flex justify="space-between" align="center"><Text>接口或并发错误后无人值守重试</Text><Switch checked={settings.autoRetryErrors} onChange={(autoRetryErrors) => patchSettings({ autoRetryErrors })} /></Flex>
+          {settings.autoRetryErrors && <Space direction="vertical" style={{ width: '100%', marginTop: 10 }}>
+            <Flex justify="space-between" align="center"><Text>最多重试次数</Text><InputNumber min={1} max={20} value={settings.errorRetryLimit} onChange={(errorRetryLimit) => patchSettings({ errorRetryLimit: errorRetryLimit || 1 })} /></Flex>
+            <Flex justify="space-between" align="center"><Text>失败后等待时间</Text><InputNumber min={5} max={3600} addonAfter="秒" value={settings.errorRetryDelaySeconds} onChange={(errorRetryDelaySeconds) => patchSettings({ errorRetryDelaySeconds: errorRetryDelaySeconds || 30 })} /></Flex>
+            <Text type="secondary" className="field-help">适合限流、并发过高或临时网络错误；达到上限后才标记为最终失败。</Text>
+          </Space>}
+        </Form.Item>
       </Form>
-      <Card className="price-card" variant="borderless"><Flex gap={20} wrap><Statistic title={settings.imageProvider === 'openai' ? 'GPT 预计图片输出费用（上限）' : '基础预计价格'} prefix="$" precision={3} value={baseEstimatedCost} />{settings.strictTextVerification && <Statistic title="最坏情况生图价格" prefix="$" precision={3} value={worstCaseImageCost} />}</Flex>{settings.imageProvider === 'openai' ? <Text type="secondary">GPT Image 2 当前使用 high 质量与 auto 尺寸，按官方常见尺寸每张约 US$0.165–0.211 估算；本次 {taskCount} 个请求的输出费用约 US${gptOutputCostRange.min.toFixed(3)}–{gptOutputCostRange.max.toFixed(3)}。输入场景图、Logo 和提示词 token 会按实际大小另计，因此最终账单可能略高。<a href="https://developers.openai.com/api/docs/guides/image-generation#calculating-costs" target="_blank" rel="noreferrer">OpenAI 官方计价</a></Text> : <Text type="secondary">基础费用按 {taskCount} 个请求估算。{settings.strictTextVerification ? `最坏情况下每项会重新生成 ${settings.verificationRetries} 次；校验模型的文本 token 费用另计。` : ''}</Text>}</Card>
+      <Card className="price-card" variant="borderless"><Flex gap={20} wrap><Statistic title={settings.imageProvider === 'openai' ? 'GPT 预计图片输出费用（上限）' : '基础预计价格'} prefix="$" precision={3} value={baseEstimatedCost} />{(settings.strictTextVerification || settings.autoRetryErrors) && <Statistic title="最坏情况生图价格" prefix="$" precision={3} value={worstCaseImageCost} />}</Flex>{settings.imageProvider === 'openai' ? <Text type="secondary">GPT Image 2 当前使用 high 质量与 auto 尺寸，按官方常见尺寸每张约 US$0.165–0.211 估算；本次 {taskCount} 个请求的输出费用约 US${gptOutputCostRange.min.toFixed(3)}–{gptOutputCostRange.max.toFixed(3)}。输入场景图、Logo 和提示词 token 会按实际大小另计；最坏情况同时计入文字校验与错误自动重试上限。<a href="https://developers.openai.com/api/docs/guides/image-generation#calculating-costs" target="_blank" rel="noreferrer">OpenAI 官方计价</a></Text> : <Text type="secondary">基础费用按 {taskCount} 个请求估算。{settings.strictTextVerification ? `文字校验最多重新生成 ${settings.verificationRetries} 次；` : ''}{settings.autoRetryErrors ? `接口错误最多自动重试 ${settings.errorRetryLimit} 次；` : ''}校验模型的文本 token 费用另计。</Text>}</Card>
     </div>
   );
 
@@ -488,7 +536,7 @@ function LogoReplaceSingleComposer({
       </Card>
       <Card className="action-card"><Flex justify="space-between" align="center" gap={16} wrap><div><Title level={4} style={{ margin: 0 }}>准备替换 {taskCount} 张图片</Title><Text type="secondary">{scenes.length} 张场景图 × 每张 {settings.copiesPerScene} 个结果</Text></div><Space>{processing && <Button danger icon={<StopOutlined />} onClick={stop}>停止任务</Button>}<Button type="primary" size="large" icon={<RocketOutlined />} loading={processing} onClick={start}>{processing ? '正在替换' : '开始替换'}</Button></Space></Flex>{!!tasks.length && <Progress style={{ marginTop: 18 }} percent={Math.round((completed / tasks.length) * 100)} status={processing ? 'active' : successful.length ? 'success' : 'exception'} />}</Card>
       <section className="results-section"><Flex justify="space-between" align="center" gap={8} wrap><div><Title level={3}>替换结果</Title><Text type="secondary">每个结果仅改变 Logo</Text></div><Space wrap>{!!downloadable.length && <Checkbox checked={allSuccessfulSelected} indeterminate={selectedSuccessful.length > 0 && !allSuccessfulSelected} onChange={(event) => toggleSelectAllSuccessful(event.target.checked)}>全选成功项</Checkbox>}<Button disabled={!selectedSuccessful.length} icon={<DownloadOutlined />} onClick={() => void downloadSelected()}>下载选中{selectedSuccessful.length ? `（${selectedSuccessful.length}）` : ''}</Button><Popconfirm title="清空全部替换结果？" onConfirm={clearResults}><Button danger disabled={!tasks.length} icon={<ClearOutlined />}>清空结果</Button></Popconfirm><Button disabled={!downloadable.length} icon={<DownloadOutlined />} onClick={() => void downloadAll()}>下载全部 ZIP</Button></Space></Flex>
-        {tasks.length ? <Image.PreviewGroup><div className="logo-replace-results">{groups.flatMap((group) => group.tasks.map((task) => <Card key={task.id} size="small" style={selectedResultIds.has(task.id) ? { borderColor: '#1677ff', boxShadow: '0 0 0 1px #1677ff' } : undefined} title={`场景 ${task.sceneIndex + 1} · 结果 ${task.copyIndex + 1}`} extra={task.resultBlob && <Space size={4}><Checkbox disabled={task.verificationStatus === 'failed' && !task.acceptedVerificationRisk} aria-label={`选择场景 ${task.sceneIndex + 1} 结果 ${task.copyIndex + 1}`} checked={selectedResultIds.has(task.id)} onChange={(event) => toggleResultSelection(task.id, event.target.checked)} /><Button type="text" disabled={task.verificationStatus === 'failed' && !task.acceptedVerificationRisk} icon={<DownloadOutlined />} onClick={() => downloadTask(task)} /><Button type="text" title="重新生成" icon={<ReloadOutlined />} onClick={() => retry(task.id)} /></Space>}><div className="replace-result-image">{task.resultUrl ? <Image src={compareOriginalIds.has(task.id) ? group.scene.previewUrl : task.resultUrl} alt={compareOriginalIds.has(task.id) ? "原始场景图" : "Logo 替换结果"} /> : task.status === 'running' ? <GeneratingImage progressKey={task.id} status="running" percent={1} /> : <div className={`task-state-card is-${task.status}`}><Text strong type={task.status === 'failed' ? 'danger' : 'secondary'}>{statusText(task.status)}</Text><Text type="secondary">{task.error || (task.status === 'waiting' ? '等待可用并发任务' : '')}</Text></div>}</div><Flex justify="space-between" align="center" gap={8} style={{ marginTop: 8 }}><Space size={6}><Tag color={task.status === 'success' ? 'success' : task.status === 'failed' ? 'error' : task.status === 'running' ? 'processing' : 'default'}>{statusText(task.status)}</Tag>{task.resultUrl && <Button size="small" icon={<EyeOutlined />} onClick={() => setCompareOriginalIds((current) => { const next = new Set(current); if (next.has(task.id)) next.delete(task.id); else next.add(task.id); return next; })}>{compareOriginalIds.has(task.id) ? '查看生成图' : '原图对比'}</Button>}</Space>{task.status === 'failed' && <Button size="small" icon={<ReloadOutlined />} onClick={() => retry(task.id)}>重试</Button>}</Flex>{task.verificationStatus && <Flex vertical gap={6} style={{ marginTop: 8 }}><Tag color={task.verificationStatus === 'passed' ? 'success' : task.verificationStatus === 'failed' ? 'error' : task.verificationStatus === 'verifying' ? 'processing' : 'default'}>{task.verificationStatus === 'passed' ? '文字校验通过' : task.verificationStatus === 'failed' ? '文字校验未通过' : task.verificationStatus === 'verifying' ? '校验中' : task.verificationStatus === 'skipped' ? '未启用校验' : '等待校验'}</Tag>{task.verificationResult && <Text type={task.verificationStatus === 'failed' ? 'danger' : 'secondary'}>{[task.verificationResult.summary, ...task.verificationResult.differences].filter(Boolean).join('；')}{task.verificationAttempts ? `（校验 ${task.verificationAttempts} 次）` : ''}</Text>}{task.verificationStatus === 'failed' && !task.acceptedVerificationRisk && <Space><Button size="small" icon={<ReloadOutlined />} onClick={() => retry(task.id)}>重新生成</Button><Button size="small" onClick={() => setTasks((current) => current.map((item) => item.id === task.id ? { ...item, acceptedVerificationRisk: true } : item))}>人工确认可用</Button></Space>}{task.acceptedVerificationRisk && <Tag color="warning">已人工接受风险</Tag>}</Flex>}</Card>))}</div></Image.PreviewGroup> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="完成上传并开始替换后，结果会显示在这里" />}
+        {tasks.length ? <Image.PreviewGroup><div className="logo-replace-results">{groups.flatMap((group) => group.tasks.map((task) => <Card key={task.id} size="small" style={selectedResultIds.has(task.id) ? { borderColor: '#1677ff', boxShadow: '0 0 0 1px #1677ff' } : undefined} title={`场景 ${task.sceneIndex + 1} · 结果 ${task.copyIndex + 1}`} extra={task.resultBlob && <Space size={4}><Checkbox disabled={task.verificationStatus === 'failed' && !task.acceptedVerificationRisk} aria-label={`选择场景 ${task.sceneIndex + 1} 结果 ${task.copyIndex + 1}`} checked={selectedResultIds.has(task.id)} onChange={(event) => toggleResultSelection(task.id, event.target.checked)} /><Button type="text" disabled={task.verificationStatus === 'failed' && !task.acceptedVerificationRisk} icon={<DownloadOutlined />} onClick={() => downloadTask(task)} /><Button type="text" title="重新生成" icon={<ReloadOutlined />} onClick={() => retry(task.id)} /></Space>}><div className="replace-result-image">{task.resultUrl ? <Image src={compareOriginalIds.has(task.id) ? group.scene.previewUrl : task.resultUrl} alt={compareOriginalIds.has(task.id) ? "原始场景图" : "Logo 替换结果"} /> : task.status === 'running' ? <GeneratingImage progressKey={task.id} status="running" percent={1} /> : <div className={`task-state-card is-${task.status}`}><Text strong type={task.status === 'failed' ? 'danger' : 'secondary'}>{task.nextRetryAt ? '等待自动重试' : statusText(task.status)}</Text><Text type="secondary">{task.error || (task.status === 'waiting' ? '等待可用并发任务' : '')}</Text></div>}</div><Flex justify="space-between" align="center" gap={8} style={{ marginTop: 8 }}><Space size={6} wrap><Tag color={task.status === 'success' ? 'success' : task.status === 'failed' ? 'error' : task.status === 'running' ? 'processing' : 'default'}>{task.nextRetryAt ? '等待重试' : statusText(task.status)}</Tag>{task.retryCount > 0 && <Tag color="orange">错误重试 {task.retryCount}/{settings.errorRetryLimit}</Tag>}{task.resultUrl && <Button size="small" icon={<EyeOutlined />} onClick={() => setCompareOriginalIds((current) => { const next = new Set(current); if (next.has(task.id)) next.delete(task.id); else next.add(task.id); return next; })}>{compareOriginalIds.has(task.id) ? '查看生成图' : '原图对比'}</Button>}</Space><Space size={6}>{task.status === 'failed' && <Button size="small" icon={<ReloadOutlined />} onClick={() => retry(task.id)}>重试</Button>}{task.retryCount > 0 && (task.status === 'waiting' || task.status === 'running') && <Button danger size="small" icon={<StopOutlined />} onClick={() => stopTaskRetry(task.id)}>停止重试</Button>}</Space></Flex>{task.verificationStatus && <Flex vertical gap={6} style={{ marginTop: 8 }}><Tag color={task.verificationStatus === 'passed' ? 'success' : task.verificationStatus === 'failed' ? 'error' : task.verificationStatus === 'verifying' ? 'processing' : 'default'}>{task.verificationStatus === 'passed' ? '文字校验通过' : task.verificationStatus === 'failed' ? '文字校验未通过' : task.verificationStatus === 'verifying' ? '校验中' : task.verificationStatus === 'skipped' ? '未启用校验' : '等待校验'}</Tag>{task.verificationResult && <Text type={task.verificationStatus === 'failed' ? 'danger' : 'secondary'}>{[task.verificationResult.summary, ...task.verificationResult.differences].filter(Boolean).join('；')}{task.verificationAttempts ? `（校验 ${task.verificationAttempts} 次）` : ''}</Text>}{task.verificationStatus === 'failed' && !task.acceptedVerificationRisk && <Space><Button size="small" icon={<ReloadOutlined />} onClick={() => retry(task.id)}>重新生成</Button><Button size="small" onClick={() => setTasks((current) => current.map((item) => item.id === task.id ? { ...item, acceptedVerificationRisk: true } : item))}>人工确认可用</Button></Space>}{task.acceptedVerificationRisk && <Tag color="warning">已人工接受风险</Tag>}</Flex>}</Card>))}</div></Image.PreviewGroup> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="完成上传并开始替换后，结果会显示在这里" />}
       </section>
       <Alert type="warning" showIcon title="生成式替换提示" description="模型会尽量保持其他区域不变，但生成式图片接口不能保证像素级完全一致；旧 Logo 参考图有助于提高识别准确率。" />
       {!settingsHost && <aside className="logo-settings">{settingsPanel}</aside>}

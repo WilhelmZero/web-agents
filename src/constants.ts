@@ -71,6 +71,9 @@ export const DEFAULT_LOGO_REPLACE_SETTINGS = {
   verificationModel: 'gemini-3.1-flash-lite',
   openAiLanguageModel: 'gpt-5.6-terra',
   verificationRetries: 2,
+  autoRetryErrors: true,
+  errorRetryLimit: 3,
+  errorRetryDelaySeconds: 30,
 } as const;
 export const DEFAULT_OBJECT_REPLACE_SETTINGS = {
   imageModel: 'gemini-3.1-flash-image',

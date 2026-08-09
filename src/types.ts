@@ -190,6 +190,9 @@ export interface LogoReplaceSettings {
   verificationModel: OptimizerModel;
   openAiLanguageModel: 'gpt-5.6-sol' | 'gpt-5.6-terra' | 'gpt-5.6-luna';
   verificationRetries: number;
+  autoRetryErrors: boolean;
+  errorRetryLimit: number;
+  errorRetryDelaySeconds: number;
 }
 
 export interface ObjectPreservationOptions {
@@ -293,6 +296,18 @@ export interface LogoReplaceTask {
   verificationResult?: LogoVerificationResult;
   verificationAttempts?: number;
   acceptedVerificationRisk?: boolean;
+  nextRetryAt?: number;
+  autoRetryStopped?: boolean;
+}
+
+export interface LogoReplaceProgressSnapshot {
+  total: number;
+  success: number;
+  failed: number;
+  stopped: number;
+  waiting: number;
+  running: number;
+  retrying: number;
 }
 
 export interface SceneLogoStyle {
