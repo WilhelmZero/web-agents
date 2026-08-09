@@ -106,7 +106,7 @@ export default function BackgroundRemovalComposer({ openAiApiKey, onRequestKey, 
     setBusy(false);
   };
   const vectorize = async (item: Item) => {
-    if (!item.resultBlob) return; patchItem(item.id, { vectorStatus: 'converting' });
+    if (!item.resultBlob) return; patchItem(item.id, { vectorStatus: 'converting', error: undefined });
     try { patchItem(item.id, { vectorBlob: await vectorizeImageToSvg(item.resultBlob, undefined, settings.vectorEngine), vectorStatus: 'ready' }); }
     catch (error) { patchItem(item.id, { vectorStatus: 'failed', error: error instanceof Error ? error.message : '矢量化失败' }); }
   };
@@ -132,7 +132,7 @@ export default function BackgroundRemovalComposer({ openAiApiKey, onRequestKey, 
         {(item.aiResultUrl || item.resultUrl) && <Segmented block size="small" style={{ marginTop: 8 }} value={previewModes[item.id] || (item.resultUrl ? 'result' : 'ai')} onChange={(value) => setPreviewModes((current) => ({ ...current, [item.id]: value as PreviewMode }))} options={[{ label: '原图', value: 'source' }, ...(item.aiResultUrl ? [{ label: 'AI 返回', value: 'ai' }] : []), ...(item.resultUrl ? [{ label: item.resultMode === 'gpt-direct' ? 'GPT 透明返回' : '透明结果', value: 'result' }] : [])]} />}
         <div className="background-result-footer">
           <div className="background-result-status"><Tag color={item.status === 'success' ? 'success' : item.status === 'failed' ? 'error' : item.status === 'running' ? 'processing' : 'default'}>{item.status}</Tag>{item.alphaStatus && <Tag color={item.alphaStatus === 'valid' ? 'success' : 'warning'}>{item.alphaStatus === 'valid' ? '已检测到透明 Alpha' : '未检测到透明 Alpha'}</Tag>}{item.matteColor && <Tag><span style={{ display: 'inline-block', width: 10, height: 10, marginRight: 5, borderRadius: 2, verticalAlign: -1, background: item.matteColor, border: '1px solid #999' }} />底色 {item.matteColor}</Tag>}</div>
-          <div className="background-result-actions"><Button size="small" icon={<ReloadOutlined />} disabled={busy} onClick={() => void run([item])}>按当前参数重抠</Button>{item.resultBlob && <Button size="small" type="primary" ghost icon={<ThunderboltOutlined />} loading={item.vectorStatus === 'converting'} onClick={() => item.vectorBlob ? downloadBlob(item.vectorBlob, `${sanitizeFileName(item.file.name)}_矢量.svg`) : void vectorize(item)}>{item.vectorBlob ? '下载 SVG' : '转为矢量图'}</Button>}</div>
+          <div className="background-result-actions"><Button size="small" icon={<ReloadOutlined />} disabled={busy} onClick={() => void run([item])}>按当前参数重抠</Button>{item.resultBlob && <Button size="small" type="primary" ghost icon={<ThunderboltOutlined />} loading={item.vectorStatus === 'converting'} onClick={() => void vectorize(item)}>{item.vectorBlob ? '按当前参数重新矢量化' : '转为矢量图'}</Button>}{item.vectorBlob && <Button size="small" icon={<DownloadOutlined />} disabled={item.vectorStatus === 'converting'} onClick={() => downloadBlob(item.vectorBlob!, `${sanitizeFileName(item.file.name)}_矢量.svg`)}>下载 SVG</Button>}</div>
         </div>
       </Card>)}</div></Image.PreviewGroup> : <Empty description="处理结果会显示在这里" />}
     </section>
