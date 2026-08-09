@@ -273,6 +273,16 @@ button, input, textarea { font: inherit; }
 .scene-preview-compare-action { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 6px; color: rgba(255,255,255,.72); background: transparent; cursor: pointer; font-size: 18px; }
 .scene-preview-compare-action:hover,.scene-preview-compare-action.is-active { color: #fff; background: rgba(255,255,255,.18); }
 .folder-group-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; margin-top: 14px; }
+.folder-manage-card { cursor: pointer; }
+.batch-asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(126px, 1fr)); gap: 12px; margin-top: 16px; }
+.batch-asset-card { min-width: 0; padding: 8px; display: flex; flex-direction: column; gap: 7px; align-items: stretch; border: 1px solid #e5e7ed; border-radius: 12px; background: #fafbfc; }
+.batch-asset-card .ant-image, .batch-asset-card .ant-image-img { width: 100%; }
+.batch-asset-card .ant-image-img { aspect-ratio: 1; object-fit: contain; border-radius: 8px; background: #fff; }
+.batch-asset-placeholder { aspect-ratio: 1; display: grid; place-items: center; border-radius: 8px; color: #8c82bb; background: #f1eff9; font-size: 28px; }
+.batch-asset-card > .ant-typography { max-width: 100%; font-size: 12px; text-align: center; }
+.batch-asset-grid > .ant-upload-wrapper, .batch-asset-grid > .ant-upload-wrapper .ant-upload-select { width: 100%; height: 100%; }
+.batch-asset-add { width: 100%; min-height: 174px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border: 1px dashed #c9c2e8; border-radius: 12px; color: #684ed6; background: #faf9ff; cursor: pointer; }
+.batch-asset-add:hover { border-color: #7654dd; background: #f4f1ff; }
 
 @media (max-width: 640px) {
   .topbar { height: 64px; padding: 0 12px; }
