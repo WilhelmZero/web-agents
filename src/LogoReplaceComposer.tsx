@@ -47,7 +47,7 @@ import { buildLogoReplacementInstruction, generateLogoReplacement, verifyLogoRep
 import { generateLogoReplacementOpenAi, verifyLogoReplacementOpenAi } from './services/logoReplaceOpenAi';
 import { assignReplacementLogos, buildLogoReplaceTasks, shouldAutoRetryLogoError } from './services/logoReplaceUtils';
 import { readLocalStorage } from './storage';
-import type { LogoAsset, LogoReplaceProgressSnapshot, LogoReplaceSettings, LogoReplaceTask } from './types';
+import type { LogoAsset, LogoReplaceProgressSnapshot, LogoReplaceSettings, LogoReplaceTask, LogoReplaceTaskDetail } from './types';
 import { createId, downloadBlob, estimateGptImage2HighOutputCostRange, estimateImageCost, normalizeSettingsForModel, sanitizeFileName } from './utils';
 import { logoReplaceResultFileName } from './services/logoReplaceFileName';
 import PsdLogoImportModal from './PsdLogoImportModal';
@@ -96,6 +96,7 @@ interface LogoReplaceComposerProps {
   settingsHost?: HTMLElement | null;
   automationStartToken?: string;
   onProgressChange?: (progress: LogoReplaceProgressSnapshot) => void;
+  onTaskDetailChange?: (detail: LogoReplaceTaskDetail) => void;
 }
 
 function LogoReplaceSingleComposer({
@@ -108,6 +109,7 @@ function LogoReplaceSingleComposer({
   settingsHost,
   automationStartToken,
   onProgressChange,
+  onTaskDetailChange,
 }: LogoReplaceComposerProps) {
   const { message } = AntApp.useApp();
   const [settings, setSettings] = useState<LogoReplaceSettings>(() => {
@@ -131,6 +133,7 @@ function LogoReplaceSingleComposer({
   const aborters = useRef(new Map<string, AbortController>());
   const retryTimers = useRef(new Map<string, number>());
   const handledAutomationStart = useRef<string | undefined>(undefined);
+  const publishedTaskSignatures = useRef(new Map<string, string>());
   const scenesRef = useRef(scenes);
   const oldLogoRef = useRef(oldLogo);
   const newLogosRef = useRef(newLogos);
@@ -154,6 +157,7 @@ function LogoReplaceSingleComposer({
     aborters.current.forEach((controller) => controller.abort());
     retryTimers.current.forEach((timer) => window.clearTimeout(timer));
     retryTimers.current.clear();
+    publishedTaskSignatures.current.clear();
     setTasks((current) => {
       current.forEach((task) => task.resultUrl && URL.revokeObjectURL(task.resultUrl));
       return [];
@@ -372,6 +376,26 @@ function LogoReplaceSingleComposer({
   const retryingCount = tasks.filter((task) => task.retryCount > 0 && (task.status === 'waiting' || task.status === 'running')).length;
   useEffect(() => { reportTaskProgress({ id: 'logo-replace', label: 'Logo 替换', completed, total: tasks.length, failed: tasks.filter((task) => task.status === 'failed').length, running: processing }); }, [completed, tasks, processing]);
   useEffect(() => { onProgressChange?.({ total: tasks.length, success: tasks.filter((task) => task.status === 'success').length, failed: tasks.filter((task) => task.status === 'failed').length, stopped: tasks.filter((task) => task.status === 'stopped').length, waiting: tasks.filter((task) => task.status === 'waiting').length, running: tasks.filter((task) => task.status === 'running').length, retrying: retryingCount }); }, [tasks, retryingCount, onProgressChange]);
+  useEffect(() => {
+    if (!onTaskDetailChange) return;
+    tasks.forEach((task) => {
+      const signature = [task.status, task.retryCount, task.error || '', task.verificationStatus || '', Boolean(task.resultBlob)].join('|');
+      if (publishedTaskSignatures.current.get(task.id) === signature) return;
+      publishedTaskSignatures.current.set(task.id, signature);
+      const scene = scenesRef.current.find((item) => item.id === task.sceneId);
+      onTaskDetailChange({
+        id: task.id,
+        sceneIndex: task.sceneIndex,
+        copyIndex: task.copyIndex,
+        status: task.status,
+        retryCount: task.retryCount,
+        error: task.error,
+        verificationStatus: task.verificationStatus,
+        resultBlob: task.resultBlob,
+        originalFile: task.resultBlob ? scene?.file : undefined,
+      });
+    });
+  }, [tasks, onTaskDetailChange]);
   const taskCount = scenes.length * settings.copiesPerScene;
   const gptOutputCostRange = estimateGptImage2HighOutputCostRange(taskCount);
   const baseEstimatedCost = settings.imageProvider === 'openai' ? gptOutputCostRange.max : estimateImageCost(settings.imageModel, settings.imageSize, taskCount) + taskCount * PRICING.models[settings.imageModel].inputImage * (settings.useOldLogoReference && oldLogo ? 2 : 1);

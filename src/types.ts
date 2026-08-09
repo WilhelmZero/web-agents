@@ -310,6 +310,18 @@ export interface LogoReplaceProgressSnapshot {
   retrying: number;
 }
 
+export interface LogoReplaceTaskDetail {
+  id: string;
+  sceneIndex: number;
+  copyIndex: number;
+  status: TaskStatus;
+  retryCount: number;
+  error?: string;
+  verificationStatus?: LogoReplaceTask['verificationStatus'];
+  resultBlob?: Blob;
+  originalFile?: File;
+}
+
 export interface SceneLogoStyle {
   id: string;
   label: string;

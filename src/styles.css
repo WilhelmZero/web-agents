@@ -415,6 +415,15 @@ button, input, textarea { font: inherit; }
 .psd-preview-canvas { width: 100%; height: 100%; display: grid; place-items: center; overflow: auto; border: 1px solid #dfe3e9; border-radius: 10px; }
 .psd-preview-canvas .ant-image, .psd-preview-canvas img { max-width: 100%; max-height: 440px; object-fit: contain; }
 .transparent-swatch { width: 36px; height: 36px; border: 1px solid #d8dde4; border-radius: 6px; background: conic-gradient(#e1e5ea 25%,white 0 50%,#e1e5ea 0 75%,white 0) 0/12px 12px; }
+.batch-progress-card { cursor: pointer; }
+.batch-result-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 14px; align-items: start; }
+.batch-result-card .ant-card-head-title { min-width: 0; }
+.batch-result-image { display: grid; place-items: center; min-height: 180px; margin-bottom: 10px; overflow: hidden; border-radius: 8px; background: #f3f5f8; }
+.batch-result-image .ant-image, .batch-result-image .ant-image-img { width: 100%; }
+.batch-result-image .ant-image-img { height: 210px; object-fit: contain; }
+.batch-result-state { min-height: 210px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 16px; border-radius: 8px; background: #f5f6f8; text-align: center; }
+.batch-result-state > .anticon { font-size: 32px; color: #9aa2ae; }
+.batch-result-meta { margin-top: 10px; }
 @media (max-width: 800px) { .psd-export-workspace { grid-template-columns: 1fr; } .psd-preview-panel .ant-card-body { height: 420px; } }
 @media (max-width: 900px) { .scene-replace-editor { grid-template-columns: 1fr; } .scene-preset-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); max-height: none; } }
 @media (max-width: 560px) { .scene-preset-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
