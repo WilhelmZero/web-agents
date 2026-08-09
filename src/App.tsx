@@ -1206,7 +1206,7 @@ function AppContent() {
               value={settings.connectionMode}
               onChange={(connectionMode) => patchSettings({ connectionMode: connectionMode as AppSettings['connectionMode'] })}
               options={[
-                { label: 'Gemini 直连', value: 'direct' },
+                { label: 'Gemini 官方直连', value: 'direct' },
                 { label: 'Cloudflare 代理', value: 'proxy' },
               ]}
             />
@@ -1235,8 +1235,8 @@ function AppContent() {
           autoComplete="off"
         />
           </Form.Item>
-          <Divider titlePlacement="start">OpenAI 官方直连</Divider>
-          <Form.Item label="OpenAI API Key" extra="仅直连 https://api.openai.com/v1，不经过中转站" style={{ marginBottom: 0 }}>
+          <Divider titlePlacement="start">OpenAI</Divider>
+          <Form.Item label="OpenAI API Key" extra="请求地址：https://api.openai.com/v1，不经过中转站" style={{ marginBottom: 0 }}>
             <Input.Password
               value={settings.openAiApiKey}
               onChange={(event) => patchSettings({ openAiApiKey: event.target.value.trim() })}

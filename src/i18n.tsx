@@ -35,6 +35,7 @@ const translations: Record<string, string> = {
   '保存到本地': 'Save locally',
   '连接方式': 'Connection mode',
   'Gemini 直连': 'Gemini direct',
+  'Gemini 官方直连': 'Gemini official direct',
   'Cloudflare 代理': 'Cloudflare proxy',
   '代理地址': 'Proxy URL',
   '测试连通性': 'Test connection',
