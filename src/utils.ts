@@ -78,6 +78,11 @@ export function sanitizeFileName(name: string): string {
   return withoutExtension.replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_').trim() || '未命名产品';
 }
 
+export function formatFileTimestamp(date = new Date()): string {
+  const parts = [date.getFullYear(), date.getMonth() + 1, date.getDate(), date.getHours(), date.getMinutes(), date.getSeconds()];
+  return `${parts.slice(0, 3).map((value) => String(value).padStart(2, '0')).join('')}_${parts.slice(3).map((value) => String(value).padStart(2, '0')).join('')}`;
+}
+
 export function fileToBase64(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();

@@ -5,10 +5,17 @@ import {
   buildTasks,
   estimateGptImage2HighOutputCostRange,
   estimateImageCost,
+  formatFileTimestamp,
   normalizeSettingsForModel,
   sanitizeFileName,
   splitPrompts,
 } from './utils';
+
+describe('formatFileTimestamp', () => {
+  it('formats a local date for collision-resistant download names', () => {
+    expect(formatFileTimestamp(new Date(2026, 7, 10, 14, 3, 25))).toBe('20260810_140325');
+  });
+});
 
 const file = new File(['x'], 'product.png', { type: 'image/png' });
 const products: ProductImage[] = [0, 1].map((index) => ({

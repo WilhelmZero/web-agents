@@ -12,7 +12,7 @@ import { editPaperTextOpenAi } from './services/paperText';
 import { buildOutpaintPrompt, closestAspectRatio, prepareOutpaintInput } from './services/outpaint';
 import { readLocalStorage } from './storage';
 import type { ImageModel, LogoAsset, SceneReplaceSettings, SceneReplaceTask } from './types';
-import { createId, downloadBlob, estimateImageCost, mimeExtension, normalizeSettingsForModel, sanitizeFileName } from './utils';
+import { createId, downloadBlob, estimateImageCost, formatFileTimestamp, mimeExtension, normalizeSettingsForModel, sanitizeFileName } from './utils';
 import { BUILT_IN_SCENE_REPLACE_PRESETS, normalizeCustomScenePresets, SCENE_PRESET_EMOJIS, type SceneReplacePreset } from './services/sceneReplacePresets';
 
 const { Text, Title, Paragraph } = Typography;
@@ -143,7 +143,7 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
         if (item.outpaintBlob) folder?.file(`扩图_${resultNumber}_${settings.outpaintWidth}x${settings.outpaintHeight}.png`, item.outpaintBlob);
       });
     });
-    downloadBlob(await zip.generateAsync({ type: 'blob' }), 'SceneStudio_场景替换结果.zip');
+    downloadBlob(await zip.generateAsync({ type: 'blob' }), `SceneStudio_场景替换结果_${formatFileTimestamp()}.zip`);
   };
 
   const selectedOutpaintPreset = OUTPAINT_PRESETS.find((item) => item.width === settings.outpaintWidth && item.height === settings.outpaintHeight)?.value || 'custom';
