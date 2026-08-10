@@ -19,6 +19,7 @@ export const STORAGE_KEYS = {
   sceneReplacePresets: 'scene-studio.scene-replace-presets.v1',
   inpaintSettings: 'scene-studio.inpaint-settings.v1',
   cupResizeSettings: 'scene-studio.cup-resize-settings.v1',
+  cupResizePrompt: 'scene-studio.cup-resize-prompt.v1',
   productDetailSettings: 'scene-studio.product-detail-settings.v1',
   paperTextSettings: 'scene-studio.paper-text-settings.v1',
   backgroundRemovalSettings: 'scene-studio.background-removal-settings.v1',
