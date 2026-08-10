@@ -3,6 +3,7 @@ import type { CreationTool } from '../types';
 export const CREATION_TOOLS: readonly CreationTool[] = [
   'scene',
   'scene-replace',
+  'cup-resize',
   'logo',
   'logo-replace',
   'logo-replace-tabs',

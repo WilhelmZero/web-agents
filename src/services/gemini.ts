@@ -712,6 +712,38 @@ export async function generateInpaintImage(options: {
   };
 }
 
+export async function generateCupResizeImage(options: {
+  apiKey: string;
+  model: ImageModel;
+  scene: File;
+  cup: File;
+  compositeGuide: Blob;
+  imageSize: ImageSize;
+  signal?: AbortSignal;
+  apiBaseUrl?: string | null;
+}): Promise<GeneratedImage> {
+  const [sceneData, cupData, guideData] = await Promise.all([
+    fileToBase64(options.scene),
+    fileToBase64(options.cup),
+    fileToBase64(options.compositeGuide),
+  ]);
+  const instruction = `执行精确杯子尺寸融合任务。第一张图是原始场景，第二张图是杯子白底参考图，第三张图是用户制作的最终位置与尺寸指导合成图。第三张指导图中杯子的外轮廓边界、中心点、宽度、高度、旋转角度和在画面中的位置都是绝对约束，必须逐像素级遵循，严禁放大、缩小、拉伸、压缩、弯曲、重塑或移动杯子，严禁改变杯口、杯身、杯底、杯柄的结构与比例。只去除杯子白底画布并让杯子自然进入场景：恢复被用户涂抹覆盖区域的自然背景，依据原场景补充正确的遮挡关系、接触阴影、反射、环境光、景深和边缘融合。杯子的外观、材质、颜色、图案、Logo 与文字必须严格来自第二张参考图，不能重绘变形。原场景里除原杯子及紧邻融合边缘外的所有人物、手势、物体、背景、构图、像素内容均须保持不变。输出尺寸和构图必须与第一张原始场景一致，不要输出白边、色块、选择框或编辑标记。`;
+  const data = await postGemini(options.model, options.apiKey, {
+    contents: [{ role: 'user', parts: [
+      { text: instruction },
+      { inlineData: { mimeType: options.scene.type, data: sceneData } },
+      { inlineData: { mimeType: options.cup.type, data: cupData } },
+      { inlineData: { mimeType: options.compositeGuide.type || 'image/png', data: guideData } },
+    ] }],
+    generationConfig: { responseModalities: ['IMAGE'], imageConfig: { imageSize: options.imageSize } },
+  }, options.signal, options.apiBaseUrl);
+  const imagePart = data.candidates?.flatMap((candidate) => candidate.content?.parts ?? []).find((part) => part.inlineData?.data);
+  if (!imagePart?.inlineData?.data) throw new Error('模型未返回杯子尺寸调整图片，请重试或切换模型');
+  const bytes = Uint8Array.from(atob(imagePart.inlineData.data), (char) => char.charCodeAt(0));
+  const mimeType = imagePart.inlineData.mimeType || 'image/png';
+  return { blob: new Blob([bytes], { type: mimeType }), mimeType, usageTokens: data.usageMetadata?.totalTokenCount };
+}
+
 export async function recognizePaperTextGemini(options: { apiKey: string; model: string; image: File; signal?: AbortSignal; apiBaseUrl?: string | null }): Promise<PaperTextRegion[]> {
   const imageData = await fileToBase64(options.image);
   const data = await postGemini(options.model, options.apiKey, { contents: [{ role: 'user', parts: [

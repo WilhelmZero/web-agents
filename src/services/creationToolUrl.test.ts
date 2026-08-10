@@ -7,6 +7,7 @@ describe('creation tool URL helpers', () => {
     expect(readCreationTool('?foo=1&tool=logo-export')).toBe('logo-export');
     expect(readCreationTool('?tool=background-removal')).toBe('background-removal');
     expect(readCreationTool('?tool=outpaint')).toBe('outpaint');
+    expect(readCreationTool('?tool=cup-resize')).toBe('cup-resize');
   });
 
   it('falls back for missing or invalid tools', () => {

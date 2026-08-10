@@ -18,6 +18,7 @@ export const STORAGE_KEYS = {
   sceneReplaceSettings: 'scene-studio.scene-replace-settings.v1',
   sceneReplacePresets: 'scene-studio.scene-replace-presets.v1',
   inpaintSettings: 'scene-studio.inpaint-settings.v1',
+  cupResizeSettings: 'scene-studio.cup-resize-settings.v1',
   productDetailSettings: 'scene-studio.product-detail-settings.v1',
   paperTextSettings: 'scene-studio.paper-text-settings.v1',
   backgroundRemovalSettings: 'scene-studio.background-removal-settings.v1',
@@ -108,6 +109,11 @@ export const DEFAULT_INPAINT_SETTINGS = {
   ratioMode: 'original',
   aspectRatio: '1:1',
   imageSize: '1K',
+} as const;
+
+export const DEFAULT_CUP_RESIZE_SETTINGS = {
+  imageModel: 'gemini-3.1-flash-image',
+  imageSize: '2K',
 } as const;
 
 export const DEFAULT_PRODUCT_DETAIL_SETTINGS = {
