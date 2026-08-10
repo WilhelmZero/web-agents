@@ -133,7 +133,18 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
     setCustomPresets((current) => [...current, next]); setSelectedPreset(next.id); setPrompt(next.content); setPresetEditorOpen(false); message.success('自定义提示词预设已保存到本地');
   };
   const fileName = (task: SceneReplaceTask, scene: LogoAsset) => `${String(task.sceneIndex + 1).padStart(2, '0')}_${sanitizeFileName(scene.name)}_${task.outpaintBlob ? `扩图_${settings.outpaintWidth}x${settings.outpaintHeight}` : '场景替换'}_${String(task.copyIndex + 1).padStart(2, '0')}.${task.outpaintBlob ? 'png' : mimeExtension(task.resultMimeType)}`;
-  const downloadAll = async () => { const zip = new JSZip(); groups.forEach(({ scene, tasks: items }) => items.forEach((item) => { const blob = item.outpaintBlob || item.resultBlob; if (blob) zip.file(fileName(item, scene), blob); })); downloadBlob(await zip.generateAsync({ type: 'blob' }), 'SceneStudio_场景替换结果.zip'); };
+  const downloadAll = async () => {
+    const zip = new JSZip();
+    groups.forEach(({ scene, tasks: items }) => {
+      const folder = zip.folder(`${String(items[0]?.sceneIndex + 1 || 1).padStart(2, '0')}_${sanitizeFileName(scene.name)}`);
+      items.forEach((item) => {
+        const resultNumber = String(item.copyIndex + 1).padStart(2, '0');
+        if (item.resultBlob) folder?.file(`场景替换_${resultNumber}.${mimeExtension(item.resultMimeType)}`, item.resultBlob);
+        if (item.outpaintBlob) folder?.file(`扩图_${resultNumber}_${settings.outpaintWidth}x${settings.outpaintHeight}.png`, item.outpaintBlob);
+      });
+    });
+    downloadBlob(await zip.generateAsync({ type: 'blob' }), 'SceneStudio_场景替换结果.zip');
+  };
 
   const selectedOutpaintPreset = OUTPAINT_PRESETS.find((item) => item.width === settings.outpaintWidth && item.height === settings.outpaintHeight)?.value || 'custom';
   const panel = <div className="settings-panel scene-replace-settings-panel"><Flex justify="space-between"><Title level={4} style={{ margin: 0 }}>场景替换设置</Title><Tag color="cyan">SCENE</Tag></Flex><Form layout="vertical" style={{ marginTop: 20 }}>
