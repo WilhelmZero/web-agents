@@ -13,6 +13,7 @@ import {
   EditOutlined,
   ExperimentOutlined,
   EyeOutlined,
+  ExportOutlined,
   ExpandOutlined,
   FileImageOutlined,
   FolderOpenOutlined,
@@ -1250,6 +1251,9 @@ function AppContent() {
           placeholder="AIza..."
           autoComplete="off"
         />
+            <Button type="link" icon={<ExportOutlined />} href="https://me.developers.google.com/benefits" target="_blank" rel="noopener noreferrer" style={{ paddingInline: 0 }}>
+              查看 Gemini 免费余额
+            </Button>
           </Form.Item>
           <Divider titlePlacement="start">OpenAI</Divider>
           <Form.Item label="OpenAI API Key" extra="请求地址：https://api.openai.com/v1，不经过中转站" style={{ marginBottom: 0 }}>
@@ -1260,7 +1264,11 @@ function AppContent() {
               placeholder="sk-..."
               autoComplete="off"
             />
+            <Button type="link" icon={<ExportOutlined />} href="https://platform.openai.com/settings/organization/billing/overview" target="_blank" rel="noopener noreferrer" style={{ paddingInline: 0 }}>
+              查看 OpenAI 账单与额度
+            </Button>
           </Form.Item>
+          <Alert type="info" showIcon title="将在新标签页打开官方账户页面" description="浏览器已登录对应账号时可直接查看；出于官方页面的安全限制，余额无法嵌入或由普通 API Key 自动读取。" />
         </Form>
       </Modal>
 
