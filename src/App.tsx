@@ -403,7 +403,7 @@ function AppContent() {
 
   const creationToolMenuItems = useMemo(() => CREATION_TOOL_ITEMS.map((item) => ({
     ...item,
-    label: <span className="creation-tool-menu-label"><span>{item.label}</span>{!item.disabled && <Tooltip title={pinnedCreationTools.includes(item.key) ? '取消置顶' : '置顶常用功能'}><button type="button" className={pinnedCreationTools.includes(item.key) ? 'tool-pin-button is-pinned' : 'tool-pin-button'} aria-label={`${pinnedCreationTools.includes(item.key) ? '取消置顶' : '置顶'}${item.label}`} onClick={(event) => { event.preventDefault(); event.stopPropagation(); togglePinnedCreationTool(item.key); }}>{pinnedCreationTools.includes(item.key) ? <PushpinFilled /> : <PushpinOutlined />}</button></Tooltip>}</span>,
+    label: <span className="creation-tool-menu-label"><Tooltip title={item.label} placement="right"><span className="creation-tool-menu-title">{item.label}</span></Tooltip>{!item.disabled && <Tooltip title={pinnedCreationTools.includes(item.key) ? '取消置顶' : '置顶常用功能'}><button type="button" className={pinnedCreationTools.includes(item.key) ? 'tool-pin-button is-pinned' : 'tool-pin-button'} aria-label={`${pinnedCreationTools.includes(item.key) ? '取消置顶' : '置顶'}${item.label}`} onClick={(event) => { event.preventDefault(); event.stopPropagation(); togglePinnedCreationTool(item.key); }}>{pinnedCreationTools.includes(item.key) ? <PushpinFilled /> : <PushpinOutlined />}</button></Tooltip>}</span>,
   })), [pinnedCreationTools, togglePinnedCreationTool]);
 
   useEffect(() => {

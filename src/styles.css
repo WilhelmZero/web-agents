@@ -88,7 +88,7 @@ button, input, textarea { font: inherit; }
 .pinned-tool-remove { width: 28px; height: 28px; margin-right: 2px; color: #7654dd; }
 .pinned-tool-remove:hover,.tool-pin-button:hover,.tool-pin-button.is-pinned { color: #6844d6; background: #eee8ff; }
 .creation-tool-menu-label { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 0; }
-.creation-tool-menu-label > span:first-child { overflow: hidden; text-overflow: ellipsis; }
+.creation-tool-menu-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tool-pin-button { width: 24px; height: 24px; opacity: 0; transition: opacity .15s ease, color .15s ease; }
 .ant-menu-item:hover .tool-pin-button,.tool-pin-button:focus-visible,.tool-pin-button.is-pinned { opacity: 1; }
 .nav-sider.ant-layout-sider-collapsed .pinned-tools { margin-inline: 7px; padding: 6px 4px; }
