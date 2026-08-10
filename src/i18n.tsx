@@ -544,6 +544,7 @@ const translations: Record<string, string> = {
   '重新选择图片会清除当前选区和生成结果。': 'Selecting another image clears the current selection and result.',
   '配置 API Keys': 'Configure API Keys',
   '常用创作工具': 'Favorite creation tools',
+  '返回常用创作工具首页': 'Return to favorite creation tools',
   '从常用工具开始创作': 'Start with your favorite tools',
   '已置顶的创作工具集中显示在这里，选择一项即可立即开始。': 'Your pinned creation tools appear here. Choose one to get started.',
   '个常用工具': 'favorite tools',

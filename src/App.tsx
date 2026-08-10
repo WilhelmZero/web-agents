@@ -390,6 +390,14 @@ function AppContent() {
   const [testingProxy, setTestingProxy] = useState(false);
   const runningIds = useRef(new Set<string>());
 
+  const navigateToHome = useCallback(() => {
+    if (showPinnedHome) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete('tool');
+    setShowPinnedHome(true);
+    window.history.pushState({ ...window.history.state, creationTool: undefined }, '', `${url.pathname}${url.search}${url.hash}`);
+  }, [showPinnedHome]);
+
   const navigateToCreationTool = useCallback((tool: CreationTool) => {
     if (tool === creationTool && !showPinnedHome) return;
     setShowPinnedHome(false);
@@ -773,14 +781,16 @@ function AppContent() {
       <Header className="topbar">
         <Flex align="center" justify="space-between" gap={16}>
           <Flex align="center" gap={12}>
-            <div className="brand-mark"><ExperimentOutlined /></div>
-            <div className="brand-copy">
-              <div className="brand-title-row" title={titleStatus === 'running' ? `任务执行中 ${globalCompleted}/${globalTotal}` : titleStatus === 'failed' ? `${globalFailed} 个任务失败` : '系统就绪'}>
-                <span className={`brand-status-light is-${titleStatus}`} aria-label={titleStatus === 'running' ? '任务执行中' : titleStatus === 'failed' ? '存在失败任务' : '系统就绪'} />
-                <Title level={3} className="brand-title">Scene Studio</Title>
-              </div>
-              <Text type="secondary" className="brand-subtitle">AI 商业场景图工作台</Text>
-            </div>
+            <button type="button" className="brand-home-link" aria-label="返回常用创作工具首页" onClick={navigateToHome}>
+              <span className="brand-mark"><ExperimentOutlined /></span>
+              <span className="brand-copy">
+                <span className="brand-title-row" title={titleStatus === 'running' ? `任务执行中 ${globalCompleted}/${globalTotal}` : titleStatus === 'failed' ? `${globalFailed} 个任务失败` : '系统就绪'}>
+                  <span className={`brand-status-light is-${titleStatus}`} aria-label={titleStatus === 'running' ? '任务执行中' : titleStatus === 'failed' ? '存在失败任务' : '系统就绪'} />
+                  <Title level={3} className="brand-title">Scene Studio</Title>
+                </span>
+                <Text type="secondary" className="brand-subtitle">AI 商业场景图工作台</Text>
+              </span>
+            </button>
             <Divider orientation="vertical" className="header-divider" />
             <Tag icon={<AppstoreOutlined />} color="purple">{showPinnedHome ? '常用创作工具' : CREATION_TOOL_ITEMS.find((item) => item.key === creationTool)?.label || '创作工具'}</Tag>
           </Flex>
