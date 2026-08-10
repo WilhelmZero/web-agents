@@ -2,7 +2,6 @@ import type { GeneratedImage, GlassLogoEtchOptions, ImageModel, ImageSize, LogoV
 import { fileToBase64 } from '../utils';
 import { startRequestConsoleEntry, summarizeGeminiRequest, updateRequestConsoleEntry } from './requestConsole';
 import { normalizePaperTextRegions, type PaperTextRegion, type PaperTextVerification } from './paperText';
-import { CUP_RESIZE_PROMPT } from './cupResize';
 
 const GOOGLE_API_ROOT = 'https://generativelanguage.googleapis.com/v1beta';
 
@@ -718,6 +717,7 @@ export async function generateCupResizeImage(options: {
   model: ImageModel;
   compositeGuide: Blob;
   imageSize: ImageSize;
+  prompt: string;
   supplementalPrompt?: string;
   signal?: AbortSignal;
   apiBaseUrl?: string | null;
@@ -725,7 +725,7 @@ export async function generateCupResizeImage(options: {
   const guideData = await fileToBase64(options.compositeGuide);
   const data = await postGemini(options.model, options.apiKey, {
     contents: [{ role: 'user', parts: [
-      { text: `${CUP_RESIZE_PROMPT}${options.supplementalPrompt?.trim() ? `\n用户补充要求：${options.supplementalPrompt.trim()}` : ''}` },
+      { text: `${options.prompt}${options.supplementalPrompt?.trim() ? `\n用户补充要求：${options.supplementalPrompt.trim()}` : ''}` },
       { inlineData: { mimeType: options.compositeGuide.type || 'image/png', data: guideData } },
     ] }],
     generationConfig: { responseModalities: ['IMAGE'], imageConfig: { imageSize: options.imageSize } },
