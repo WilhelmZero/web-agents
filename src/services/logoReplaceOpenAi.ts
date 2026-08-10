@@ -27,7 +27,7 @@ async function editImages(options: { apiKey: string; model: 'gpt-image-2'; image
     if (item?.b64_json) blob = new Blob([Uint8Array.from(atob(item.b64_json), (char) => char.charCodeAt(0))], { type: 'image/png' });
     if (!blob && item?.url) { const image = await fetch(item.url, { signal: options.signal }); if (image.ok) blob = await image.blob(); }
     if (!blob) throw new Error('OpenAI 未返回 Logo 替换图片');
-    updateRequestConsoleEntry(consoleId, { status: 'success', httpStatus, durationMs: Math.round(performance.now() - startedAt), resultSummary: '1 张 Logo 替换图片', message: 'GPT 图片编辑完成' });
+    updateRequestConsoleEntry(consoleId, { status: 'success', httpStatus, durationMs: Math.round(performance.now() - startedAt), resultSummary: '1 张 Logo 替换图片', message: 'GPT 图片编辑完成', outputImages: [blob] });
     return { blob, mimeType: blob.type || 'image/png' };
   } catch (error) {
     const stopped = options.signal?.aborted || (error instanceof DOMException && error.name === 'AbortError');

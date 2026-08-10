@@ -763,6 +763,8 @@ const translations: Record<string, string> = {
   '优化后': 'Optimized',
   '原文': 'Original text',
   '例如：改为海边度假主题，严格要求杯子及人物在图中的位置和人物动作、特别是人物手势不变，穿搭及背景氛围可改变，真实的景深效果': 'For example: Change to a seaside vacation theme. Strictly preserve the cup and people positions in the image, all body actions, especially hand gestures. Clothing and atmosphere may change, with realistic depth of field.',
+  '输出缩略图': 'Output thumbnails',
+  '控制台不会记录 API Key、Base64 图片数据或完整请求正文；最多保留最近 24 张输出图片，日志仅保留在当前页面会话。': 'The console does not record API keys, Base64 image data, or complete request bodies. It retains at most the latest 24 output images, and logs remain only in the current page session.',
 };
 
 const phraseTranslations: Array<[string, string]> = [

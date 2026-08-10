@@ -108,7 +108,7 @@ export async function editPaperTextOpenAi(options: { apiKey: string; model: stri
     if (item?.b64_json) blob = new Blob([Uint8Array.from(atob(item.b64_json), (c) => c.charCodeAt(0))], { type: 'image/png' });
     if (!blob && item?.url) { const image = await fetch(item.url, { signal: options.signal }); if (image.ok) blob = await image.blob(); }
     if (!blob) throw new Error('OpenAI 未返回编辑后的图片');
-    updateRequestConsoleEntry(consoleId, { status: 'success', httpStatus, durationMs: Math.round(performance.now() - startedAt), resultSummary: '1 张编辑图片', message: 'GPT 图片编辑完成' });
+    updateRequestConsoleEntry(consoleId, { status: 'success', httpStatus, durationMs: Math.round(performance.now() - startedAt), resultSummary: '1 张编辑图片', message: 'GPT 图片编辑完成', outputImages: [blob] });
     return blob;
   } catch (error) {
     const stopped = options.signal?.aborted || (error instanceof DOMException && error.name === 'AbortError');

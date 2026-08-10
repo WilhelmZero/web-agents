@@ -424,6 +424,10 @@ button, input, textarea { font: inherit; }
 .batch-result-state { min-height: 210px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 16px; border-radius: 8px; background: #f5f6f8; text-align: center; }
 .batch-result-state > .anticon { font-size: 32px; color: #9aa2ae; }
 .batch-result-meta { margin-top: 10px; }
+.request-console-output { display: grid; gap: 7px; margin-top: 10px; }
+.request-console-thumbnails { display: flex; flex-wrap: wrap; gap: 8px; }
+.request-console-thumbnails .ant-image, .request-console-thumbnails .ant-image-img { width: 76px; height: 76px; }
+.request-console-thumbnails .ant-image-img { object-fit: cover; border: 1px solid #e3e7ec; border-radius: 8px; background: #f4f6f8; }
 @media (max-width: 800px) { .psd-export-workspace { grid-template-columns: 1fr; } .psd-preview-panel .ant-card-body { height: 420px; } }
 @media (max-width: 900px) { .scene-replace-editor { grid-template-columns: 1fr; } .scene-preset-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); max-height: none; } }
 @media (max-width: 560px) { .scene-preset-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }

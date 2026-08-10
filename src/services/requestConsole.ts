@@ -13,10 +13,13 @@ export interface RequestConsoleEntry {
   requestSummary: string;
   resultSummary?: string;
   message?: string;
+  outputImages?: Blob[];
 }
 
 const entries: RequestConsoleEntry[] = [];
 const listeners = new Set<(items: RequestConsoleEntry[]) => void>();
+const MAX_OUTPUT_IMAGES = 24;
+const MAX_IMAGES_PER_ENTRY = 4;
 
 function snapshot() {
   return [...entries].sort((a, b) => b.startedAt - a.startedAt);
@@ -56,7 +59,16 @@ export function startRequestConsoleEntry(input: Pick<RequestConsoleEntry, 'model
 export function updateRequestConsoleEntry(id: string, patch: Partial<Omit<RequestConsoleEntry, 'id' | 'startedAt'>>) {
   const entry = entries.find((item) => item.id === id);
   if (!entry) return;
-  Object.assign(entry, patch, { updatedAt: Date.now() });
+  const outputImages = patch.outputImages?.filter((image) => image.type.startsWith('image/')).slice(0, MAX_IMAGES_PER_ENTRY);
+  Object.assign(entry, patch, outputImages ? { outputImages } : {}, { updatedAt: Date.now() });
+  let retainedImages = 0;
+  entries.forEach((item) => {
+    if (!item.outputImages?.length) return;
+    const available = Math.max(0, MAX_OUTPUT_IMAGES - retainedImages);
+    item.outputImages = item.outputImages.slice(0, available);
+    if (!item.outputImages.length) delete item.outputImages;
+    retainedImages += item.outputImages?.length || 0;
+  });
   notify();
 }
 

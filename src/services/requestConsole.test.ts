@@ -20,6 +20,18 @@ describe('request console', () => {
     unsubscribe();
   });
 
+  it('retains only a bounded number of image outputs', () => {
+    for (let index = 0; index < 8; index += 1) {
+      const id = startRequestConsoleEntry({ model: 'image-model', connection: 'direct', requestSummary: 'image request' });
+      updateRequestConsoleEntry(id, { status: 'success', outputImages: Array.from({ length: 5 }, () => new Blob(['image'], { type: 'image/png' })) });
+    }
+    let latest: RequestConsoleEntry[] = [];
+    const unsubscribe = subscribeRequestConsole((items) => { latest = items; });
+    expect(latest.reduce((total, entry) => total + (entry.outputImages?.length || 0), 0)).toBe(24);
+    expect(latest.every((entry) => (entry.outputImages?.length || 0) <= 4)).toBe(true);
+    unsubscribe();
+  });
+
   it('summarizes without retaining prompt, key, or base64 data', () => {
     const summary = summarizeGeminiRequest({
       secretKey: 'never-show-this-key',

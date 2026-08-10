@@ -117,8 +117,9 @@ async function postGemini(
       });
       const data = (await response.json().catch(() => ({}))) as GeminiResponse;
       if (response.ok && !data.error) {
-        const imageCount = data.candidates?.flatMap((candidate) => candidate.content?.parts ?? []).filter((part) => part.inlineData?.data).length ?? 0;
-        updateRequestConsoleEntry(consoleId, { status: 'success', httpStatus: response.status, durationMs: Math.round(performance.now() - requestStartedAt), resultSummary: (imageCount ? imageCount + ' 张图片' : '响应成功') + (data.usageMetadata?.totalTokenCount ? ' · ' + data.usageMetadata.totalTokenCount + ' tokens' : ''), message: 'Gemini 请求完成' });
+        const imageParts = data.candidates?.flatMap((candidate) => candidate.content?.parts ?? []).filter((part) => part.inlineData?.data) ?? [];
+        const outputImages = imageParts.slice(0, 4).map((part) => new Blob([Uint8Array.from(atob(part.inlineData!.data), (char) => char.charCodeAt(0))], { type: part.inlineData!.mimeType || 'image/png' }));
+        updateRequestConsoleEntry(consoleId, { status: 'success', httpStatus: response.status, durationMs: Math.round(performance.now() - requestStartedAt), resultSummary: (imageParts.length ? imageParts.length + ' 张图片' : '响应成功') + (data.usageMetadata?.totalTokenCount ? ' · ' + data.usageMetadata.totalTokenCount + ' tokens' : ''), message: 'Gemini 请求完成', outputImages });
         return data;
       }
       const retryable = isRetryableGeminiStatus(response.status);
