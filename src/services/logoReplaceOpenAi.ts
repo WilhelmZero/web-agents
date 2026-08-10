@@ -44,7 +44,6 @@ function outputText(data: unknown) {
 export function generateCupResizeOpenAi(options: {
   apiKey: string;
   model: 'gpt-image-2' | 'gpt-image-2-2026-04-21';
-  scene: File;
   cup: File;
   compositeGuide: File;
   prompt: string;
@@ -54,8 +53,8 @@ export function generateCupResizeOpenAi(options: {
   return editImages({
     apiKey: options.apiKey,
     model: options.model,
-    images: [options.scene, options.cup, options.compositeGuide],
-    prompt: `${options.prompt}\n第一张是原始场景，第二张是杯子白底参考，第三张是精确尺寸与位置指导合成图。`,
+    images: [options.cup, options.compositeGuide],
+    prompt: `${options.prompt}\n第一张是杯子白底参考图，第二张是已经包含完整场景、涂抹内容和目标杯子的精确指导合成图。`,
     quality: options.quality,
     requestLabel: '杯子大小精确调整',
     signal: options.signal,

@@ -446,9 +446,14 @@ button, input, textarea { font: inherit; }
 .cup-resize-control-stack .ant-input-number { width: 112px; }
 .cup-resize-control-stack .ant-slider { margin-block: 4px 0; }
 .cup-crop-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.cup-crop-grid label { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.cup-crop-grid label > span { flex: 0 0 16px; color: #5f6875; }
+.cup-crop-edge-control { min-width: 0; padding: 7px 8px 2px; border: 1px solid #e7eaf0; border-radius: 8px; background: #fafbfc; }
+.cup-crop-edge-control .ant-slider { margin: 7px 3px 2px; }
 .cup-crop-grid .ant-input-number { width: 100%; min-width: 0; }
+.cup-crop-edge-control .ant-input-number { width: 96px; }
+.cup-resize-canvas-workspace { display: grid; gap: 12px; }
+.cup-resize-canvas-toolbar { padding: 10px; border: 1px solid #e2e6ec; border-radius: 10px; background: #fafbfc; }
+.cup-resize-canvas-toolbar .cup-resize-tool-modes { display: flex; flex-wrap: wrap; }
+.cup-resize-canvas-toolbar .ant-divider-vertical { height: 28px; margin-inline: 2px; }
 .cup-resize-canvas { display: grid; place-items: center; min-height: 460px; padding: 12px; overflow: auto; border: 1px solid #dfe4eb; border-radius: 12px; background: #e9edf2; }
 .cup-resize-canvas canvas { display: block; max-width: 100%; max-height: 680px; touch-action: none; box-shadow: 0 12px 36px rgba(18,28,42,.16); }
 .cup-resize-result { display: grid; place-items: center; min-height: 260px; padding: 12px; border-radius: 10px; background: #eef1f5; }

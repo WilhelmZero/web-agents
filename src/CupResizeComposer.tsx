@@ -8,6 +8,8 @@ import {
   HighlightOutlined,
   RocketOutlined,
   StopOutlined,
+  UndoOutlined,
+  RedoOutlined,
   UnlockOutlined,
   LockOutlined,
 } from '@ant-design/icons';
@@ -99,6 +101,9 @@ function CupPlacementCanvas({
   onDetectedColor,
   onCompositeChange,
   clearToken,
+  undoToken,
+  redoToken,
+  onHistoryChange,
 }: {
   sceneUrl: string;
   cupUrl: string;
@@ -114,11 +119,18 @@ function CupPlacementCanvas({
   onDetectedColor: (color: string) => void;
   onCompositeChange: (blob?: Blob) => void;
   clearToken: number;
+  undoToken: number;
+  redoToken: number;
+  onHistoryChange: (undoCount: number, redoCount: number) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sceneRef = useRef<HTMLImageElement | undefined>(undefined);
   const cupRef = useRef<HTMLImageElement | undefined>(undefined);
   const paintRef = useRef<HTMLCanvasElement | undefined>(undefined);
+  const shapePreviewRef = useRef<{ start: Point; current: Point; mode: 'rect' | 'ellipse' } | undefined>(undefined);
+  const undoStackRef = useRef<ImageData[]>([]);
+  const redoStackRef = useRef<ImageData[]>([]);
+  const commandReadyRef = useRef(false);
   const dragRef = useRef<{ start: Point; last: Point; action: 'move' | 'paint' | ResizeHandle; startScale: Scale } | undefined>(undefined);
   const positionRef = useRef(position);
   const scaleRef = useRef(cupScale);
@@ -150,6 +162,15 @@ function CupPlacementCanvas({
     context.clearRect(0, 0, canvas.width, canvas.height);
     context.drawImage(scene, 0, 0, canvas.width, canvas.height);
     context.drawImage(paint, 0, 0);
+    const shapePreview = shapePreviewRef.current;
+    if (shapePreview) {
+      const width = shapePreview.current.x - shapePreview.start.x;
+      const height = shapePreview.current.y - shapePreview.start.y;
+      context.save(); context.fillStyle = fillColor; context.globalAlpha = .78;
+      if (shapePreview.mode === 'rect') context.fillRect(shapePreview.start.x, shapePreview.start.y, width, height);
+      else { context.beginPath(); context.ellipse(shapePreview.start.x + width / 2, shapePreview.start.y + height / 2, Math.abs(width / 2), Math.abs(height / 2), 0, 0, Math.PI * 2); context.fill(); }
+      context.restore();
+    }
     const geometry = cupGeometry();
     if (!geometry) return;
     const { sourceX, sourceY, sourceWidth, sourceHeight, width: renderedWidth, height: renderedHeight, left, top } = geometry;
@@ -200,6 +221,9 @@ function CupPlacementCanvas({
       sceneRef.current = scene;
       cupRef.current = cup;
       paintRef.current = paint;
+      undoStackRef.current = [];
+      redoStackRef.current = [];
+      onHistoryChange(0, 0);
       onPositionChange({ x: width / 2, y: height / 2 });
       requestAnimationFrame(() => { render(); exportComposite(); });
     }).catch(() => onCompositeChange(undefined));
@@ -207,7 +231,29 @@ function CupPlacementCanvas({
   }, [cupUrl, sceneUrl]);
 
   useEffect(() => { render(); const timer = window.setTimeout(exportComposite, 120); return () => window.clearTimeout(timer); }, [render, exportComposite, cupScale, crop, fillColor, mode, position]);
-  useEffect(() => { paintRef.current?.getContext('2d')?.clearRect(0, 0, paintRef.current.width, paintRef.current.height); render(); exportComposite(); }, [clearToken]);
+  const snapshotPaint = () => {
+    const paint = paintRef.current; const context = paint?.getContext('2d');
+    if (!paint || !context) return;
+    undoStackRef.current.push(context.getImageData(0, 0, paint.width, paint.height));
+    if (undoStackRef.current.length > 30) undoStackRef.current.shift();
+    redoStackRef.current = [];
+    onHistoryChange(undoStackRef.current.length, 0);
+  };
+  useEffect(() => {
+    if (!commandReadyRef.current) { commandReadyRef.current = true; return; }
+    const paint = paintRef.current; const context = paint?.getContext('2d'); if (!paint || !context) return;
+    snapshotPaint(); context.clearRect(0, 0, paint.width, paint.height); render(); exportComposite();
+  }, [clearToken]);
+  useEffect(() => {
+    if (!undoToken) return;
+    const paint = paintRef.current; const context = paint?.getContext('2d'); const previous = undoStackRef.current.pop(); if (!paint || !context || !previous) return;
+    redoStackRef.current.push(context.getImageData(0, 0, paint.width, paint.height)); context.putImageData(previous, 0, 0); onHistoryChange(undoStackRef.current.length, redoStackRef.current.length); render(); exportComposite();
+  }, [undoToken]);
+  useEffect(() => {
+    if (!redoToken) return;
+    const paint = paintRef.current; const context = paint?.getContext('2d'); const next = redoStackRef.current.pop(); if (!paint || !context || !next) return;
+    undoStackRef.current.push(context.getImageData(0, 0, paint.width, paint.height)); context.putImageData(next, 0, 0); onHistoryChange(undoStackRef.current.length, redoStackRef.current.length); render(); exportComposite();
+  }, [redoToken]);
 
   const point = (event: React.PointerEvent<HTMLCanvasElement>): Point => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -223,6 +269,7 @@ function CupPlacementCanvas({
       const corners: Array<[ResizeHandle, number, number]> = [['nw', left, top], ['ne', left + width, top], ['se', left + width, top + height], ['sw', left, top + height]];
       action = corners.find(([, x, y]) => Math.abs(current.x - x) <= hit && Math.abs(current.y - y) <= hit)?.[0] || 'move';
     }
+    if (action === 'paint' && (mode === 'brush' || mode === 'rect' || mode === 'ellipse')) snapshotPaint();
     setCursor(action === 'move' ? 'grabbing' : action === 'nw' || action === 'se' ? 'nwse-resize' : action === 'ne' || action === 'sw' ? 'nesw-resize' : 'crosshair');
     dragRef.current = { start: current, last: current, action, startScale: { ...scaleRef.current } };
   };
@@ -259,6 +306,9 @@ function CupPlacementCanvas({
         context.beginPath(); context.moveTo(drag.last.x, drag.last.y); context.lineTo(current.x, current.y); context.stroke();
         render();
       }
+    } else if (drag.action === 'paint' && (mode === 'rect' || mode === 'ellipse')) {
+      shapePreviewRef.current = { start: drag.start, current, mode };
+      render();
     }
     drag.last = current;
   };
@@ -274,6 +324,7 @@ function CupPlacementCanvas({
       if (mode === 'rect') context.fillRect(drag.start.x, drag.start.y, width, height);
       else { context.beginPath(); context.ellipse(drag.start.x + width / 2, drag.start.y + height / 2, Math.abs(width / 2), Math.abs(height / 2), 0, 0, Math.PI * 2); context.fill(); }
     }
+    shapePreviewRef.current = undefined;
     dragRef.current = undefined;
     setCursor(mode === 'move' ? 'grab' : 'crosshair');
     render(); exportComposite();
@@ -307,6 +358,9 @@ export default function CupResizeComposer({ apiKey, openAiApiKey, apiBaseUrl, co
   const [composite, setComposite] = useState<Blob>();
   const [compositeUrl, setCompositeUrl] = useState<string>();
   const [clearToken, setClearToken] = useState(0);
+  const [undoToken, setUndoToken] = useState(0);
+  const [redoToken, setRedoToken] = useState(0);
+  const [historyState, setHistoryState] = useState({ undo: 0, redo: 0 });
   const [supplementalPrompt, setSupplementalPrompt] = useState(() => readLocalStorage(STORAGE_KEYS.cupResizePrompt, '给杯子倒上半杯酒'));
   const [result, setResult] = useState<{ blob: Blob; url: string; mimeType: string }>();
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -342,8 +396,8 @@ export default function CupResizeComposer({ apiKey, openAiApiKey, apiBaseUrl, co
     try {
       const guideFile = new File([composite], 'cup-placement-guide.png', { type: 'image/png' });
       const generated = isOpenAiModel(settings.imageModel)
-        ? await generateCupResizeOpenAi({ apiKey: openAiApiKey, model: settings.imageModel, scene, cup, compositeGuide: guideFile, prompt: `${CUP_RESIZE_PROMPT}${supplementalPrompt.trim() ? `\n用户补充要求：${supplementalPrompt.trim()}` : ''}`, quality: settings.imageQuality, signal: controller.signal })
-        : await generateCupResizeImage({ apiKey, apiBaseUrl, model: settings.imageModel, scene, cup, compositeGuide: composite, supplementalPrompt, imageSize: settings.imageSize, signal: controller.signal });
+        ? await generateCupResizeOpenAi({ apiKey: openAiApiKey, model: settings.imageModel, cup, compositeGuide: guideFile, prompt: `${CUP_RESIZE_PROMPT}${supplementalPrompt.trim() ? `\n用户补充要求：${supplementalPrompt.trim()}` : ''}`, quality: settings.imageQuality, signal: controller.signal })
+        : await generateCupResizeImage({ apiKey, apiBaseUrl, model: settings.imageModel, cup, compositeGuide: composite, supplementalPrompt, imageSize: settings.imageSize, signal: controller.signal });
       setResult({ blob: generated.blob, url: URL.createObjectURL(generated.blob), mimeType: generated.mimeType }); setStatus('success');
     } catch (reason) {
       if (controller.signal.aborted) setStatus('idle');
@@ -362,8 +416,8 @@ export default function CupResizeComposer({ apiKey, openAiApiKey, apiBaseUrl, co
     <div><Flex justify="space-between"><Text>宽度</Text><InputNumber size="small" min={3} max={300} value={Math.round(cupScale.x * 100)} addonAfter="%" onChange={(value) => setScaleAxis('x', (value || 3) / 100)} /></Flex><Slider min={.03} max={3} step={.01} value={cupScale.x} onChange={(value) => setScaleAxis('x', value)} /></div>
     <div><Flex justify="space-between"><Text>高度</Text><InputNumber size="small" min={3} max={300} value={Math.round(cupScale.y * 100)} addonAfter="%" onChange={(value) => setScaleAxis('y', (value || 3) / 100)} disabled={aspectLocked} /></Flex><Slider min={.03} max={3} step={.01} value={cupScale.y} onChange={(value) => setScaleAxis('y', value)} disabled={aspectLocked} /></div>
   </div>;
-  const cropControls = <div className="cup-resize-control-stack"><Text strong>白底画布四边裁切</Text><Text type="secondary">正数裁切，负数向外扩展并填充识别到的底色</Text><div className="cup-crop-grid">{(['top', 'right', 'bottom', 'left'] as const).map((edge) => <label key={edge}><span>{{ top: '上', right: '右', bottom: '下', left: '左' }[edge]}</span><InputNumber min={-100} max={45} value={crop[edge]} addonAfter="%" onChange={(value) => setCropEdge(edge, value || 0)} /></label>)}</div></div>;
-  const settingsPanel = <div className="settings-panel"><Flex justify="space-between"><Title level={4} style={{ margin: 0 }}>融合设置</Title><Tag color="blue">精确尺寸</Tag></Flex><Divider /><Form layout="vertical"><Form.Item label="图片模型"><Select value={settings.imageModel} onChange={(imageModel) => patchSettings({ imageModel })} options={MODEL_OPTIONS} /></Form.Item>{isOpenAiModel(settings.imageModel) ? <Form.Item label="生成质量"><Segmented block value={settings.imageQuality} onChange={(imageQuality) => patchSettings({ imageQuality: imageQuality as CupResizeSettings['imageQuality'] })} options={[{ value: 'low', label: '低' }, { value: 'medium', label: '中' }, { value: 'high', label: '高' }]} /></Form.Item> : <Form.Item label="输出分辨率"><Segmented block value={settings.imageSize} onChange={(imageSize) => patchSettings({ imageSize: imageSize as CupResizeSettings['imageSize'] })} options={MODEL_CAPABILITIES[settings.imageModel].imageSizes} /></Form.Item>}</Form><Divider titlePlacement="start">图层调整</Divider>{scaleControls}<Divider />{cropControls}<Divider /><Alert type="info" showIcon title="涂抹范围不决定杯子大小" description="杯子的最终宽高和位置严格来自指导合成图；涂抹区域只用于恢复旧杯子后方的场景。" /></div>;
+  const cropControls = <div className="cup-resize-control-stack"><Text strong>白底画布四边裁切</Text><Text type="secondary">正数裁切，负数向外扩展并填充识别到的底色</Text><div className="cup-crop-grid">{(['top', 'right', 'bottom', 'left'] as const).map((edge) => <div className="cup-crop-edge-control" key={edge}><Flex align="center" justify="space-between" gap={6}><Text>{{ top: '上', right: '右', bottom: '下', left: '左' }[edge]}</Text><InputNumber size="small" min={-100} max={45} value={crop[edge]} addonAfter="%" onChange={(value) => setCropEdge(edge, value || 0)} /></Flex><Slider min={-100} max={45} value={crop[edge]} onChange={(value) => setCropEdge(edge, value)} /></div>)}</div></div>;
+  const settingsPanel = <div className="settings-panel"><Flex justify="space-between"><Title level={4} style={{ margin: 0 }}>融合设置</Title><Tag color="blue">精确尺寸</Tag></Flex><Divider /><Form layout="vertical"><Form.Item label="图片模型"><Select value={settings.imageModel} onChange={(imageModel) => patchSettings({ imageModel })} options={MODEL_OPTIONS} /></Form.Item>{isOpenAiModel(settings.imageModel) ? <Form.Item label="生成质量"><Segmented block value={settings.imageQuality} onChange={(imageQuality) => patchSettings({ imageQuality: imageQuality as CupResizeSettings['imageQuality'] })} options={[{ value: 'low', label: '低' }, { value: 'medium', label: '中' }, { value: 'high', label: '高' }]} /></Form.Item> : <Form.Item label="输出分辨率"><Segmented block value={settings.imageSize} onChange={(imageSize) => patchSettings({ imageSize: imageSize as CupResizeSettings['imageSize'] })} options={MODEL_CAPABILITIES[settings.imageModel].imageSizes} /></Form.Item>}</Form><Divider titlePlacement="start">杯子位置</Divider><Flex gap={8}><InputNumber addonBefore="X" value={Math.round(position.x)} onChange={(value) => setPosition((current) => ({ ...current, x: value || 0 }))} style={{ width: '50%' }} /><InputNumber addonBefore="Y" value={Math.round(position.y)} onChange={(value) => setPosition((current) => ({ ...current, y: value || 0 }))} style={{ width: '50%' }} /></Flex><Divider titlePlacement="start">图层调整</Divider>{scaleControls}<Divider />{cropControls}<Divider titlePlacement="start">画笔参数</Divider><div className="cup-resize-control"><Flex justify="space-between"><Text>画笔大小</Text><Text>{brushSize}px</Text></Flex><Slider min={6} max={180} value={brushSize} onChange={setBrushSize} /></div><Divider titlePlacement="start">补充提示词</Divider><Input.TextArea value={supplementalPrompt} onChange={(event) => setSupplementalPrompt(event.target.value)} placeholder="可留空；例如：给杯子倒上半杯酒" autoSize={{ minRows: 3, maxRows: 8 }} maxLength={1000} showCount /><Text type="secondary">留空时只执行杯子与场景的自然融合。</Text><Divider /><Alert type="info" showIcon title="涂抹范围不决定杯子大小" description="杯子的最终宽高和位置严格来自指导合成图；涂抹区域只用于恢复旧杯子后方的场景。" /></div>;
 
   return <div className="cup-resize-page">
     <section className="hero-strip cup-resize-hero"><div><Text className="eyebrow">PRECISION CUP PLACEMENT</Text><Title level={2}>精确调整场景里的杯子大小</Title><Paragraph className="hero-description">先按像素确定杯子的位置、尺寸和白底画布，再让 AI 只完成自然融合。</Paragraph></div><div className="hero-orb" /></section>
@@ -372,16 +426,8 @@ export default function CupResizeComposer({ apiKey, openAiApiKey, apiBaseUrl, co
     </Card>
     {sceneUrl && cupUrl && <Card className="workflow-card" title={<Space><EditOutlined /><span>编辑指导合成图</span></Space>} extra={compositeUrl ? <Image width={44} height={44} src={compositeUrl} preview={{ mask: '预览' }} /> : null}>
       <Alert type="warning" showIcon title="先涂抹挡住原杯子，再切换移动工具放置新杯子" description="杯子白底图始终位于最上层；画布放大超过原图时会用自动识别的底色填充。" style={{ marginBottom: 14 }} />
-      <div className="cup-resize-editor-layout"><div className="cup-resize-tools">
-        <Radio.Group className="cup-resize-tool-modes" value={mode} onChange={(event) => setMode(event.target.value)} optionType="button" buttonStyle="solid"><Radio.Button value="move"><DragOutlined /> 移动杯子</Radio.Button><Radio.Button value="brush"><HighlightOutlined /> 画笔</Radio.Button><Radio.Button value="rect">方形填充</Radio.Button><Radio.Button value="ellipse">椭圆填充</Radio.Button></Radio.Group>
-        {scaleControls}
-        {cropControls}
-        <Flex gap={10} align="center" wrap><Text>填充色</Text><input aria-label="填充色" type="color" value={fillColor} onChange={(event) => setFillColor(event.target.value)} /><code>{fillColor}</code><Button size="small" onClick={() => setClearToken((value) => value + 1)} icon={<ClearOutlined />}>清除涂抹</Button></Flex>
-        {mode === 'brush' && <div className="cup-resize-control"><Flex justify="space-between"><Text>画笔大小</Text><Text>{brushSize}px</Text></Flex><Slider min={6} max={180} value={brushSize} onChange={setBrushSize} /></div>}
-        <Flex gap={8} wrap><InputNumber addonBefore="X" value={Math.round(position.x)} onChange={(value) => setPosition((current) => ({ ...current, x: value || 0 }))} /><InputNumber addonBefore="Y" value={Math.round(position.y)} onChange={(value) => setPosition((current) => ({ ...current, y: value || 0 }))} /></Flex>
-      </div><CupPlacementCanvas sceneUrl={sceneUrl} cupUrl={cupUrl} cupScale={cupScale} crop={crop} aspectLocked={aspectLocked} fillColor={fillColor} mode={mode} brushSize={brushSize} position={position} onPositionChange={setPosition} onScaleChange={setCupScale} onDetectedColor={setFillColor} onCompositeChange={setComposite} clearToken={clearToken} /></div>
+      <div className="cup-resize-canvas-workspace"><Flex className="cup-resize-canvas-toolbar" gap={8} align="center" wrap><Radio.Group className="cup-resize-tool-modes" value={mode} onChange={(event) => setMode(event.target.value)} optionType="button" buttonStyle="solid"><Radio.Button value="move"><DragOutlined /> 移动杯子</Radio.Button><Radio.Button value="brush"><HighlightOutlined /> 画笔</Radio.Button><Radio.Button value="rect">矩形填充</Radio.Button><Radio.Button value="ellipse">椭圆填充</Radio.Button></Radio.Group><Divider orientation="vertical" /><Text>填充色</Text><input aria-label="填充色" type="color" value={fillColor} onChange={(event) => setFillColor(event.target.value)} /><code>{fillColor}</code><Button onClick={() => setClearToken((value) => value + 1)} icon={<ClearOutlined />}>清除涂抹</Button><Button aria-label="撤销涂抹" disabled={!historyState.undo} onClick={() => setUndoToken((value) => value + 1)} icon={<UndoOutlined />}>撤销</Button><Button aria-label="重做涂抹" disabled={!historyState.redo} onClick={() => setRedoToken((value) => value + 1)} icon={<RedoOutlined />}>重做</Button></Flex><CupPlacementCanvas sceneUrl={sceneUrl} cupUrl={cupUrl} cupScale={cupScale} crop={crop} aspectLocked={aspectLocked} fillColor={fillColor} mode={mode} brushSize={brushSize} position={position} onPositionChange={setPosition} onScaleChange={setCupScale} onDetectedColor={setFillColor} onCompositeChange={setComposite} clearToken={clearToken} undoToken={undoToken} redoToken={redoToken} onHistoryChange={(undo, redo) => setHistoryState({ undo, redo })} /></div>
     </Card>}
-    <Card className="workflow-card" title="补充提示词" extra={<Button type="text" onClick={() => setSupplementalPrompt('')}>清空</Button>}><Input.TextArea value={supplementalPrompt} onChange={(event) => setSupplementalPrompt(event.target.value)} placeholder="可留空；例如：给杯子倒上半杯酒" autoSize={{ minRows: 3, maxRows: 8 }} maxLength={1000} showCount /><Text type="secondary">补充要求会追加到严格尺寸约束之后；留空时只执行杯子与场景的自然融合。</Text></Card>
     <Card className="action-card"><Flex justify="space-between" align="center" gap={12} wrap><div><Title level={4} style={{ margin: 0 }}>生成自然融合结果</Title><Text type="secondary">严格锁定指导图中的杯子位置、大小与轮廓</Text></div><Space>{status === 'running' && <Button danger icon={<StopOutlined />} onClick={() => aborter.current?.abort()}>停止</Button>}<Button size="large" type="primary" icon={<RocketOutlined />} loading={status === 'running'} onClick={() => void generate()}>开始融合</Button></Space></Flex>{status === 'running' && <GeneratingImage progressKey="cup-resize-current" status="running" percent={1} />}{error && <Alert style={{ marginTop: 14 }} type="error" showIcon title="融合失败" description={error} />}</Card>
     <Card className="workflow-card" title="生成结果" extra={result ? <Space><Button icon={<EyeOutlined />} onClick={() => { setPreviewOriginal(false); setPreviewOpen(true); }}>放大查看</Button><Button type="primary" icon={<DownloadOutlined />} onClick={() => downloadBlob(result.blob, resultName)}>下载图片</Button></Space> : null}>{result && compositeUrl ? <><CurtainCompare before={compositeUrl} after={result.url} /><Image className="cup-result-preview-source" src={result.url} preview={{ visible: previewOpen, onVisibleChange: (visible) => { setPreviewOpen(visible); if (!visible) setPreviewOriginal(false); }, actionsRender: (originalNode) => <>{originalNode}<Tooltip title={previewOriginal ? '查看生成图' : '查看原图'}><button type="button" className={previewOriginal ? 'scene-preview-compare-action is-active' : 'scene-preview-compare-action'} onClick={() => setPreviewOriginal((current) => !current)}><EyeOutlined /></button></Tooltip></>, imageRender: (originalNode) => previewOriginal ? cloneElement(originalNode as ReactElement<{ src?: string; alt?: string }>, { src: compositeUrl, alt: '最终指导合成图' }) : originalNode }} /></> : <div className="inpaint-empty-result"><Text type="secondary">AI 融合结果会显示在这里</Text></div>}</Card>
     {!settingsHost && <aside className="logo-settings">{settingsPanel}</aside>}{settingsHost && createPortal(settingsPanel, settingsHost)}
