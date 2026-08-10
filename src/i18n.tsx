@@ -762,7 +762,7 @@ const translations: Record<string, string> = {
   '下载该组 ZIP': 'Download group ZIP',
   '优化后': 'Optimized',
   '原文': 'Original text',
-  '例如：改为海边度假主题，严格要求杯子及人物在图中的位置和人物动作、特别是人物手势不变，穿搭及背景氛围可改变，真实的景深效果': 'For example: Change to a seaside vacation theme. Strictly preserve the cup and people positions in the image, all body actions, especially hand gestures. Clothing and atmosphere may change, with realistic depth of field.',
+  '例如：改为海边度假主题，严格要求杯子的外形、轮廓、比例、结构、尺寸、朝向及在图中的位置完全不变，禁止拉伸、压缩、弯曲、重塑或改变杯口、杯身、杯底；人物在图中的位置和人物动作、特别是人物手势不变，穿搭及背景氛围可改变，真实的景深效果': 'For example: Change to a seaside vacation theme. Strictly preserve the cup shape, silhouette, proportions, structure, size, orientation, and position in the image. Do not stretch, compress, bend, reshape, or alter the rim, body, or base. Preserve people positions, actions, and especially hand gestures. Clothing and atmosphere may change, with realistic depth of field.',
   '输出缩略图': 'Output thumbnails',
   '控制台不会记录 API Key、Base64 图片数据或完整请求正文；最多保留最近 24 张输出图片，日志仅保留在当前页面会话。': 'The console does not record API keys, Base64 image data, or complete request bodies. It retains at most the latest 24 output images, and logs remain only in the current page session.',
 };
