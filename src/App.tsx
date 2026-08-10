@@ -22,6 +22,7 @@ import {
   KeyOutlined,
   MenuFoldOutlined,
   PlusOutlined,
+  PictureOutlined,
   PushpinFilled,
   PushpinOutlined,
   ReloadOutlined,
@@ -120,7 +121,7 @@ const ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 
 const CREATION_TOOL_ITEMS: Array<{ key: CreationTool; label: string; description: string; icon: ReactNode; disabled?: boolean }> = [
   { key: 'scene', icon: <FileImageOutlined />, label: '场景图生成', description: '批量生成风格统一的商业场景图' },
-  { key: 'scene-replace', icon: <SwapOutlined />, label: '场景替换', description: '保留主体姿态并替换主题与环境' },
+  { key: 'scene-replace', icon: <PictureOutlined />, label: '场景替换', description: '保留主体姿态并替换主题与环境' },
   { key: 'cup-resize', icon: <ExpandOutlined />, label: '杯子大小精确调整', description: '精确控制杯子的位置、尺寸与融合' },
   { key: 'logo', icon: <ExperimentOutlined />, label: 'Logo 合成', description: '将品牌标识自然合成到产品图片' },
   { key: 'logo-replace', icon: <SwapOutlined />, label: 'Logo 替换', description: '批量识别、替换并校验场景 Logo' },
