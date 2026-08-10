@@ -68,7 +68,7 @@ function loadImage(url: string): Promise<HTMLImageElement> {
   });
 }
 
-function CurtainCompare({ before, after }: { before: string; after: string }) {
+function CurtainCompare({ before, beforeLabel, after }: { before: string; beforeLabel: string; after: string }) {
   const [position, setPosition] = useState(50);
   const update = (clientX: number, element: HTMLElement) => {
     const rect = element.getBoundingClientRect();
@@ -78,10 +78,10 @@ function CurtainCompare({ before, after }: { before: string; after: string }) {
     event.currentTarget.setPointerCapture(event.pointerId);
     update(event.clientX, event.currentTarget);
   };
-  return <div className="cup-curtain-compare" role="slider" tabIndex={0} aria-label="指导图与生成图拉幕对比" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(position)} onPointerDown={pointerDown} onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) update(event.clientX, event.currentTarget); }} onKeyDown={(event) => { if (event.key === 'ArrowLeft') setPosition((value) => Math.max(0, value - 2)); if (event.key === 'ArrowRight') setPosition((value) => Math.min(100, value + 2)); }}>
+  return <div className="cup-curtain-compare" role="slider" tabIndex={0} aria-label={`${beforeLabel}与生成图拉幕对比`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(position)} onPointerDown={pointerDown} onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) update(event.clientX, event.currentTarget); }} onKeyDown={(event) => { if (event.key === 'ArrowLeft') setPosition((value) => Math.max(0, value - 2)); if (event.key === 'ArrowRight') setPosition((value) => Math.min(100, value + 2)); }}>
     <img src={after} alt="AI 生成图" />
     <div className="cup-curtain-before" style={{ clipPath: `inset(0 ${100 - position}% 0 0)` }}><img src={before} alt="最终指导合成图" /></div>
-    <span className="cup-curtain-label is-before">指导图</span><span className="cup-curtain-label is-after">生成图</span>
+    <span className="cup-curtain-label is-before">{beforeLabel}</span><span className="cup-curtain-label is-after">生成图</span>
     <div className="cup-curtain-divider" style={{ left: `${position}%` }}><span>↔</span></div>
   </div>;
 }
@@ -151,7 +151,7 @@ function CupPlacementCanvas({
     return { sourceX, sourceY, sourceWidth, sourceHeight, width, height, left: positionRef.current.x - width / 2, top: positionRef.current.y - height / 2 };
   }, [crop]);
 
-  const render = useCallback(() => {
+  const render = useCallback((showControls = true) => {
     const canvas = canvasRef.current;
     const scene = sceneRef.current;
     const cup = cupRef.current;
@@ -178,7 +178,7 @@ function CupPlacementCanvas({
     context.fillStyle = fillColor;
     context.fillRect(left, top, renderedWidth, renderedHeight);
     context.drawImage(cup, sourceX, sourceY, sourceWidth, sourceHeight, left, top, renderedWidth, renderedHeight);
-    if (mode === 'move') {
+    if (mode === 'move' && showControls) {
       context.save();
       context.strokeStyle = '#1677ff';
       context.lineWidth = Math.max(2, canvas.width / 700);
@@ -194,8 +194,8 @@ function CupPlacementCanvas({
   }, [cupGeometry, fillColor, mode]);
 
   const exportComposite = useCallback(() => {
-    render();
-    canvasRef.current?.toBlob((blob) => onCompositeChange(blob || undefined), 'image/png');
+    render(false);
+    canvasRef.current?.toBlob((blob) => { onCompositeChange(blob || undefined); render(true); }, 'image/png');
   }, [onCompositeChange, render]);
 
   useEffect(() => {
@@ -365,6 +365,7 @@ export default function CupResizeComposer({ apiKey, openAiApiKey, apiBaseUrl, co
   const [result, setResult] = useState<{ blob: Blob; url: string; mimeType: string }>();
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewOriginal, setPreviewOriginal] = useState(false);
+  const [comparisonSource, setComparisonSource] = useState<'scene' | 'guide'>('scene');
   const [status, setStatus] = useState<'idle' | 'running' | 'success' | 'failed'>('idle');
   const [error, setError] = useState<string>();
   const aborter = useRef<AbortController | undefined>(undefined);
@@ -396,8 +397,8 @@ export default function CupResizeComposer({ apiKey, openAiApiKey, apiBaseUrl, co
     try {
       const guideFile = new File([composite], 'cup-placement-guide.png', { type: 'image/png' });
       const generated = isOpenAiModel(settings.imageModel)
-        ? await generateCupResizeOpenAi({ apiKey: openAiApiKey, model: settings.imageModel, cup, compositeGuide: guideFile, prompt: `${CUP_RESIZE_PROMPT}${supplementalPrompt.trim() ? `\n用户补充要求：${supplementalPrompt.trim()}` : ''}`, quality: settings.imageQuality, signal: controller.signal })
-        : await generateCupResizeImage({ apiKey, apiBaseUrl, model: settings.imageModel, cup, compositeGuide: composite, supplementalPrompt, imageSize: settings.imageSize, signal: controller.signal });
+        ? await generateCupResizeOpenAi({ apiKey: openAiApiKey, model: settings.imageModel, compositeGuide: guideFile, prompt: `${CUP_RESIZE_PROMPT}${supplementalPrompt.trim() ? `\n用户补充要求：${supplementalPrompt.trim()}` : ''}`, quality: settings.imageQuality, signal: controller.signal })
+        : await generateCupResizeImage({ apiKey, apiBaseUrl, model: settings.imageModel, compositeGuide: composite, supplementalPrompt, imageSize: settings.imageSize, signal: controller.signal });
       setResult({ blob: generated.blob, url: URL.createObjectURL(generated.blob), mimeType: generated.mimeType }); setStatus('success');
     } catch (reason) {
       if (controller.signal.aborted) setStatus('idle');
@@ -409,6 +410,8 @@ export default function CupResizeComposer({ apiKey, openAiApiKey, apiBaseUrl, co
     setScene(undefined); setCup(undefined); setSceneUrl(undefined); setCupUrl(undefined); setComposite(undefined); setResult(undefined); setStatus('idle'); setError(undefined);
   };
   const resultName = useMemo(() => `${sanitizeFileName(scene?.name || '杯子大小调整')}_cup-resized.${mimeExtension(result?.mimeType)}`, [scene?.name, result?.mimeType]);
+  const comparisonUrl = comparisonSource === 'scene' ? sceneUrl : compositeUrl;
+  const comparisonLabel = comparisonSource === 'scene' ? '上传原图' : '指导图';
   const setScaleAxis = (axis: keyof Scale, value: number) => setCupScale((current) => aspectLocked ? { x: value, y: value } : { ...current, [axis]: value });
   const setCropEdge = (edge: keyof CropEdges, value: number) => setCrop((current) => ({ ...current, [edge]: value }));
   const scaleControls = <div className="cup-resize-control-stack">
@@ -429,7 +432,7 @@ export default function CupResizeComposer({ apiKey, openAiApiKey, apiBaseUrl, co
       <div className="cup-resize-canvas-workspace"><Flex className="cup-resize-canvas-toolbar" gap={8} align="center" wrap><Radio.Group className="cup-resize-tool-modes" value={mode} onChange={(event) => setMode(event.target.value)} optionType="button" buttonStyle="solid"><Radio.Button value="move"><DragOutlined /> 移动杯子</Radio.Button><Radio.Button value="brush"><HighlightOutlined /> 画笔</Radio.Button><Radio.Button value="rect">矩形填充</Radio.Button><Radio.Button value="ellipse">椭圆填充</Radio.Button></Radio.Group><Divider orientation="vertical" /><Text>填充色</Text><input aria-label="填充色" type="color" value={fillColor} onChange={(event) => setFillColor(event.target.value)} /><code>{fillColor}</code><Button onClick={() => setClearToken((value) => value + 1)} icon={<ClearOutlined />}>清除涂抹</Button><Button aria-label="撤销涂抹" disabled={!historyState.undo} onClick={() => setUndoToken((value) => value + 1)} icon={<UndoOutlined />}>撤销</Button><Button aria-label="重做涂抹" disabled={!historyState.redo} onClick={() => setRedoToken((value) => value + 1)} icon={<RedoOutlined />}>重做</Button></Flex><CupPlacementCanvas sceneUrl={sceneUrl} cupUrl={cupUrl} cupScale={cupScale} crop={crop} aspectLocked={aspectLocked} fillColor={fillColor} mode={mode} brushSize={brushSize} position={position} onPositionChange={setPosition} onScaleChange={setCupScale} onDetectedColor={setFillColor} onCompositeChange={setComposite} clearToken={clearToken} undoToken={undoToken} redoToken={redoToken} onHistoryChange={(undo, redo) => setHistoryState({ undo, redo })} /></div>
     </Card>}
     <Card className="action-card"><Flex justify="space-between" align="center" gap={12} wrap><div><Title level={4} style={{ margin: 0 }}>生成自然融合结果</Title><Text type="secondary">严格锁定指导图中的杯子位置、大小与轮廓</Text></div><Space>{status === 'running' && <Button danger icon={<StopOutlined />} onClick={() => aborter.current?.abort()}>停止</Button>}<Button size="large" type="primary" icon={<RocketOutlined />} loading={status === 'running'} onClick={() => void generate()}>开始融合</Button></Space></Flex>{status === 'running' && <GeneratingImage progressKey="cup-resize-current" status="running" percent={1} />}{error && <Alert style={{ marginTop: 14 }} type="error" showIcon title="融合失败" description={error} />}</Card>
-    <Card className="workflow-card" title="生成结果" extra={result ? <Space><Button icon={<EyeOutlined />} onClick={() => { setPreviewOriginal(false); setPreviewOpen(true); }}>放大查看</Button><Button type="primary" icon={<DownloadOutlined />} onClick={() => downloadBlob(result.blob, resultName)}>下载图片</Button></Space> : null}>{result && compositeUrl ? <><CurtainCompare before={compositeUrl} after={result.url} /><Image className="cup-result-preview-source" src={result.url} preview={{ visible: previewOpen, onVisibleChange: (visible) => { setPreviewOpen(visible); if (!visible) setPreviewOriginal(false); }, actionsRender: (originalNode) => <>{originalNode}<Tooltip title={previewOriginal ? '查看生成图' : '查看原图'}><button type="button" className={previewOriginal ? 'scene-preview-compare-action is-active' : 'scene-preview-compare-action'} onClick={() => setPreviewOriginal((current) => !current)}><EyeOutlined /></button></Tooltip></>, imageRender: (originalNode) => previewOriginal ? cloneElement(originalNode as ReactElement<{ src?: string; alt?: string }>, { src: compositeUrl, alt: '最终指导合成图' }) : originalNode }} /></> : <div className="inpaint-empty-result"><Text type="secondary">AI 融合结果会显示在这里</Text></div>}</Card>
+    <Card className="workflow-card" title="生成结果" extra={result ? <Space wrap><Text type="secondary">对比基准</Text><Segmented size="small" value={comparisonSource} onChange={(value) => setComparisonSource(value as 'scene' | 'guide')} options={[{ value: 'scene', label: '上传原图' }, { value: 'guide', label: '指导图' }]} /><Button icon={<EyeOutlined />} onClick={() => { setPreviewOriginal(false); setPreviewOpen(true); }}>放大查看</Button><Button type="primary" icon={<DownloadOutlined />} onClick={() => downloadBlob(result.blob, resultName)}>下载图片</Button></Space> : null}>{result && comparisonUrl ? <><CurtainCompare before={comparisonUrl} beforeLabel={comparisonLabel} after={result.url} /><Image className="cup-result-preview-source" src={result.url} preview={{ visible: previewOpen, onVisibleChange: (visible) => { setPreviewOpen(visible); if (!visible) setPreviewOriginal(false); }, actionsRender: (originalNode) => <>{originalNode}<Tooltip title={previewOriginal ? '查看生成图' : `查看${comparisonLabel}`}><button type="button" className={previewOriginal ? 'scene-preview-compare-action is-active' : 'scene-preview-compare-action'} onClick={() => setPreviewOriginal((current) => !current)}><EyeOutlined /></button></Tooltip></>, imageRender: (originalNode) => previewOriginal ? cloneElement(originalNode as ReactElement<{ src?: string; alt?: string }>, { src: comparisonUrl, alt: comparisonLabel }) : originalNode }} /></> : <div className="inpaint-empty-result"><Text type="secondary">AI 融合结果会显示在这里</Text></div>}</Card>
     {!settingsHost && <aside className="logo-settings">{settingsPanel}</aside>}{settingsHost && createPortal(settingsPanel, settingsHost)}
   </div>;
 }

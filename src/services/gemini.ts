@@ -716,21 +716,16 @@ export async function generateInpaintImage(options: {
 export async function generateCupResizeImage(options: {
   apiKey: string;
   model: ImageModel;
-  cup: File;
   compositeGuide: Blob;
   imageSize: ImageSize;
   supplementalPrompt?: string;
   signal?: AbortSignal;
   apiBaseUrl?: string | null;
 }): Promise<GeneratedImage> {
-  const [cupData, guideData] = await Promise.all([
-    fileToBase64(options.cup),
-    fileToBase64(options.compositeGuide),
-  ]);
+  const guideData = await fileToBase64(options.compositeGuide);
   const data = await postGemini(options.model, options.apiKey, {
     contents: [{ role: 'user', parts: [
       { text: `${CUP_RESIZE_PROMPT}${options.supplementalPrompt?.trim() ? `\n用户补充要求：${options.supplementalPrompt.trim()}` : ''}` },
-      { inlineData: { mimeType: options.cup.type, data: cupData } },
       { inlineData: { mimeType: options.compositeGuide.type || 'image/png', data: guideData } },
     ] }],
     generationConfig: { responseModalities: ['IMAGE'], imageConfig: { imageSize: options.imageSize } },

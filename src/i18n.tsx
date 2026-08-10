@@ -68,6 +68,8 @@ const translations: Record<string, string> = {
   '撤销': 'Undo',
   '重做': 'Redo',
   '留空时只执行杯子与场景的自然融合。': 'Leave blank to perform only natural blending between the cup and scene.',
+  '对比基准': 'Comparison source',
+  '上传原图': 'Uploaded original',
   'AI 商业场景图工作台': 'AI Commercial Visual Studio',
   '创作工具': 'Creation tools',
   '场景图生成': 'Scene generator',

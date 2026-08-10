@@ -16,9 +16,10 @@ describe('cup resize image helpers', () => {
   });
 
   it('separates the painted cleanup area from the requested cup dimensions', () => {
-    expect(CUP_RESIZE_PROMPT).toContain('它不是新杯子的边界、遮罩或尺寸提示');
-    expect(CUP_RESIZE_PROMPT).toContain('像素包围框宽高和中心坐标保持一致');
-    expect(CUP_RESIZE_PROMPT).toContain('第二张指导合成图是唯一的场景与几何蓝图');
+    expect(CUP_RESIZE_PROMPT).toContain('它不是杯子的边界、遮罩或尺寸提示');
+    expect(CUP_RESIZE_PROMPT).toContain('像素包围框宽高、中心坐标');
+    expect(CUP_RESIZE_PROMPT).toContain('唯一输入图片就是最终指导合成图');
     expect(CUP_RESIZE_PROMPT).not.toContain('第一张图是原始场景');
+    expect(CUP_RESIZE_PROMPT).not.toContain('杯子白底参考');
   });
 });
