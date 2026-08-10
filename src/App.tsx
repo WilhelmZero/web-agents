@@ -65,7 +65,7 @@ import {
   Typography,
   Upload,
 } from 'antd';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { DEFAULT_SETTINGS, localizeBuiltInScenePresets, MODEL_CAPABILITIES, PRICING, STORAGE_KEYS } from './constants';
 import LogoComposer from './LogoComposer';
 import LogoReplaceComposer from './LogoReplaceComposer';
@@ -118,20 +118,20 @@ const { Text, Title, Paragraph } = Typography;
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
 const ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 
-const CREATION_TOOL_ITEMS: Array<{ key: CreationTool; label: string; icon: ReactNode; disabled?: boolean }> = [
-  { key: 'scene', icon: <FileImageOutlined />, label: '场景图生成' },
-  { key: 'scene-replace', icon: <SwapOutlined />, label: '场景替换' },
-  { key: 'cup-resize', icon: <ExpandOutlined />, label: '杯子大小精确调整' },
-  { key: 'logo', icon: <ExperimentOutlined />, label: 'Logo 合成' },
-  { key: 'logo-replace', icon: <SwapOutlined />, label: 'Logo 替换' },
-  { key: 'logo-replace-tabs', icon: <AppstoreOutlined />, label: '多标签 Logo 替换' },
-  { key: 'logo-export', icon: <DownloadOutlined />, label: '批量导出 Logo' },
-  { key: 'paper-text', icon: <EditOutlined />, label: '花纸文字修改' },
-  { key: 'background-removal', icon: <HighlightOutlined />, label: '去除背景' },
-  { key: 'outpaint', icon: <ExpandOutlined />, label: '扩图' },
-  { key: 'object-replace', icon: <ReloadOutlined />, label: '物体批量替换' },
-  { key: 'inpaint', icon: <HighlightOutlined />, label: '局部重绘' },
-  { key: 'product-detail', icon: <FolderOpenOutlined />, label: '详情长图生成' },
+const CREATION_TOOL_ITEMS: Array<{ key: CreationTool; label: string; description: string; icon: ReactNode; disabled?: boolean }> = [
+  { key: 'scene', icon: <FileImageOutlined />, label: '场景图生成', description: '批量生成风格统一的商业场景图' },
+  { key: 'scene-replace', icon: <SwapOutlined />, label: '场景替换', description: '保留主体姿态并替换主题与环境' },
+  { key: 'cup-resize', icon: <ExpandOutlined />, label: '杯子大小精确调整', description: '精确控制杯子的位置、尺寸与融合' },
+  { key: 'logo', icon: <ExperimentOutlined />, label: 'Logo 合成', description: '将品牌标识自然合成到产品图片' },
+  { key: 'logo-replace', icon: <SwapOutlined />, label: 'Logo 替换', description: '批量识别、替换并校验场景 Logo' },
+  { key: 'logo-replace-tabs', icon: <AppstoreOutlined />, label: '多标签 Logo 替换', description: '跨标签并行执行多组 Logo 替换任务' },
+  { key: 'logo-export', icon: <DownloadOutlined />, label: '批量导出 Logo', description: '从图片或 PSD 图层批量整理 Logo' },
+  { key: 'paper-text', icon: <EditOutlined />, label: '花纸文字修改', description: '识别并批量修改花纸中的文字内容' },
+  { key: 'background-removal', icon: <HighlightOutlined />, label: '去除背景', description: '智能抠图、透明化并支持矢量输出' },
+  { key: 'outpaint', icon: <ExpandOutlined />, label: '扩图', description: '按目标比例自然补全图片边界' },
+  { key: 'object-replace', icon: <ReloadOutlined />, label: '物体批量替换', description: '批量替换画面中的指定物体' },
+  { key: 'inpaint', icon: <HighlightOutlined />, label: '局部重绘', description: '框选局部区域并进行精细重绘' },
+  { key: 'product-detail', icon: <FolderOpenOutlined />, label: '详情长图生成', description: '组合素材生成商品详情长图' },
 ];
 
 function SettingsPanel({
@@ -347,6 +347,7 @@ function AppContent() {
   const [tasks, setTasks] = useState<GenerationTask[]>([]);
   const [activePromptId, setActivePromptId] = useState(prompts[0].id);
   const [creationTool, setCreationTool] = useState<CreationTool>(() => readCreationTool(window.location.search));
+  const [showPinnedHome, setShowPinnedHome] = useState(() => !isCreationTool(new URLSearchParams(window.location.search).get('tool')));
   const [pinnedCreationTools, setPinnedCreationTools] = useState<CreationTool[]>(() =>
     readLocalStorage<CreationTool[]>(STORAGE_KEYS.pinnedCreationTools, []).filter((tool) => isCreationTool(tool) && CREATION_TOOL_ITEMS.some((item) => item.key === tool && !item.disabled)),
   );
@@ -389,10 +390,11 @@ function AppContent() {
   const runningIds = useRef(new Set<string>());
 
   const navigateToCreationTool = useCallback((tool: CreationTool) => {
-    if (tool === creationTool) return;
+    if (tool === creationTool && !showPinnedHome) return;
+    setShowPinnedHome(false);
     setCreationTool(tool);
     window.history.pushState({ ...window.history.state, creationTool: tool }, '', setCreationToolInUrl(window.location.href, tool));
-  }, [creationTool]);
+  }, [creationTool, showPinnedHome]);
 
   const togglePinnedCreationTool = useCallback((tool: CreationTool) => {
     setPinnedCreationTools((current) => current.includes(tool) ? current.filter((item) => item !== tool) : [...current, tool]);
@@ -408,7 +410,11 @@ function AppContent() {
   })), [pinnedCreationTools, togglePinnedCreationTool]);
 
   useEffect(() => {
-    const handlePopState = () => setCreationTool(readCreationTool(window.location.search));
+    const handlePopState = () => {
+      const tool = new URLSearchParams(window.location.search).get('tool');
+      setShowPinnedHome(!isCreationTool(tool));
+      setCreationTool(readCreationTool(window.location.search));
+    };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
@@ -775,7 +781,7 @@ function AppContent() {
               <Text type="secondary" className="brand-subtitle">AI 商业场景图工作台</Text>
             </div>
             <Divider orientation="vertical" className="header-divider" />
-            <Tag icon={<AppstoreOutlined />} color="purple">{CREATION_TOOL_ITEMS.find((item) => item.key === creationTool)?.label || '创作工具'}</Tag>
+            <Tag icon={<AppstoreOutlined />} color="purple">{showPinnedHome ? '常用创作工具' : CREATION_TOOL_ITEMS.find((item) => item.key === creationTool)?.label || '创作工具'}</Tag>
           </Flex>
           <Space>
             <Segmented
@@ -794,7 +800,7 @@ function AppContent() {
             {globalTotal > 0 && <Tooltip title={runningProgress.map((item) => `${item.label} ${item.completed}/${item.total}`).join(' · ')}><Tag color="processing"><Progress type="circle" size={18} percent={Math.round(globalCompleted / globalTotal * 100)} showInfo={false} /> {globalCompleted}/{globalTotal}</Tag></Tooltip>}
             {notificationPermission !== 'granted' && notificationPermission !== 'unsupported' && <Tooltip title="任务完成后发送浏览器系统通知"><Button icon={<BellOutlined />} onClick={async () => setNotificationPermission(await requestTaskNotifications())}>开启通知</Button></Tooltip>}
             {notificationPermission === 'granted' && <Tooltip title="系统通知已开启"><Button icon={<BellOutlined />} type="text" aria-label="系统通知已开启" /></Tooltip>}
-            {compact && <Button icon={<SettingOutlined />} onClick={() => setSettingsOpen(true)}>设置</Button>}
+            {compact && !showPinnedHome && <Button icon={<SettingOutlined />} onClick={() => setSettingsOpen(true)}>设置</Button>}
             <Button
               type={settings.apiKey || settings.openAiApiKey ? 'default' : 'primary'}
               icon={settings.apiKey || settings.openAiApiKey ? <CheckCircleFilled /> : <KeyOutlined />}
@@ -806,7 +812,7 @@ function AppContent() {
         </Flex>
       </Header>
 
-      <Layout className="workspace-layout">
+      <Layout className={`workspace-layout${showPinnedHome ? ' is-tool-home' : ''}`}>
         <Sider width={214} className="nav-sider" breakpoint="lg" collapsedWidth={64}>
           {pinnedCreationTools.length > 0 && <div className="pinned-tools"><Text className="pinned-tools-title"><PushpinFilled /> 已置顶</Text><div className="pinned-tools-list">{pinnedCreationTools.map((tool) => {
             const item = CREATION_TOOL_ITEMS.find((candidate) => candidate.key === tool); if (!item) return null;
@@ -814,7 +820,7 @@ function AppContent() {
           })}</div></div>}
           <Menu
             mode="inline"
-            selectedKeys={[creationTool]}
+            selectedKeys={showPinnedHome ? [] : [creationTool]}
             onClick={({ key }) => {
               if (isCreationTool(key)) navigateToCreationTool(key);
             }}
@@ -833,6 +839,19 @@ function AppContent() {
 
         <Content className="main-content">
           <div className="content-inner">
+            {showPinnedHome && <section className="tool-home">
+              <div className="tool-home-hero">
+                <div><Text className="eyebrow">PINNED CREATION TOOLS</Text><Title level={1}>从常用工具开始创作</Title><Paragraph>已置顶的创作工具集中显示在这里，选择一项即可立即开始。</Paragraph></div>
+                <div className="tool-home-count"><PushpinFilled /><strong>{pinnedCreationTools.length}</strong><span>个常用工具</span></div>
+              </div>
+              {pinnedCreationTools.length ? <div className="tool-home-grid">{pinnedCreationTools.map((tool, index) => {
+                const item = CREATION_TOOL_ITEMS.find((candidate) => candidate.key === tool); if (!item) return null;
+                return <button type="button" className="tool-home-card" key={tool} onClick={() => navigateToCreationTool(tool)} style={{ '--tool-index': index } as CSSProperties}>
+                  <span className="tool-home-card-icon">{item.icon}</span><span className="tool-home-card-copy"><strong>{item.label}</strong><span>{item.description}</span></span><span className="tool-home-card-open">打开 <ArrowUpOutlined /></span>
+                </button>;
+              })}</div> : <div className="tool-home-empty"><PushpinOutlined /><Title level={3}>还没有置顶工具</Title><Paragraph>在左侧工具名称旁点击置顶图标，常用工具就会显示在这里。</Paragraph></div>}
+            </section>}
+            <div hidden={showPinnedHome}>
             <div hidden={creationTool !== 'logo'}>
               <LogoComposer
                 apiKey={settings.apiKey}
@@ -1153,6 +1172,7 @@ function AppContent() {
               title="关于生成内容"
               description="所有 Nano Banana 生成图片均包含 SynthID 水印。请确保你拥有上传图片的必要权利，并遵守 Gemini API 使用政策。"
             />
+            </div>
             </div>
           </div>
         </Content>
