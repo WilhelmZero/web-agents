@@ -762,6 +762,7 @@ const translations: Record<string, string> = {
   '下载该组 ZIP': 'Download group ZIP',
   '优化后': 'Optimized',
   '原文': 'Original text',
+  '例如：改为海边度假主题，严格要求杯子及人物在图中的位置和人物动作、特别是人物手势不变，穿搭及背景氛围可改变，真实的景深效果': 'For example: Change to a seaside vacation theme. Strictly preserve the cup and people positions in the image, all body actions, especially hand gestures. Clothing and atmosphere may change, with realistic depth of field.',
 };
 
 const phraseTranslations: Array<[string, string]> = [

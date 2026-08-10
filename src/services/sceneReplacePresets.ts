@@ -9,7 +9,7 @@ export interface SceneReplacePreset {
 export const SCENE_PRESET_EMOJIS = ['🎄', '✨', '💝', '🎃', '🍂', '🌷', '🏖️', '🍁', '❄️', '☕', '📷', '🏨', '🏢', '🌃', '🍳', '🏕️'];
 
 export function sceneThemePrompt(theme: string): string {
-  return `改为${theme}主题，严格要求杯子及人物动作、特别是人物手势不变，穿搭及背景氛围可改变，真实的景深效果`;
+  return `改为${theme}主题，严格要求杯子及人物在图中的位置和人物动作、特别是人物手势不变，穿搭及背景氛围可改变，真实的景深效果`;
 }
 
 const BUILT_IN_THEMES = [
