@@ -2,6 +2,7 @@ import type { GeneratedImage, GlassLogoEtchOptions, ImageModel, ImageSize, LogoV
 import { fileToBase64 } from '../utils';
 import { startRequestConsoleEntry, summarizeGeminiRequest, updateRequestConsoleEntry } from './requestConsole';
 import { normalizePaperTextRegions, type PaperTextRegion, type PaperTextVerification } from './paperText';
+import { CUP_RESIZE_PROMPT } from './cupResize';
 
 const GOOGLE_API_ROOT = 'https://generativelanguage.googleapis.com/v1beta';
 
@@ -727,10 +728,9 @@ export async function generateCupResizeImage(options: {
     fileToBase64(options.cup),
     fileToBase64(options.compositeGuide),
   ]);
-  const instruction = `执行精确杯子尺寸融合任务。第一张图是原始场景，第二张图是杯子白底参考图，第三张图是用户制作的最终位置与尺寸指导合成图。第三张指导图中杯子的外轮廓边界、中心点、宽度、高度、旋转角度和在画面中的位置都是绝对约束，必须逐像素级遵循，严禁放大、缩小、拉伸、压缩、弯曲、重塑或移动杯子，严禁改变杯口、杯身、杯底、杯柄的结构与比例。只去除杯子白底画布并让杯子自然进入场景：恢复被用户涂抹覆盖区域的自然背景，依据原场景补充正确的遮挡关系、接触阴影、反射、环境光、景深和边缘融合。杯子的外观、材质、颜色、图案、Logo 与文字必须严格来自第二张参考图，不能重绘变形。原场景里除原杯子及紧邻融合边缘外的所有人物、手势、物体、背景、构图、像素内容均须保持不变。输出尺寸和构图必须与第一张原始场景一致，不要输出白边、色块、选择框或编辑标记。`;
   const data = await postGemini(options.model, options.apiKey, {
     contents: [{ role: 'user', parts: [
-      { text: instruction },
+      { text: CUP_RESIZE_PROMPT },
       { inlineData: { mimeType: options.scene.type, data: sceneData } },
       { inlineData: { mimeType: options.cup.type, data: cupData } },
       { inlineData: { mimeType: options.compositeGuide.type || 'image/png', data: guideData } },

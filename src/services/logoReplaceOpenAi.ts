@@ -9,13 +9,13 @@ async function openAiError(response: Response) {
   return new Error(body?.error?.message || `OpenAI 请求失败（HTTP ${response.status}）`);
 }
 
-async function editImages(options: { apiKey: string; model: 'gpt-image-2'; images: File[]; prompt: string; signal?: AbortSignal }): Promise<GeneratedImage> {
+async function editImages(options: { apiKey: string; model: 'gpt-image-2' | 'gpt-image-2-2026-04-21'; images: File[]; prompt: string; quality?: 'high' | 'medium' | 'low'; requestLabel?: string; signal?: AbortSignal }): Promise<GeneratedImage> {
   const form = new FormData();
   options.images.forEach((image) => form.append('image[]', image, image.name));
   form.append('prompt', options.prompt); form.append('model', options.model); form.append('n', '1');
-  form.append('size', 'auto'); form.append('quality', 'high'); form.append('output_format', 'png');
+  form.append('size', 'auto'); form.append('quality', options.quality || 'high'); form.append('output_format', 'png');
   const startedAt = performance.now();
-  const consoleId = startRequestConsoleEntry({ model: options.model, connection: 'direct', requestSummary: `OpenAI Images Edit · ${options.images.length} 张输入图片 · Logo 替换` });
+  const consoleId = startRequestConsoleEntry({ model: options.model, connection: 'direct', requestSummary: `OpenAI Images Edit · ${options.images.length} 张输入图片 · ${options.requestLabel || 'Logo 替换'}` });
   let httpStatus: number | undefined;
   try {
     const response = await fetch(`${OPENAI_ROOT}/images/edits`, { method: 'POST', headers: { Authorization: `Bearer ${options.apiKey}` }, body: form, signal: options.signal });
@@ -39,6 +39,27 @@ async function editImages(options: { apiKey: string; model: 'gpt-image-2'; image
 function outputText(data: unknown) {
   const body = data as { output_text?: string; output?: Array<{ content?: Array<{ text?: string }> }> };
   return body.output_text || body.output?.flatMap((item) => item.content || []).map((item) => item.text || '').join('') || '';
+}
+
+export function generateCupResizeOpenAi(options: {
+  apiKey: string;
+  model: 'gpt-image-2' | 'gpt-image-2-2026-04-21';
+  scene: File;
+  cup: File;
+  compositeGuide: File;
+  prompt: string;
+  quality: 'high' | 'medium' | 'low';
+  signal?: AbortSignal;
+}) {
+  return editImages({
+    apiKey: options.apiKey,
+    model: options.model,
+    images: [options.scene, options.cup, options.compositeGuide],
+    prompt: `${options.prompt}\n第一张是原始场景，第二张是杯子白底参考，第三张是精确尺寸与位置指导合成图。`,
+    quality: options.quality,
+    requestLabel: '杯子大小精确调整',
+    signal: options.signal,
+  });
 }
 
 async function requestJson(options: { apiKey: string; model: string; images: Array<File | Blob>; prompt: string; schemaName: string; schema: object; signal?: AbortSignal }) {

@@ -114,6 +114,7 @@ export const DEFAULT_INPAINT_SETTINGS = {
 export const DEFAULT_CUP_RESIZE_SETTINGS = {
   imageModel: 'gemini-3.1-flash-image',
   imageSize: '2K',
+  imageQuality: 'high',
 } as const;
 
 export const DEFAULT_PRODUCT_DETAIL_SETTINGS = {

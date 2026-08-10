@@ -360,8 +360,9 @@ export interface InpaintSettings {
 }
 
 export interface CupResizeSettings {
-  imageModel: ImageModel;
+  imageModel: ImageModel | 'gpt-image-2' | 'gpt-image-2-2026-04-21';
   imageSize: ImageSize;
+  imageQuality: 'high' | 'medium' | 'low';
 }
 
 export interface ProductDetailSettings {

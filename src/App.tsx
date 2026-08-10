@@ -892,6 +892,7 @@ function AppContent() {
             <div hidden={creationTool !== 'cup-resize'}>
               <CupResizeComposer
                 apiKey={settings.apiKey}
+                openAiApiKey={settings.openAiApiKey}
                 apiBaseUrl={apiBaseUrl}
                 connectionMode={settings.connectionMode}
                 onRequestKey={() => setKeyOpen(true)}
