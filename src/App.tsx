@@ -367,8 +367,11 @@ function AppContent() {
   const [productDetailSettingsHost, setProductDetailSettingsHost] = useState<HTMLElement | null>(null);
   const [logoReplaceSettingsHost, setLogoReplaceSettingsHost] = useState<HTMLElement | null>(null);
   const [multiTabLogoSettingsHost, setMultiTabLogoSettingsHost] = useState<HTMLElement | null>(null);
+  const [multiTabSceneSettingsHost, setMultiTabSceneSettingsHost] = useState<HTMLElement | null>(null);
   const [objectReplaceSettingsHost, setObjectReplaceSettingsHost] = useState<HTMLElement | null>(null);
   const [sceneReplaceSettingsHost, setSceneReplaceSettingsHost] = useState<HTMLElement | null>(null);
+  const [unloadWarningDisabled, setUnloadWarningDisabled] = useState(false);
+  useEffect(() => { if (new URLSearchParams(window.location.search).get('worker') !== '1' || typeof BroadcastChannel === 'undefined') return; const channels = [new BroadcastChannel('scene-studio-logo-tabs'), new BroadcastChannel('scene-studio-scene-tabs')]; const receive = (event: MessageEvent) => { if (event.data?.type === 'disable-close-warning') setUnloadWarningDisabled(true); }; channels.forEach((channel) => channel.addEventListener('message', receive)); return () => channels.forEach((channel) => channel.close()); }, []);
   const [paperTextSettingsHost, setPaperTextSettingsHost] = useState<HTMLElement | null>(null);
   const [logoExportSettingsHost, setLogoExportSettingsHost] = useState<HTMLElement | null>(null);
   const [backgroundRemovalSettingsHost, setBackgroundRemovalSettingsHost] = useState<HTMLElement | null>(null);
@@ -505,14 +508,14 @@ function AppContent() {
   };
 
   useEffect(() => {
-    if (!sceneHasSession && !sceneReplaceHasSession && !cupResizeHasSession && !logoHasSession && !logoReplaceHasSession && !logoExportHasSession && !paperTextHasSession && !backgroundRemovalHasSession && !outpaintHasSession && !objectReplaceHasSession && !inpaintHasSession && !productDetailHasSession) return;
+    if (unloadWarningDisabled || (!sceneHasSession && !sceneReplaceHasSession && !cupResizeHasSession && !logoHasSession && !logoReplaceHasSession && !logoExportHasSession && !paperTextHasSession && !backgroundRemovalHasSession && !outpaintHasSession && !objectReplaceHasSession && !inpaintHasSession && !productDetailHasSession)) return;
     const warnBeforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = '';
     };
     window.addEventListener('beforeunload', warnBeforeUnload);
     return () => window.removeEventListener('beforeunload', warnBeforeUnload);
-  }, [sceneHasSession, sceneReplaceHasSession, cupResizeHasSession, logoHasSession, logoReplaceHasSession, logoExportHasSession, paperTextHasSession, backgroundRemovalHasSession, outpaintHasSession, objectReplaceHasSession, inpaintHasSession, productDetailHasSession]);
+  }, [unloadWarningDisabled, sceneHasSession, sceneReplaceHasSession, cupResizeHasSession, logoHasSession, logoReplaceHasSession, logoExportHasSession, paperTextHasSession, backgroundRemovalHasSession, outpaintHasSession, objectReplaceHasSession, inpaintHasSession, productDetailHasSession]);
 
   const patchSettings = useCallback((patch: Partial<AppSettings>) => {
     setSettings((current) => {
@@ -893,7 +896,7 @@ function AppContent() {
               <MultiTabLogoReplaceComposer apiKey={settings.apiKey} openAiApiKey={settings.openAiApiKey} apiBaseUrl={apiBaseUrl} connectionMode={settings.connectionMode} onRequestKey={() => setKeyOpen(true)} settingsHost={multiTabLogoSettingsHost} />
             </div>
             <div hidden={creationTool !== 'scene-replace-tabs'}>
-              <MultiTabSceneReplaceComposer apiKey={settings.apiKey} openAiApiKey={settings.openAiApiKey} apiBaseUrl={apiBaseUrl} connectionMode={settings.connectionMode} onRequestKey={() => setKeyOpen(true)} />
+              <MultiTabSceneReplaceComposer apiKey={settings.apiKey} openAiApiKey={settings.openAiApiKey} apiBaseUrl={apiBaseUrl} connectionMode={settings.connectionMode} onRequestKey={() => setKeyOpen(true)} settingsHost={multiTabSceneSettingsHost} />
             </div>
             <div hidden={creationTool !== 'paper-text'}>
               <PaperTextComposer apiKey={settings.apiKey} openAiApiKey={settings.openAiApiKey} apiBaseUrl={apiBaseUrl} onRequestKey={() => setKeyOpen(true)} onSessionStateChange={setPaperTextHasSession} settingsHost={paperTextSettingsHost} />
@@ -1208,6 +1211,7 @@ function AppContent() {
           </Sider>
         )}
         {!compact && creationTool === 'logo-replace-tabs' && new URLSearchParams(window.location.search).get('worker') === '1' && <Sider width={330} theme="light" className="settings-sider"><div ref={setMultiTabLogoSettingsHost} /></Sider>}
+        {!compact && creationTool === 'scene-replace-tabs' && new URLSearchParams(window.location.search).get('worker') === '1' && <Sider width={330} theme="light" className="settings-sider"><div ref={setMultiTabSceneSettingsHost} /></Sider>}
         {!compact && creationTool === 'paper-text' && <Sider width={330} theme="light" className="settings-sider"><div ref={setPaperTextSettingsHost} /></Sider>}
         {!compact && creationTool === 'logo-export' && <Sider width={330} theme="light" className="settings-sider"><div ref={setLogoExportSettingsHost} /></Sider>}
         {!compact && creationTool === 'background-removal' && <Sider width={330} theme="light" className="settings-sider"><div ref={setBackgroundRemovalSettingsHost} /></Sider>}
