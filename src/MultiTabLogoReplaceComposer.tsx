@@ -1,4 +1,4 @@
-import { App, Alert, Button, Card, Empty, Flex, Image, InputNumber, Modal, Popconfirm, Progress, Space, Statistic, Tag, Typography, Upload } from 'antd';
+import { App, Alert, Button, Card, Empty, Flex, Image, InputNumber, Modal, Popconfirm, Progress, Space, Statistic, Tag, Tree, Typography, Upload } from 'antd';
 import { DeleteOutlined, EyeOutlined, FileImageOutlined, FolderOpenOutlined, PlusOutlined, RocketOutlined, StopOutlined, SyncOutlined } from '@ant-design/icons';
 import { useEffect, useRef, useState } from 'react';
 import LogoReplaceComposer from './LogoReplaceComposer';
@@ -12,6 +12,7 @@ const DB_NAME = 'scene-studio.multi-tab-logo-replace.v1';
 const STORE = 'batches';
 
 interface FolderGroup { id: string; name: string; path: string; files: File[] }
+interface FolderTreeNode { title: string; key: string; children?: FolderTreeNode[] }
 interface SharedBatch { id: string; createdAt: number; groups: FolderGroup[]; logos: File[]; globalConcurrency?: number; startCommandId?: string }
 interface WorkerProgress extends LogoReplaceProgressSnapshot { groupId: string; name: string; status: 'opening' | 'ready' | 'running' | 'completed'; updatedAt: number }
 
@@ -76,6 +77,22 @@ export function groupFolderFiles(files: File[]): FolderGroup[] {
   return [...groups.values()].sort((a, b) => a.path.localeCompare(b.path, 'zh-CN'));
 }
 
+function fileRelativePath(file: File) { return (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name; }
+
+export function buildFolderTree(files: File[]): FolderTreeNode[] {
+  const roots: FolderTreeNode[] = [];
+  files.filter((file) => IMAGE_TYPES.includes(file.type)).forEach((file) => {
+    const parts = fileRelativePath(file).split('/').filter(Boolean); let nodes = roots; let path = '';
+    parts.forEach((part, index) => {
+      path = path ? `${path}/${part}` : part; const isFile = index === parts.length - 1; const key = `${isFile ? 'file' : 'dir'}:${path}`;
+      let node = nodes.find((item) => item.key === key);
+      if (!node) { node = { title: part, key, ...(isFile ? {} : { children: [] }) }; nodes.push(node); }
+      nodes = node.children || [];
+    });
+  });
+  return roots;
+}
+
 function injectFiles(input: HTMLInputElement | null, files: File[]) {
   if (!input || !files.length) return false;
   const transfer = new DataTransfer(); files.forEach((file) => transfer.items.add(file));
@@ -100,6 +117,8 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
   const [workerTaskDetails, setWorkerTaskDetails] = useState<Record<string, Record<string, LogoReplaceTaskDetail>>>({});
   const [selectedProgressGroupId, setSelectedProgressGroupId] = useState<string>();
   const [selectedGroupId, setSelectedGroupId] = useState<string>();
+  const [pendingFolderFiles, setPendingFolderFiles] = useState<File[]>([]);
+  const [checkedFolderKeys, setCheckedFolderKeys] = useState<string[]>([]);
   useEffect(() => { if (typeof BroadcastChannel === 'undefined') return; const next = new BroadcastChannel('scene-studio-logo-tabs'); setChannel(next); return () => next.close(); }, []);
 
   useEffect(() => {
@@ -221,6 +240,15 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
     setGroups((current) => current.map((group) => group.id === groupId ? { ...group, files: [...group.files, file] } : group));
     return Upload.LIST_IGNORE;
   };
+  const reviewFolderFiles = (files: File[]) => {
+    const accepted = files.filter((file) => IMAGE_TYPES.includes(file.type));
+    setPendingFolderFiles(accepted); setCheckedFolderKeys(accepted.map((file) => `file:${fileRelativePath(file)}`));
+  };
+  const importCheckedFolderFiles = () => {
+    const selected = pendingFolderFiles.filter((file) => checkedFolderKeys.includes(`file:${fileRelativePath(file)}`));
+    const next = groupFolderFiles(selected); setGroups(next); setPendingFolderFiles([]); setCheckedFolderKeys([]);
+    message.success(`已导入 ${selected.length} 张图片，共 ${next.length} 个分组`);
+  };
   const aggregate = workerSnapshots.reduce((sum, item) => ({ total: sum.total + item.total, success: sum.success + item.success, failed: sum.failed + item.failed, stopped: sum.stopped + item.stopped, waiting: sum.waiting + item.waiting, running: sum.running + item.running, retrying: sum.retrying + item.retrying }), { total: 0, success: 0, failed: 0, stopped: 0, waiting: 0, running: 0, retrying: 0 });
   const aggregateCompleted = aggregate.success + aggregate.failed + aggregate.stopped;
   const aggregateProcessing = aggregate.waiting + aggregate.running > 0 || workerSnapshots.some((item) => item.status === 'opening' || item.status === 'running');
@@ -229,7 +257,7 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
   if (worker) return <div ref={rootRef}><Alert type={injected ? 'success' : 'info'} showIcon title={workerGroup ? `工作标签：${workerGroup.name}` : '正在加载分组任务'} description={workerGroup ? `${workerGroup.path} · ${workerGroup.files.length} 张场景图 · 公共 Logo ${workerBatch?.logos.length || 0} 个${injected ? '，已自动导入' : '，正在自动导入…'}` : '请保留主控标签页以便接收公共 Logo 更新。'} style={{ marginBottom: 16 }} /><LogoReplaceComposer {...props} automationStartToken={automationStartToken} onTaskDetailChange={(detail) => { if (channel && batchId && groupId) channel.postMessage({ type: 'worker-task', batchId, groupId, detail }); }} onProgressChange={(progress) => { if (!channel || !batchId || !groupId || !workerGroup) return; const status = progress.total > 0 && progress.success + progress.failed + progress.stopped >= progress.total ? 'completed' : progress.waiting + progress.running > 0 ? 'running' : 'ready'; channel.postMessage({ type: 'worker-progress', batchId, groupId, progress: { ...progress, groupId, name: workerGroup.name, status, updatedAt: Date.now() } }); }} /></div>;
 
   return <div className="multi-tab-logo-page"><section className="hero-strip logo-replace-hero"><div><Text className="eyebrow">MULTI-TAB LOGO REPLACER</Text><Title level={2}>一个主控页，分发多组 Logo 替换任务</Title><Paragraph className="hero-description">一次选择场景根文件夹和公共 Logo，每个最深层子目录自动分配到独立标签页；工作页完整使用现有 Logo 替换功能。</Paragraph></div><div className="hero-orb" /></section>
-    <Card className="workflow-card" title="1. 选择场景根文件夹"><Upload.Dragger directory multiple showUploadList={false} accept="image/png,image/jpeg,image/webp" beforeUpload={(file, fileList) => { if (file.uid === fileList.at(-1)?.uid) { const next = groupFolderFiles(fileList as File[]); setGroups(next); message.success(`识别到 ${next.length} 个图片分组`); } return Upload.LIST_IGNORE; }}><FolderOpenOutlined style={{ fontSize: 34, color: '#7654dd' }} /><p className="ant-upload-text">拖拽或点击选择场景根文件夹</p><p className="ant-upload-hint">支持“测试图片/AM058/AM058”这类两层目录，按最深层图片目录自动分组</p></Upload.Dragger>{groups.length ? <div className="folder-group-grid">{groups.map((group) => <Card key={group.id} size="small" hoverable className="folder-manage-card" onClick={() => setSelectedGroupId(group.id)}><FolderOpenOutlined /> <Text strong>{group.name}</Text><br /><Text type="secondary">{group.path} · {group.files.length} 张</Text><Flex gap={6} wrap><Button type="link" size="small" style={{ paddingInline: 0 }} onClick={(event) => { event.stopPropagation(); setSelectedGroupId(group.id); }}>查看和管理图片</Button><Button type="link" size="small" icon={<RocketOutlined />} onClick={(event) => { event.stopPropagation(); void openSingleWorker(group); }}>单独打开标签</Button><Popconfirm title={`移除分组 ${group.name}？`} description="只从当前批次移除，不会删除电脑中的文件。" onConfirm={() => removeGroup(group)}><Button danger type="link" size="small" icon={<DeleteOutlined />} onClick={(event) => event.stopPropagation()}>移除分组</Button></Popconfirm></Flex></Card>)}</div> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="选择文件夹后显示分组" />}</Card>
+    <Card className="workflow-card" title="1. 选择场景根文件夹"><Upload.Dragger directory multiple showUploadList={false} accept="image/png,image/jpeg,image/webp" beforeUpload={(file, fileList) => { if (file.uid === fileList.at(-1)?.uid) reviewFolderFiles(fileList as File[]); return Upload.LIST_IGNORE; }}><FolderOpenOutlined style={{ fontSize: 34, color: '#7654dd' }} /><p className="ant-upload-text">拖拽或点击选择场景根文件夹</p><p className="ant-upload-hint">支持“测试图片/AM058/AM058”这类两层目录，按最深层图片目录自动分组</p></Upload.Dragger>{groups.length ? <div className="folder-group-grid">{groups.map((group) => <Card key={group.id} size="small" hoverable className="folder-manage-card" onClick={() => setSelectedGroupId(group.id)}><FolderOpenOutlined /> <Text strong>{group.name}</Text><br /><Text type="secondary">{group.path} · {group.files.length} 张</Text><Flex gap={6} wrap><Button type="link" size="small" style={{ paddingInline: 0 }} onClick={(event) => { event.stopPropagation(); setSelectedGroupId(group.id); }}>查看和管理图片</Button><Button type="link" size="small" icon={<RocketOutlined />} onClick={(event) => { event.stopPropagation(); void openSingleWorker(group); }}>单独打开标签</Button><Popconfirm title={`移除分组 ${group.name}？`} description="只从当前批次移除，不会删除电脑中的文件。" onConfirm={() => removeGroup(group)}><Button danger type="link" size="small" icon={<DeleteOutlined />} onClick={(event) => event.stopPropagation()}>移除分组</Button></Popconfirm></Flex></Card>)}</div> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="选择文件夹后显示分组" />}</Card>
     <Card className="workflow-card" title="2. 上传所有标签共用的 Logo" extra={<Text type="secondary">{logos.length} 个</Text>}><Upload.Dragger multiple showUploadList={false} accept="image/png,image/jpeg,image/webp,.psd,image/vnd.adobe.photoshop" beforeUpload={(file) => { const next = file as File; if (next.name.toLowerCase().endsWith('.psd') || next.type === 'image/vnd.adobe.photoshop') setPendingPsdFile(next); else setLogos((current) => [...current, next]); return false; }}><FileImageOutlined style={{ fontSize: 30 }} /><p>拖拽或选择公共 Logo / PSD</p></Upload.Dragger>{logos.length ? <Image.PreviewGroup><div className="batch-asset-grid">{logos.map((logo, index) => <FileThumbnail key={`${logo.name}-${logo.size}-${logo.lastModified}-${index}`} file={logo} onRemove={() => setLogos((current) => current.filter((item) => item !== logo))} />)}<Upload multiple showUploadList={false} accept="image/png,image/jpeg,image/webp,.psd,image/vnd.adobe.photoshop" beforeUpload={(file) => { const next = file as File; if (next.name.toLowerCase().endsWith('.psd') || next.type === 'image/vnd.adobe.photoshop') setPendingPsdFile(next); else setLogos((current) => [...current, next]); return false; }}><button type="button" className="batch-asset-add"><PlusOutlined /><span>继续添加 Logo</span></button></Upload></div></Image.PreviewGroup> : null}{activeBatchId && <Button style={{ marginTop: 12 }} icon={<SyncOutlined />} onClick={() => void syncLogos()}>同步到已打开标签</Button>}</Card>
     <Card className="action-card"><Flex justify="space-between" align="center" wrap gap={12}><div><Title level={4} style={{ margin: 0 }}>准备分发 {groups.length} 组任务</Title><Text type="secondary">自动按当前 {groups.length} 个分组打开全部标签，不限制个数；Web Locks 将所有标签的 AI 请求合计限制在 {globalConcurrency} 个</Text></div><Space wrap><Text>全局并发</Text><InputNumber min={1} max={12} value={globalConcurrency} onChange={(value) => setGlobalConcurrency(value || 1)} /><Button size="large" icon={<RocketOutlined />} onClick={() => void openWorkers()}>保存批次并打开全部标签</Button><Button type="primary" size="large" icon={<RocketOutlined />} disabled={!activeBatchId} onClick={() => void startAllWorkers()}>一键开始所有替换</Button>{aggregateProcessing && <Button danger size="large" icon={<StopOutlined />} onClick={stopAllWorkers}>停止全部</Button>}</Space></Flex></Card>
     {!!workerSnapshots.length && <Card className="workflow-card" title="批次任务进度" extra={<Tag color={aggregate.failed ? 'error' : aggregateProcessing ? 'processing' : aggregate.total && aggregate.success === aggregate.total ? 'success' : 'default'}>{aggregate.failed ? '存在最终失败' : aggregateProcessing ? '执行中' : aggregate.total ? '已完成' : '等待开始'}</Tag>}>
@@ -238,6 +266,10 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
       <div className="folder-group-grid">{workerSnapshots.map((item) => <Card key={item.groupId} size="small" hoverable className="batch-progress-card" onClick={() => setSelectedProgressGroupId(item.groupId)} title={item.name} extra={<Tag color={item.status === 'completed' && !item.failed ? 'success' : item.failed ? 'error' : item.status === 'running' ? 'processing' : 'default'}>{item.status === 'opening' ? '打开中' : item.status === 'ready' ? '已就绪' : item.status === 'running' ? '执行中' : '已完成'}</Tag>}><Text>成功 {item.success}/{item.total || '—'}</Text><br /><Text type="secondary">运行 {item.running} · 等待 {item.waiting} · 重试 {item.retrying} · 失败 {item.failed} · 停止 {item.stopped}</Text><Button type="link" size="small" icon={<EyeOutlined />} style={{ display: 'block', paddingInline: 0 }}>查看任务缩略图（{Object.keys(workerTaskDetails[item.groupId] || {}).length}）</Button></Card>)}</div>
     </Card>}
     <Alert type="info" showIcon title="公共 Logo 采用批次锁定" description="工作标签从 IndexedDB 读取同一组 Logo；新增公共 Logo 后可广播同步。为避免运行中的校验基准变化，删除或替换 Logo 建议创建新批次。" />
+    <Modal title="选择要导入的场景图片" open={pendingFolderFiles.length > 0} width={760} okText={`导入已选 ${checkedFolderKeys.length} 张图片`} cancelText="取消" okButtonProps={{ disabled: !checkedFolderKeys.length }} onOk={importCheckedFolderFiles} onCancel={() => { setPendingFolderFiles([]); setCheckedFolderKeys([]); }}>
+      <Alert type="info" showIcon title="按目录树选择要导入的内容" description="可以勾选或取消整个文件夹，也可以展开目录后逐张选择图片；不会修改电脑中的原文件。" style={{ marginBottom: 14 }} />
+      <div className="folder-import-tree"><Tree checkable selectable={false} defaultExpandAll treeData={buildFolderTree(pendingFolderFiles)} checkedKeys={checkedFolderKeys} onCheck={(keys) => setCheckedFolderKeys((Array.isArray(keys) ? keys : keys.checked).map(String).filter((key) => key.startsWith('file:')))} /></div>
+    </Modal>
     <Modal title={selectedGroup ? `${selectedGroup.name} · 图片管理` : '图片管理'} open={Boolean(selectedGroup)} width={900} footer={<Button onClick={() => setSelectedGroupId(undefined)}>完成</Button>} onCancel={() => setSelectedGroupId(undefined)}>
       {selectedGroup && <><Flex justify="space-between" align="center" gap={12} wrap style={{ marginBottom: 14 }}><Text type="secondary">{selectedGroup.path} · 当前 {selectedGroup.files.length} 张；增删只影响当前网页批次。</Text><Upload multiple showUploadList={false} accept="image/png,image/jpeg,image/webp" beforeUpload={(file) => addGroupFile(selectedGroup.id, file as File)}><Button type="primary" icon={<PlusOutlined />}>添加图片到该文件夹</Button></Upload></Flex><Image.PreviewGroup><div className="batch-asset-grid">{selectedGroup.files.map((file, index) => <FileThumbnail key={`${file.name}-${file.size}-${file.lastModified}-${index}`} file={file} onRemove={() => removeGroupFile(selectedGroup.id, file)} />)}</div></Image.PreviewGroup></>}
     </Modal>

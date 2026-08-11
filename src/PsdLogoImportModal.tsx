@@ -1,5 +1,5 @@
 import { EyeInvisibleOutlined, EyeOutlined } from '@ant-design/icons';
-import { Alert, Button, Checkbox, Empty, Flex, Modal, Spin, Typography } from 'antd';
+import { Alert, Button, Checkbox, Empty, Flex, Image, Modal, Segmented, Spin, Typography } from 'antd';
 import { useEffect, useState } from 'react';
 import { canvasToPngBlob, defaultPsdLogoLayerIds, parsePsdLogoLayers, safePsdLayerName, type PsdLogoLayer } from './services/psdLogoExport';
 
@@ -12,6 +12,7 @@ export default function PsdLogoImportModal({ file, onClose, onImport }: { file?:
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState('');
+  const [previewBackground, setPreviewBackground] = useState('#d9d9d9');
 
   useEffect(() => {
     if (!file) { setLayers([]); setSelectedIds(new Set()); setError(''); return; }
@@ -47,11 +48,11 @@ export default function PsdLogoImportModal({ file, onClose, onImport }: { file?:
     }
   };
 
-  return <Modal title={`选择要导入的 PSD Logo 图层${file ? ` · ${file.name}` : ''}`} open={Boolean(file)} width={820} okText={`导入 ${selectedIds.size} 个 Logo`} cancelText="取消" confirmLoading={importing} okButtonProps={{ disabled: loading || Boolean(error) || !selectedIds.size }} onOk={() => void importLayers()} onCancel={onClose}>
+  return <Modal title={`选择要导入的 PSD Logo 图层${file ? ` · ${file.name}` : ''}`} open={Boolean(file)} width={920} okText={`导入 ${selectedIds.size} 个 Logo`} cancelText="取消" confirmLoading={importing} okButtonProps={{ disabled: loading || Boolean(error) || !selectedIds.size }} onOk={() => void importLayers()} onCancel={onClose}>
     <Alert type="info" showIcon title="图层按原始分辨率导入，背景保持透明" description="隐藏图层也会显示并默认选中；名称为“背景”的图层默认不选。" style={{ marginBottom: 14 }} />
     {error ? <Alert type="error" showIcon title="PSD 解析失败" description={error} /> : loading ? <Flex justify="center" align="center" style={{ minHeight: 220 }}><Spin tip="正在解析 PSD 图层…" /></Flex> : layers.length ? <>
-      <Flex justify="space-between" align="center" style={{ marginBottom: 12 }}><Text type="secondary">已选择 {selectedIds.size}/{layers.length}</Text><Button size="small" onClick={() => setSelectedIds(selectedIds.size === layers.length ? new Set() : new Set(layers.map((layer) => layer.id)))}>{selectedIds.size === layers.length ? '取消全选' : '全选'}</Button></Flex>
-      <div className="psd-logo-import-list">{layers.map((layer) => <label key={layer.id} className="psd-logo-import-row"><Checkbox checked={selectedIds.has(layer.id)} onChange={(event) => setSelectedIds((current) => { const next = new Set(current); event.target.checked ? next.add(layer.id) : next.delete(layer.id); return next; })} /><span className="transparent-grid"><img src={layer.previewUrl} alt="" /></span><span className="psd-logo-import-copy"><Text strong ellipsis={{ tooltip: layer.path }}>{layer.name}</Text><Text type="secondary">{layer.width} × {layer.height}px · {layer.hidden ? '隐藏图层' : '可见图层'}</Text></span>{layer.hidden ? <EyeInvisibleOutlined /> : <EyeOutlined />}</label>)}</div>
+      <Flex justify="space-between" align="center" gap={12} wrap style={{ marginBottom: 12 }}><Text type="secondary">已选择 {selectedIds.size}/{layers.length}</Text><Flex gap={8} align="center" wrap><Text type="secondary">预览底色</Text><Segmented size="small" value={previewBackground} onChange={(value) => setPreviewBackground(String(value))} options={[{ label: '浅灰', value: '#d9d9d9' }, { label: '深色', value: '#202124' }, { label: '白色', value: '#ffffff' }, { label: '黑色', value: '#000000' }]} /><input aria-label="自定义预览底色" type="color" value={previewBackground} onChange={(event) => setPreviewBackground(event.target.value)} /><Button size="small" onClick={() => setSelectedIds(selectedIds.size === layers.length ? new Set() : new Set(layers.map((layer) => layer.id)))}>{selectedIds.size === layers.length ? '取消全选' : '全选'}</Button></Flex></Flex>
+      <Image.PreviewGroup><div className="psd-logo-import-list">{layers.map((layer) => <label key={layer.id} className="psd-logo-import-row"><Checkbox checked={selectedIds.has(layer.id)} onChange={(event) => setSelectedIds((current) => { const next = new Set(current); event.target.checked ? next.add(layer.id) : next.delete(layer.id); return next; })} /><span className="psd-logo-layer-preview" style={{ backgroundColor: previewBackground }} onClick={(event) => event.preventDefault()}><Image src={layer.previewUrl} alt={`${layer.name} 图层预览`} preview={{ mask: <><EyeOutlined /> 放大</> }} /></span><span className="psd-logo-import-copy"><Text strong ellipsis={{ tooltip: layer.path }}>{layer.name}</Text><Text type="secondary">{layer.width} × {layer.height}px · {layer.hidden ? '隐藏图层' : '可见图层'}</Text></span>{layer.hidden ? <EyeInvisibleOutlined /> : <EyeOutlined />}</label>)}</div></Image.PreviewGroup>
     </> : <Empty description="没有可导入图层" />}
   </Modal>;
 }
