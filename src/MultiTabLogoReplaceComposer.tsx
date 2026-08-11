@@ -1,6 +1,7 @@
-import { App, Alert, Button, Card, Empty, Flex, Image, InputNumber, Modal, Popconfirm, Progress, Space, Statistic, Tag, Tree, Typography, Upload } from 'antd';
+import { App, Alert, Button, Card, Checkbox, Empty, Flex, Image, InputNumber, Modal, Popconfirm, Progress, Space, Statistic, Tag, Typography, Upload } from 'antd';
 import { DeleteOutlined, DownloadOutlined, EyeOutlined, FileImageOutlined, FolderOpenOutlined, PlusOutlined, ReloadOutlined, RocketOutlined, StopOutlined, SyncOutlined } from '@ant-design/icons';
 import { useEffect, useRef, useState } from 'react';
+import type * as React from 'react';
 import JSZip from 'jszip';
 import LogoReplaceComposer from './LogoReplaceComposer';
 import PsdLogoImportModal from './PsdLogoImportModal';
@@ -16,12 +17,14 @@ const STORE = 'batches';
 
 interface FolderGroup { id: string; name: string; path: string; files: File[] }
 interface FolderTreeNode { title: string; key: string; children?: FolderTreeNode[] }
+interface PickerFolderNode { name: string; path: string; children: PickerFolderNode[]; group?: FolderGroup }
 interface SharedBatch { id: string; createdAt: number; groups: FolderGroup[]; logos: File[]; globalConcurrency?: number; startCommandId?: string }
 interface WorkerProgress extends LogoReplaceProgressSnapshot { groupId: string; name: string; status: 'opening' | 'ready' | 'running' | 'completed'; updatedAt: number }
 
 export function FileThumbnail({ file, onRemove }: { file: File; onRemove?: () => void }) {
   const [previewUrl, setPreviewUrl] = useState('');
   useEffect(() => { const next = URL.createObjectURL(file); setPreviewUrl(next); return () => URL.revokeObjectURL(next); }, [file]);
+  if (!onRemove) return previewUrl ? <Image src={previewUrl} alt={file.name} width={42} height={42} style={{ objectFit: 'cover', borderRadius: 5 }} /> : null;
   return <div className="batch-asset-card">{previewUrl ? <Image src={previewUrl} alt={file.name} /> : <div className="batch-asset-placeholder"><FileImageOutlined /></div>}<Text ellipsis={{ tooltip: file.name }}>{file.name}</Text>{onRemove && <Popconfirm title="从当前批次移除这张图片？" description="不会删除电脑中的原文件。" onConfirm={onRemove}><Button danger type="text" size="small" icon={<DeleteOutlined />}>移除</Button></Popconfirm>}</div>;
 }
 
@@ -103,6 +106,13 @@ export function buildFolderTree(files: File[]): FolderTreeNode[] {
       nodes = node.children || [];
     });
   });
+  return roots;
+}
+
+export function buildLogoPickerFolderTree(groups: FolderGroup[]): PickerFolderNode[] {
+  const leafGroups = groups.filter((group) => !groups.some((candidate) => candidate.path !== group.path && candidate.path.startsWith(`${group.path}/`)));
+  const roots: PickerFolderNode[] = [];
+  leafGroups.forEach((group) => { let nodes = roots; let path = ''; group.path.split('/').filter(Boolean).forEach((name, index, parts) => { path = path ? `${path}/${name}` : name; let node = nodes.find((item) => item.path === path); if (!node) { node = { name, path, children: [] }; nodes.push(node); } if (index === parts.length - 1) node.group = group; nodes = node.children; }); });
   return roots;
 }
 
@@ -260,12 +270,12 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
   };
   const reviewFolderFiles = (files: File[]) => {
     const accepted = files.filter((file) => IMAGE_TYPES.includes(file.type));
-    setPendingFolderFiles(accepted); setCheckedFolderKeys(groupFolderFiles(accepted).map((group) => `dir:${group.path}`));
+    const tree = buildLogoPickerFolderTree(groupFolderFiles(accepted)); const keys: string[] = []; const collect = (nodes: PickerFolderNode[]) => nodes.forEach((node) => { if (node.group) keys.push(`dir:${node.path}`); collect(node.children); }); collect(tree);
+    setPendingFolderFiles(accepted); setCheckedFolderKeys(keys);
   };
   const importCheckedFolderFiles = () => {
-    const selected = filesInCheckedFolders(pendingFolderFiles, checkedFolderKeys);
-    const next = groupFolderFiles(selected); setGroups(next); setPendingFolderFiles([]); setCheckedFolderKeys([]);
-    message.success(`已导入 ${selected.length} 张图片，共 ${next.length} 个分组`);
+    const next = groupFolderFiles(pendingFolderFiles).filter((group) => checkedFolderKeys.includes(`dir:${group.path}`)); const selectedCount = next.reduce((sum, group) => sum + group.files.length, 0); setGroups(next); setPendingFolderFiles([]); setCheckedFolderKeys([]);
+    message.success(`已导入 ${selectedCount} 张图片，共 ${next.length} 个分组`);
   };
   const downloadableDetails = Object.values(workerTaskDetails).flatMap((details) => Object.values(details).filter((detail) => detail.resultBlob));
   const downloadAllWorkerResults = async () => {
@@ -288,6 +298,9 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
   const aggregate = workerSnapshots.reduce((sum, item) => ({ total: sum.total + item.total, success: sum.success + item.success, failed: sum.failed + item.failed, stopped: sum.stopped + item.stopped, waiting: sum.waiting + item.waiting, running: sum.running + item.running, retrying: sum.retrying + item.retrying }), { total: 0, success: 0, failed: 0, stopped: 0, waiting: 0, running: 0, retrying: 0 });
   const aggregateCompleted = aggregate.success + aggregate.failed + aggregate.stopped;
   const aggregateProcessing = aggregate.waiting + aggregate.running > 0 || workerSnapshots.some((item) => item.status === 'opening' || item.status === 'running');
+  const pendingPickerTree = buildLogoPickerFolderTree(groupFolderFiles(pendingFolderFiles)); const pickerKeys: string[] = []; const collectPickerKeys = (nodes: PickerFolderNode[]) => nodes.forEach((node) => { if (node.group) pickerKeys.push(`dir:${node.path}`); collectPickerKeys(node.children); }); collectPickerKeys(pendingPickerTree);
+  const levelEmoji = (depth: number) => `${Math.min(depth + 1, 9)}\uFE0F\u20E3`; const togglePickerFolder = (key: string) => setCheckedFolderKeys((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key]);
+  const renderPickerTree = (nodes: PickerFolderNode[], depth = 0): React.ReactNode => nodes.map((node) => { const key = `dir:${node.path}`; const checked = checkedFolderKeys.includes(key); return <div key={node.path} className="scene-folder-tree-node" style={{ marginLeft: depth * 20 }}><Flex align="center" gap={8} className="scene-folder-tree-label"><span aria-label={`第 ${depth + 1} 层`}>{levelEmoji(depth)}</span><FolderOpenOutlined /><Text strong={Boolean(node.group)}>{node.name}</Text>{node.group && <Text type="secondary">{node.group.files.length} 张</Text>}</Flex>{node.group && <Card size="small" hoverable className={checked ? 'scene-leaf-folder-card is-selected' : 'scene-leaf-folder-card'} onClick={() => togglePickerFolder(key)}><Checkbox checked={checked} onClick={(event) => event.stopPropagation()} onChange={() => togglePickerFolder(key)}>导入此文件夹</Checkbox><div onClick={(event) => event.stopPropagation()}><Image.PreviewGroup><Flex gap={4} wrap className="scene-folder-mini-thumbnails">{node.group.files.slice(0, 12).map((file, index) => <FileThumbnail key={`${file.name}-${index}`} file={file} />)}</Flex></Image.PreviewGroup></div>{node.group.files.length > 12 && <Text type="secondary">另有 {node.group.files.length - 12} 张</Text>}</Card>}{renderPickerTree(node.children, depth + 1)}</div>; });
   useEffect(() => { if (worker) return; reportTaskProgress({ id: 'multi-tab-logo-replace', label: '多标签 Logo 替换', completed: aggregateCompleted, total: aggregate.total, failed: aggregate.failed, running: aggregateProcessing }); }, [worker, aggregateCompleted, aggregate.total, aggregate.failed, aggregateProcessing]);
 
   if (worker) return <div ref={rootRef}><Alert type={injected ? 'success' : 'info'} showIcon title={workerGroup ? `工作标签：${workerGroup.name}` : '正在加载分组任务'} description={workerGroup ? `${workerGroup.path} · ${workerGroup.files.length} 张场景图 · 公共 Logo ${workerBatch?.logos.length || 0} 个${injected ? '，已自动导入' : '，正在自动导入…'}` : '请保留主控标签页以便接收公共 Logo 更新。'} style={{ marginBottom: 16 }} /><LogoReplaceComposer {...props} automationStartToken={automationStartToken} automationRetryFailedToken={automationRetryFailedToken} onTaskDetailChange={(detail) => { if (channel && batchId && groupId) channel.postMessage({ type: 'worker-task', batchId, groupId, detail }); }} onProgressChange={(progress) => { if (!channel || !batchId || !groupId || !workerGroup) return; const status = progress.total > 0 && progress.success + progress.failed + progress.stopped >= progress.total ? 'completed' : progress.waiting + progress.running > 0 ? 'running' : 'ready'; channel.postMessage({ type: 'worker-progress', batchId, groupId, progress: { ...progress, groupId, name: workerGroup.name, status, updatedAt: Date.now() } }); }} /></div>;
@@ -302,9 +315,10 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
       <div className="folder-group-grid">{workerSnapshots.map((item) => <Card key={item.groupId} size="small" hoverable className="batch-progress-card" onClick={() => setSelectedProgressGroupId(item.groupId)} title={item.name} extra={<Tag color={item.status === 'completed' && !item.failed ? 'success' : item.failed ? 'error' : item.status === 'running' ? 'processing' : 'default'}>{item.status === 'opening' ? '打开中' : item.status === 'ready' ? '已就绪' : item.status === 'running' ? '执行中' : '已完成'}</Tag>}><Text>成功 {item.success}/{item.total || '—'}</Text><br /><Text type="secondary">运行 {item.running} · 等待 {item.waiting} · 重试 {item.retrying} · 失败 {item.failed} · 停止 {item.stopped}</Text><Button type="link" size="small" icon={<EyeOutlined />} style={{ display: 'block', paddingInline: 0 }}>查看任务缩略图（{Object.keys(workerTaskDetails[item.groupId] || {}).length}）</Button></Card>)}</div>
     </Card>}
     <Alert type="info" showIcon title="公共 Logo 采用批次锁定" description="工作标签从 IndexedDB 读取同一组 Logo；新增公共 Logo 后可广播同步。为避免运行中的校验基准变化，删除或替换 Logo 建议创建新批次。" />
-    <Modal title="选择要导入的场景文件夹" open={pendingFolderFiles.length > 0} width={760} okText="导入已选文件夹" cancelText="取消" okButtonProps={{ disabled: !checkedFolderKeys.length }} onOk={importCheckedFolderFiles} onCancel={() => { setPendingFolderFiles([]); setCheckedFolderKeys([]); }}>
-      <Alert type="info" showIcon title="目录树仅显示文件夹" description="勾选文件夹后，将导入其中及其子目录下的全部图片；不会修改电脑中的原文件。" style={{ marginBottom: 14 }} />
-      <div className="folder-import-tree"><Tree checkable selectable={false} defaultExpandAll treeData={buildFolderTree(pendingFolderFiles)} checkedKeys={checkedFolderKeys} onCheck={(keys) => setCheckedFolderKeys((Array.isArray(keys) ? keys : keys.checked).map(String).filter((key) => key.startsWith('dir:')))} /></div>
+    <Modal title="选择要导入的场景文件夹" open={pendingFolderFiles.length > 0} width={980} okText={`导入已选 ${checkedFolderKeys.length} 个目录`} cancelText="取消" okButtonProps={{ disabled: !checkedFolderKeys.length }} onOk={importCheckedFolderFiles} onCancel={() => { setPendingFolderFiles([]); setCheckedFolderKeys([]); }}>
+      <Alert type="info" showIcon title="保留完整目录结构，仅选择最深层图片文件夹" description="父级目录只展示结构；叶子目录可以通过复选框或点击整张卡片选择。" style={{ marginBottom: 14 }} />
+      <Flex justify="space-between" align="center" style={{ marginBottom: 12 }}><Text type="secondary">已选择 {checkedFolderKeys.length} / {pickerKeys.length} 个最深层目录</Text><Space><Button size="small" onClick={() => setCheckedFolderKeys(pickerKeys)}>全选</Button><Button size="small" onClick={() => setCheckedFolderKeys([])}>取消全选</Button></Space></Flex>
+      <div className="scene-folder-picker-tree">{renderPickerTree(pendingPickerTree)}</div>
     </Modal>
     <Modal title={selectedGroup ? `${selectedGroup.name} · 图片管理` : '图片管理'} open={Boolean(selectedGroup)} width={900} footer={<Button onClick={() => setSelectedGroupId(undefined)}>完成</Button>} onCancel={() => setSelectedGroupId(undefined)}>
       {selectedGroup && <><Flex justify="space-between" align="center" gap={12} wrap style={{ marginBottom: 14 }}><Text type="secondary">{selectedGroup.path} · 当前 {selectedGroup.files.length} 张；增删只影响当前网页批次。</Text><Upload multiple showUploadList={false} accept="image/png,image/jpeg,image/webp" beforeUpload={(file) => addGroupFile(selectedGroup.id, file as File)}><Button type="primary" icon={<PlusOutlined />}>添加图片到该文件夹</Button></Upload></Flex><Image.PreviewGroup><div className="batch-asset-grid">{selectedGroup.files.map((file, index) => <FileThumbnail key={`${file.name}-${file.size}-${file.lastModified}-${index}`} file={file} onRemove={() => removeGroupFile(selectedGroup.id, file)} />)}</div></Image.PreviewGroup></>}
