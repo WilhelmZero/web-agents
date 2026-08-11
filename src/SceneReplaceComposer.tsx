@@ -28,10 +28,10 @@ function statusLabel(status: SceneReplaceTask['status']) {
   return status === 'waiting' ? '排队中' : status === 'running' ? '替换中' : status === 'success' ? '替换成功' : status === 'failed' ? '替换失败' : '已停止';
 }
 
-export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl, connectionMode, onRequestKey, onSessionStateChange, settingsHost, initialPrompt, automationStartToken, automationRetryFailedToken, onProgressChange, onResultsChange }: {
+export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl, connectionMode, onRequestKey, onSessionStateChange, settingsHost, initialPrompt, automationStartToken, automationRetryFailedToken, automationStopToken, onProgressChange, onResultsChange }: {
   apiKey: string; openAiApiKey: string; apiBaseUrl: string | null; connectionMode: 'direct' | 'proxy'; onRequestKey: () => void;
   onSessionStateChange?: (hasContent: boolean) => void; settingsHost?: HTMLElement | null;
-  initialPrompt?: string; automationStartToken?: string; automationRetryFailedToken?: string; onProgressChange?: (progress: { total: number; completed: number; failed: number; running: boolean }) => void; onResultsChange?: (tasks: SceneReplaceTask[]) => void;
+  initialPrompt?: string; automationStartToken?: string; automationRetryFailedToken?: string; automationStopToken?: string; onProgressChange?: (progress: { total: number; completed: number; failed: number; running: boolean }) => void; onResultsChange?: (tasks: SceneReplaceTask[]) => void;
 }) {
   const { message } = AntApp.useApp();
   const [settings, setSettings] = useState<SceneReplaceSettings>(() => ({ ...DEFAULT_SCENE_REPLACE_SETTINGS, ...readLocalStorage(STORAGE_KEYS.sceneReplaceSettings, {}) }));
@@ -127,6 +127,8 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
   const lastAutomationStart = useRef<string | undefined>(undefined);
   useEffect(() => { if (!automationStartToken || lastAutomationStart.current === automationStartToken || !scenes.length || !prompt.trim()) return; lastAutomationStart.current = automationStartToken; start(); }, [automationStartToken, scenes.length, prompt]);
   const stop = () => { aborters.current.forEach((item) => item.abort()); retryTimers.current.forEach((timer) => window.clearTimeout(timer)); retryTimers.current.clear(); setTasks((current) => current.map((item) => item.status === 'waiting' ? { ...item, status: 'stopped', nextRetryAt: undefined } : item)); };
+  const lastAutomationStop = useRef<string | undefined>(undefined);
+  useEffect(() => { if (!automationStopToken || lastAutomationStop.current === automationStopToken) return; lastAutomationStop.current = automationStopToken; stop(); }, [automationStopToken]);
   const stopTask = (id: string) => { const timer = retryTimers.current.get(id); if (timer) window.clearTimeout(timer); retryTimers.current.delete(id); aborters.current.get(id)?.abort(); setTasks((current) => current.map((item) => item.id === id ? { ...item, status: 'stopped', autoRetryStopped: true, nextRetryAt: undefined, error: '已停止该任务' } : item)); };
   const resetForRetry = useCallback((task: SceneReplaceTask) => { if (task.resultUrl) URL.revokeObjectURL(task.resultUrl); if (task.outpaintUrl) URL.revokeObjectURL(task.outpaintUrl); task.outpaintResults?.forEach((result) => URL.revokeObjectURL(result.url)); const timer = retryTimers.current.get(task.id); if (timer) window.clearTimeout(timer); retryTimers.current.delete(task.id); return { ...task, status: 'waiting' as const, error: undefined, resultBlob: undefined, resultUrl: undefined, outpaintStatus: 'idle' as const, outpaintBlob: undefined, outpaintUrl: undefined, outpaintResults: undefined, outpaintError: undefined, retryCount: 0, nextRetryAt: undefined, autoRetryStopped: false }; }, []);
   const retry = (task: SceneReplaceTask) => { const next = resetForRetry(task); setTasks((current) => current.map((item) => item.id === task.id ? next : item)); setSelectedResultId(undefined); };

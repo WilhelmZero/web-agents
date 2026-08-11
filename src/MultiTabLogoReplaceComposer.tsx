@@ -19,10 +19,10 @@ interface FolderTreeNode { title: string; key: string; children?: FolderTreeNode
 interface SharedBatch { id: string; createdAt: number; groups: FolderGroup[]; logos: File[]; globalConcurrency?: number; startCommandId?: string }
 interface WorkerProgress extends LogoReplaceProgressSnapshot { groupId: string; name: string; status: 'opening' | 'ready' | 'running' | 'completed'; updatedAt: number }
 
-function FileThumbnail({ file, onRemove }: { file: File; onRemove: () => void }) {
+export function FileThumbnail({ file, onRemove }: { file: File; onRemove?: () => void }) {
   const [previewUrl, setPreviewUrl] = useState('');
   useEffect(() => { const next = URL.createObjectURL(file); setPreviewUrl(next); return () => URL.revokeObjectURL(next); }, [file]);
-  return <div className="batch-asset-card">{previewUrl ? <Image src={previewUrl} alt={file.name} /> : <div className="batch-asset-placeholder"><FileImageOutlined /></div>}<Text ellipsis={{ tooltip: file.name }}>{file.name}</Text><Popconfirm title="从当前批次移除这张图片？" description="不会删除电脑中的原文件。" onConfirm={onRemove}><Button danger type="text" size="small" icon={<DeleteOutlined />}>移除</Button></Popconfirm></div>;
+  return <div className="batch-asset-card">{previewUrl ? <Image src={previewUrl} alt={file.name} /> : <div className="batch-asset-placeholder"><FileImageOutlined /></div>}<Text ellipsis={{ tooltip: file.name }}>{file.name}</Text>{onRemove && <Popconfirm title="从当前批次移除这张图片？" description="不会删除电脑中的原文件。" onConfirm={onRemove}><Button danger type="text" size="small" icon={<DeleteOutlined />}>移除</Button></Popconfirm>}</div>;
 }
 
 function TaskResultThumbnail({ detail }: { detail: LogoReplaceTaskDetail }) {
