@@ -1,10 +1,13 @@
 import { App, Alert, Button, Card, Empty, Flex, Image, InputNumber, Modal, Popconfirm, Progress, Space, Statistic, Tag, Tree, Typography, Upload } from 'antd';
-import { DeleteOutlined, EyeOutlined, FileImageOutlined, FolderOpenOutlined, PlusOutlined, RocketOutlined, StopOutlined, SyncOutlined } from '@ant-design/icons';
+import { DeleteOutlined, DownloadOutlined, EyeOutlined, FileImageOutlined, FolderOpenOutlined, PlusOutlined, RocketOutlined, StopOutlined, SyncOutlined } from '@ant-design/icons';
 import { useEffect, useRef, useState } from 'react';
+import JSZip from 'jszip';
 import LogoReplaceComposer from './LogoReplaceComposer';
 import PsdLogoImportModal from './PsdLogoImportModal';
 import { reportTaskProgress } from './services/taskProgress';
 import type { LogoReplaceProgressSnapshot, LogoReplaceTaskDetail } from './types';
+import { downloadBlob, formatFileTimestamp, sanitizeFileName } from './utils';
+import { logoReplaceResultFileName } from './services/logoReplaceFileName';
 
 const { Title, Text, Paragraph } = Typography;
 const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
@@ -119,6 +122,7 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
   const [selectedGroupId, setSelectedGroupId] = useState<string>();
   const [pendingFolderFiles, setPendingFolderFiles] = useState<File[]>([]);
   const [checkedFolderKeys, setCheckedFolderKeys] = useState<string[]>([]);
+  const [downloadingAll, setDownloadingAll] = useState(false);
   useEffect(() => { if (typeof BroadcastChannel === 'undefined') return; const next = new BroadcastChannel('scene-studio-logo-tabs'); setChannel(next); return () => next.close(); }, []);
 
   useEffect(() => {
@@ -249,6 +253,24 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
     const next = groupFolderFiles(selected); setGroups(next); setPendingFolderFiles([]); setCheckedFolderKeys([]);
     message.success(`已导入 ${selected.length} 张图片，共 ${next.length} 个分组`);
   };
+  const downloadableDetails = Object.values(workerTaskDetails).flatMap((details) => Object.values(details).filter((detail) => detail.resultBlob));
+  const downloadAllWorkerResults = async () => {
+    if (!downloadableDetails.length) return void message.warning('暂无可下载的生成图片');
+    setDownloadingAll(true);
+    try {
+      const zip = new JSZip();
+      Object.entries(workerTaskDetails).forEach(([workerGroupId, details]) => {
+        const groupName = workerProgress[workerGroupId]?.name || groups.find((group) => group.id === workerGroupId)?.name || '未命名分组';
+        const folder = zip.folder(sanitizeFileName(groupName));
+        const items = Object.values(details).filter((detail) => detail.resultBlob).sort((a, b) => a.sceneIndex - b.sceneIndex || a.copyIndex - b.copyIndex);
+        const copiesByScene = new Map<number, number>(); Object.values(details).forEach((detail) => copiesByScene.set(detail.sceneIndex, Math.max(copiesByScene.get(detail.sceneIndex) || 0, detail.copyIndex + 1)));
+        items.forEach((detail) => folder?.file(logoReplaceResultFileName(detail.originalFile?.name || `场景_${detail.sceneIndex + 1}.png`, detail.copyIndex, copiesByScene.get(detail.sceneIndex) || 1, detail.resultBlob?.type), detail.resultBlob!));
+      });
+      downloadBlob(await zip.generateAsync({ type: 'blob' }), `SceneStudio_多标签Logo替换全部结果_${formatFileTimestamp()}.zip`);
+      message.success(`已打包 ${downloadableDetails.length} 张生成图片`);
+    } catch (error) { message.error(error instanceof Error ? error.message : '打包下载失败'); }
+    finally { setDownloadingAll(false); }
+  };
   const aggregate = workerSnapshots.reduce((sum, item) => ({ total: sum.total + item.total, success: sum.success + item.success, failed: sum.failed + item.failed, stopped: sum.stopped + item.stopped, waiting: sum.waiting + item.waiting, running: sum.running + item.running, retrying: sum.retrying + item.retrying }), { total: 0, success: 0, failed: 0, stopped: 0, waiting: 0, running: 0, retrying: 0 });
   const aggregateCompleted = aggregate.success + aggregate.failed + aggregate.stopped;
   const aggregateProcessing = aggregate.waiting + aggregate.running > 0 || workerSnapshots.some((item) => item.status === 'opening' || item.status === 'running');
@@ -260,7 +282,7 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
     <Card className="workflow-card" title="1. 选择场景根文件夹"><Upload.Dragger directory multiple showUploadList={false} accept="image/png,image/jpeg,image/webp" beforeUpload={(file, fileList) => { if (file.uid === fileList.at(-1)?.uid) reviewFolderFiles(fileList as File[]); return Upload.LIST_IGNORE; }}><FolderOpenOutlined style={{ fontSize: 34, color: '#7654dd' }} /><p className="ant-upload-text">拖拽或点击选择场景根文件夹</p><p className="ant-upload-hint">支持“测试图片/AM058/AM058”这类两层目录，按最深层图片目录自动分组</p></Upload.Dragger>{groups.length ? <div className="folder-group-grid">{groups.map((group) => <Card key={group.id} size="small" hoverable className="folder-manage-card" onClick={() => setSelectedGroupId(group.id)}><FolderOpenOutlined /> <Text strong>{group.name}</Text><br /><Text type="secondary">{group.path} · {group.files.length} 张</Text><Flex gap={6} wrap><Button type="link" size="small" style={{ paddingInline: 0 }} onClick={(event) => { event.stopPropagation(); setSelectedGroupId(group.id); }}>查看和管理图片</Button><Button type="link" size="small" icon={<RocketOutlined />} onClick={(event) => { event.stopPropagation(); void openSingleWorker(group); }}>单独打开标签</Button><Popconfirm title={`移除分组 ${group.name}？`} description="只从当前批次移除，不会删除电脑中的文件。" onConfirm={() => removeGroup(group)}><Button danger type="link" size="small" icon={<DeleteOutlined />} onClick={(event) => event.stopPropagation()}>移除分组</Button></Popconfirm></Flex></Card>)}</div> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="选择文件夹后显示分组" />}</Card>
     <Card className="workflow-card" title="2. 上传所有标签共用的 Logo" extra={<Text type="secondary">{logos.length} 个</Text>}><Upload.Dragger multiple showUploadList={false} accept="image/png,image/jpeg,image/webp,.psd,image/vnd.adobe.photoshop" beforeUpload={(file) => { const next = file as File; if (next.name.toLowerCase().endsWith('.psd') || next.type === 'image/vnd.adobe.photoshop') setPendingPsdFile(next); else setLogos((current) => [...current, next]); return false; }}><FileImageOutlined style={{ fontSize: 30 }} /><p>拖拽或选择公共 Logo / PSD</p></Upload.Dragger>{logos.length ? <Image.PreviewGroup><div className="batch-asset-grid">{logos.map((logo, index) => <FileThumbnail key={`${logo.name}-${logo.size}-${logo.lastModified}-${index}`} file={logo} onRemove={() => setLogos((current) => current.filter((item) => item !== logo))} />)}<Upload multiple showUploadList={false} accept="image/png,image/jpeg,image/webp,.psd,image/vnd.adobe.photoshop" beforeUpload={(file) => { const next = file as File; if (next.name.toLowerCase().endsWith('.psd') || next.type === 'image/vnd.adobe.photoshop') setPendingPsdFile(next); else setLogos((current) => [...current, next]); return false; }}><button type="button" className="batch-asset-add"><PlusOutlined /><span>继续添加 Logo</span></button></Upload></div></Image.PreviewGroup> : null}{activeBatchId && <Button style={{ marginTop: 12 }} icon={<SyncOutlined />} onClick={() => void syncLogos()}>同步到已打开标签</Button>}</Card>
     <Card className="action-card"><Flex justify="space-between" align="center" wrap gap={12}><div><Title level={4} style={{ margin: 0 }}>准备分发 {groups.length} 组任务</Title><Text type="secondary">自动按当前 {groups.length} 个分组打开全部标签，不限制个数；Web Locks 将所有标签的 AI 请求合计限制在 {globalConcurrency} 个</Text></div><Space wrap><Text>全局并发</Text><InputNumber min={1} max={12} value={globalConcurrency} onChange={(value) => setGlobalConcurrency(value || 1)} /><Button size="large" icon={<RocketOutlined />} onClick={() => void openWorkers()}>保存批次并打开全部标签</Button><Button type="primary" size="large" icon={<RocketOutlined />} disabled={!activeBatchId} onClick={() => void startAllWorkers()}>一键开始所有替换</Button>{aggregateProcessing && <Button danger size="large" icon={<StopOutlined />} onClick={stopAllWorkers}>停止全部</Button>}</Space></Flex></Card>
-    {!!workerSnapshots.length && <Card className="workflow-card" title="批次任务进度" extra={<Tag color={aggregate.failed ? 'error' : aggregateProcessing ? 'processing' : aggregate.total && aggregate.success === aggregate.total ? 'success' : 'default'}>{aggregate.failed ? '存在最终失败' : aggregateProcessing ? '执行中' : aggregate.total ? '已完成' : '等待开始'}</Tag>}>
+    {!!workerSnapshots.length && <Card className="workflow-card" title="批次任务进度" extra={<Space wrap><Button type="primary" icon={<DownloadOutlined />} loading={downloadingAll} disabled={!downloadableDetails.length} onClick={() => void downloadAllWorkerResults()}>一键下载全部生成图片（{downloadableDetails.length}）</Button><Tag color={aggregate.failed ? 'error' : aggregateProcessing ? 'processing' : aggregate.total && aggregate.success === aggregate.total ? 'success' : 'default'}>{aggregate.failed ? '存在最终失败' : aggregateProcessing ? '执行中' : aggregate.total ? '已完成' : '等待开始'}</Tag></Space>}>
       <Flex gap={28} wrap><Statistic title="工作标签" value={workerSnapshots.length} suffix={` / 就绪 ${workerSnapshots.filter((item) => item.status !== 'opening').length}`} /><Statistic title="任务总数" value={aggregate.total} /><Statistic title="成功" value={aggregate.success} valueStyle={{ color: '#389e0d' }} /><Statistic title="自动重试中" value={aggregate.retrying} valueStyle={{ color: '#d48806' }} /><Statistic title="最终失败" value={aggregate.failed} valueStyle={{ color: aggregate.failed ? '#cf1322' : undefined }} /><Statistic title="已停止" value={aggregate.stopped} /></Flex>
       <Progress style={{ margin: '18px 0' }} percent={aggregate.total ? Math.round((aggregateCompleted / aggregate.total) * 100) : 0} status={aggregate.failed ? 'exception' : aggregateProcessing ? 'active' : aggregate.total ? 'success' : 'normal'} />
       <div className="folder-group-grid">{workerSnapshots.map((item) => <Card key={item.groupId} size="small" hoverable className="batch-progress-card" onClick={() => setSelectedProgressGroupId(item.groupId)} title={item.name} extra={<Tag color={item.status === 'completed' && !item.failed ? 'success' : item.failed ? 'error' : item.status === 'running' ? 'processing' : 'default'}>{item.status === 'opening' ? '打开中' : item.status === 'ready' ? '已就绪' : item.status === 'running' ? '执行中' : '已完成'}</Tag>}><Text>成功 {item.success}/{item.total || '—'}</Text><br /><Text type="secondary">运行 {item.running} · 等待 {item.waiting} · 重试 {item.retrying} · 失败 {item.failed} · 停止 {item.stopped}</Text><Button type="link" size="small" icon={<EyeOutlined />} style={{ display: 'block', paddingInline: 0 }}>查看任务缩略图（{Object.keys(workerTaskDetails[item.groupId] || {}).length}）</Button></Card>)}</div>

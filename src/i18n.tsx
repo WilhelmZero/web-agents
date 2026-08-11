@@ -640,6 +640,8 @@ const translations: Record<string, string> = {
   '一键开始所有替换': 'Start all replacements',
   '停止全部': 'Stop all',
   '批次任务进度': 'Batch progress',
+  '一键下载全部生成图片': 'Download all generated images',
+  '暂无可下载的生成图片': 'No generated images are available to download',
   '工作标签': 'Worker tabs',
   '任务总数': 'Total tasks',
   '自动重试中': 'Auto-retrying',
