@@ -87,7 +87,7 @@ interface Props { apiKey: string; openAiApiKey: string; apiBaseUrl: string | nul
 export default function MultiTabLogoReplaceComposer(props: Props) {
   const { message } = App.useApp(); const params = new URLSearchParams(location.search);
   const batchId = params.get('batch'); const groupId = params.get('group'); const worker = params.get('worker') === '1';
-  const [groups, setGroups] = useState<FolderGroup[]>([]); const [logos, setLogos] = useState<File[]>([]); const [tabLimit, setTabLimit] = useState(4);
+  const [groups, setGroups] = useState<FolderGroup[]>([]); const [logos, setLogos] = useState<File[]>([]);
   const [globalConcurrency, setGlobalConcurrency] = useState(6);
   const [activeBatchId, setActiveBatchId] = useState<string>();
   const [pendingPsdFile, setPendingPsdFile] = useState<File>();
@@ -156,18 +156,40 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
     return () => { window.fetch = originalFetch; };
   }, [worker, workerBatch?.globalConcurrency]);
 
+  const buildWorkerTarget = (id: string, group: FolderGroup) => {
+    const url = new URL(location.href);
+    url.searchParams.set('tool', 'logo-replace-tabs'); url.searchParams.set('worker', '1');
+    url.searchParams.set('batch', id); url.searchParams.set('group', group.id); url.searchParams.set('folder', group.name);
+    return { name: group.name, url: url.toString() };
+  };
+  const persistCurrentBatch = async (id = activeBatchId || `batch-${Date.now()}`) => {
+    await saveBatch({ id, createdAt: Date.now(), groups, logos, globalConcurrency });
+    setActiveBatchId(id); return id;
+  };
   const openWorkers = async () => {
     if (!groups.length) return void message.warning('请先选择包含各组图片的根文件夹'); if (!logos.length) return void message.warning('请先上传公共 Logo');
-    const selected = groups.slice(0, tabLimit); const id = `batch-${Date.now()}`;
-    const placeholders = selected.map((_group, index) => window.open('', `scene-studio-logo-worker-${id}-${index}`));
-    await saveBatch({ id, createdAt: Date.now(), groups, logos, globalConcurrency });
-    setActiveBatchId(id);
-    setWorkerProgress(Object.fromEntries(selected.map((group) => [group.id, { groupId: group.id, name: group.name, status: 'opening', total: 0, success: 0, failed: 0, stopped: 0, waiting: 0, running: 0, retrying: 0, updatedAt: Date.now() }])));
-    const targets = selected.map((group) => { const url = new URL(location.href); url.searchParams.set('tool', 'logo-replace-tabs'); url.searchParams.set('worker', '1'); url.searchParams.set('batch', id); url.searchParams.set('group', group.id); url.searchParams.set('folder', group.name); return { name: group.name, url: url.toString() }; });
+    const id = `batch-${Date.now()}`;
+    const placeholders = groups.map((_group, index) => window.open('', `scene-studio-logo-worker-${id}-${index}`));
+    await persistCurrentBatch(id);
+    setWorkerProgress(Object.fromEntries(groups.map((group) => [group.id, { groupId: group.id, name: group.name, status: 'opening', total: 0, success: 0, failed: 0, stopped: 0, waiting: 0, running: 0, retrying: 0, updatedAt: Date.now() }])));
+    const targets = groups.map((group) => buildWorkerTarget(id, group));
     const blocked: typeof targets = [];
     targets.forEach((target, index) => { const opened = placeholders[index]; if (opened) opened.location.href = target.url; else blocked.push(target); });
     setBlockedWorkerUrls(blocked); if (blocked.length) message.warning(`${blocked.length} 个标签被浏览器拦截，请在弹窗中逐个打开或允许本站弹出窗口`);
-    if (selected.length < groups.length) message.info(`已打开 ${selected.length} 组，其余 ${groups.length - selected.length} 组可提高同时标签数后再次打开`);
+  };
+  const openSingleWorker = async (group: FolderGroup) => {
+    if (!logos.length) return void message.warning('请先上传公共 Logo');
+    const placeholder = window.open('', `scene-studio-logo-worker-${group.id}-${Date.now()}`);
+    const id = await persistCurrentBatch(); const target = buildWorkerTarget(id, group);
+    setWorkerProgress((current) => ({ ...current, [group.id]: current[group.id] || { groupId: group.id, name: group.name, status: 'opening', total: 0, success: 0, failed: 0, stopped: 0, waiting: 0, running: 0, retrying: 0, updatedAt: Date.now() } }));
+    if (placeholder) placeholder.location.href = target.url;
+    else setBlockedWorkerUrls((current) => current.some((item) => item.url === target.url) ? current : [...current, target]);
+  };
+  const removeGroup = (group: FolderGroup) => {
+    setGroups((current) => current.filter((item) => item.id !== group.id));
+    setSelectedGroupId((current) => current === group.id ? undefined : current);
+    setWorkerProgress((current) => { const next = { ...current }; delete next[group.id]; return next; });
+    message.success(`已移除分组 ${group.name}`);
   };
   const syncLogos = async () => { const id = activeBatchId || batchId; if (!id) return; const batch = await readBatch(id); if (!batch) return; batch.logos = logos; await saveBatch(batch); channel?.postMessage({ type: 'logos-updated', batchId: id }); message.success('公共 Logo 更新已广播'); };
   const startAllWorkers = async () => {
@@ -207,9 +229,9 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
   if (worker) return <div ref={rootRef}><Alert type={injected ? 'success' : 'info'} showIcon title={workerGroup ? `工作标签：${workerGroup.name}` : '正在加载分组任务'} description={workerGroup ? `${workerGroup.path} · ${workerGroup.files.length} 张场景图 · 公共 Logo ${workerBatch?.logos.length || 0} 个${injected ? '，已自动导入' : '，正在自动导入…'}` : '请保留主控标签页以便接收公共 Logo 更新。'} style={{ marginBottom: 16 }} /><LogoReplaceComposer {...props} automationStartToken={automationStartToken} onTaskDetailChange={(detail) => { if (channel && batchId && groupId) channel.postMessage({ type: 'worker-task', batchId, groupId, detail }); }} onProgressChange={(progress) => { if (!channel || !batchId || !groupId || !workerGroup) return; const status = progress.total > 0 && progress.success + progress.failed + progress.stopped >= progress.total ? 'completed' : progress.waiting + progress.running > 0 ? 'running' : 'ready'; channel.postMessage({ type: 'worker-progress', batchId, groupId, progress: { ...progress, groupId, name: workerGroup.name, status, updatedAt: Date.now() } }); }} /></div>;
 
   return <div className="multi-tab-logo-page"><section className="hero-strip logo-replace-hero"><div><Text className="eyebrow">MULTI-TAB LOGO REPLACER</Text><Title level={2}>一个主控页，分发多组 Logo 替换任务</Title><Paragraph className="hero-description">一次选择场景根文件夹和公共 Logo，每个最深层子目录自动分配到独立标签页；工作页完整使用现有 Logo 替换功能。</Paragraph></div><div className="hero-orb" /></section>
-    <Card className="workflow-card" title="1. 选择场景根文件夹"><Upload.Dragger directory multiple showUploadList={false} accept="image/png,image/jpeg,image/webp" beforeUpload={(file, fileList) => { if (file.uid === fileList.at(-1)?.uid) { const next = groupFolderFiles(fileList as File[]); setGroups(next); message.success(`识别到 ${next.length} 个图片分组`); } return Upload.LIST_IGNORE; }}><FolderOpenOutlined style={{ fontSize: 34, color: '#7654dd' }} /><p className="ant-upload-text">拖拽或点击选择场景根文件夹</p><p className="ant-upload-hint">支持“测试图片/AM058/AM058”这类两层目录，按最深层图片目录自动分组</p></Upload.Dragger>{groups.length ? <div className="folder-group-grid">{groups.map((group) => <Card key={group.id} size="small" hoverable className="folder-manage-card" onClick={() => setSelectedGroupId(group.id)}><FolderOpenOutlined /> <Text strong>{group.name}</Text><br /><Text type="secondary">{group.path} · {group.files.length} 张</Text><Button type="link" size="small" style={{ paddingInline: 0, display: 'block' }} onClick={(event) => { event.stopPropagation(); setSelectedGroupId(group.id); }}>查看和管理图片</Button></Card>)}</div> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="选择文件夹后显示分组" />}</Card>
+    <Card className="workflow-card" title="1. 选择场景根文件夹"><Upload.Dragger directory multiple showUploadList={false} accept="image/png,image/jpeg,image/webp" beforeUpload={(file, fileList) => { if (file.uid === fileList.at(-1)?.uid) { const next = groupFolderFiles(fileList as File[]); setGroups(next); message.success(`识别到 ${next.length} 个图片分组`); } return Upload.LIST_IGNORE; }}><FolderOpenOutlined style={{ fontSize: 34, color: '#7654dd' }} /><p className="ant-upload-text">拖拽或点击选择场景根文件夹</p><p className="ant-upload-hint">支持“测试图片/AM058/AM058”这类两层目录，按最深层图片目录自动分组</p></Upload.Dragger>{groups.length ? <div className="folder-group-grid">{groups.map((group) => <Card key={group.id} size="small" hoverable className="folder-manage-card" onClick={() => setSelectedGroupId(group.id)}><FolderOpenOutlined /> <Text strong>{group.name}</Text><br /><Text type="secondary">{group.path} · {group.files.length} 张</Text><Flex gap={6} wrap><Button type="link" size="small" style={{ paddingInline: 0 }} onClick={(event) => { event.stopPropagation(); setSelectedGroupId(group.id); }}>查看和管理图片</Button><Button type="link" size="small" icon={<RocketOutlined />} onClick={(event) => { event.stopPropagation(); void openSingleWorker(group); }}>单独打开标签</Button><Popconfirm title={`移除分组 ${group.name}？`} description="只从当前批次移除，不会删除电脑中的文件。" onConfirm={() => removeGroup(group)}><Button danger type="link" size="small" icon={<DeleteOutlined />} onClick={(event) => event.stopPropagation()}>移除分组</Button></Popconfirm></Flex></Card>)}</div> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="选择文件夹后显示分组" />}</Card>
     <Card className="workflow-card" title="2. 上传所有标签共用的 Logo" extra={<Text type="secondary">{logos.length} 个</Text>}><Upload.Dragger multiple showUploadList={false} accept="image/png,image/jpeg,image/webp,.psd,image/vnd.adobe.photoshop" beforeUpload={(file) => { const next = file as File; if (next.name.toLowerCase().endsWith('.psd') || next.type === 'image/vnd.adobe.photoshop') setPendingPsdFile(next); else setLogos((current) => [...current, next]); return false; }}><FileImageOutlined style={{ fontSize: 30 }} /><p>拖拽或选择公共 Logo / PSD</p></Upload.Dragger>{logos.length ? <Image.PreviewGroup><div className="batch-asset-grid">{logos.map((logo, index) => <FileThumbnail key={`${logo.name}-${logo.size}-${logo.lastModified}-${index}`} file={logo} onRemove={() => setLogos((current) => current.filter((item) => item !== logo))} />)}<Upload multiple showUploadList={false} accept="image/png,image/jpeg,image/webp,.psd,image/vnd.adobe.photoshop" beforeUpload={(file) => { const next = file as File; if (next.name.toLowerCase().endsWith('.psd') || next.type === 'image/vnd.adobe.photoshop') setPendingPsdFile(next); else setLogos((current) => [...current, next]); return false; }}><button type="button" className="batch-asset-add"><PlusOutlined /><span>继续添加 Logo</span></button></Upload></div></Image.PreviewGroup> : null}{activeBatchId && <Button style={{ marginTop: 12 }} icon={<SyncOutlined />} onClick={() => void syncLogos()}>同步到已打开标签</Button>}</Card>
-    <Card className="action-card"><Flex justify="space-between" align="center" wrap gap={12}><div><Title level={4} style={{ margin: 0 }}>准备分发 {groups.length} 组任务</Title><Text type="secondary">公共 Logo {logos.length} 个；Web Locks 将所有标签的 AI 请求合计限制在 {globalConcurrency} 个</Text></div><Space wrap><Text>同时打开</Text><InputNumber min={1} max={10} value={tabLimit} onChange={(value) => setTabLimit(value || 1)} /><Text>个标签</Text><Text>全局并发</Text><InputNumber min={1} max={12} value={globalConcurrency} onChange={(value) => setGlobalConcurrency(value || 1)} /><Button size="large" icon={<RocketOutlined />} onClick={() => void openWorkers()}>保存批次并打开标签</Button><Button type="primary" size="large" icon={<RocketOutlined />} disabled={!activeBatchId} onClick={() => void startAllWorkers()}>一键开始所有替换</Button>{aggregateProcessing && <Button danger size="large" icon={<StopOutlined />} onClick={stopAllWorkers}>停止全部</Button>}</Space></Flex></Card>
+    <Card className="action-card"><Flex justify="space-between" align="center" wrap gap={12}><div><Title level={4} style={{ margin: 0 }}>准备分发 {groups.length} 组任务</Title><Text type="secondary">自动按当前 {groups.length} 个分组打开全部标签，不限制个数；Web Locks 将所有标签的 AI 请求合计限制在 {globalConcurrency} 个</Text></div><Space wrap><Text>全局并发</Text><InputNumber min={1} max={12} value={globalConcurrency} onChange={(value) => setGlobalConcurrency(value || 1)} /><Button size="large" icon={<RocketOutlined />} onClick={() => void openWorkers()}>保存批次并打开全部标签</Button><Button type="primary" size="large" icon={<RocketOutlined />} disabled={!activeBatchId} onClick={() => void startAllWorkers()}>一键开始所有替换</Button>{aggregateProcessing && <Button danger size="large" icon={<StopOutlined />} onClick={stopAllWorkers}>停止全部</Button>}</Space></Flex></Card>
     {!!workerSnapshots.length && <Card className="workflow-card" title="批次任务进度" extra={<Tag color={aggregate.failed ? 'error' : aggregateProcessing ? 'processing' : aggregate.total && aggregate.success === aggregate.total ? 'success' : 'default'}>{aggregate.failed ? '存在最终失败' : aggregateProcessing ? '执行中' : aggregate.total ? '已完成' : '等待开始'}</Tag>}>
       <Flex gap={28} wrap><Statistic title="工作标签" value={workerSnapshots.length} suffix={` / 就绪 ${workerSnapshots.filter((item) => item.status !== 'opening').length}`} /><Statistic title="任务总数" value={aggregate.total} /><Statistic title="成功" value={aggregate.success} valueStyle={{ color: '#389e0d' }} /><Statistic title="自动重试中" value={aggregate.retrying} valueStyle={{ color: '#d48806' }} /><Statistic title="最终失败" value={aggregate.failed} valueStyle={{ color: aggregate.failed ? '#cf1322' : undefined }} /><Statistic title="已停止" value={aggregate.stopped} /></Flex>
       <Progress style={{ margin: '18px 0' }} percent={aggregate.total ? Math.round((aggregateCompleted / aggregate.total) * 100) : 0} status={aggregate.failed ? 'exception' : aggregateProcessing ? 'active' : aggregate.total ? 'success' : 'normal'} />
