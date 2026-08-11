@@ -61,14 +61,14 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
   const removeScene = (id: string) => { clearResults(); setScenes((current) => { const found = current.find((item) => item.id === id); if (found) URL.revokeObjectURL(found.previewUrl); return current.filter((item) => item.id !== id); }); };
   const clearScenes = () => { clearResults(); setScenes((current) => { current.forEach((item) => URL.revokeObjectURL(item.previewUrl)); return []; }); };
 
-  const outpaintTask = useCallback(async (taskId: string, source: Blob, signal: AbortSignal) => {
+  const outpaintTask = useCallback(async (taskId: string, source: Blob, signal: AbortSignal, requestedSize?: { width: number; height: number }) => {
     const config = settingsRef.current;
     if (isOpenAiModel(config.outpaintImageModel) ? !openAiApiKey : !apiKey) throw new Error('请先在右上角配置所选扩图模型的 API Key');
     if (!isOpenAiModel(config.outpaintImageModel) && connectionMode === 'proxy' && !apiBaseUrl) throw new Error('请先配置 Gemini 代理地址');
     setTasks((current) => current.map((item) => item.id === taskId ? { ...item, outpaintStatus: 'running', outpaintError: undefined } : item));
     try {
       const sourceFile = new File([source], `scene-${taskId}.png`, { type: source.type || 'image/png' });
-      const sizes = config.outpaintBothSizes ? DUAL_OUTPAINT_SIZES : [{ width: config.outpaintWidth, height: config.outpaintHeight }];
+      const sizes = requestedSize ? [requestedSize] : config.outpaintBothSizes ? DUAL_OUTPAINT_SIZES : [{ width: config.outpaintWidth, height: config.outpaintHeight }];
       const results = await Promise.all(sizes.map(async ({ width, height }) => {
         const prepared = await prepareOutpaintInput(sourceFile, width, height);
         const outpaintPrompt = buildOutpaintPrompt(config.outpaintPrompt, width, height);
@@ -79,9 +79,11 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
       }));
       setTasks((current) => current.map((item) => {
         if (item.id !== taskId) return item;
-        if (item.outpaintUrl) URL.revokeObjectURL(item.outpaintUrl);
-        item.outpaintResults?.forEach((result) => URL.revokeObjectURL(result.url));
-        return { ...item, outpaintStatus: 'success', outpaintBlob: results[0].blob, outpaintUrl: results[0].url, outpaintResults: results };
+        const previous = item.outpaintResults || [];
+        if (requestedSize) previous.filter((result) => result.width === requestedSize.width && result.height === requestedSize.height).forEach((result) => URL.revokeObjectURL(result.url));
+        else { if (item.outpaintUrl) URL.revokeObjectURL(item.outpaintUrl); previous.forEach((result) => URL.revokeObjectURL(result.url)); }
+        const merged = requestedSize ? [...previous.filter((result) => result.width !== requestedSize.width || result.height !== requestedSize.height), ...results].sort((a, b) => DUAL_OUTPAINT_SIZES.findIndex((size) => size.width === a.width && size.height === a.height) - DUAL_OUTPAINT_SIZES.findIndex((size) => size.width === b.width && size.height === b.height)) : results;
+        return { ...item, outpaintStatus: 'success', outpaintBlob: merged[0].blob, outpaintUrl: merged[0].url, outpaintResults: merged };
       }));
     } catch (error) {
       setTasks((current) => current.map((item) => item.id === taskId ? { ...item, outpaintStatus: signal.aborted ? 'stopped' : 'failed', outpaintError: signal.aborted ? '任务已停止' : error instanceof Error ? error.message : '扩图失败' } : item));
@@ -123,6 +125,12 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
     if (!isOpenAiModel(config.outpaintImageModel) && connectionMode === 'proxy' && !apiBaseUrl) return onRequestKey();
     const eligible = targets.filter((item) => item.resultBlob && item.outpaintStatus !== 'running'); let cursor = 0;
     await Promise.all(Array.from({ length: Math.min(config.concurrency, eligible.length) }, async () => { while (cursor < eligible.length) { const item = eligible[cursor++]; const controller = new AbortController(); aborters.current.set(`outpaint-${item.id}`, controller); try { await outpaintTask(item.id, item.resultBlob!, controller.signal); } catch { /* error is displayed on the result card */ } finally { aborters.current.delete(`outpaint-${item.id}`); } } }));
+  };
+  const reOutpaintOne = async (task: SceneReplaceTask, size: { width: number; height: number }) => {
+    if (!task.resultBlob || task.outpaintStatus === 'running') return;
+    const controller = new AbortController(); aborters.current.set(`outpaint-${task.id}-${size.width}x${size.height}`, controller);
+    try { await outpaintTask(task.id, task.resultBlob, controller.signal, size); }
+    finally { aborters.current.delete(`outpaint-${task.id}-${size.width}x${size.height}`); }
   };
   const success = tasks.filter((item) => item.status === 'success' && item.resultBlob); const busy = tasks.some((item) => item.status === 'waiting' || item.status === 'running' || item.outpaintStatus === 'running'); const done = tasks.filter((item) => ['success', 'failed', 'stopped'].includes(item.status) && item.outpaintStatus !== 'running').length;
   useEffect(() => { reportTaskProgress({ id: 'scene-replace', label: '场景替换', completed: done, total: tasks.length, failed: tasks.filter((task) => task.status === 'failed').length, running: busy }); }, [done, tasks, busy]);
@@ -180,8 +188,8 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
     </section>
     <Modal className="scene-result-modal" width={960} title={selectedResult ? `${sanitizeFileName(selectedResult.scene.name)} · ${selectedResultGroup.length} 个生成结果` : '生成结果'} open={Boolean(selectedResult)} footer={<Button onClick={() => setSelectedResultId(undefined)}>关闭</Button>} onCancel={() => setSelectedResultId(undefined)} destroyOnHidden>
       {selectedResult && <Image.PreviewGroup preview={{ onOpenChange: (open) => { if (!open) setPreviewCompareOriginal(false); }, onChange: () => setPreviewCompareOriginal(false), actionsRender: (originalNode, info) => <>{originalNode}<Tooltip title={previewCompareOriginal ? '查看生成图' : info.current < selectedResultGroup.length ? '原始场景图对比' : '扩图前生成图对比'}><button type="button" className={previewCompareOriginal ? 'scene-preview-compare-action is-active' : 'scene-preview-compare-action'} onClick={() => setPreviewCompareOriginal((current) => !current)}><EyeOutlined /></button></Tooltip></>, imageRender: (originalNode, info) => previewCompareOriginal ? cloneElement(originalNode as ReactElement<{ src?: string; alt?: string }>, { src: comparisonSourceAt(info.current), alt: info.current < selectedResultGroup.length ? '原始场景图' : '扩图前的场景替换生成图' }) : originalNode }}>
-        <div className="scene-result-modal-section"><Flex justify="space-between" align="center"><Title level={5}>场景替换结果</Title><Text type="secondary">点击缩略图放大，左右切换全部图片</Text></Flex><div className="scene-result-thumbnail-row">{selectedResultGroup.map(({ task, scene }) => <div className="scene-result-thumbnail-item" key={`scene-${task.id}`}><ImageInfoTooltip src={task.resultUrl}><Image src={task.resultUrl} alt={`场景替换结果 ${task.copyIndex + 1}`} /></ImageInfoTooltip><Flex justify="space-between" align="center"><Text>结果 {task.copyIndex + 1}</Text><Button size="small" type="primary" icon={task.outpaintBlob ? <ReloadOutlined /> : <ExpandOutlined />} loading={task.outpaintStatus === 'running'} onClick={() => void manualOutpaint([task])}>{task.outpaintBlob ? '重新扩图' : '扩图'}</Button></Flex>{task.outpaintError && <Text type="danger">{task.outpaintError}</Text>}</div>)}</div></div>
-        <div className="scene-result-modal-section"><Flex justify="space-between" align="center"><Title level={5}>AI 扩图结果</Title><Text type="secondary">原图对比使用该扩图实际基于的场景替换生成图</Text></Flex>{selectedOutpaintResults.length ? <div className="scene-result-thumbnail-row">{selectedOutpaintResults.map(({ task, scene, result }) => <div className="scene-result-thumbnail-item" key={`outpaint-${task.id}-${result.width}x${result.height}`}><ImageInfoTooltip src={result.url}><Image src={result.url} alt={`AI 扩图结果 ${result.width} × ${result.height}`} /></ImageInfoTooltip><Flex justify="space-between" align="center"><Text>{result.width} × {result.height}</Text><Button size="small" icon={<DownloadOutlined />} onClick={() => downloadBlob(result.blob, fileName(task, scene, result))}>下载</Button></Flex></div>)}</div> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚未生成扩图，使用上方按钮开始扩图" />}</div>
+        <div className="scene-result-modal-section"><Flex justify="space-between" align="center"><Title level={5}>场景替换结果</Title><Text type="secondary">点击缩略图放大，左右切换全部图片</Text></Flex><div className="scene-result-thumbnail-row">{selectedResultGroup.map(({ task, scene }) => <div className="scene-result-thumbnail-item" key={`scene-${task.id}`}><ImageInfoTooltip src={task.resultUrl}><Image src={task.resultUrl} alt={`场景替换结果 ${task.copyIndex + 1}`} /></ImageInfoTooltip><Flex justify="space-between" align="center"><Text>结果 {task.copyIndex + 1}</Text>{!task.outpaintResults?.length && <Button size="small" type="primary" icon={<ExpandOutlined />} loading={task.outpaintStatus === 'running'} onClick={() => void manualOutpaint([task])}>扩图</Button>}</Flex>{task.outpaintError && <Text type="danger">{task.outpaintError}</Text>}</div>)}</div></div>
+        <div className="scene-result-modal-section"><Flex justify="space-between" align="center"><Title level={5}>AI 扩图结果</Title><Text type="secondary">原图对比使用该扩图实际基于的场景替换生成图</Text></Flex>{selectedOutpaintResults.length ? <div className="scene-result-thumbnail-row">{selectedOutpaintResults.map(({ task, scene, result }) => <div className="scene-result-thumbnail-item" key={`outpaint-${task.id}-${result.width}x${result.height}`}><ImageInfoTooltip src={result.url}><Image src={result.url} alt={`AI 扩图结果 ${result.width} × ${result.height}`} /></ImageInfoTooltip><Flex justify="space-between" align="center"><Text>{result.width} × {result.height}</Text><Space size={4}><Button size="small" icon={<ReloadOutlined />} loading={task.outpaintStatus === 'running'} onClick={() => void reOutpaintOne(task, result)}>重新扩图</Button><Button size="small" icon={<DownloadOutlined />} onClick={() => downloadBlob(result.blob, fileName(task, scene, result))}>下载</Button></Space></Flex></div>)}</div> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚未生成扩图，使用上方按钮开始扩图" />}</div>
       </Image.PreviewGroup>}
     </Modal>
     {!settingsHost && <aside className="logo-settings">{panel}</aside>}{settingsHost && createPortal(panel, settingsHost)}
