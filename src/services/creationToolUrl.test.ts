@@ -8,6 +8,7 @@ describe('creation tool URL helpers', () => {
     expect(readCreationTool('?tool=background-removal')).toBe('background-removal');
     expect(readCreationTool('?tool=outpaint')).toBe('outpaint');
     expect(readCreationTool('?tool=cup-resize')).toBe('cup-resize');
+    expect(readCreationTool('?tool=scene-replace-tabs')).toBe('scene-replace-tabs');
   });
 
   it('falls back for missing or invalid tools', () => {
