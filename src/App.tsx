@@ -1,6 +1,7 @@
 import {
   ApiOutlined,
   AppstoreOutlined,
+  ApartmentOutlined,
   ArrowDownOutlined,
   ArrowUpOutlined,
   BulbOutlined,
@@ -81,6 +82,7 @@ import PsdLogoExportComposer from './PsdLogoExportComposer';
 import BackgroundRemovalComposer from './BackgroundRemovalComposer';
 import OutpaintComposer from './OutpaintComposer';
 import CupResizeComposer from './CupResizeComposer';
+import WorkflowComposer from './WorkflowComposer';
 import RequestConsoleDrawer from './RequestConsoleDrawer';
 import GeneratingImage from './GeneratingImage';
 import OriginalCompareImage from './OriginalCompareImage';
@@ -123,6 +125,7 @@ const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
 const ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 
 const CREATION_TOOL_ITEMS: Array<{ key: CreationTool; label: string; description: string; icon: ReactNode; disabled?: boolean }> = [
+  { key: 'workflow', icon: <ApartmentOutlined />, label: '工作流', description: '连接创作工具节点，批量预测并自动执行' },
   { key: 'scene', icon: <FileImageOutlined />, label: '场景图生成', description: '批量生成风格统一的商业场景图' },
   { key: 'scene-replace', icon: <PictureOutlined />, label: '场景替换', description: '保留主体姿态并替换主题与环境' },
   { key: 'cup-resize', icon: <ExpandOutlined />, label: '杯子大小精确调整', description: '精确控制杯子的位置、尺寸与融合' },
@@ -388,6 +391,7 @@ function AppContent() {
   const [backgroundRemovalHasSession, setBackgroundRemovalHasSession] = useState(false);
   const [outpaintHasSession, setOutpaintHasSession] = useState(false);
   const [cupResizeHasSession, setCupResizeHasSession] = useState(false);
+  const [workflowHasSession, setWorkflowHasSession] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkText, setBulkText] = useState('');
   const [splitMode, setSplitMode] = useState<'delimiter' | 'newline'>('delimiter');
@@ -508,14 +512,14 @@ function AppContent() {
   };
 
   useEffect(() => {
-    if (unloadWarningDisabled || (!sceneHasSession && !sceneReplaceHasSession && !cupResizeHasSession && !logoHasSession && !logoReplaceHasSession && !logoExportHasSession && !paperTextHasSession && !backgroundRemovalHasSession && !outpaintHasSession && !objectReplaceHasSession && !inpaintHasSession && !productDetailHasSession)) return;
+    if (unloadWarningDisabled || (!workflowHasSession && !sceneHasSession && !sceneReplaceHasSession && !cupResizeHasSession && !logoHasSession && !logoReplaceHasSession && !logoExportHasSession && !paperTextHasSession && !backgroundRemovalHasSession && !outpaintHasSession && !objectReplaceHasSession && !inpaintHasSession && !productDetailHasSession)) return;
     const warnBeforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = '';
     };
     window.addEventListener('beforeunload', warnBeforeUnload);
     return () => window.removeEventListener('beforeunload', warnBeforeUnload);
-  }, [unloadWarningDisabled, sceneHasSession, sceneReplaceHasSession, cupResizeHasSession, logoHasSession, logoReplaceHasSession, logoExportHasSession, paperTextHasSession, backgroundRemovalHasSession, outpaintHasSession, objectReplaceHasSession, inpaintHasSession, productDetailHasSession]);
+  }, [unloadWarningDisabled, workflowHasSession, sceneHasSession, sceneReplaceHasSession, cupResizeHasSession, logoHasSession, logoReplaceHasSession, logoExportHasSession, paperTextHasSession, backgroundRemovalHasSession, outpaintHasSession, objectReplaceHasSession, inpaintHasSession, productDetailHasSession]);
 
   const patchSettings = useCallback((patch: Partial<AppSettings>) => {
     setSettings((current) => {
@@ -831,7 +835,7 @@ function AppContent() {
         </Flex>
       </Header>
 
-      <Layout className={`workspace-layout${showPinnedHome ? ' is-tool-home' : ''}`}>
+      <Layout className={`workspace-layout${showPinnedHome ? ' is-tool-home' : ''}${creationTool === 'workflow' && !showPinnedHome ? ' is-workflow' : ''}`}>
         <Sider width={214} className="nav-sider" breakpoint="lg" collapsedWidth={64}>
           {pinnedCreationTools.length > 0 && <div className="pinned-tools"><Text className="pinned-tools-title"><PushpinFilled /> 已置顶</Text><div className="pinned-tools-list">{pinnedCreationTools.map((tool) => {
             const item = CREATION_TOOL_ITEMS.find((candidate) => candidate.key === tool); if (!item) return null;
@@ -871,6 +875,9 @@ function AppContent() {
               })}</div> : <div className="tool-home-empty"><PushpinOutlined /><Title level={3}>还没有置顶工具</Title><Paragraph>在左侧工具名称旁点击置顶图标，常用工具就会显示在这里。</Paragraph></div>}
             </section>}
             <div hidden={showPinnedHome}>
+            <div hidden={creationTool !== 'workflow'}>
+              <WorkflowComposer apiKey={settings.apiKey} openAiApiKey={settings.openAiApiKey} apiBaseUrl={apiBaseUrl} connectionMode={settings.connectionMode} onRequestKey={() => setKeyOpen(true)} onSessionStateChange={setWorkflowHasSession} />
+            </div>
             <div hidden={creationTool !== 'logo'}>
               <LogoComposer
                 apiKey={settings.apiKey}

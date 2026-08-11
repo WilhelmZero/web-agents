@@ -12,7 +12,7 @@ export type OptimizerModel =
 export type CombinationMode = 'cartesian' | 'paired';
 export type TaskStatus = 'waiting' | 'running' | 'success' | 'failed' | 'stopped';
 export type ImageSize = '0.5K' | '1K' | '2K' | '4K';
-export type CreationTool = 'scene' | 'scene-replace' | 'scene-replace-tabs' | 'cup-resize' | 'logo' | 'logo-replace' | 'logo-replace-tabs' | 'logo-export' | 'paper-text' | 'background-removal' | 'outpaint' | 'object-replace' | 'inpaint' | 'product-detail';
+export type CreationTool = 'workflow' | 'scene' | 'scene-replace' | 'scene-replace-tabs' | 'cup-resize' | 'logo' | 'logo-replace' | 'logo-replace-tabs' | 'logo-export' | 'paper-text' | 'background-removal' | 'outpaint' | 'object-replace' | 'inpaint' | 'product-detail';
 
 export interface AppSettings {
   apiKey: string;
