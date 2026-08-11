@@ -28,9 +28,10 @@ function statusLabel(status: SceneReplaceTask['status']) {
   return status === 'waiting' ? '排队中' : status === 'running' ? '替换中' : status === 'success' ? '替换成功' : status === 'failed' ? '替换失败' : '已停止';
 }
 
-export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl, connectionMode, onRequestKey, onSessionStateChange, settingsHost }: {
+export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl, connectionMode, onRequestKey, onSessionStateChange, settingsHost, initialPrompt, automationStartToken, onProgressChange, onResultsChange }: {
   apiKey: string; openAiApiKey: string; apiBaseUrl: string | null; connectionMode: 'direct' | 'proxy'; onRequestKey: () => void;
   onSessionStateChange?: (hasContent: boolean) => void; settingsHost?: HTMLElement | null;
+  initialPrompt?: string; automationStartToken?: string; onProgressChange?: (progress: { total: number; completed: number; failed: number; running: boolean }) => void; onResultsChange?: (tasks: SceneReplaceTask[]) => void;
 }) {
   const { message } = AntApp.useApp();
   const [settings, setSettings] = useState<SceneReplaceSettings>(() => ({ ...DEFAULT_SCENE_REPLACE_SETTINGS, ...readLocalStorage(STORAGE_KEYS.sceneReplaceSettings, {}) }));
@@ -50,6 +51,7 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
   useEffect(() => { scenesRef.current = scenes; }, [scenes]);
   useEffect(() => { settingsRef.current = settings; localStorage.setItem(STORAGE_KEYS.sceneReplaceSettings, JSON.stringify(settings)); }, [settings]);
   useEffect(() => { localStorage.setItem(STORAGE_KEYS.sceneReplacePresets, JSON.stringify(customPresets)); }, [customPresets]);
+  useEffect(() => { if (initialPrompt) setPrompt(initialPrompt); }, [initialPrompt]);
   useEffect(() => onSessionStateChange?.(Boolean(scenes.length || tasks.length || prompt.trim())), [scenes.length, tasks.length, prompt, onSessionStateChange]);
 
   const clearResults = () => { aborters.current.forEach((item) => item.abort()); setTasks((current) => { current.forEach((item) => { if (item.resultUrl) URL.revokeObjectURL(item.resultUrl); if (item.outpaintUrl) URL.revokeObjectURL(item.outpaintUrl); item.outpaintResults?.forEach((result) => URL.revokeObjectURL(result.url)); }); return []; }); setSelectedResultId(undefined); };
@@ -111,6 +113,8 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
     if (!scenes.length) return void message.warning('请至少上传一张原始场景图'); if (!prompt.trim()) return void message.warning('请选择预设或填写目标场景提示词');
     clearResults(); setTasks(scenes.flatMap((scene, sceneIndex) => Array.from({ length: settings.copiesPerScene }, (_, copyIndex) => ({ id: createId(), sceneId: scene.id, sceneIndex, copyIndex, status: 'waiting' as const, prompt: prompt.trim(), retryCount: 0 }))));
   };
+  const lastAutomationStart = useRef<string | undefined>(undefined);
+  useEffect(() => { if (!automationStartToken || lastAutomationStart.current === automationStartToken || !scenes.length || !prompt.trim()) return; lastAutomationStart.current = automationStartToken; start(); }, [automationStartToken, scenes.length, prompt]);
   const stop = () => { aborters.current.forEach((item) => item.abort()); setTasks((current) => current.map((item) => item.status === 'waiting' ? { ...item, status: 'stopped' } : item)); };
   const retry = (task: SceneReplaceTask) => { if (task.resultUrl) URL.revokeObjectURL(task.resultUrl); if (task.outpaintUrl) URL.revokeObjectURL(task.outpaintUrl); task.outpaintResults?.forEach((result) => URL.revokeObjectURL(result.url)); const next = { ...task, status: 'running' as const, error: undefined, resultBlob: undefined, resultUrl: undefined, outpaintStatus: 'idle' as const, outpaintBlob: undefined, outpaintUrl: undefined, outpaintResults: undefined, outpaintError: undefined, retryCount: task.retryCount + 1 }; setTasks((current) => current.map((item) => item.id === task.id ? next : item)); setSelectedResultId(undefined); void execute(next); };
   const manualOutpaint = async (targets: SceneReplaceTask[]) => {
@@ -122,6 +126,7 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
   };
   const success = tasks.filter((item) => item.status === 'success' && item.resultBlob); const busy = tasks.some((item) => item.status === 'waiting' || item.status === 'running' || item.outpaintStatus === 'running'); const done = tasks.filter((item) => ['success', 'failed', 'stopped'].includes(item.status) && item.outpaintStatus !== 'running').length;
   useEffect(() => { reportTaskProgress({ id: 'scene-replace', label: '场景替换', completed: done, total: tasks.length, failed: tasks.filter((task) => task.status === 'failed').length, running: busy }); }, [done, tasks, busy]);
+  useEffect(() => { onProgressChange?.({ total: tasks.length, completed: done, failed: tasks.filter((task) => task.status === 'failed').length, running: busy }); onResultsChange?.(tasks); }, [tasks, done, busy, onProgressChange, onResultsChange]);
   const groups = useMemo(() => scenes.map((scene) => ({ scene, tasks: tasks.filter((item) => item.sceneId === scene.id) })).filter((item) => item.tasks.length), [scenes, tasks]);
   const allPresets = useMemo(() => [...BUILT_IN_SCENE_REPLACE_PRESETS, ...customPresets], [customPresets]);
   const resultItems = useMemo(() => tasks.flatMap((task) => { const scene = scenes.find((item) => item.id === task.sceneId); return scene ? [{ task, scene }] : []; }), [tasks, scenes]);

@@ -71,6 +71,7 @@ import { DEFAULT_SETTINGS, localizeBuiltInScenePresets, MODEL_CAPABILITIES, PRIC
 import LogoComposer from './LogoComposer';
 import LogoReplaceComposer from './LogoReplaceComposer';
 import MultiTabLogoReplaceComposer from './MultiTabLogoReplaceComposer';
+import MultiTabSceneReplaceComposer from './MultiTabSceneReplaceComposer';
 import ObjectReplaceComposer from './ObjectReplaceComposer';
 import SceneReplaceComposer from './SceneReplaceComposer';
 import InpaintComposer from './InpaintComposer';
@@ -127,6 +128,7 @@ const CREATION_TOOL_ITEMS: Array<{ key: CreationTool; label: string; description
   { key: 'logo', icon: <ExperimentOutlined />, label: 'Logo 合成', description: '将品牌标识自然合成到产品图片' },
   { key: 'logo-replace', icon: <SwapOutlined />, label: 'Logo 替换', description: '批量识别、替换并校验场景 Logo' },
   { key: 'logo-replace-tabs', icon: <AppstoreOutlined />, label: '多标签 Logo 替换', description: '跨标签并行执行多组 Logo 替换任务' },
+  { key: 'scene-replace-tabs', icon: <AppstoreOutlined />, label: '多标签场景替换', description: '跨标签并行执行多组场景替换与扩图任务' },
   { key: 'logo-export', icon: <DownloadOutlined />, label: '批量导出 Logo', description: '从图片或 PSD 图层批量整理 Logo' },
   { key: 'paper-text', icon: <EditOutlined />, label: '花纸文字修改', description: '识别并批量修改花纸中的文字内容' },
   { key: 'background-removal', icon: <HighlightOutlined />, label: '去除背景', description: '智能抠图、透明化并支持矢量输出' },
@@ -456,7 +458,7 @@ function AppContent() {
   const globalFailed = globalProgress.reduce((sum, item) => sum + item.failed, 0);
   const titleStatus = globalFailed > 0 ? 'failed' : globalTotal > 0 ? 'running' : 'ready';
   const workerFolderTitle = useMemo(() => {
-    if (creationTool !== 'logo-replace-tabs') return undefined;
+    if (creationTool !== 'logo-replace-tabs' && creationTool !== 'scene-replace-tabs') return undefined;
     const params = new URLSearchParams(window.location.search);
     if (params.get('worker') !== '1') return undefined;
     const explicitName = params.get('folder')?.trim();
@@ -887,6 +889,9 @@ function AppContent() {
             </div>
             <div hidden={creationTool !== 'logo-replace-tabs'}>
               <MultiTabLogoReplaceComposer apiKey={settings.apiKey} openAiApiKey={settings.openAiApiKey} apiBaseUrl={apiBaseUrl} connectionMode={settings.connectionMode} onRequestKey={() => setKeyOpen(true)} settingsHost={multiTabLogoSettingsHost} />
+            </div>
+            <div hidden={creationTool !== 'scene-replace-tabs'}>
+              <MultiTabSceneReplaceComposer apiKey={settings.apiKey} openAiApiKey={settings.openAiApiKey} apiBaseUrl={apiBaseUrl} connectionMode={settings.connectionMode} onRequestKey={() => setKeyOpen(true)} />
             </div>
             <div hidden={creationTool !== 'paper-text'}>
               <PaperTextComposer apiKey={settings.apiKey} openAiApiKey={settings.openAiApiKey} apiBaseUrl={apiBaseUrl} onRequestKey={() => setKeyOpen(true)} onSessionStateChange={setPaperTextHasSession} settingsHost={paperTextSettingsHost} />
