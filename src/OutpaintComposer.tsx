@@ -11,6 +11,7 @@ import { reportTaskProgress } from './services/taskProgress';
 import { readLocalStorage } from './storage';
 import type { ImageModel, ImageSize } from './types';
 import { createId, downloadBlob, sanitizeFileName } from './utils';
+import OriginalCompareImage from './OriginalCompareImage';
 
 const { Text, Title, Paragraph } = Typography;
 type OpenAiImageModel = 'gpt-image-2' | 'gpt-image-2-2026-04-21';
@@ -69,7 +70,7 @@ export default function OutpaintComposer({ apiKey, openAiApiKey, apiBaseUrl, con
     <section className="results-section">
       <Flex justify="space-between" align="center" wrap gap={8}><div><Title level={3}>扩图结果</Title><Text type="secondary">可切换查看原图与 AI 返回的扩图结果</Text></div><Button icon={<DownloadOutlined />} disabled={!successful.length} onClick={() => void downloadAll()}>下载全部 ZIP</Button></Flex>
       {items.length ? <Image.PreviewGroup><div className="outpaint-results-grid">{items.map((item) => <Card key={item.id} size="small" title={item.file.name} extra={item.resultBlob && <Button type="text" icon={<DownloadOutlined />} onClick={() => downloadBlob(item.resultBlob!, fileName(item))}>下载</Button>}>
-        <div className="outpaint-result-image">{previewUrl(item) ? <Image src={previewUrl(item)} /> : <div className={`task-state-card is-${item.status}`}><Text strong>{item.status === 'running' ? '扩图中' : item.status === 'failed' ? '扩图失败' : item.status === 'stopped' ? '已停止' : '等待处理'}</Text><Text type="secondary">{item.error}</Text></div>}</div>
+        <div className="outpaint-result-image">{previewUrl(item) ? <OriginalCompareImage src={previewUrl(item)} originalSrc={item.sourceUrl} alt="扩图结果" /> : <div className={`task-state-card is-${item.status}`}><Text strong>{item.status === 'running' ? '扩图中' : item.status === 'failed' ? '扩图失败' : item.status === 'stopped' ? '已停止' : '等待处理'}</Text><Text type="secondary">{item.error}</Text></div>}</div>
         {item.resultUrl && <Segmented block size="small" style={{ marginTop: 8 }} value={previewModes[item.id] || 'result'} onChange={(mode) => setPreviewModes((current) => ({ ...current, [item.id]: mode as PreviewMode }))} options={[{ label: '原图', value: 'source' }, { label: 'AI 扩图结果', value: 'result' }]} />}
         <Flex justify="space-between" align="center" style={{ marginTop: 8 }}><Tag color={item.status === 'success' ? 'success' : item.status === 'failed' ? 'error' : item.status === 'running' ? 'processing' : 'default'}>{item.status}</Tag><Button size="small" icon={<ReloadOutlined />} disabled={busy} onClick={() => void run([item])}>重新生成</Button></Flex>
       </Card>)}</div></Image.PreviewGroup> : <Empty description="扩图结果会显示在这里" />}

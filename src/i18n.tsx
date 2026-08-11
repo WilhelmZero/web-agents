@@ -734,6 +734,8 @@ const translations: Record<string, string> = {
   'GPT 扩图质量': 'GPT outpainting quality',
   '扩图提示词': 'Outpainting prompt',
   '生成后自动扩图': 'Automatically outpaint after generation',
+  '同时输出两个常用尺寸': 'Output both common sizes',
+  '双尺寸已扩图': 'Both sizes outpainted',
   '场景替换完成后自动扩图': 'Automatically outpaint after scene replacement',
   '可在结果区手动扩图': 'Manual outpainting remains available in the results',
   '重新扩图': 'Outpaint again',

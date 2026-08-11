@@ -238,6 +238,7 @@ export interface SceneReplaceSettings {
   concurrency: number;
   copiesPerScene: number;
   autoOutpaint: boolean;
+  outpaintBothSizes: boolean;
   outpaintImageModel: ImageModel | 'gpt-image-2' | 'gpt-image-2-2026-04-21';
   outpaintImageSize: ImageSize;
   outpaintQuality: 'high' | 'medium' | 'low';
@@ -260,6 +261,7 @@ export interface SceneReplaceTask {
   outpaintBlob?: Blob;
   outpaintUrl?: string;
   outpaintError?: string;
+  outpaintResults?: Array<{ width: number; height: number; blob: Blob; url: string }>;
   error?: string;
   retryCount: number;
 }

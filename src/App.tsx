@@ -82,6 +82,7 @@ import OutpaintComposer from './OutpaintComposer';
 import CupResizeComposer from './CupResizeComposer';
 import RequestConsoleDrawer from './RequestConsoleDrawer';
 import GeneratingImage from './GeneratingImage';
+import OriginalCompareImage from './OriginalCompareImage';
 import { useLanguage } from './i18n';
 import { readLocalStorage } from './storage';
 import {
@@ -1398,7 +1399,7 @@ function AppContent() {
                 {activeGroup.tasks.map((task) => (
                   <div className="detail-image-item" key={task.id}>
                     {task.resultUrl
-                      ? <Image src={task.resultUrl} alt={task.prompt} />
+                      ? <OriginalCompareImage src={task.resultUrl} originalSrc={activeGroup.product.previewUrl} alt={task.prompt} />
                       : task.status === 'running'
                         ? <GeneratingImage progressKey={task.id} status="running" percent={1} />
                         : task.status === 'waiting'

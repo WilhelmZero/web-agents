@@ -98,6 +98,7 @@ export const DEFAULT_SCENE_REPLACE_SETTINGS = {
   concurrency: 3,
   copiesPerScene: 1,
   autoOutpaint: false,
+  outpaintBothSizes: false,
   outpaintImageModel: 'gemini-3.1-flash-image',
   outpaintImageSize: '2K',
   outpaintQuality: 'high',

@@ -44,6 +44,7 @@ import {
   STORAGE_KEYS,
 } from './constants';
 import GeneratingImage from './GeneratingImage';
+import OriginalCompareImage from './OriginalCompareImage';
 import {
   analyzeProductDetailPrompts,
   generateProductDetailImage,
@@ -377,7 +378,7 @@ export default function ProductDetailComposer({
           const task = tasks.find((item) => item.promptId === prompt.id);
           return <Card key={prompt.id} size="small" title={`${prompt.index + 1}. ${prompt.title}`} extra={task?.resultBlob ? <Button type="text" icon={<DownloadOutlined />} onClick={() => downloadDetailTask(task, prompt, settings.imageModel)} /> : null}>
             {task?.resultUrl
-              ? <Image src={task.resultUrl} alt={prompt.title} />
+              ? <OriginalCompareImage src={task.resultUrl} originalSrc={previewUrl} alt={prompt.title} />
               : task?.status === 'running'
                 ? <GeneratingImage progressKey={task.id} status="running" percent={1} />
                 : task?.status === 'waiting'

@@ -85,6 +85,7 @@ import {
   sanitizeFileName,
 } from './utils';
 import GeneratingImage from './GeneratingImage';
+import OriginalCompareImage from './OriginalCompareImage';
 import { useLanguage } from './i18n';
 
 const { Text, Title, Paragraph } = Typography;
@@ -974,7 +975,7 @@ export default function LogoComposer({
                 {activeGroup.tasks.map((task) => (
                   <div className="detail-image-item" key={task.id}>
                     {task.resultUrl
-                      ? <Image src={task.resultUrl} alt={`第 ${task.copyIndex + 1} 张合成图`} />
+                      ? <OriginalCompareImage src={task.resultUrl} originalSrc={activeGroup.pair.scene?.previewUrl} alt={`第 ${task.copyIndex + 1} 张合成图`} />
                       : task.status === 'running'
                         ? <GeneratingImage progressKey={task.id} status="running" percent={1} />
                         : task.status === 'waiting'
