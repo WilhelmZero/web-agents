@@ -96,6 +96,7 @@ import {
 import { generateSceneImage, optimizePrompt, testProxyConnection } from './services/gemini';
 import { buildTaskPageTitle, reportTaskProgress, requestTaskNotifications, subscribeTaskProgress, type TaskProgress } from './services/taskProgress';
 import { isCreationTool, readCreationTool, setCreationToolInUrl } from './services/creationToolUrl';
+import { installFolderDropUploadSupport } from './services/folderDropUpload';
 import type {
   AppSettings,
   CreationTool,
@@ -324,6 +325,7 @@ function AppContent() {
   const { language, setLanguage } = useLanguage();
   const screens = Grid.useBreakpoint();
   const compact = !screens.xl;
+  useEffect(() => installFolderDropUploadSupport(), []);
   const [settings, setSettings] = useState<AppSettings>(() =>
     readLocalStorage(STORAGE_KEYS.settings, DEFAULT_SETTINGS),
   );

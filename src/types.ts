@@ -237,6 +237,9 @@ export interface SceneReplaceSettings {
   imageSize: ImageSize;
   concurrency: number;
   copiesPerScene: number;
+  autoRetryErrors: boolean;
+  errorRetryLimit: number;
+  errorRetryDelaySeconds: number;
   autoOutpaint: boolean;
   outpaintBothSizes: boolean;
   outpaintImageModel: ImageModel | 'gpt-image-2' | 'gpt-image-2-2026-04-21';
@@ -264,6 +267,8 @@ export interface SceneReplaceTask {
   outpaintResults?: Array<{ width: number; height: number; blob: Blob; url: string }>;
   error?: string;
   retryCount: number;
+  nextRetryAt?: number;
+  autoRetryStopped?: boolean;
 }
 export interface LogoExpectedText {
   logoId: string;
