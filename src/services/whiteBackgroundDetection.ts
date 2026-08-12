@@ -29,7 +29,15 @@ export function detectWhiteBackgroundPixels(data: Uint8ClampedArray, width: numb
   // product cutouts. The band lowers the border score even though roughly half
   // of the canvas remains one continuous pure-white studio background.
   const productInfographic = borderRatio >= 0.5 && connectedRatio >= 0.42 && whiteRatio >= 0.45;
-  return { isWhiteBackground: classicProductShot || productInfographic, whiteRatio, borderRatio, connectedRatio };
+  // Large studio subjects can split the white canvas into several regions.
+  // A nearly all-white outer edge is still a strong studio-shot signal even
+  // when the largest connected region is smaller than the classic threshold.
+  const splitStudioCanvas = borderRatio >= 0.94 && connectedRatio >= 0.18 && whiteRatio >= 0.25;
+  // Product collages may fill almost the whole frame. Natural scenes rarely
+  // retain this much neutral near-white directly on the outer edge while also
+  // keeping a sizeable edge-connected pure-white region.
+  const denseProductCollage = borderRatio >= 0.36 && connectedRatio >= 0.035 && whiteRatio >= 0.07;
+  return { isWhiteBackground: classicProductShot || productInfographic || splitStudioCanvas || denseProductCollage, whiteRatio, borderRatio, connectedRatio };
 }
 
 export async function detectWhiteBackground(file: File): Promise<WhiteBackgroundMetrics> {

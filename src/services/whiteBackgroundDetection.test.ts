@@ -19,4 +19,22 @@ describe('white background detection', () => {
     expect(result.whiteRatio).toBeGreaterThan(0.45);
     expect(result.isWhiteBackground).toBe(true);
   });
+  it('detects multiple large studio subjects that split the white canvas', () => {
+    const data = image(100, 100, [250, 250, 250]);
+    for (let y = 8; y < 96; y += 1) for (let x = 6; x < 45; x += 1) data.set([112, 52, 24, 255], (y * 100 + x) * 4);
+    for (let y = 5; y < 96; y += 1) for (let x = 55; x < 94; x += 1) data.set([180, 92, 24, 255], (y * 100 + x) * 4);
+    expect(detectWhiteBackgroundPixels(data, 100, 100).isWhiteBackground).toBe(true);
+  });
+  it('detects a dense product collage with white outer-edge channels', () => {
+    const data = image(100, 100, [70, 40, 25]);
+    for (let y = 52; y < 100; y += 1) for (let x = 0; x < 8; x += 1) data.set([250, 250, 250, 255], (y * 100 + x) * 4);
+    for (let y = 45; y < 100; y += 1) for (let x = 92; x < 100; x += 1) data.set([250, 250, 250, 255], (y * 100 + x) * 4);
+    for (let y = 92; y < 100; y += 1) for (let x = 0; x < 100; x += 1) data.set([250, 250, 250, 255], (y * 100 + x) * 4);
+    expect(detectWhiteBackgroundPixels(data, 100, 100).isWhiteBackground).toBe(true);
+  });
+  it('does not treat a small isolated white edge patch as a studio canvas', () => {
+    const data = image(100, 100, [70, 55, 45]);
+    for (let y = 90; y < 100; y += 1) for (let x = 0; x < 20; x += 1) data.set([250, 250, 250, 255], (y * 100 + x) * 4);
+    expect(detectWhiteBackgroundPixels(data, 100, 100).isWhiteBackground).toBe(false);
+  });
 });
