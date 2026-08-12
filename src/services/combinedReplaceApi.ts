@@ -7,6 +7,14 @@ type Base = { provider: 'gemini' | 'openai'; apiKey: string; model: string; apiB
 const OPENAI_ROOT = 'https://api.openai.com/v1';
 const outputText = (data: any) => data?.output_text || data?.output?.flatMap((x: any) => x.content || []).map((x: any) => x.text || '').join('') || '';
 
+export function toGeminiResponseSchema(schema: unknown): unknown {
+  if (Array.isArray(schema)) return schema.map(toGeminiResponseSchema);
+  if (!schema || typeof schema !== 'object') return schema;
+  return Object.fromEntries(Object.entries(schema as Record<string, unknown>)
+    .filter(([key]) => key !== 'additionalProperties')
+    .map(([key, value]) => [key, toGeminiResponseSchema(value)]));
+}
+
 async function requestJson(options: Base & { images: Array<File | Blob>; prompt: string; schema: object; name: string }) {
   const images = await Promise.all(options.images.map(async (image) => ({ mime: image.type || 'image/png', data: await fileToBase64(image) })));
   const startedAt = performance.now();
@@ -18,7 +26,7 @@ async function requestJson(options: Base & { images: Array<File | Blob>; prompt:
       const data = await response.json().catch(() => null); if (!response.ok) throw new Error(data?.error?.message || `OpenAI request failed (HTTP ${response.status})`); raw = outputText(data);
     } else {
       const endpoint = options.apiBaseUrl ? `${options.apiBaseUrl.replace(/\/$/, '')}/models/${options.model}:generateContent` : `https://generativelanguage.googleapis.com/v1beta/models/${options.model}:generateContent?key=${encodeURIComponent(options.apiKey)}`;
-      const response = await fetch(endpoint, { method: 'POST', signal: options.signal, headers: { 'Content-Type': 'application/json', ...(options.apiBaseUrl ? { 'x-goog-api-key': options.apiKey } : {}) }, body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: options.prompt }, ...images.map((image) => ({ inlineData: { mimeType: image.mime, data: image.data } }))] }], generationConfig: { responseMimeType: 'application/json', responseSchema: options.schema } }) });
+      const response = await fetch(endpoint, { method: 'POST', signal: options.signal, headers: { 'Content-Type': 'application/json', ...(options.apiBaseUrl ? { 'x-goog-api-key': options.apiKey } : {}) }, body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: options.prompt }, ...images.map((image) => ({ inlineData: { mimeType: image.mime, data: image.data } }))] }], generationConfig: { responseMimeType: 'application/json', responseSchema: toGeminiResponseSchema(options.schema) } }) });
       const data = await response.json().catch(() => null); if (!response.ok) throw new Error(data?.error?.message || `Gemini request failed (HTTP ${response.status})`); raw = data?.candidates?.flatMap((x: any) => x.content?.parts || []).map((x: any) => x.text || '').join('') || '';
     }
     if (!raw) throw new Error('The model returned no structured result'); const parsed = JSON.parse(raw); updateRequestConsoleEntry(consoleId, { status: 'success', durationMs: Math.round(performance.now() - startedAt), message: 'Analysis complete' }); return parsed;
