@@ -1,13 +1,15 @@
-export interface WhiteBackgroundMetrics { isWhiteBackground: boolean; borderRatio: number; connectedRatio: number }
+export interface WhiteBackgroundMetrics { isWhiteBackground: boolean; whiteRatio: number; borderRatio: number; connectedRatio: number }
 
 export function detectWhiteBackgroundPixels(data: Uint8ClampedArray, width: number, height: number): WhiteBackgroundMetrics {
   const count = width * height;
-  if (!count) return { isWhiteBackground: false, borderRatio: 0, connectedRatio: 0 };
+  if (!count) return { isWhiteBackground: false, whiteRatio: 0, borderRatio: 0, connectedRatio: 0 };
   const white = new Uint8Array(count);
+  let whiteCount = 0;
   for (let index = 0; index < count; index += 1) {
     const offset = index * 4; const r = data[offset]; const g = data[offset + 1]; const b = data[offset + 2]; const a = data[offset + 3];
     const max = Math.max(r, g, b); const min = Math.min(r, g, b);
     white[index] = a < 24 || (min >= 224 && max - min <= 34) ? 1 : 0;
+    whiteCount += white[index];
   }
   const border = new Set<number>();
   for (let x = 0; x < width; x += 1) { border.add(x); border.add((height - 1) * width + x); }
@@ -21,7 +23,13 @@ export function detectWhiteBackgroundPixels(data: Uint8ClampedArray, width: numb
     neighbors.forEach((next) => { if (next >= 0 && white[next] && !visited[next]) { visited[next] = 1; queue.push(next); } });
   }
   const connectedRatio = queue.length / count;
-  return { isWhiteBackground: borderRatio >= 0.82 && connectedRatio >= 0.38, borderRatio, connectedRatio };
+  const whiteRatio = whiteCount / count;
+  const classicProductShot = borderRatio >= 0.82 && connectedRatio >= 0.38;
+  // Product infographics often add a colored title band, dimensions and several
+  // product cutouts. The band lowers the border score even though roughly half
+  // of the canvas remains one continuous pure-white studio background.
+  const productInfographic = borderRatio >= 0.5 && connectedRatio >= 0.42 && whiteRatio >= 0.45;
+  return { isWhiteBackground: classicProductShot || productInfographic, whiteRatio, borderRatio, connectedRatio };
 }
 
 export async function detectWhiteBackground(file: File): Promise<WhiteBackgroundMetrics> {
