@@ -262,6 +262,14 @@ export async function optimizePrompt(options: {
   return text;
 }
 
+export async function optimizeSceneReplacePrompt(options: { apiKey: string; model: OptimizerModel; prompt: string; signal?: AbortSignal; apiBaseUrl?: string | null }) {
+  const instruction = `你是商业产品摄影和图片编辑提示词专家。请把下面的场景替换要求优化为一段可直接用于图片编辑模型的中文提示词。增强主题、背景、穿搭、氛围、构图、光线、材质、镜头和真实景深的描述，但必须保留用户原文中的所有硬性约束，不得擅自删除、放宽或反转关于杯子外形、尺寸、位置、人物位置、动作、手势及其他不变内容的要求。不要增加用户未要求替换的主体。只输出优化后的完整提示词，不要解释、标题、引号或 Markdown。\n\n原提示词：${options.prompt}`;
+  const data = await postGemini(options.model, options.apiKey, { contents: [{ role: 'user', parts: [{ text: instruction }] }], generationConfig: { temperature: 0.7 } }, options.signal, options.apiBaseUrl);
+  const text = data.candidates?.flatMap((candidate) => candidate.content?.parts ?? []).map((part) => part.text ?? '').join('').trim();
+  if (!text) throw new Error('模型未返回提示词优化结果');
+  return text;
+}
+
 export function buildGlassLogoEtchInstruction(options: GlassLogoEtchOptions): string {
   return `启用“玻璃杯 LOGO 雕刻合成”专用流程。先识别所有可见玻璃杯的杯口顶端、杯口下缘、杯身左右边界、杯肚底边和整杯底边；区分平底杯与高脚杯，高脚和底座绝不计入贴图区。以杯口下缘到杯肚底边为有效高度 H，杯身正面左右边界为宽度 W；Logo 正方形边长为 min(W,H) × ${options.scaleRatio}，顶部位置为杯口下缘 + H × ${options.topMarginRatio}，水平居中。若识别为高脚杯、葡萄酒杯、香槟杯或鸡尾酒杯，必须启用更严格规则：只允许在杯肚上半部正面合成，Logo 宽度不得超过杯肚最大宽度的 42%，Logo 中心必须位于杯肚有效高度的 32% 至 46% 区间，Logo 底边不得低于杯肚有效高度的 62%，不得触碰杯肚收窄处、杯梗或底座；宁可缩小并上移，也不得放大或下移。越过杯肚底边时先上移，仍无法容纳时等比缩小，不得拉伸 Logo。Logo 颜色为${options.logoColor === 'white' ? '白色' : '黑色'}，材质为${options.textureMode === 'laser_etch' ? '半透明磨砂、细微凹凸的玻璃内部激光蚀刻' : '实色表面油墨印刷'}。${options.applyAllCups ? '对所有可正面展示 Logo 的有效杯逐一应用；明显侧向或遮挡严重的杯不应强行贴图。' : '仅对画面层级最靠前且视觉尺寸最大的有效主体杯应用。'}保持原场景的背景、酒水、道具、构图、光线和其他内容完全不变，仅在选定杯身增加 Logo。Logo 必须随杯体曲率产生连续的水平包裹、透视压缩、折射、反射、局部明暗和边缘渐缩，并继承原图颗粒、景深和清晰度。严禁把原始 Logo 作为矩形贴纸、平面图层、水印或不透明覆盖物直接叠加；严禁出现与杯体曲率无关的笔直边缘、统一亮度、悬浮感或遮住原有高光与折射。内部分析坐标使用 ${options.outputCoordinateMode === 'relative_percent' ? '[0,1] 相对比例' : '原图像素'} 基准。若未检测到可贴图杯，不得凭空生成杯子或改动场景。`;
 }

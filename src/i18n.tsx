@@ -905,6 +905,9 @@ const translations: Record<string, string> = {
   '仅运行此节点': 'Run this node only',
   '从此节点向后运行': 'Run from this node',
   '查看生成结果': 'View generated results',
+  '请先填写需要优化的场景提示词': 'Enter a scene prompt to optimize first',
+  '提示词优化完成，可继续手动修改': 'Prompt optimized; you can continue editing it',
+  '优化会增强摄影和场景描述，同时保留原提示词中的杯子、人物位置、动作和手势等硬性约束；优化结果仍可继续修改。': 'Optimization enriches the photography and scene description while preserving hard constraints such as the cup, character positions, actions, and gestures. The result remains editable.',
 };
 
 const phraseTranslations: Array<[string, string]> = [

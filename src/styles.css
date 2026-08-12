@@ -510,6 +510,8 @@ button, input, textarea { font: inherit; }
 @media (max-width: 640px) { .cup-resize-upload-grid { grid-template-columns: 1fr; } .cup-resize-upload-preview { grid-template-columns: 86px minmax(0, 1fr); } .cup-resize-upload-preview .ant-typography { grid-column: 1 / -1; } .cup-resize-upload-preview .ant-image, .cup-resize-upload-preview img { width: 76px; height: 76px; } }
 @media (max-width: 800px) { .psd-export-workspace { grid-template-columns: 1fr; } .psd-preview-panel .ant-card-body { height: 420px; } }
 @media (max-width: 900px) { .scene-replace-editor { grid-template-columns: 1fr; } .scene-preset-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); max-height: none; } }
+.scene-prompt-optimizer { display: grid; grid-template-columns: auto minmax(190px,1fr) auto; gap: 8px; align-items: center; padding: 10px; border: 1px solid #dfe6ef; border-radius: 10px; background: #f7faff; }
+@media (max-width: 620px) { .scene-prompt-optimizer { grid-template-columns: 1fr; } }
 @media (max-width: 560px) { .scene-preset-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 560px) {
   .logo-replace-dev-page .workflow-card .ant-card-head-wrapper { flex-wrap: wrap; gap: 8px; padding-block: 10px; }

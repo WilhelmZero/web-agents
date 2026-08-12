@@ -230,6 +230,9 @@ export interface ObjectReplaceTask {
 }
 
 export interface SceneReplaceSettings {
+  promptOptimizerProvider: 'gemini' | 'openai';
+  promptOptimizerModel: OptimizerModel;
+  openAiPromptOptimizerModel: 'gpt-5.6-sol' | 'gpt-5.6-terra' | 'gpt-5.6-luna';
   imageModel: ImageModel | 'gpt-image-2' | 'gpt-image-2-2026-04-21';
   imageQuality: 'high' | 'medium' | 'low';
   ratioMode: 'original' | 'fixed';
