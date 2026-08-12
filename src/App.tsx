@@ -83,6 +83,7 @@ import BackgroundRemovalComposer from './BackgroundRemovalComposer';
 import OutpaintComposer from './OutpaintComposer';
 import CupResizeComposer from './CupResizeComposer';
 import WorkflowComposer from './WorkflowComposer';
+import CombinedReplaceComposer from './CombinedReplaceComposer';
 import RequestConsoleDrawer from './RequestConsoleDrawer';
 import GeneratingImage from './GeneratingImage';
 import OriginalCompareImage from './OriginalCompareImage';
@@ -125,6 +126,7 @@ const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
 const ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 
 const CREATION_TOOL_ITEMS: Array<{ key: CreationTool; label: string; description: string; icon: ReactNode; disabled?: boolean }> = [
+  { key: 'scene-logo-replace', icon: <SwapOutlined />, label: '场景 + Logo 一次替换', description: '一次请求同步替换场景、氛围和多个 Logo' },
   { key: 'workflow', icon: <ApartmentOutlined />, label: '工作流', description: '连接创作工具节点，批量预测并自动执行' },
   { key: 'scene', icon: <FileImageOutlined />, label: '场景图生成', description: '批量生成风格统一的商业场景图' },
   { key: 'scene-replace', icon: <PictureOutlined />, label: '场景替换', description: '保留主体姿态并替换主题与环境' },
@@ -373,6 +375,7 @@ function AppContent() {
   const [multiTabSceneSettingsHost, setMultiTabSceneSettingsHost] = useState<HTMLElement | null>(null);
   const [objectReplaceSettingsHost, setObjectReplaceSettingsHost] = useState<HTMLElement | null>(null);
   const [sceneReplaceSettingsHost, setSceneReplaceSettingsHost] = useState<HTMLElement | null>(null);
+  const [combinedReplaceSettingsHost, setCombinedReplaceSettingsHost] = useState<HTMLElement | null>(null);
   const [unloadWarningDisabled, setUnloadWarningDisabled] = useState(false);
   useEffect(() => { if (new URLSearchParams(window.location.search).get('worker') !== '1' || typeof BroadcastChannel === 'undefined') return; const channels = [new BroadcastChannel('scene-studio-logo-tabs'), new BroadcastChannel('scene-studio-scene-tabs')]; const receive = (event: MessageEvent) => { if (event.data?.type === 'disable-close-warning') setUnloadWarningDisabled(true); }; channels.forEach((channel) => channel.addEventListener('message', receive)); return () => channels.forEach((channel) => channel.close()); }, []);
   const [paperTextSettingsHost, setPaperTextSettingsHost] = useState<HTMLElement | null>(null);
@@ -938,6 +941,9 @@ function AppContent() {
                 settingsHost={sceneReplaceSettingsHost}
               />
             </div>
+            <div hidden={creationTool !== 'scene-logo-replace'}>
+              <CombinedReplaceComposer apiKey={settings.apiKey} openAiApiKey={settings.openAiApiKey} apiBaseUrl={apiBaseUrl} connectionMode={settings.connectionMode} onRequestKey={() => setKeyOpen(true)} settingsHost={combinedReplaceSettingsHost} />
+            </div>
             <div hidden={creationTool !== 'cup-resize'}>
               <CupResizeComposer
                 apiKey={settings.apiKey}
@@ -1233,6 +1239,7 @@ function AppContent() {
             <div ref={setSceneReplaceSettingsHost} />
           </Sider>
         )}
+        {!compact && creationTool === 'scene-logo-replace' && <Sider width={330} theme="light" className="settings-sider"><div ref={setCombinedReplaceSettingsHost} /></Sider>}
         {!compact && creationTool === 'cup-resize' && <Sider width={330} theme="light" className="settings-sider"><div ref={setCupResizeSettingsHost} /></Sider>}
         {!compact && creationTool === 'inpaint' && (
           <Sider width={330} theme="light" className="settings-sider">
@@ -1252,7 +1259,7 @@ function AppContent() {
         {creationTool === 'scene'
           ? settingsPanel
           : compact
-            ? <div ref={creationTool === 'logo' ? setLogoSettingsHost : creationTool === 'logo-replace' ? setLogoReplaceSettingsHost : creationTool === 'logo-replace-tabs' ? setMultiTabLogoSettingsHost : creationTool === 'logo-export' ? setLogoExportSettingsHost : creationTool === 'paper-text' ? setPaperTextSettingsHost : creationTool === 'background-removal' ? setBackgroundRemovalSettingsHost : creationTool === 'outpaint' ? setOutpaintSettingsHost : creationTool === 'object-replace' ? setObjectReplaceSettingsHost : creationTool === 'scene-replace' ? setSceneReplaceSettingsHost : creationTool === 'cup-resize' ? setCupResizeSettingsHost : creationTool === 'inpaint' ? setInpaintSettingsHost : setProductDetailSettingsHost} />
+            ? <div ref={creationTool === 'logo' ? setLogoSettingsHost : creationTool === 'logo-replace' ? setLogoReplaceSettingsHost : creationTool === 'logo-replace-tabs' ? setMultiTabLogoSettingsHost : creationTool === 'logo-export' ? setLogoExportSettingsHost : creationTool === 'paper-text' ? setPaperTextSettingsHost : creationTool === 'background-removal' ? setBackgroundRemovalSettingsHost : creationTool === 'outpaint' ? setOutpaintSettingsHost : creationTool === 'object-replace' ? setObjectReplaceSettingsHost : creationTool === 'scene-replace' ? setSceneReplaceSettingsHost : creationTool === 'scene-logo-replace' ? setCombinedReplaceSettingsHost : creationTool === 'cup-resize' ? setCupResizeSettingsHost : creationTool === 'inpaint' ? setInpaintSettingsHost : setProductDetailSettingsHost} />
             : null}
       </Drawer>
 

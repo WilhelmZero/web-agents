@@ -4,6 +4,7 @@ export const CREATION_TOOLS: readonly CreationTool[] = [
   'workflow',
   'scene',
   'scene-replace',
+  'scene-logo-replace',
   'scene-replace-tabs',
   'cup-resize',
   'logo',
