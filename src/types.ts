@@ -230,6 +230,7 @@ export interface ObjectReplaceTask {
 }
 
 export interface SceneReplaceSettings {
+  autoSkipWhiteBackground: boolean;
   autoRecommendScene: boolean;
   sceneRecommendationProvider: 'gemini' | 'openai';
   sceneRecommendationModel: OptimizerModel;

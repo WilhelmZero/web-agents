@@ -93,6 +93,7 @@ export const DEFAULT_OBJECT_REPLACE_SETTINGS = {
   preservation: { print: false, logo: false, engraving: false, liquid: false, foam: false, custom: [] },
 } as const;
 export const DEFAULT_SCENE_REPLACE_SETTINGS = {
+  autoSkipWhiteBackground: true,
   autoRecommendScene: false,
   sceneRecommendationProvider: 'gemini',
   sceneRecommendationModel: 'gemini-3.1-flash-lite',
