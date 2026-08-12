@@ -16,7 +16,12 @@ export interface CombinedReplaceSettings {
   repairRetries: number; autoRetryErrors: boolean; errorRetryLimit: number; errorRetryDelaySeconds: number;
 }
 
-export const COMBINED_MANDATORY_RULES = `【最高优先级强制约束】场景和氛围替换为指定主题，人物穿搭可改为适合新氛围的样式；人物在图中的位置、姿态、动作和手势严格不变。杯子的外形、轮廓、比例、结构、尺寸、方向、位置、杯口、杯身和杯底严格不变，禁止拉伸、压缩、弯曲、重塑或移动。相机视角、焦段感、透视关系、主体位置和整体构图严格不变。只替换分析到的旧 Logo；同一样式的全部位置使用映射的新 Logo，不遗漏、不混用、不新增。新 Logo 的图形、文字和比例必须完整，沿用载体曲率、透视、反射、折射、印刷或雕刻工艺，禁止平面覆盖。新环境的光线、阴影、反射和景深必须自然统一。`;
+export const COMBINED_MANDATORY_RULES = `【最高优先级强制约束】场景和氛围替换为指定主题，人物穿搭可改为适合新氛围的样式；人物在图中的位置、姿态、动作和手势严格不变。杯子的外形、轮廓、比例、结构、尺寸、方向、位置、杯口、杯身和杯底严格不变，禁止拉伸、压缩、弯曲、重塑或移动。相机视角、焦段感、透视关系、主体位置和整体构图严格不变。只允许替换杯子和木盒上的旧 Logo，其他位置的 Logo、文字、图案、招牌、服装标识、墙面标识、包装标识和装饰必须保持原样。杯子或木盒上的同一样式全部位置使用映射的新 Logo，不遗漏、不混用、不新增。新 Logo 的图形、文字和比例必须完整，沿用载体曲率、透视、反射、折射、印刷或雕刻工艺，禁止平面覆盖。新环境的光线、阴影、反射和景深必须自然统一。`;
+
+export function isReplaceableLogoCarrier(carrier: string) {
+  const value = carrier.trim().toLowerCase();
+  return /杯|cup|glass|goblet|mug|木盒|wood(?:en)?\s*box|box/.test(value) && !/纸盒|包装盒|carton|package/.test(value);
+}
 
 export function buildCombinedReplacementPrompt(options: { scenePrompt: string; logoPrompt: string; individualPrompt: string; styles: SceneLogoStyle[]; mappings: CombinedLogoMapping[]; logoOrder: string[]; repairFeedback?: string }) {
   const byStyle = new Map(options.mappings.map((item) => [item.styleId, item]));
