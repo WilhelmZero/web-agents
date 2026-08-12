@@ -6,8 +6,10 @@ describe('buildSceneReplacementPrompt', () => {
     const prompt = buildSceneReplacementPrompt('改为温暖的家庭酒吧主题');
 
     expect(prompt.startsWith('改为温暖的家庭酒吧主题')).toBe(true);
-    expect(prompt).toContain('礼盒、木盒和包装结构属于商品');
+    expect(prompt).toContain('它始终是商品的一部分');
     expect(prompt).toContain('商品说明文字');
+    expect(prompt).toContain('尺寸箭头和辅助线');
+    expect(prompt).toContain('无论盒子是打开、关闭');
     expect(prompt).toContain('禁止悬空、漂浮');
     expect(prompt).toContain('禁止无中生有地加入前景手');
     expect(prompt).toContain('穿搭允许为适应目标场景而改变');
