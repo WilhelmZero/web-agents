@@ -7,6 +7,13 @@ type Base = { provider: 'gemini' | 'openai'; apiKey: string; model: string; apiB
 const OPENAI_ROOT = 'https://api.openai.com/v1';
 const outputText = (data: any) => data?.output_text || data?.output?.flatMap((x: any) => x.content || []).map((x: any) => x.text || '').join('') || '';
 
+export function normalizeSimpleScenePrompt(value: unknown) {
+  const raw = String(value || '').trim().split(/[。；;\n]/)[0].replace(/^["“”'‘’\s]+|["“”'‘’\s]+$/g, '');
+  if (!raw) return '';
+  const theme = raw.replace(/^(?:请)?(?:将场景)?(?:改为|替换为)/, '').replace(/主题$/, '').trim();
+  return theme ? `替换为${theme}主题` : '';
+}
+
 export function toGeminiResponseSchema(schema: unknown): unknown {
   if (Array.isArray(schema)) return schema.map(toGeminiResponseSchema);
   if (!schema || typeof schema !== 'object') return schema;
@@ -41,9 +48,10 @@ const styleSchema = {
   }, required: ['summary', 'subject', 'composition', 'camera', 'lighting', 'individualPrompt', 'styles'],
 };
 export async function analyzeCombinedScene(options: Base & { scene: File; sceneId: string; optimizeIndividual: boolean }): Promise<CombinedSceneAnalysis> {
-  const prompt = `Analyze this source scene. Describe subject, cups, people, poses, hand gestures, camera, composition, light and materials. Detect brand logo styles ONLY when physically printed, engraved or applied on a cup/drinking glass or a wooden box. Do NOT report logos, text or graphics on signs, walls, clothing, people, paper/cardboard packages, labels, backgrounds, decorations or any other carrier. If no cup or wooden-box logo exists, return an empty styles array. Different eligible graphics or typography are different styles; merge repeated instances and count occurrences. carrier must explicitly identify a cup type or wooden box. ${options.optimizeIndividual ? 'Create an image-specific supplemental edit instruction that preserves all positions, gestures and cup geometry.' : 'Return an empty individualPrompt.'} Return all prose in Simplified Chinese.`;
+  const prompt = `Analyze this source scene. Describe subject, cups, people, poses, hand gestures, camera, composition, light and materials. Detect brand logo styles ONLY when physically printed, engraved or applied on a cup/drinking glass or a wooden box. Do NOT report logos, text or graphics on signs, walls, clothing, people, paper/cardboard packages, labels, backgrounds, decorations or any other carrier. If no cup or wooden-box logo exists, return an empty styles array. Different eligible graphics or typography are different styles; merge repeated instances and count occurrences. carrier must explicitly identify a cup type or wooden box. ${options.optimizeIndividual ? 'Recommend one suitable non-festival replacement theme. individualPrompt must contain only one short Simplified Chinese sentence in the exact style “替换为XX主题”; do not add photography details, constraints, explanations or a second option.' : 'Return an empty individualPrompt.'} Return all prose in Simplified Chinese.`;
   const parsed = await requestJson({ ...options, images: [options.scene], name: 'combined_scene_analysis', schema: styleSchema, prompt });
-  return { ...parsed, sceneId: options.sceneId, styles: (parsed.styles || []).filter((style: SceneLogoStyle) => isReplaceableLogoCarrier(style.carrier)).map((style: SceneLogoStyle, index: number) => ({ ...style, id: style.id || `${options.sceneId}-style-${index + 1}`, occurrences: Math.max(1, Number(style.occurrences) || 1) })) };
+  const individualPrompt = options.optimizeIndividual ? normalizeSimpleScenePrompt(parsed.individualPrompt) : '';
+  return { ...parsed, individualPrompt, sceneId: options.sceneId, styles: (parsed.styles || []).filter((style: SceneLogoStyle) => isReplaceableLogoCarrier(style.carrier)).map((style: SceneLogoStyle, index: number) => ({ ...style, id: style.id || `${options.sceneId}-style-${index + 1}`, occurrences: Math.max(1, Number(style.occurrences) || 1) })) };
 }
 
 const logosSchema = {
@@ -76,7 +84,7 @@ const verifySchema = {
   required: ['passed', 'scenePassed', 'logoPassed', 'sceneIssues', 'logoIssues', 'summary'],
 };
 export async function verifyCombinedReplacement(options: Base & { original: File; logos: File[]; generated: Blob; styles: SceneLogoStyle[] }): Promise<CombinedVerification> {
-  const prompt = `The first image is the source scene, the next ${options.logos.length} images are mapped replacement logos, and the last image is the generated result. Strictly verify scene target, camera and composition, unchanged cup geometry/size/direction/position, and unchanged people positions/poses/gestures. Logo replacement scope is ONLY cups/drinking glasses and wooden boxes; logos, text and graphics everywhere else must remain unchanged. Verify all ${options.styles.length} eligible styles were replaced consistently, logo graphics/text are accurate, old eligible logos are gone, and material/curvature/perspective integration is natural rather than a flat overlay. Any out-of-scope logo change or failed item means passed=false. Return issues and summary in Simplified Chinese.`;
+  const prompt = `The first image is the source scene, the next ${options.logos.length} images are mapped replacement logos, and the last image is the generated result. Scene verification must be deliberately lenient: scenePassed only checks that every person, every cup, and especially every hand gesture stays in the same image position as the source. Do not fail scene verification for changed clothing, background, atmosphere, lighting, lens feel, depth of field, secondary objects, minor appearance details, or other composition details. Logo verification remains strict. Logo replacement scope is ONLY cups/drinking glasses and wooden boxes; logos, text and graphics everywhere else must remain unchanged. Verify all ${options.styles.length} eligible styles were replaced consistently, logo graphics/text are accurate, old eligible logos are gone, and material/curvature/perspective integration is natural rather than a flat overlay. Any out-of-scope logo change or logo failure means logoPassed=false. Return issues and summary in Simplified Chinese.`;
   const parsed = await requestJson({ ...options, images: [options.original, ...options.logos, options.generated], name: 'combined_replacement_verification', schema: verifySchema, prompt });
   return { ...parsed, passed: Boolean(parsed.passed && parsed.scenePassed && parsed.logoPassed), sceneIssues: parsed.sceneIssues || [], logoIssues: parsed.logoIssues || [] };
 }
