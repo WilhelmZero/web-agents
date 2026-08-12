@@ -230,6 +230,10 @@ export interface ObjectReplaceTask {
 }
 
 export interface SceneReplaceSettings {
+  autoRecommendScene: boolean;
+  sceneRecommendationProvider: 'gemini' | 'openai';
+  sceneRecommendationModel: OptimizerModel;
+  openAiSceneRecommendationModel: 'gpt-5.6-sol' | 'gpt-5.6-terra' | 'gpt-5.6-luna';
   promptOptimizerProvider: 'gemini' | 'openai';
   promptOptimizerModel: OptimizerModel;
   openAiPromptOptimizerModel: 'gpt-5.6-sol' | 'gpt-5.6-terra' | 'gpt-5.6-luna';
