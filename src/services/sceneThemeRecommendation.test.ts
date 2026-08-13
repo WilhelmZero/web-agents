@@ -5,6 +5,9 @@ import {
   CUP_SCENE_RULES,
   SCENE_COMMON_CONSTRAINT,
   SCENE_MANUAL_DEFAULT_PROMPT,
+  assignFolderScene,
+  cleanCupType,
+  FOLDER_SCENE_COMMON_PROMPT,
 } from './sceneThemeRecommendation';
 
 describe('scene theme recommendation', () => {
@@ -31,5 +34,22 @@ describe('scene theme recommendation', () => {
     expect(SCENE_MANUAL_DEFAULT_PROMPT).toContain('小烈酒杯匹配家庭吧台');
     expect(SCENE_MANUAL_DEFAULT_PROMPT).toContain('啤酒杯匹配酒吧、后院BBQ');
     expect(SCENE_MANUAL_DEFAULT_PROMPT).toContain('严格要求杯子的外形、轮廓、比例、结构、尺寸、朝向');
+  });
+
+  it('normalizes AI cup labels and rotates duplicate cup types across distinct scenes', () => {
+    expect(cleanCupType('判断结果：威士忌杯')).toBe('威士忌杯');
+    expect(cleanCupType('红酒高脚杯')).toBe('其他');
+    const first = assignFolderScene('啤酒杯', {});
+    const second = assignFolderScene('啤酒杯', { 啤酒杯: [first.theme] });
+    expect(first.theme).not.toBe(second.theme);
+    expect(first.source).toBe('matched');
+  });
+
+  it('uses a non-festival fallback and exposes the dedicated common prompt', () => {
+    const fallback = assignFolderScene('其他', {}, () => 0);
+    expect(fallback.source).toBe('fallback');
+    expect(fallback.theme).toContain('主题');
+    expect(FOLDER_SCENE_COMMON_PROMPT).toContain('自动搭配正确饮品');
+    expect(FOLDER_SCENE_COMMON_PROMPT).toContain('人物手势不变');
   });
 });
