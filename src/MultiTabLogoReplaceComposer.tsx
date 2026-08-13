@@ -30,26 +30,38 @@ export function FileThumbnail({ file, onRemove }: { file: File; onRemove?: () =>
   return <div className="batch-asset-card">{previewUrl ? <Image src={previewUrl} alt={file.name} /> : <div className="batch-asset-placeholder"><FileImageOutlined /></div>}<Text ellipsis={{ tooltip: file.name }}>{file.name}</Text>{onRemove && <Popconfirm title="从当前批次移除这张图片？" description="不会删除电脑中的原文件。" onConfirm={onRemove}><Button danger type="text" size="small" icon={<DeleteOutlined />}>移除</Button></Popconfirm>}</div>;
 }
 
-function TaskResultThumbnail({ detail }: { detail: LogoReplaceTaskDetail }) {
-  const [urls, setUrls] = useState({ result: '', original: '' });
-  const [showOriginal, setShowOriginal] = useState(false);
-  useEffect(() => {
-    const result = detail.resultBlob ? URL.createObjectURL(detail.resultBlob) : '';
-    const original = detail.originalFile ? URL.createObjectURL(detail.originalFile) : '';
-    setUrls({ result, original });
-    setShowOriginal(false);
-    return () => { if (result) URL.revokeObjectURL(result); if (original) URL.revokeObjectURL(original); };
-  }, [detail.resultBlob, detail.originalFile]);
+function TaskResultThumbnail({ detail, urls, showOriginal, onToggleOriginal }: { detail: LogoReplaceTaskDetail; urls: { result: string; original: string }; showOriginal: boolean; onToggleOriginal: () => void }) {
+  const toggleOriginal = onToggleOriginal;
   const statusText = detail.status === 'success' ? '生成完成' : detail.status === 'failed' ? '生成失败' : detail.status === 'stopped' ? '已停止' : detail.status === 'running' ? '生成中' : '等待中';
   const statusColor = detail.status === 'success' ? 'success' : detail.status === 'failed' ? 'error' : detail.status === 'running' ? 'processing' : 'default';
-  const toggleOriginal = () => setShowOriginal((current) => !current);
   return <Card size="small" className="batch-result-card" title={`场景 ${detail.sceneIndex + 1} · 结果 ${detail.copyIndex + 1}`} extra={<Tag color={statusColor}>{statusText}</Tag>}>
     {urls.result ? <>
-      <div className="batch-result-image"><Image src={showOriginal && urls.original ? urls.original : urls.result} alt={showOriginal ? '原图' : '生成图'} preview={{ actionsRender: (originalNode) => <>{originalNode}{urls.original && <button type="button" className={`scene-preview-compare-action${showOriginal ? ' is-active' : ''}`} title={showOriginal ? '查看生成图' : '查看原图'} onClick={(event) => { event.stopPropagation(); toggleOriginal(); }}><EyeOutlined /></button>}</> }} /></div>
+      <div className="batch-result-image"><Image src={showOriginal && urls.original ? urls.original : urls.result} alt={showOriginal ? '原图' : '生成图'} preview={{ src: showOriginal && urls.original ? urls.original : urls.result, actionsRender: (originalNode) => <>{originalNode}{urls.original && <button type="button" className={`scene-preview-compare-action${showOriginal ? ' is-active' : ''}`} title={showOriginal ? '查看生成图' : '查看原图'} onClick={(event) => { event.stopPropagation(); toggleOriginal(); }}><EyeOutlined /></button>}</> }} /></div>
       {urls.original && <Button block size="small" icon={<EyeOutlined />} onClick={toggleOriginal}>{showOriginal ? '查看生成图' : '查看原图'}</Button>}
     </> : <div className="batch-result-state"><FileImageOutlined /><Text type="secondary">{detail.error || statusText}</Text></div>}
     <Flex gap={6} wrap className="batch-result-meta">{detail.retryCount > 0 && <Tag color="gold">重试 {detail.retryCount} 次</Tag>}{detail.verificationStatus && <Tag>校验：{detail.verificationStatus}</Tag>}</Flex>
   </Card>;
+}
+
+function TaskResultGallery({ details }: { details: LogoReplaceTaskDetail[] }) {
+  const [urlsById, setUrlsById] = useState<Record<string, { result: string; original: string }>>({});
+  const [showOriginalIds, setShowOriginalIds] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    const next = Object.fromEntries(details.map((detail) => [detail.id, {
+      result: detail.resultBlob ? URL.createObjectURL(detail.resultBlob) : '',
+      original: detail.originalFile ? URL.createObjectURL(detail.originalFile) : '',
+    }]));
+    setUrlsById(next);
+    setShowOriginalIds(new Set());
+    return () => Object.values(next).forEach(({ result, original }) => { if (result) URL.revokeObjectURL(result); if (original) URL.revokeObjectURL(original); });
+  }, [details]);
+  const previewItems = details.flatMap((detail) => {
+    const urls = urlsById[detail.id];
+    if (!urls?.result) return [];
+    const showOriginal = showOriginalIds.has(detail.id) && Boolean(urls.original);
+    return [{ src: showOriginal ? urls.original : urls.result, alt: showOriginal ? `场景 ${detail.sceneIndex + 1} 原图` : `场景 ${detail.sceneIndex + 1} 结果 ${detail.copyIndex + 1}` }];
+  });
+  return <Image.PreviewGroup items={previewItems}><div className="batch-result-grid">{details.map((detail) => <TaskResultThumbnail key={detail.id} detail={detail} urls={urlsById[detail.id] || { result: '', original: '' }} showOriginal={showOriginalIds.has(detail.id)} onToggleOriginal={() => setShowOriginalIds((current) => { const next = new Set(current); next.has(detail.id) ? next.delete(detail.id) : next.add(detail.id); return next; })} />)}</div></Image.PreviewGroup>;
 }
 
 function openDb() {
@@ -337,7 +349,7 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
     </Modal>
     <Modal title={selectedProgressWorker ? `${selectedProgressWorker.name} · 任务结果` : '任务结果'} open={Boolean(selectedProgressWorker)} width={1100} footer={<Button onClick={() => setSelectedProgressGroupId(undefined)}>完成</Button>} onCancel={() => setSelectedProgressGroupId(undefined)}>
       {selectedProgressWorker && <Alert type={selectedProgressWorker.failed ? 'warning' : selectedProgressWorker.status === 'running' ? 'info' : 'success'} showIcon title={`成功 ${selectedProgressWorker.success}/${selectedProgressWorker.total || '—'} · 运行 ${selectedProgressWorker.running} · 等待 ${selectedProgressWorker.waiting} · 失败 ${selectedProgressWorker.failed}`} description="点击缩略图可放大；缩略图下方和放大工具栏都可以切换查看原图。" style={{ marginBottom: 16 }} />}
-      {selectedTaskDetails.length ? <Image.PreviewGroup><div className="batch-result-grid">{selectedTaskDetails.map((detail) => <TaskResultThumbnail key={detail.id} detail={detail} />)}</div></Image.PreviewGroup> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="任务开始后，这里会实时显示每张图片的状态和生成结果" />}
+      {selectedTaskDetails.length ? <TaskResultGallery details={selectedTaskDetails} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="任务开始后，这里会实时显示每张图片的状态和生成结果" />}
     </Modal>
     <PsdLogoImportModal file={pendingPsdFile} onClose={() => setPendingPsdFile(undefined)} onImport={(files) => { setLogos((current) => [...current, ...files]); message.success(`已加入 ${files.length} 个 PSD Logo 图层`); }} />
     <Modal title="部分工作标签被浏览器拦截" open={blockedWorkerUrls.length > 0} footer={<Button onClick={() => setBlockedWorkerUrls([])}>关闭</Button>} onCancel={() => setBlockedWorkerUrls([])}><Alert type="warning" showIcon title="请允许本站弹出窗口，或点击下方按钮逐个打开" description="这是浏览器的多弹窗安全限制；批次已经保存，不需要重新选择文件夹和 Logo。" style={{ marginBottom: 14 }} /><Flex vertical gap={8}>{blockedWorkerUrls.map((target) => <Button key={target.url} icon={<RocketOutlined />} onClick={() => { const opened = window.open(target.url, '_blank'); if (opened) setBlockedWorkerUrls((current) => current.filter((item) => item.url !== target.url)); }}>{target.name} · 打开工作标签</Button>)}</Flex></Modal>
