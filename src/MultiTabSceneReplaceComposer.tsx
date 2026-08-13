@@ -12,6 +12,7 @@ import { readLocalStorage } from './storage';
 import { SCENE_COMMON_CONSTRAINT } from './services/sceneThemeRecommendation';
 import { detectWhiteBackground } from './services/whiteBackgroundDetection';
 import { formatBatchDuration } from './services/batchTiming';
+import { sanitizeRelativeFolderPath } from './services/batchFolderPath';
 
 const { Title, Text, Paragraph } = Typography;
 const DB_NAME = 'scene-studio.multi-tab-scene-replace.v1'; const STORE = 'batches';
@@ -66,7 +67,7 @@ export default function MultiTabSceneReplaceComposer(props: Parameters<typeof Sc
     const pendingGroups = groupFolderFiles(pendingFolderFiles); const next = pendingGroups.filter((group) => checkedFolderKeys.includes(`dir:${group.path}`)); const selectedCount = next.reduce((sum, group) => sum + group.files.length, 0);
     setGroups(next); setPendingFolderFiles([]); setCheckedFolderKeys([]); message.success(`已导入 ${selectedCount} 张图片，共 ${next.length} 个分组`);
   };
-  const downloadAll = async () => { const zip = new JSZip(); Object.entries(results).forEach(([id, tasks]) => { const folder = zip.folder(sanitizeFileName(groups.find((group) => group.id === id)?.name || id)); tasks.filter((task) => task.resultBlob).forEach((task) => { folder?.file(`${task.sceneIndex + 1}_${task.copyIndex + 1}.${mimeExtension(task.resultMimeType)}`, task.resultBlob!); task.outpaintResults?.forEach((item) => folder?.file(`${task.sceneIndex + 1}_${task.copyIndex + 1}_扩图_${item.width}x${item.height}.png`, item.blob)); }); }); downloadBlob(await zip.generateAsync({ type: 'blob' }), `SceneStudio_多标签场景替换_${formatFileTimestamp()}.zip`); };
+  const downloadAll = async () => { const zip = new JSZip(); Object.entries(results).forEach(([id, tasks]) => { const group = groups.find((item) => item.id === id); const folder = zip.folder(sanitizeRelativeFolderPath(group?.path || '', group?.name || id)); tasks.filter((task) => task.resultBlob).forEach((task) => { folder?.file(`${task.sceneIndex + 1}_${task.copyIndex + 1}.${mimeExtension(task.resultMimeType)}`, task.resultBlob!); task.outpaintResults?.forEach((item) => folder?.file(`${task.sceneIndex + 1}_${task.copyIndex + 1}_扩图_${item.width}x${item.height}.png`, item.blob)); }); }); downloadBlob(await zip.generateAsync({ type: 'blob' }), `SceneStudio_多标签场景替换_${formatFileTimestamp()}.zip`); };
   const totals = Object.values(progress).reduce((sum, item) => ({ total: sum.total + item.total, completed: sum.completed + item.completed, failed: sum.failed + item.failed }), { total: 0, completed: 0, failed: 0 });
   const batchCompleted = totals.total > 0 && totals.completed >= totals.total && queuedGroups.current.length === 0 && activeGroups.current.size === 0;
   useEffect(() => { if (worker || !runStartedAt || !batchCompleted) return; setRunDurationMs(Date.now() - runStartedAt); setRunStartedAt(undefined); }, [worker, runStartedAt, batchCompleted]);

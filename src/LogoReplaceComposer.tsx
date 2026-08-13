@@ -46,6 +46,7 @@ import LogoReplaceDevComposer from './LogoReplaceDevComposer';
 import { reportTaskProgress } from './services/taskProgress';
 import { buildLogoReplacementInstruction, generateLogoReplacement, verifyLogoReplacement } from './services/gemini';
 import { generateLogoReplacementOpenAi, verifyLogoReplacementOpenAi } from './services/logoReplaceOpenAi';
+import { imageDimensions, outputAspectRatio, resizeImageBlob } from './services/logoOutputSizing';
 import { assignReplacementLogos, buildLogoReplaceTasks, shouldAutoRetryLogoError } from './services/logoReplaceUtils';
 import { readLocalStorage } from './storage';
 import type { LogoAsset, LogoReplaceProgressSnapshot, LogoReplaceSettings, LogoReplaceTask, LogoReplaceTaskDetail } from './types';
@@ -272,9 +273,15 @@ function LogoReplaceSingleComposer({
           signal: controller.signal,
         };
         const replacementPrompt = buildActualReplacementPrompt(currentSettings, currentSettings.useOldLogoReference && Boolean(oldLogoRef.current), expectedText, correctionFeedback);
+        const dimensions = await imageDimensions(scene.file);
+        const aspectRatio = outputAspectRatio(currentSettings.ratioMode, dimensions.width, dimensions.height, currentSettings.aspectRatio, currentSettings.customOutputWidth, currentSettings.customOutputHeight, MODEL_CAPABILITIES[currentSettings.imageModel].aspectRatios);
         const result = currentSettings.imageProvider === 'openai'
           ? await generateLogoReplacementOpenAi({ ...commonGenerateOptions, apiKey: openAiApiKey, model: currentSettings.openAiImageModel, prompt: replacementPrompt })
-          : await generateLogoReplacement({ ...commonGenerateOptions, apiKey, model: currentSettings.imageModel, logoColorMode: currentSettings.logoColorMode, customLogoColor: currentSettings.customLogoColor, promptOverride: replacementPrompt, aspectRatio: currentSettings.ratioMode === 'fixed' ? currentSettings.aspectRatio : undefined, imageSize: currentSettings.imageSize, apiBaseUrl });
+          : await generateLogoReplacement({ ...commonGenerateOptions, apiKey, model: currentSettings.imageModel, logoColorMode: currentSettings.logoColorMode, customLogoColor: currentSettings.customLogoColor, promptOverride: replacementPrompt, aspectRatio, imageSize: currentSettings.imageSize, apiBaseUrl });
+        const exactOutputSize = currentSettings.ratioMode === 'custom'
+          ? { width: currentSettings.customOutputWidth, height: currentSettings.customOutputHeight }
+          : currentSettings.ratioMode === 'original' ? dimensions : undefined;
+        if (exactOutputSize) { const resized = await resizeImageBlob(result.blob, exactOutputSize.width, exactOutputSize.height); result.blob = resized; result.mimeType = resized.type || 'image/png'; }
         if (!currentSettings.strictTextVerification) {
           const resultUrl = URL.createObjectURL(result.blob);
           setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status: 'success', resultBlob: result.blob, resultUrl, resultMimeType: result.mimeType, verificationStatus: 'skipped' } : item));
@@ -553,8 +560,9 @@ function LogoReplaceSingleComposer({
         <Form.Item label="图片服务"><Segmented block value={settings.imageProvider} onChange={(imageProvider) => patchSettings({ imageProvider: imageProvider as LogoReplaceSettings['imageProvider'] })} options={[{ value: 'gemini', label: 'Gemini' }, { value: 'openai', label: 'GPT' }]} /></Form.Item>
         <Form.Item label="图片模型">{settings.imageProvider === 'openai' ? <Select value={settings.openAiImageModel} options={[{ value: 'gpt-image-2', label: 'GPT Image 2' }]} /> : <Select value={settings.imageModel} onChange={(imageModel) => patchSettings({ imageModel })} options={Object.entries(MODEL_CAPABILITIES).map(([value, item]) => ({ value, label: item.label }))} />}</Form.Item>
         {settings.imageProvider === 'gemini' ? <><Form.Item label="画面比例">
-          <Radio.Group value={settings.ratioMode} onChange={(event) => patchSettings({ ratioMode: event.target.value })}><Radio value="original">跟随场景原图</Radio><Radio value="fixed">指定比例</Radio></Radio.Group>
+          <Radio.Group value={settings.ratioMode} onChange={(event) => patchSettings({ ratioMode: event.target.value })}><Radio value="original">跟随场景原图</Radio><Radio value="fixed">指定比例</Radio><Radio value="custom">自定义分辨率</Radio></Radio.Group>
           {settings.ratioMode === 'fixed' && <Select style={{ marginTop: 10 }} value={settings.aspectRatio} onChange={(aspectRatio) => patchSettings({ aspectRatio })} options={MODEL_CAPABILITIES[settings.imageModel].aspectRatios.map((value) => ({ value, label: value }))} />}
+          {settings.ratioMode === 'custom' && <><Select style={{ marginTop: 10 }} value={`${settings.customOutputWidth}x${settings.customOutputHeight}`} onChange={(value) => { const [customOutputWidth, customOutputHeight] = value.split('x').map(Number); patchSettings({ customOutputWidth, customOutputHeight }); }} options={[{ value: '3200x1310', label: '3200 × 1310' }, { value: '1800x1350', label: '1800 × 1350' }, { value: `${settings.customOutputWidth}x${settings.customOutputHeight}`, label: '当前自定义尺寸' }]} /><Flex gap={8} style={{ marginTop: 10 }}><InputNumber min={64} max={8192} value={settings.customOutputWidth} onChange={(customOutputWidth) => patchSettings({ customOutputWidth: customOutputWidth || 64 })} addonBefore="宽" style={{ flex: 1 }} /><InputNumber min={64} max={8192} value={settings.customOutputHeight} onChange={(customOutputHeight) => patchSettings({ customOutputHeight: customOutputHeight || 64 })} addonBefore="高" style={{ flex: 1 }} /></Flex></>}
         </Form.Item>
         <Form.Item label="输出分辨率"><Segmented block value={settings.imageSize} onChange={(imageSize) => patchSettings({ imageSize: imageSize as LogoReplaceSettings['imageSize'] })} options={MODEL_CAPABILITIES[settings.imageModel].imageSizes} /></Form.Item></> : <Alert type="info" showIcon title="GPT Image 2 使用自动尺寸" description="通过 OpenAI Images Edit 直接编辑场景图，并按输入画面自动选择输出尺寸。" style={{ marginBottom: 18 }} />}
         <Form.Item label="每张场景生成张数"><InputNumber min={1} max={8} value={settings.copiesPerScene} onChange={(copiesPerScene) => patchSettings({ copiesPerScene: copiesPerScene || 1 })} style={{ width: '100%' }} /></Form.Item>

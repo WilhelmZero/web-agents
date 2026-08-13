@@ -10,6 +10,7 @@ import { formatBatchDuration } from './services/batchTiming';
 import type { LogoReplaceProgressSnapshot, LogoReplaceTaskDetail } from './types';
 import { downloadBlob, formatFileTimestamp, sanitizeFileName } from './utils';
 import { logoReplaceResultFileName } from './services/logoReplaceFileName';
+import { sanitizeRelativeFolderPath } from './services/batchFolderPath';
 
 const { Title, Text, Paragraph } = Typography;
 const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
@@ -290,8 +291,9 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
     try {
       const zip = new JSZip();
       Object.entries(workerTaskDetails).forEach(([workerGroupId, details]) => {
-        const groupName = workerProgress[workerGroupId]?.name || groups.find((group) => group.id === workerGroupId)?.name || '未命名分组';
-        const folder = zip.folder(sanitizeFileName(groupName));
+        const sourceGroup = groups.find((group) => group.id === workerGroupId);
+        const groupName = workerProgress[workerGroupId]?.name || sourceGroup?.name || '未命名分组';
+        const folder = zip.folder(sanitizeRelativeFolderPath(sourceGroup?.path || '', groupName));
         const items = Object.values(details).filter((detail) => detail.resultBlob).sort((a, b) => a.sceneIndex - b.sceneIndex || a.copyIndex - b.copyIndex);
         const copiesByScene = new Map<number, number>(); Object.values(details).forEach((detail) => copiesByScene.set(detail.sceneIndex, Math.max(copiesByScene.get(detail.sceneIndex) || 0, detail.copyIndex + 1)));
         items.forEach((detail) => folder?.file(logoReplaceResultFileName(detail.originalFile?.name || `场景_${detail.sceneIndex + 1}.png`, detail.copyIndex, copiesByScene.get(detail.sceneIndex) || 1, detail.resultBlob?.type), detail.resultBlob!));

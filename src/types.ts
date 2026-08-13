@@ -147,9 +147,11 @@ export interface LogoPair {
 export interface LogoSettings {
   imageModel: ImageModel;
   optimizerModel: OptimizerModel;
-  ratioMode: 'original' | 'fixed';
+  ratioMode: 'original' | 'fixed' | 'custom';
   aspectRatio: string;
   imageSize: ImageSize;
+  customOutputWidth: number;
+  customOutputHeight: number;
   concurrency: number;
   copiesPerGroup: number;
   useGlassLogoEtchSkill: boolean;
@@ -166,9 +168,11 @@ export interface LogoReplaceSettings {
   imageProvider: 'gemini' | 'openai';
   imageModel: ImageModel;
   openAiImageModel: 'gpt-image-2';
-  ratioMode: 'original' | 'fixed';
+  ratioMode: 'original' | 'fixed' | 'custom';
   aspectRatio: string;
   imageSize: ImageSize;
+  customOutputWidth: number;
+  customOutputHeight: number;
   concurrency: number;
   copiesPerScene: number;
   logoColorMode: 'original' | 'white' | 'black' | 'custom';
