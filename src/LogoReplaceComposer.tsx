@@ -66,7 +66,7 @@ function statusText(status: LogoReplaceTask['status']) {
   return '已停止';
 }
 
-function buildActualReplacementPrompt(settings: LogoReplaceSettings, hasOldLogo: boolean, expectedText = '', correctionFeedback = '') {
+export function buildActualReplacementPrompt(settings: LogoReplaceSettings, hasOldLogo: boolean, expectedText = '', correctionFeedback = '') {
   const mandatoryPrompt = buildLogoReplacementInstruction({
     hasOldLogo,
     logoColorMode: settings.logoColorMode,
@@ -84,9 +84,10 @@ function buildActualReplacementPrompt(settings: LogoReplaceSettings, hasOldLogo:
     correctionFeedback,
   });
   const customPrompt = settings.customizeReplacementPrompt ? settings.replacementPrompt.trim() : '';
+  const collageInstruction = '【多个小图强制规则】请直接查看并判断输入画面中是否存在多个小图；若存在，必须对模型判断出的每一个小图逐一、完整地执行相同的 Logo 替换要求，所有小图都必须处理。不得根据截图、拼贴、海报或详情页等预设类别来决定是否执行，也不得筛选或跳过其中任何小图。同一新 Logo 必须应用到每个小图中所有对应的旧 Logo，严禁只处理第一张、最大一张或其中部分小图；不得合并、删除、移动、裁切任何小图，不得改变原有排版、标题、标签及其他非 Logo 内容。';
   return customPrompt
-    ? customPrompt + '\n\n【以下 Logo 工艺、颜色和小字保护规则为强制最高优先级，不得被前文覆盖】\n' + mandatoryPrompt
-    : mandatoryPrompt;
+    ? customPrompt + '\n\n【以下 Logo 工艺、颜色、小字保护及图中图规则为强制最高优先级，不得被前文覆盖】\n' + mandatoryPrompt + '\n\n' + collageInstruction
+    : mandatoryPrompt + '\n\n' + collageInstruction;
 }
 interface LogoReplaceComposerProps {
   apiKey: string;
