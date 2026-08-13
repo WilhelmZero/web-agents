@@ -103,6 +103,10 @@ describe('Logo 替换指令', () => {
     expect(instruction).toContain('而不是照抄旧 Logo');
     expect(instruction).toContain('上、中、下三条水平带');
     expect(instruction).toContain('禁止平面贴纸感');
+    expect(instruction).toContain('除旧 Logo 外整图冻结');
+    expect(instruction).toContain('严禁立起、悬浮、漂移、旋转');
+    expect(instruction).toContain('新 Logo 的相同部分也必须位于遮挡物后方');
+    expect(instruction).toContain('盒子内部、内衬、锁扣、铰链');
   });
 
   it('将准确文字和校验差异作为不可覆盖的修复约束', () => {
