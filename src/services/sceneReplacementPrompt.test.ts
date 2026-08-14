@@ -15,6 +15,9 @@ describe('buildSceneReplacementPrompt', () => {
     expect(prompt).toContain('局部氛围改造');
     expect(prompt).toContain('木盒相对画幅的大小不得变化');
     expect(prompt).toContain('不得为了展示完整房间');
+    expect(prompt).toContain('多小图必须逐格独立执行并逐格验收');
+    expect(prompt).toContain('任意一格的环境仍与原图基本相同');
+    expect(prompt).toContain('不得合并、交换、移动、删除或重排小图');
     expect(prompt).toContain('尺寸箭头和辅助线');
     expect(prompt).toContain('无论盒子是打开、关闭');
     expect(prompt).toContain('禁止悬空、漂浮');
