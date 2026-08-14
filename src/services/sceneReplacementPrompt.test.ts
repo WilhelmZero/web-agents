@@ -18,6 +18,10 @@ describe('buildSceneReplacementPrompt', () => {
     expect(prompt).toContain('多小图必须逐格独立执行并逐格验收');
     expect(prompt).toContain('任意一格的环境仍与原图基本相同');
     expect(prompt).toContain('不得合并、交换、移动、删除或重排小图');
+    expect(prompt).toContain('无纵深商品棚拍/桌面构图');
+    expect(prompt).toContain('严禁删除木盒后补出酒吧');
+    expect(prompt).toContain('焦平面与景深锁定');
+    expect(prompt).toContain('背景模糊强度');
     expect(prompt).toContain('尺寸箭头和辅助线');
     expect(prompt).toContain('无论盒子是打开、关闭');
     expect(prompt).toContain('禁止悬空、漂浮');
