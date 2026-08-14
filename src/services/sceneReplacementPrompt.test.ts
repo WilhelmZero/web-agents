@@ -12,6 +12,9 @@ describe('buildSceneReplacementPrompt', () => {
     expect(prompt).toContain('Laser Engraved / Dishwasher Safe / Perfect Gift / Non-Lead / Capacity');
     expect(prompt).toContain('只允许替换这一层');
     expect(prompt).toContain('杯身上的“YOUR CUSTOM TEXT/PHOTO HERE”');
+    expect(prompt).toContain('局部氛围改造');
+    expect(prompt).toContain('木盒相对画幅的大小不得变化');
+    expect(prompt).toContain('不得为了展示完整房间');
     expect(prompt).toContain('尺寸箭头和辅助线');
     expect(prompt).toContain('无论盒子是打开、关闭');
     expect(prompt).toContain('禁止悬空、漂浮');
