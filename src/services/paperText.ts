@@ -52,7 +52,7 @@ async function requestOpenAiJson(options: { apiKey: string; model: string; image
   const base64 = await fileToBase64(options.image);
   const mimeType = options.image.type || 'image/png';
   const startedAt = performance.now();
-  const consoleId = startRequestConsoleEntry({ model: options.model, connection: 'direct', requestSummary: 'OpenAI Responses · 1 张输入图片 · 结构化文字结果' });
+  const consoleId = startRequestConsoleEntry({ model: options.model, connection: 'direct', requestSummary: 'OpenAI Responses · 1 张输入图片 · 结构化文字结果', requestPrompt: options.prompt, inputImages: [options.image] });
   let httpStatus: number | undefined;
   try {
     const response = await fetch(`${OPENAI_ROOT}/responses`, {
@@ -96,7 +96,7 @@ export async function editPaperTextOpenAi(options: { apiKey: string; model: stri
   if (options.background) form.append('background', options.background);
   if (supportsOpenAiInputFidelity(options.model)) form.append('input_fidelity', 'high');
   const startedAt = performance.now();
-  const consoleId = startRequestConsoleEntry({ model: options.model, connection: 'direct', requestSummary: `OpenAI Images Edit · 1 张输入图片 · ${options.quality} 质量` });
+  const consoleId = startRequestConsoleEntry({ model: options.model, connection: 'direct', requestSummary: `OpenAI Images Edit · 1 张输入图片 · ${options.quality} 质量`, requestPrompt: options.prompt, inputImages: [options.image, ...(options.mask ? [options.mask] : [])] });
   let httpStatus: number | undefined;
   try {
     const response = await fetch(`${OPENAI_ROOT}/images/edits`, { method: 'POST', headers: { Authorization: `Bearer ${options.apiKey}` }, body: form, signal: options.signal });

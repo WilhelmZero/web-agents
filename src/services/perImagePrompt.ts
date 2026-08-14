@@ -26,7 +26,7 @@ export function buildPerImageAnalysisPrompt(tool: PerImagePromptTool, sourceProm
   const focus = tool === 'logo-replace'
     ? '识别所有原 Logo 所在载体、材质、曲面透视、遮挡关系、手部遮挡、礼盒内外区域、图中图以及实际适用的雕刻或印刷工艺。只保留与本图真实情况有关的条件；没有 Logo 的盒子或盒内衬不得新增 Logo。'
     : '识别杯型、人物及手势、礼盒、产品说明文字、尺寸标注、裁切主体、图中图和当前构图，并选择与本图真实杯型和用途相符的非节日欧美生活场景条件。只保留与本图有关的条件。';
-  return `你是图片编辑请求的逐图提示词分配器。\n${focus}\n\n用户公共提示词：\n${sourcePrompt.trim()}\n\n要求：\n1. 只能筛选、整理公共提示词中适用于本图的内容，不得随意增加新任务。\n2. 删除与本图不相关、互相冲突或仅适用于其他图片的分支。\n3. 不要重复通用的强制保护规则，系统会在后面统一追加。\n4. 独立提示词必须可以直接交给图片编辑模型，简洁明确。\n5. 仅返回 JSON，不要 Markdown，固定结构：{"summary":"简短图片摘要","applicableConditions":["适用条件"],"prompt":"本图独立提示词"}。`;
+  return `你是图片编辑请求的逐图提示词分配器。\n${focus}\n\n用户公共提示词：\n${sourcePrompt.trim()}\n\n要求：\n1. 只能筛选、整理公共提示词中适用于本图的内容，不得随意增加新任务。\n2. 删除与本图不相关、互相冲突或仅适用于其他图片的分支。\n3. 不要重复通用的强制保护规则，系统会在后面统一追加。\n4. 独立提示词必须可以直接交给图片编辑模型，简洁明确。${tool === 'scene-replace' ? '必须明确写成“将背景替换为……场景”，不能只写保护原图、优化光影或保持氛围。' : ''}\n5. 仅返回 JSON，不要 Markdown，固定结构：{"summary":"简短图片摘要","applicableConditions":["适用条件"],"prompt":"本图独立提示词"}。`;
 }
 
 function openAiText(data: any) {
@@ -38,7 +38,7 @@ export async function analyzePerImagePrompt(options: { tool: PerImagePromptTool;
   const base64 = await fileToBase64(options.image);
   const model = options.provider === 'openai' ? options.openAiModel : options.geminiModel;
   const startedAt = performance.now();
-  const id = startRequestConsoleEntry({ model, connection: options.provider === 'openai' ? 'direct' : options.apiBaseUrl ? 'proxy' : 'direct', requestSummary: `逐图提示词分析 · ${options.image.name}` });
+  const id = startRequestConsoleEntry({ model, connection: options.provider === 'openai' ? 'direct' : options.apiBaseUrl ? 'proxy' : 'direct', requestSummary: `逐图提示词分析 · ${options.image.name}`, requestPrompt: prompt, inputImages: [options.image] });
   try {
     let text = '';
     if (options.provider === 'openai') {

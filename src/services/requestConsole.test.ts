@@ -11,6 +11,15 @@ import {
 describe('request console', () => {
   beforeEach(() => clearRequestConsole());
 
+  it('stores prompt and capped input images for expandable request details', () => {
+    let latest: RequestConsoleEntry[] = [];
+    const unsubscribe = subscribeRequestConsole((items) => { latest = items; });
+    startRequestConsoleEntry({ model: 'gpt-image-2', connection: 'direct', requestSummary: 'scene edit', requestPrompt: '  replace the background  ', inputImages: Array.from({ length: 6 }, () => new Blob(['x'], { type: 'image/png' })) });
+    unsubscribe();
+    expect(latest[0].requestPrompt).toBe('replace the background');
+    expect(latest[0].inputImages).toHaveLength(4);
+  });
+
   it('publishes request status updates', () => {
     const snapshots: RequestConsoleEntry[][] = [];
     const unsubscribe = subscribeRequestConsole((entries) => snapshots.push(entries));

@@ -1,5 +1,5 @@
 import { ClearOutlined } from '@ant-design/icons';
-import { Button, Descriptions, Drawer, Empty, Flex, Image, List, Space, Tag, Typography } from 'antd';
+import { Button, Collapse, Descriptions, Drawer, Empty, Flex, Image, List, Space, Tag, Typography } from 'antd';
 import { useEffect, useState } from 'react';
 import { clearRequestConsole, subscribeRequestConsole, type RequestConsoleEntry } from './services/requestConsole';
 
@@ -13,7 +13,7 @@ function statusMeta(status: RequestConsoleEntry['status']) {
   return { color: 'error', text: '失败' };
 }
 
-function OutputThumbnails({ images }: { images: Blob[] }) {
+function RequestThumbnails({ images, label }: { images: Blob[]; label: string }) {
   const [urls, setUrls] = useState<Array<{ thumbnail: string; original: string }>>([]);
   useEffect(() => {
     let cancelled = false;
@@ -39,7 +39,7 @@ function OutputThumbnails({ images }: { images: Blob[] }) {
     void build();
     return () => { cancelled = true; created.forEach((url) => URL.revokeObjectURL(url)); };
   }, [images]);
-  return <div className="request-console-output"><Text type="secondary">输出缩略图</Text><Image.PreviewGroup><div className="request-console-thumbnails">{urls.map((url, index) => <Image key={url.original} src={url.thumbnail} preview={{ src: url.original }} alt={`输出图片 ${index + 1}`} />)}</div></Image.PreviewGroup></div>;
+  return <div className="request-console-output"><Text type="secondary">{label}</Text><Image.PreviewGroup><div className="request-console-thumbnails">{urls.map((url, index) => <Image key={url.original} src={url.thumbnail} preview={{ src: url.original }} alt={`${label} ${index + 1}`} />)}</div></Image.PreviewGroup></div>;
 }
 
 export default function RequestConsoleDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -71,11 +71,12 @@ export default function RequestConsoleDrawer({ open, onClose }: { open: boolean;
               {entry.resultSummary && <Descriptions.Item label="结果" span={2}>{entry.resultSummary}</Descriptions.Item>}
               {entry.message && <Descriptions.Item label="信息" span={2}><Text type={entry.status === 'failed' ? 'danger' : 'secondary'}>{entry.message}</Text></Descriptions.Item>}
             </Descriptions>
-            {open && entry.outputImages?.length ? <OutputThumbnails images={entry.outputImages} /> : null}
+            {(entry.requestPrompt || entry.inputImages?.length) ? <Collapse size="small" style={{ marginTop: 10 }} items={[{ key: 'request', label: `请求详情${entry.inputImages?.length ? ` · ${entry.inputImages.length} 张输入图` : ''}`, children: <Space direction="vertical" style={{ width: '100%' }} size={10}>{entry.requestPrompt && <Typography.Paragraph copyable style={{ whiteSpace: 'pre-wrap', maxHeight: 260, overflow: 'auto', marginBottom: 0 }}>{entry.requestPrompt}</Typography.Paragraph>}{open && entry.inputImages?.length ? <RequestThumbnails images={entry.inputImages} label="输入图片" /> : null}</Space> }]} /> : null}
+            {open && entry.outputImages?.length ? <RequestThumbnails images={entry.outputImages} label="输出缩略图" /> : null}
           </div>
         </List.Item>;
       }}
     /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="发起 Gemini 或 GPT 请求后，状态和结果会显示在这里" />}
-    <Text type="secondary" style={{ display: 'block', marginTop: 16 }}>控制台不会记录 API Key、Base64 图片数据或完整请求正文；最多保留最近 24 张输出图片，日志仅保留在当前页面会话。</Text>
+    <Text type="secondary" style={{ display: 'block', marginTop: 16 }}>控制台不会记录 API Key 或 Base64 请求正文；提示词与缩略图详情默认收起，输入和输出图片各最多保留最近 24 张，日志仅保留在当前页面会话。</Text>
   </Drawer>;
 }

@@ -15,7 +15,7 @@ async function editImages(options: { apiKey: string; model: 'gpt-image-2' | 'gpt
   form.append('prompt', options.prompt); form.append('model', options.model); form.append('n', '1');
   form.append('size', 'auto'); form.append('quality', options.quality || 'high'); form.append('output_format', 'png');
   const startedAt = performance.now();
-  const consoleId = startRequestConsoleEntry({ model: options.model, connection: 'direct', requestSummary: `OpenAI Images Edit · ${options.images.length} 张输入图片 · ${options.requestLabel || 'Logo 替换'}` });
+  const consoleId = startRequestConsoleEntry({ model: options.model, connection: 'direct', requestSummary: `OpenAI Images Edit · ${options.images.length} 张输入图片 · ${options.requestLabel || 'Logo 替换'}`, requestPrompt: options.prompt, inputImages: options.images });
   let httpStatus: number | undefined;
   try {
     const response = await fetch(`${OPENAI_ROOT}/images/edits`, { method: 'POST', headers: { Authorization: `Bearer ${options.apiKey}` }, body: form, signal: options.signal });
@@ -63,7 +63,7 @@ export function generateCupResizeOpenAi(options: {
 async function requestJson(options: { apiKey: string; model: string; images: Array<File | Blob>; prompt: string; schemaName: string; schema: object; signal?: AbortSignal }) {
   const imageParts = await Promise.all(options.images.map(async (image) => ({ type: 'input_image', image_url: `data:${image.type || 'image/png'};base64,${await fileToBase64(image)}`, detail: 'high' })));
   const startedAt = performance.now();
-  const consoleId = startRequestConsoleEntry({ model: options.model, connection: 'direct', requestSummary: `OpenAI Responses · ${options.images.length} 张输入图片 · Logo 分析` });
+  const consoleId = startRequestConsoleEntry({ model: options.model, connection: 'direct', requestSummary: `OpenAI Responses · ${options.images.length} 张输入图片 · Logo 分析`, requestPrompt: options.prompt, inputImages: options.images });
   let httpStatus: number | undefined;
   try {
     const response = await fetch(`${OPENAI_ROOT}/responses`, { method: 'POST', signal: options.signal, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${options.apiKey}` }, body: JSON.stringify({ model: options.model, input: [{ role: 'user', content: [{ type: 'input_text', text: options.prompt }, ...imageParts] }], text: { format: { type: 'json_schema', name: options.schemaName, strict: true, schema: options.schema } } }) });

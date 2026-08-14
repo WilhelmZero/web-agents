@@ -14,5 +14,5 @@ export const SCENE_REPLACEMENT_MANDATORY_CONSTRAINTS = `
 
 export function buildSceneReplacementPrompt(userPrompt: string) {
   const target = userPrompt.trim();
-  return `${target}\n\n${SCENE_REPLACEMENT_MANDATORY_CONSTRAINTS.trim()}`;
+  return `${target}\n\n【必须完成的编辑目标】将原图背景明确、完整地替换为上述目标场景。目标背景必须在地点、陈设、材质和空间氛围上产生清晰可见的变化；仅调色、改变景深或保留原背景均视为失败。\n\n【必须原样保留的前景】杯子、酒瓶、礼盒/木盒/包装盒、人物及其姿态、动作、手势、遮挡、接触、承托关系和画面裁切必须与原图 100% 一致。允许且必须根据新背景重建自然一致的环境光、阴影、反射、色温与氛围光，但不得借此改变上述前景的形状、尺寸、位置或结构。\n\n${SCENE_REPLACEMENT_MANDATORY_CONSTRAINTS.trim()}`;
 }

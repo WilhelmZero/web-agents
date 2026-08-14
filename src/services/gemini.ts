@@ -102,7 +102,24 @@ async function postGemini(
 ): Promise<GeminiResponse> {
   const url = `${getGeminiApiRoot(apiBaseUrl === null ? '' : apiBaseUrl)}/models/${encodeURIComponent(model)}:generateContent`;
   const requestStartedAt = performance.now();
-  const consoleId = startRequestConsoleEntry({ model, connection: apiBaseUrl ? 'proxy' : 'direct', requestSummary: summarizeGeminiRequest(body) });
+  const debugParts = (() => {
+    const prompts: string[] = [];
+    const images: Blob[] = [];
+    const visit = (value: unknown) => {
+      if (!value || typeof value !== 'object') return;
+      if (Array.isArray(value)) return value.forEach(visit);
+      const item = value as Record<string, unknown>;
+      if (typeof item.text === 'string') prompts.push(item.text);
+      const inline = item.inlineData as { mimeType?: string; data?: string } | undefined;
+      if (inline?.data && images.length < 4) {
+        try { images.push(new Blob([Uint8Array.from(atob(inline.data), (char) => char.charCodeAt(0))], { type: inline.mimeType || 'image/png' })); } catch { /* Debug rendering must never block the request. */ }
+      }
+      Object.values(item).forEach(visit);
+    };
+    visit(body);
+    return { prompt: prompts.join('\n\n').trim(), images };
+  })();
+  const consoleId = startRequestConsoleEntry({ model, connection: apiBaseUrl ? 'proxy' : 'direct', requestSummary: summarizeGeminiRequest(body), requestPrompt: debugParts.prompt, inputImages: debugParts.images });
   for (let attempt = 0; attempt <= MAX_TRANSIENT_RETRIES; attempt += 1) {
     try {
       updateRequestConsoleEntry(consoleId, { status: 'running', attempt: attempt + 1, message: attempt ? '正在进行第 ' + (attempt + 1) + ' 次请求' : '请求已发送' });

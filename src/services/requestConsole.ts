@@ -11,6 +11,8 @@ export interface RequestConsoleEntry {
   httpStatus?: number;
   durationMs?: number;
   requestSummary: string;
+  requestPrompt?: string;
+  inputImages?: Blob[];
   resultSummary?: string;
   message?: string;
   outputImages?: Blob[];
@@ -19,6 +21,7 @@ export interface RequestConsoleEntry {
 const entries: RequestConsoleEntry[] = [];
 const listeners = new Set<(items: RequestConsoleEntry[]) => void>();
 const MAX_OUTPUT_IMAGES = 24;
+const MAX_INPUT_IMAGES = 24;
 const MAX_IMAGES_PER_ENTRY = 4;
 
 function snapshot() {
@@ -30,6 +33,18 @@ function notify() {
   listeners.forEach((listener) => listener(items));
 }
 
+function trimRetainedImages(field: 'inputImages' | 'outputImages', limit: number) {
+  let retained = 0;
+  entries.forEach((item) => {
+    const images = item[field];
+    if (!images?.length) return;
+    const available = Math.max(0, limit - retained);
+    item[field] = images.slice(0, available);
+    if (!item[field]?.length) delete item[field];
+    retained += item[field]?.length || 0;
+  });
+}
+
 export function subscribeRequestConsole(listener: (items: RequestConsoleEntry[]) => void) {
   listeners.add(listener);
   listener(snapshot());
@@ -38,7 +53,7 @@ export function subscribeRequestConsole(listener: (items: RequestConsoleEntry[])
   };
 }
 
-export function startRequestConsoleEntry(input: Pick<RequestConsoleEntry, 'model' | 'connection' | 'requestSummary'>) {
+export function startRequestConsoleEntry(input: Pick<RequestConsoleEntry, 'model' | 'connection' | 'requestSummary'> & Partial<Pick<RequestConsoleEntry, 'requestPrompt' | 'inputImages'>>) {
   const now = Date.now();
   const entry: RequestConsoleEntry = {
     id: crypto.randomUUID(),
@@ -47,11 +62,14 @@ export function startRequestConsoleEntry(input: Pick<RequestConsoleEntry, 'model
     model: input.model,
     connection: input.connection,
     requestSummary: input.requestSummary,
+    requestPrompt: input.requestPrompt?.trim() || undefined,
+    inputImages: input.inputImages?.filter((image) => image.type.startsWith('image/')).slice(0, MAX_IMAGES_PER_ENTRY),
     status: 'running',
     attempt: 1,
   };
   entries.unshift(entry);
   if (entries.length > 200) entries.length = 200;
+  trimRetainedImages('inputImages', MAX_INPUT_IMAGES);
   notify();
   return entry.id;
 }
@@ -60,15 +78,10 @@ export function updateRequestConsoleEntry(id: string, patch: Partial<Omit<Reques
   const entry = entries.find((item) => item.id === id);
   if (!entry) return;
   const outputImages = patch.outputImages?.filter((image) => image.type.startsWith('image/')).slice(0, MAX_IMAGES_PER_ENTRY);
-  Object.assign(entry, patch, outputImages ? { outputImages } : {}, { updatedAt: Date.now() });
-  let retainedImages = 0;
-  entries.forEach((item) => {
-    if (!item.outputImages?.length) return;
-    const available = Math.max(0, MAX_OUTPUT_IMAGES - retainedImages);
-    item.outputImages = item.outputImages.slice(0, available);
-    if (!item.outputImages.length) delete item.outputImages;
-    retainedImages += item.outputImages?.length || 0;
-  });
+  const inputImages = patch.inputImages?.filter((image) => image.type.startsWith('image/')).slice(0, MAX_IMAGES_PER_ENTRY);
+  Object.assign(entry, patch, outputImages ? { outputImages } : {}, inputImages ? { inputImages } : {}, { updatedAt: Date.now() });
+  trimRetainedImages('inputImages', MAX_INPUT_IMAGES);
+  trimRetainedImages('outputImages', MAX_OUTPUT_IMAGES);
   notify();
 }
 
