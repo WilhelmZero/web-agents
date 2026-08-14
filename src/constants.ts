@@ -51,6 +51,8 @@ export const DEFAULT_LOGO_SETTINGS = {
 } as const;
 
 export const DEFAULT_LOGO_REPLACE_SETTINGS = {
+  perImagePromptEnabled: false,
+  autoGenerateAfterPromptAnalysis: false,
   useOldLogoReference: false,
   imageProvider: 'gemini',
   imageModel: 'gemini-3.1-flash-image',
@@ -97,6 +99,8 @@ export const DEFAULT_OBJECT_REPLACE_SETTINGS = {
   preservation: { print: false, logo: false, engraving: false, liquid: false, foam: false, custom: [] },
 } as const;
 export const DEFAULT_SCENE_REPLACE_SETTINGS = {
+  perImagePromptEnabled: false,
+  autoGenerateAfterPromptAnalysis: false,
   autoSkipWhiteBackground: true,
   autoRecommendScene: false,
   sceneRecommendationProvider: 'gemini',

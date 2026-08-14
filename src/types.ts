@@ -164,6 +164,8 @@ export interface LogoSettings {
 }
 
 export interface LogoReplaceSettings {
+  perImagePromptEnabled: boolean;
+  autoGenerateAfterPromptAnalysis: boolean;
   useOldLogoReference: boolean;
   imageProvider: 'gemini' | 'openai';
   imageModel: ImageModel;
@@ -234,6 +236,8 @@ export interface ObjectReplaceTask {
 }
 
 export interface SceneReplaceSettings {
+  perImagePromptEnabled: boolean;
+  autoGenerateAfterPromptAnalysis: boolean;
   autoSkipWhiteBackground: boolean;
   autoRecommendScene: boolean;
   sceneRecommendationProvider: 'gemini' | 'openai';
@@ -260,6 +264,20 @@ export interface SceneReplaceSettings {
   outpaintWidth: number;
   outpaintHeight: number;
   outpaintPrompt: string;
+}
+
+export type PerImagePromptTool = 'logo-replace' | 'scene-replace';
+export type PerImagePromptStatus = 'pending' | 'analyzing' | 'ready' | 'stale' | 'failed';
+export interface PerImagePromptAssignment {
+  fileKey: string;
+  tool: PerImagePromptTool;
+  summary: string;
+  applicableConditions: string[];
+  prompt: string;
+  sourcePrompt: string;
+  status: PerImagePromptStatus;
+  updatedAt: number;
+  error?: string;
 }
 
 export interface SceneReplaceTask {
