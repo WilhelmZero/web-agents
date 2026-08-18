@@ -15,6 +15,7 @@ import { DEFAULT_LOGO_REPLACE_SETTINGS, STORAGE_KEYS } from './constants';
 import { readLocalStorage } from './storage';
 import { PerImagePromptEditor, usePerImagePrompts } from './usePerImagePrompts';
 import { perImagePromptFileKey } from './services/perImagePrompt';
+import { batchCostMetrics, formatBatchDateTime, percentage } from './services/batchExecutionMetrics';
 
 const { Title, Text, Paragraph } = Typography;
 const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
@@ -34,7 +35,7 @@ export function FileThumbnail({ file, onRemove }: { file: File; onRemove?: () =>
   return <div className="batch-asset-card">{previewUrl ? <Image src={previewUrl} alt={file.name} /> : <div className="batch-asset-placeholder"><FileImageOutlined /></div>}<Text ellipsis={{ tooltip: file.name }}>{file.name}</Text>{onRemove && <Popconfirm title="从当前批次移除这张图片？" description="不会删除电脑中的原文件。" onConfirm={onRemove}><Button danger type="text" size="small" icon={<DeleteOutlined />}>移除</Button></Popconfirm>}</div>;
 }
 
-function TaskResultThumbnail({ detail, urls, showOriginal, onToggleOriginal }: { detail: LogoReplaceTaskDetail; urls: { result: string; original: string }; showOriginal: boolean; onToggleOriginal: () => void }) {
+function TaskResultThumbnail({ detail, urls, showOriginal, onToggleOriginal, usable, onUsableChange }: { detail: LogoReplaceTaskDetail; urls: { result: string; original: string }; showOriginal: boolean; onToggleOriginal: () => void; usable: boolean; onUsableChange: (value: boolean) => void }) {
   const toggleOriginal = onToggleOriginal;
   const statusText = detail.status === 'success' ? '生成完成' : detail.status === 'failed' ? '生成失败' : detail.status === 'stopped' ? '已停止' : detail.status === 'running' ? '生成中' : '等待中';
   const statusColor = detail.status === 'success' ? 'success' : detail.status === 'failed' ? 'error' : detail.status === 'running' ? 'processing' : 'default';
@@ -43,11 +44,11 @@ function TaskResultThumbnail({ detail, urls, showOriginal, onToggleOriginal }: {
       <div className="batch-result-image"><Image src={showOriginal && urls.original ? urls.original : urls.result} alt={showOriginal ? '原图' : '生成图'} preview={{ src: showOriginal && urls.original ? urls.original : urls.result, actionsRender: (originalNode) => <>{originalNode}{urls.original && <button type="button" className={`scene-preview-compare-action${showOriginal ? ' is-active' : ''}`} title={showOriginal ? '查看生成图' : '查看原图'} onClick={(event) => { event.stopPropagation(); toggleOriginal(); }}><EyeOutlined /></button>}</> }} /></div>
       {urls.original && <Button block size="small" icon={<EyeOutlined />} onClick={toggleOriginal}>{showOriginal ? '查看生成图' : '查看原图'}</Button>}
     </> : <div className="batch-result-state"><FileImageOutlined /><Text type="secondary">{detail.error || statusText}</Text></div>}
-    <Flex gap={6} wrap className="batch-result-meta">{detail.retryCount > 0 && <Tag color="gold">重试 {detail.retryCount} 次</Tag>}{detail.verificationStatus && <Tag>校验：{detail.verificationStatus}</Tag>}</Flex>
+    <Flex gap={6} wrap className="batch-result-meta">{detail.retryCount > 0 && <Tag color="gold">重试 {detail.retryCount} 次</Tag>}{detail.verificationStatus && <Tag>校验：{detail.verificationStatus}</Tag>}{detail.resultBlob && <Checkbox checked={usable} onChange={(event) => onUsableChange(event.target.checked)}>手动标记可用</Checkbox>}</Flex>
   </Card>;
 }
 
-function TaskResultGallery({ details }: { details: LogoReplaceTaskDetail[] }) {
+function TaskResultGallery({ details, usableIds, onUsableChange }: { details: LogoReplaceTaskDetail[]; usableIds: string[]; onUsableChange: (id: string, value: boolean) => void }) {
   const [urlsById, setUrlsById] = useState<Record<string, { result: string; original: string }>>({});
   const [showOriginalIds, setShowOriginalIds] = useState<Set<string>>(() => new Set());
   useEffect(() => {
@@ -65,7 +66,7 @@ function TaskResultGallery({ details }: { details: LogoReplaceTaskDetail[] }) {
     const showOriginal = showOriginalIds.has(detail.id) && Boolean(urls.original);
     return [{ src: showOriginal ? urls.original : urls.result, alt: showOriginal ? `场景 ${detail.sceneIndex + 1} 原图` : `场景 ${detail.sceneIndex + 1} 结果 ${detail.copyIndex + 1}` }];
   });
-  return <Image.PreviewGroup items={previewItems}><div className="batch-result-grid">{details.map((detail) => <TaskResultThumbnail key={detail.id} detail={detail} urls={urlsById[detail.id] || { result: '', original: '' }} showOriginal={showOriginalIds.has(detail.id)} onToggleOriginal={() => setShowOriginalIds((current) => { const next = new Set(current); next.has(detail.id) ? next.delete(detail.id) : next.add(detail.id); return next; })} />)}</div></Image.PreviewGroup>;
+  return <Image.PreviewGroup items={previewItems}><div className="batch-result-grid">{details.map((detail) => <TaskResultThumbnail key={detail.id} detail={detail} urls={urlsById[detail.id] || { result: '', original: '' }} showOriginal={showOriginalIds.has(detail.id)} onToggleOriginal={() => setShowOriginalIds((current) => { const next = new Set(current); next.has(detail.id) ? next.delete(detail.id) : next.add(detail.id); return next; })} usable={usableIds.includes(detail.id)} onUsableChange={(value) => onUsableChange(detail.id, value)} />)}</div></Image.PreviewGroup>;
 }
 
 function openDb() {
@@ -168,7 +169,9 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
   const [checkedFolderKeys, setCheckedFolderKeys] = useState<string[]>([]);
   const [downloadingAll, setDownloadingAll] = useState(false);
   const [runStartedAt, setRunStartedAt] = useState<number>();
+  const [runEndedAt, setRunEndedAt] = useState<number>();
   const [runDurationMs, setRunDurationMs] = useState<number>();
+  const [usableTaskIds, setUsableTaskIds] = useState<string[]>([]);
   const [workerTitleState, setWorkerTitleState] = useState<'queued' | 'running' | 'completed'>('queued');
   const [titleFlash, setTitleFlash] = useState(false);
   useEffect(() => { if (typeof BroadcastChannel === 'undefined') return; const next = new BroadcastChannel('scene-studio-logo-tabs'); setChannel(next); return () => next.close(); }, []);
@@ -272,7 +275,7 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
     const batch = await readBatch(activeBatchId); if (!batch) return void message.error('未找到当前批次');
     const commandId = `start-${Date.now()}`; batch.startCommandId = commandId; await saveBatch(batch);
     setWorkerTaskDetails({});
-    setRunStartedAt(Date.now()); setRunDurationMs(undefined);
+    setRunStartedAt(Date.now()); setRunEndedAt(undefined); setRunDurationMs(undefined); setUsableTaskIds([]);
     setSelectedProgressGroupId(undefined);
     channel?.postMessage({ type: 'start-all', batchId: activeBatchId, commandId });
     setWorkerProgress((current) => Object.fromEntries(Object.entries(current).map(([id, item]) => [id, { ...item, status: item.status === 'completed' ? 'completed' : 'running', updatedAt: Date.now() }])));
@@ -330,10 +333,20 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
   const aggregate = workerSnapshots.reduce((sum, item) => ({ total: sum.total + item.total, success: sum.success + item.success, failed: sum.failed + item.failed, stopped: sum.stopped + item.stopped, waiting: sum.waiting + item.waiting, running: sum.running + item.running, retrying: sum.retrying + item.retrying }), { total: 0, success: 0, failed: 0, stopped: 0, waiting: 0, running: 0, retrying: 0 });
   const aggregateCompleted = aggregate.success + aggregate.failed + aggregate.stopped;
   const aggregateProcessing = aggregate.waiting + aggregate.running > 0 || workerSnapshots.some((item) => item.status === 'opening' || item.status === 'running');
+  const allTaskDetails = Object.values(workerTaskDetails).flatMap((details) => Object.values(details));
+  const plannedLogoRequests = groups.reduce((sum, group) => sum + group.files.length, 0) * storedLogoSettings.copiesPerScene;
+  const actualLogoRequests = allTaskDetails.reduce((sum, detail) => sum + (detail.status === 'waiting' && !detail.retryCount ? 0 : Math.max(1, detail.verificationAttempts || 0) + detail.retryCount), 0);
+  const logoCostMetrics = batchCostMetrics({ model: storedLogoSettings.imageProvider === 'openai' ? storedLogoSettings.openAiImageModel : storedLogoSettings.imageModel, size: storedLogoSettings.imageSize, plannedRequests: plannedLogoRequests, worstCaseMultiplier: (storedLogoSettings.strictTextVerification ? storedLogoSettings.verificationRetries + 1 : 1) * (storedLogoSettings.autoRetryErrors ? storedLogoSettings.errorRetryLimit + 1 : 1), actualRequests: actualLogoRequests });
+  const checkedLogoTasks = allTaskDetails.filter((detail) => detail.verificationStatus === 'passed' || detail.verificationStatus === 'failed');
+  const firstPassLogoTasks = checkedLogoTasks.filter((detail) => detail.verificationStatus === 'passed' && (detail.verificationAttempts || 1) === 1 && detail.retryCount === 0);
+  const availableLogoTasks = downloadableDetails.filter((detail) => usableTaskIds.includes(detail.id));
+  const setLogoTaskUsable = (id: string, value: boolean) => setUsableTaskIds((current) => value ? [...new Set([...current, id])] : current.filter((item) => item !== id));
   useEffect(() => { if (!worker || workerTitleState !== 'running') return; const timer = window.setInterval(() => setTitleFlash((value) => !value), 1000); return () => window.clearInterval(timer); }, [worker, workerTitleState]);
   useEffect(() => { if (!worker || !workerGroup) return; const light = workerTitleState === 'completed' ? '🟢' : workerTitleState === 'running' ? (titleFlash ? '⚪' : '🟡') : '🟡'; document.title = `${light} ${workerGroup.name} - Scene Studio`; }, [worker, workerGroup, workerTitleState, titleFlash]);
   useEffect(() => { if (!worker || !automationStartToken) return; setWorkerTitleState('running'); }, [worker, automationStartToken]);
-  useEffect(() => { if (worker || !runStartedAt || aggregateProcessing || !aggregate.total || aggregateCompleted < aggregate.total) return; setRunDurationMs(Date.now() - runStartedAt); setRunStartedAt(undefined); }, [worker, runStartedAt, aggregateProcessing, aggregate.total, aggregateCompleted]);
+  useEffect(() => { if (worker || !runStartedAt || aggregateProcessing || !aggregate.total || aggregateCompleted < aggregate.total) return; const endedAt = Date.now(); setRunDurationMs(endedAt - runStartedAt); setRunEndedAt(endedAt); }, [worker, runStartedAt, aggregateProcessing, aggregate.total, aggregateCompleted]);
+  useEffect(() => { if (!activeBatchId) return; const key = `scene-studio.logo-batch-usable.${activeBatchId}`; const stored = localStorage.getItem(key); setUsableTaskIds(stored ? JSON.parse(stored) : []); }, [activeBatchId]);
+  useEffect(() => { if (activeBatchId) localStorage.setItem(`scene-studio.logo-batch-usable.${activeBatchId}`, JSON.stringify(usableTaskIds)); }, [activeBatchId, usableTaskIds]);
   const pendingPickerTree = buildLogoPickerFolderTree(groupFolderFiles(pendingFolderFiles)); const pickerKeys: string[] = []; const collectPickerKeys = (nodes: PickerFolderNode[]) => nodes.forEach((node) => { if (node.group) pickerKeys.push(`dir:${node.path}`); collectPickerKeys(node.children); }); collectPickerKeys(pendingPickerTree);
   const levelEmoji = (depth: number) => `${Math.min(depth + 1, 9)}\uFE0F\u20E3`; const togglePickerFolder = (key: string) => setCheckedFolderKeys((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key]);
   const renderPickerTree = (nodes: PickerFolderNode[], depth = 0): React.ReactNode => <Collapse size="small" bordered={false} defaultActiveKey={nodes.map((node) => node.path)} items={nodes.map((node) => { const key = `dir:${node.path}`; const checked = checkedFolderKeys.includes(key); return { key: node.path, label: <Flex align="center" gap={8}><span aria-label={`第 ${depth + 1} 层`}>{levelEmoji(depth)}</span><FolderOpenOutlined /><Text strong={Boolean(node.group)}>{node.name}</Text>{node.group && <Tag>{node.group.files.length} 张</Tag>}</Flex>, children: <><>{node.group && <Card size="small" hoverable className={checked ? 'scene-leaf-folder-card is-selected' : 'scene-leaf-folder-card'} onClick={() => togglePickerFolder(key)}><Checkbox checked={checked} onClick={(event) => event.stopPropagation()} onChange={() => togglePickerFolder(key)}>导入此文件夹</Checkbox><div onClick={(event) => event.stopPropagation()}><Image.PreviewGroup><Flex gap={4} wrap className="scene-folder-mini-thumbnails">{node.group.files.slice(0, 12).map((file, index) => <FileThumbnail key={`${file.name}-${index}`} file={file} />)}</Flex></Image.PreviewGroup></div>{node.group.files.length > 12 && <Text type="secondary">另有 {node.group.files.length - 12} 张</Text>}</Card>}</>{node.children.length ? renderPickerTree(node.children, depth + 1) : null}</> }; })} />;
@@ -347,6 +360,8 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
     <Card className="action-card"><Flex justify="space-between" align="center" wrap gap={12}><div><Title level={4} style={{ margin: 0 }}>准备分发 {groups.length} 组任务</Title><Text type="secondary">自动按当前 {groups.length} 个分组打开全部标签，不限制个数；Web Locks 将所有标签的 AI 请求合计限制在 {globalConcurrency} 个</Text></div><Space wrap><Text>全局并发</Text><InputNumber min={1} max={12} value={globalConcurrency} onChange={(value) => setGlobalConcurrency(value || 1)} /><Button size="large" icon={<RocketOutlined />} onClick={() => void openWorkers()}>保存批次并打开全部标签</Button><Button type="primary" size="large" icon={<RocketOutlined />} disabled={!activeBatchId} onClick={() => void startAllWorkers()}>一键开始所有替换</Button>{aggregate.failed > 0 && <Button icon={<ReloadOutlined />} onClick={retryAllFailedWorkers}>一键重试所有失败</Button>}{aggregateProcessing && <Button danger size="large" icon={<StopOutlined />} onClick={stopAllWorkers}>停止全部</Button>}<Button disabled={!activeBatchId} onClick={disableCloseWarnings}>解除全部标签关闭提醒</Button></Space></Flex></Card>
     {!!workerSnapshots.length && <Card className="workflow-card" title="批次任务进度" extra={<Space wrap><Button type="primary" icon={<DownloadOutlined />} loading={downloadingAll} disabled={!downloadableDetails.length} onClick={() => void downloadAllWorkerResults()}>一键下载全部生成图片（{downloadableDetails.length}）</Button><Tag color={aggregate.failed ? 'error' : aggregateProcessing ? 'processing' : aggregate.total && aggregate.success === aggregate.total ? 'success' : 'default'}>{aggregate.failed ? '存在最终失败' : aggregateProcessing ? '执行中' : aggregate.total ? '已完成' : '等待开始'}</Tag></Space>}>
       <Flex gap={28} wrap><Statistic title="工作标签" value={workerSnapshots.length} suffix={` / 就绪 ${workerSnapshots.filter((item) => item.status !== 'opening').length}`} /><Statistic title="任务总数" value={aggregate.total} /><Statistic title="成功" value={aggregate.success} valueStyle={{ color: '#389e0d' }} /><Statistic title="自动重试中" value={aggregate.retrying} valueStyle={{ color: '#d48806' }} /><Statistic title="最终失败" value={aggregate.failed} valueStyle={{ color: aggregate.failed ? '#cf1322' : undefined }} /><Statistic title="已停止" value={aggregate.stopped} />{runDurationMs !== undefined && <Statistic title="本次执行耗时" value={formatBatchDuration(runDurationMs)} />}</Flex>
+      <Flex gap={28} wrap style={{ marginTop: 16 }}><Statistic title="预计最低金额" prefix="$" precision={3} value={logoCostMetrics.estimatedMinimum} /><Statistic title="预计最差金额" prefix="$" precision={3} value={logoCostMetrics.estimatedWorst} /><Statistic title="实际耗费金额（估算）" prefix="$" precision={3} value={logoCostMetrics.actual} /><Statistic title="开始计时时间" value={formatBatchDateTime(runStartedAt)} /><Statistic title="结束计时时间" value={formatBatchDateTime(runEndedAt)} /><Statistic title="一次检测成功率" suffix="%" precision={1} value={percentage(firstPassLogoTasks.length, checkedLogoTasks.length)} /><Statistic title="可用率（手动标记）" suffix="%" precision={1} value={percentage(availableLogoTasks.length, downloadableDetails.length)} /></Flex>
+      <Text type="secondary">实际金额根据主控页收到的生图、校验重绘和接口重试次数估算，不含语言模型文本 Token；可用率请在任务缩略图弹窗中逐张标记。</Text>
       <Progress style={{ margin: '18px 0' }} percent={aggregate.total ? Math.round((aggregateCompleted / aggregate.total) * 100) : 0} status={aggregate.failed ? 'exception' : aggregateProcessing ? 'active' : aggregate.total ? 'success' : 'normal'} />
       <div className="folder-group-grid">{workerSnapshots.map((item) => <Card key={item.groupId} size="small" hoverable className="batch-progress-card" onClick={() => setSelectedProgressGroupId(item.groupId)} title={item.name} extra={<Tag color={item.status === 'completed' && !item.failed ? 'success' : item.failed ? 'error' : item.status === 'running' ? 'processing' : 'default'}>{item.status === 'opening' ? '打开中' : item.status === 'ready' ? '已就绪' : item.status === 'running' ? '执行中' : '已完成'}</Tag>}><Text>成功 {item.success}/{item.total || '—'}</Text><br /><Text type="secondary">运行 {item.running} · 等待 {item.waiting} · 重试 {item.retrying} · 失败 {item.failed} · 停止 {item.stopped}</Text><Button type="link" size="small" icon={<EyeOutlined />} style={{ display: 'block', paddingInline: 0 }}>查看任务缩略图（{Object.keys(workerTaskDetails[item.groupId] || {}).length}）</Button></Card>)}</div>
     </Card>}
@@ -361,7 +376,7 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
     </Modal>
     <Modal title={selectedProgressWorker ? `${selectedProgressWorker.name} · 任务结果` : '任务结果'} open={Boolean(selectedProgressWorker)} width={1100} footer={<Button onClick={() => setSelectedProgressGroupId(undefined)}>完成</Button>} onCancel={() => setSelectedProgressGroupId(undefined)}>
       {selectedProgressWorker && <Alert type={selectedProgressWorker.failed ? 'warning' : selectedProgressWorker.status === 'running' ? 'info' : 'success'} showIcon title={`成功 ${selectedProgressWorker.success}/${selectedProgressWorker.total || '—'} · 运行 ${selectedProgressWorker.running} · 等待 ${selectedProgressWorker.waiting} · 失败 ${selectedProgressWorker.failed}`} description="点击缩略图可放大；缩略图下方和放大工具栏都可以切换查看原图。" style={{ marginBottom: 16 }} />}
-      {selectedTaskDetails.length ? <TaskResultGallery details={selectedTaskDetails} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="任务开始后，这里会实时显示每张图片的状态和生成结果" />}
+      {selectedTaskDetails.length ? <TaskResultGallery details={selectedTaskDetails} usableIds={usableTaskIds} onUsableChange={setLogoTaskUsable} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="任务开始后，这里会实时显示每张图片的状态和生成结果" />}
     </Modal>
     <Card className="workflow-card" title="逐图提示词分配"><Flex justify="space-between" align="center"><Text strong>生成前逐图分析</Text><Switch checked={perImagePromptEnabled} onChange={setPerImagePromptEnabled} /></Flex>{perImagePromptEnabled && <><Flex justify="space-between" align="center" style={{ marginTop: 12 }}><Text>分析完成后自动打开并生成</Text><Switch checked={autoGenerateAfterPromptAnalysis} onChange={setAutoGenerateAfterPromptAnalysis} /></Flex><Button style={{ marginBlock: 12 }} icon={<ReloadOutlined />} onClick={() => void perImagePrompts.analyze()}>分析全部 / 重试失败</Button><div className="per-image-prompt-grid">{groups.flatMap((group) => group.files.map((file) => <Card size="small" key={`${group.id}-${perImagePromptFileKey(file)}`} title={`${group.name} · ${file.name}`}><PerImagePromptEditor file={file} assignment={perImagePrompts.assignments[perImagePromptFileKey(file)]} sourcePrompt={logoPromptSource} onEdit={(value) => perImagePrompts.edit(file, value)} onAnalyze={() => void perImagePrompts.analyze([file])} /></Card>))}</div></>}</Card>
     <PsdLogoImportModal file={pendingPsdFile} onClose={() => setPendingPsdFile(undefined)} onImport={(files) => { setLogos((current) => [...current, ...files]); message.success(`已加入 ${files.length} 个 PSD Logo 图层`); }} />

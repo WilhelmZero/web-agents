@@ -424,6 +424,8 @@ function LogoReplaceSingleComposer({
         retryCount: task.retryCount,
         error: task.error,
         verificationStatus: task.verificationStatus,
+        verificationAttempts: task.verificationAttempts,
+        acceptedVerificationRisk: task.acceptedVerificationRisk,
         resultBlob: task.resultBlob,
         originalFile: task.resultBlob ? scene?.file : undefined,
       });

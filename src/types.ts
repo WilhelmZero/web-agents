@@ -355,6 +355,8 @@ export interface LogoReplaceTaskDetail {
   retryCount: number;
   error?: string;
   verificationStatus?: LogoReplaceTask['verificationStatus'];
+  verificationAttempts?: number;
+  acceptedVerificationRisk?: boolean;
   resultBlob?: Blob;
   originalFile?: File;
 }
