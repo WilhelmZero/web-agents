@@ -33,6 +33,10 @@ describe('buildSceneReplacementPrompt', () => {
     expect(prompt).toContain('不得根据截图、拼贴、海报或详情页等预设类别');
     expect(prompt).toContain('带文字画板');
     expect(prompt).toContain('此规则仅适用于背景陈设');
+    expect(prompt).toContain('必须区分“前景商品信息”和“背景场景文字”');
+    expect(prompt).toContain('节日、庆典、赛事名称、祝福语和年份');
+    expect(prompt).toContain('即使目标场景也是另一个节日');
+    expect(prompt).toContain('前景功能徽标及产品本体上的文字');
     expect(prompt).toContain('严格保持原图的画面裁切和可见范围');
     expect(prompt).toContain('禁止补全被裁掉的杯口、杯身、杯底');
     expect(prompt).toContain('禁止通过缩小主体、移动主体、扩大视野或重新构图');

@@ -15,4 +15,12 @@ describe('scene replacement wooden box position protection', () => {
     expect(prompt).toContain('木盒位置不要改变');
     expect(prompt).toContain('坐标、边界、大小、透视、朝向、前后层级');
   });
+
+  it('separates protected product copy from removable background holiday text', () => {
+    const prompt = buildPerImageAnalysisPrompt('scene-replace', '改为海滨夏日主题');
+    expect(prompt).toContain('必须把文字分成两类');
+    expect(prompt).toContain('逐字列为保留项');
+    expect(prompt).toContain('逐字列为删除项');
+    expect(prompt).toContain('所有原节日、庆典、赛事名称');
+  });
 });
