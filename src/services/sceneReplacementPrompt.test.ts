@@ -44,5 +44,9 @@ describe('buildSceneReplacementPrompt', () => {
     expect(prompt).toContain('严格保持原图的画面裁切和可见范围');
     expect(prompt).toContain('禁止补全被裁掉的杯口、杯身、杯底');
     expect(prompt).toContain('禁止通过缩小主体、移动主体、扩大视野或重新构图');
+    expect(prompt).toContain('新生成背景酒瓶的无品牌规则');
+    expect(prompt).toContain('无标签、无贴纸、无 Logo、无品牌名、无文字');
+    expect(prompt).toContain('只限制本次在 C 层中新生成的背景酒瓶');
+    expect(prompt).toContain('原图已有的非背景酒瓶仍按 A 层原样保留');
   });
 });
