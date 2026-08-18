@@ -21,6 +21,8 @@ describe('scene replacement wooden box position protection', () => {
     expect(prompt).toContain('必须把文字分成两类');
     expect(prompt).toContain('逐字列为保留项');
     expect(prompt).toContain('逐字列为删除项');
-    expect(prompt).toContain('所有原节日、庆典、赛事名称');
+    expect(prompt).toContain('所有真正位于背景环境中的原节日、庆典、赛事名称');
+    expect(prompt).toContain('饮具表面的 Logo、品牌名、姓名、年份');
+    expect(prompt).toContain('一律属于第一类，必须逐字保留');
   });
 });
