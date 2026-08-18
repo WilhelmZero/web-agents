@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assignmentNeedsAnalysis, buildPerImageAnalysisPrompt, parsePerImagePromptResult } from './perImagePrompt';
+import { assignmentNeedsAnalysis, buildPerImageAnalysisPrompt, parsePerImagePromptResult, shouldAnalyzePerImagePromptsInController } from './perImagePrompt';
 
 describe('per image prompt assignment', () => {
   it('parses fenced JSON without relying on additional properties', () => {
@@ -10,5 +10,10 @@ describe('per image prompt assignment', () => {
   });
   it('keeps mandatory rules outside the language model allocation prompt', () => {
     expect(buildPerImageAnalysisPrompt('logo-replace', '木盒用深色雕刻，玻璃用白色')).toContain('系统会在后面统一追加');
+  });
+  it('delegates automatic prompt analysis to worker tabs', () => {
+    expect(shouldAnalyzePerImagePromptsInController(true, true)).toBe(false);
+    expect(shouldAnalyzePerImagePromptsInController(true, false)).toBe(true);
+    expect(shouldAnalyzePerImagePromptsInController(false, false)).toBe(false);
   });
 });

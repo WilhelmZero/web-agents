@@ -10,6 +10,10 @@ export function assignmentNeedsAnalysis(assignment: PerImagePromptAssignment | u
   return !assignment || assignment.status !== 'ready' || assignment.sourcePrompt !== sourcePrompt.trim();
 }
 
+export function shouldAnalyzePerImagePromptsInController(enabled: boolean, autoGenerateAfterAnalysis: boolean) {
+  return enabled && !autoGenerateAfterAnalysis;
+}
+
 export function parsePerImagePromptResult(text: string) {
   const cleaned = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
   const match = cleaned.match(/\{[\s\S]*\}/);
