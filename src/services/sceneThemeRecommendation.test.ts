@@ -23,6 +23,8 @@ describe('scene theme recommendation', () => {
     expect(prompt).toContain('禁止世界杯');
     expect(prompt).toContain('体育观赛');
     expect(prompt).toContain('真实杯型和主要用途');
+    expect(prompt).toContain('推荐结果不得与原场景属于相同地点类型');
+    expect(prompt).toContain('改选该杯型候选池中的另一种明显不同场景');
   });
 
   it('normalizes the result to a single short replacement theme', () => {

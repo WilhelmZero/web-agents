@@ -48,5 +48,9 @@ describe('buildSceneReplacementPrompt', () => {
     expect(prompt).toContain('无标签、无贴纸、无 Logo、无品牌名、无文字');
     expect(prompt).toContain('只限制本次在 C 层中新生成的背景酒瓶');
     expect(prompt).toContain('原图已有的非背景酒瓶仍按 A 层原样保留');
+    expect(prompt).toContain('新旧场景必须明显不同');
+    expect(prompt).toContain('若目标描述与原场景属于同一类型或视觉过于相似');
+    expect(prompt).toContain('同样符合杯型真实用途、但地点类型');
+    expect(prompt).toContain('仍会认为是同一地点或几乎没有换场景');
   });
 });
