@@ -37,13 +37,13 @@ function statusLabel(status: SceneReplaceTask['status']) {
   return status === 'waiting' ? '排队中' : status === 'running' ? '替换中' : status === 'success' ? '替换成功' : status === 'failed' ? '替换失败' : '已停止';
 }
 
-export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl, connectionMode, onRequestKey, onSessionStateChange, settingsHost, initialPrompt, perImagePromptPrefix, initialPerImagePrompts, onPerImagePromptsChange, automationStartToken, automationRetryFailedToken, automationStopToken, onProgressChange, onResultsChange }: {
+export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl, connectionMode, onRequestKey, onSessionStateChange, settingsHost, initialPrompt, initialSettings, perImagePromptPrefix, initialPerImagePrompts, onPerImagePromptsChange, automationStartToken, automationRetryFailedToken, automationStopToken, onProgressChange, onResultsChange }: {
   apiKey: string; openAiApiKey: string; apiBaseUrl: string | null; connectionMode: 'direct' | 'proxy'; onRequestKey: () => void;
   onSessionStateChange?: (hasContent: boolean) => void; settingsHost?: HTMLElement | null;
-  initialPrompt?: string; perImagePromptPrefix?: string; initialPerImagePrompts?: Record<string, PerImagePromptAssignment>; onPerImagePromptsChange?: (items: Record<string, PerImagePromptAssignment>) => void; automationStartToken?: string; automationRetryFailedToken?: string; automationStopToken?: string; onProgressChange?: (progress: { total: number; completed: number; failed: number; running: boolean }) => void; onResultsChange?: (tasks: SceneReplaceTask[]) => void;
+  initialPrompt?: string; initialSettings?: Partial<SceneReplaceSettings>; perImagePromptPrefix?: string; initialPerImagePrompts?: Record<string, PerImagePromptAssignment>; onPerImagePromptsChange?: (items: Record<string, PerImagePromptAssignment>) => void; automationStartToken?: string; automationRetryFailedToken?: string; automationStopToken?: string; onProgressChange?: (progress: { total: number; completed: number; failed: number; running: boolean }) => void; onResultsChange?: (tasks: SceneReplaceTask[]) => void;
 }) {
   const { message } = AntApp.useApp();
-  const [settings, setSettings] = useState<SceneReplaceSettings>(() => ({ ...DEFAULT_SCENE_REPLACE_SETTINGS, ...readLocalStorage(STORAGE_KEYS.sceneReplaceSettings, {}) }));
+  const [settings, setSettings] = useState<SceneReplaceSettings>(() => ({ ...DEFAULT_SCENE_REPLACE_SETTINGS, ...readLocalStorage(STORAGE_KEYS.sceneReplaceSettings, {}), ...initialSettings }));
   const [capacitySettings, setCapacitySettings] = useState<GeminiCapacitySettings>(() => ({ ...DEFAULT_GEMINI_CAPACITY_SETTINGS, ...getGeminiCapacitySettings() }));
   const [scenes, setScenes] = useState<LogoAsset[]>([]);
   const [prompt, setPrompt] = useState(() => settings.autoRecommendScene ? SCENE_COMMON_CONSTRAINT : SCENE_MANUAL_DEFAULT_PROMPT);
@@ -233,7 +233,9 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
               if (analyzed.failed) { const error = `${analyzed.failed} 张图片提示词分析失败，已停止后续排队分析`; setTasks((current) => [...current, ...createPromptAnalysisFailureTasks(eligible.slice(offset), config, error)]); message.error(error); return; }
             }
             if (batch.some((scene) => !assignments[perImagePromptFileKey(scene.file)]?.prompt.trim())) { const error = '存在未完成的逐图提示词，已停止后续排队分析'; setTasks((current) => [...current, ...createPromptAnalysisFailureTasks(eligible.slice(offset), config, error)]); message.error(error); return; }
-            setTasks((current) => [...current, ...createTasksForScenes(batch, assignments, config)]);
+            const generatedTasks = createTasksForScenes(batch, assignments, config);
+            setTasks((current) => [...current, ...generatedTasks]);
+            generatedTasks.forEach((task) => void execute(task));
           }
         } finally {
           if (promptAnalysisRun.current === runId) setStreamingPromptAnalysis(false);

@@ -21,6 +21,7 @@ describe('per image prompt assignment', () => {
     expect(prompt).toContain('纯桌面构图，无可编辑纵深背景');
     expect(prompt).toContain('禁止新增墙面、酒吧、酒柜、货架、房间');
     expect(prompt).toContain('禁止新增任何背景酒瓶、酒类包装');
+    expect(prompt).toContain('人物完整保留，禁止删除人物后只留下手或手臂');
   });
   it('only includes the full constraint catalog when simplification is enabled', () => {
     expect(buildPerImageAnalysisPrompt('scene-replace', '替换为家庭酒吧主题')).not.toContain('通用强制限制词库');

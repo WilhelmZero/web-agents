@@ -48,6 +48,7 @@ describe('buildSceneReplacementPrompt', () => {
     expect(prompt).toContain('不得在 C 层新生成酒瓶、酒类包装');
     expect(prompt).toContain('不得用背景酒瓶表达主题');
     expect(prompt).toContain('原图已有的非背景酒瓶仍按 A 层原样保留');
+    expect(prompt).toContain('严禁删除背景人物、只留下手或手臂');
     expect(prompt).toContain('新旧场景必须明显不同');
     expect(prompt).toContain('若目标描述与原场景属于同一类型或视觉过于相似');
     expect(prompt).toContain('同样符合杯型真实用途、但地点类型');
