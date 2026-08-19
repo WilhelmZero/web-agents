@@ -643,24 +643,30 @@ function LogoReplaceSingleComposer({
 }
 
 export default function LogoReplaceComposer(props: LogoReplaceComposerProps) {
-  const [multiEnabled, setMultiEnabled] = useState(false);
+  const initialModes = readLocalStorage<LogoReplaceSettings>(STORAGE_KEYS.logoReplaceSettings, DEFAULT_LOGO_REPLACE_SETTINGS as LogoReplaceSettings);
+  const [multiEnabled, setMultiEnabled] = useState(Boolean(initialModes.multiLogoModeEnabled));
+  const [distinctLogoPerOccurrence, setDistinctLogoPerOccurrence] = useState(Boolean(initialModes.distinctLogoPerOccurrence));
   const [singleHasSession, setSingleHasSession] = useState(false);
   const [multiHasSession, setMultiHasSession] = useState(false);
   useEffect(() => props.onSessionStateChange?.(singleHasSession || multiHasSession), [singleHasSession, multiHasSession, props.onSessionStateChange]);
+  useEffect(() => {
+    const stored = readLocalStorage<LogoReplaceSettings>(STORAGE_KEYS.logoReplaceSettings, DEFAULT_LOGO_REPLACE_SETTINGS as LogoReplaceSettings);
+    localStorage.setItem(STORAGE_KEYS.logoReplaceSettings, JSON.stringify({ ...stored, multiLogoModeEnabled: multiEnabled, distinctLogoPerOccurrence }));
+  }, [multiEnabled, distinctLogoPerOccurrence]);
 
   return (
     <div className="logo-replace-integrated">
       <Card className="logo-replace-mode-card" size="small">
         <Flex justify="space-between" align="center" gap={16} wrap>
-          <div><Text strong>单图匹配多 Logo</Text><br /><Text type="secondary">开启后先解析每张场景中的不同 Logo 样式，并为每种样式分配不同的新 Logo。</Text></div>
-          <Switch checked={multiEnabled} onChange={setMultiEnabled} />
+          <div><Text strong>单图匹配多 Logo</Text><br /><Text type="secondary">开启后先解析每张场景中的 Logo 样式和实际位置数量，再按场景独立分配。</Text></div>
+          <Space wrap><Tooltip title="同一种旧 Logo 出现多次时，每个位置尽可能换成不同的新 Logo；新 Logo 不足才重复使用"><Checkbox checked={distinctLogoPerOccurrence} onChange={(event) => { const checked = event.target.checked; setDistinctLogoPerOccurrence(checked); if (checked) setMultiEnabled(true); }}>相同 Logo 多位置随机不同 Logo</Checkbox></Tooltip><Switch checked={multiEnabled} onChange={(checked) => { setMultiEnabled(checked); if (!checked) setDistinctLogoPerOccurrence(false); }} /></Space>
         </Flex>
       </Card>
       <div hidden={multiEnabled}>
         <LogoReplaceSingleComposer {...props} settingsHost={multiEnabled ? null : props.settingsHost} onSessionStateChange={setSingleHasSession} />
       </div>
       <div hidden={!multiEnabled}>
-        <LogoReplaceDevComposer {...props} settingsHost={multiEnabled ? props.settingsHost : null} onSessionStateChange={setMultiHasSession} integrated />
+        <LogoReplaceDevComposer {...props} settingsHost={multiEnabled ? props.settingsHost : null} onSessionStateChange={setMultiHasSession} integrated distinctLogoPerOccurrence={distinctLogoPerOccurrence} />
       </div>
     </div>
   );

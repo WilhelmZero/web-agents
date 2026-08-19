@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { LogoAsset } from '../types';
 import { assignReplacementLogos, buildLogoReplaceTasks, shouldAutoRetryLogoError } from './logoReplaceUtils';
+import { assignMultipleLogos, expandStylesByOccurrence } from './logoReplaceDevUtils';
 
 const file = new File(['x'], 'asset.png', { type: 'image/png' });
 const assets = (prefix: string, count: number): LogoAsset[] => Array.from({ length: count }, (_, index) => ({
@@ -48,5 +49,30 @@ describe('Logo 替换配对', () => {
     expect(shouldAutoRetryLogoError(2, true, 3)).toBe(true);
     expect(shouldAutoRetryLogoError(3, true, 3)).toBe(false);
     expect(shouldAutoRetryLogoError(0, false, 3)).toBe(false);
+  });
+});
+
+describe('相同 Logo 多位置分配', () => {
+  it('先使用全部不同 Logo，不足后才循环补足', () => {
+    const logos = assets('logo', 10);
+    const analyses = { scene: { sceneId: 'scene', status: 'success' as const, styles: [{ id: 'style-1', label: '样式 1', description: '相同字样', carrier: '杯子', occurrences: 12 }] } };
+    const assigned = assignMultipleLogos(['scene'], analyses, logos, 'seed', true).scene;
+    expect(assigned).toHaveLength(12);
+    expect(new Set(assigned.slice(0, 10))).toHaveLength(10);
+    expect(assigned.slice(10).every((id) => logos.some((logo) => logo.id === id))).toBe(true);
+  });
+
+  it('Logo 多于位置时只选择所需数量', () => {
+    const logos = assets('logo', 13);
+    const analyses = { scene: { sceneId: 'scene', status: 'success' as const, styles: [{ id: 'style-1', label: '样式 1', description: '相同字样', carrier: '杯子', occurrences: 12 }] } };
+    const assigned = assignMultipleLogos(['scene'], analyses, logos, 'seed', true).scene;
+    expect(assigned).toHaveLength(12);
+    expect(new Set(assigned)).toHaveLength(12);
+  });
+
+  it('为同样式的每个位置生成独立映射', () => {
+    const expanded = expandStylesByOccurrence([{ id: 'style-1', label: '样式 1', description: '相同字样', carrier: '杯子', occurrences: 3 }], true);
+    expect(expanded.map((item) => item.id)).toEqual(['style-1-occurrence-1', 'style-1-occurrence-2', 'style-1-occurrence-3']);
+    expect(expanded.every((item) => item.occurrences === 1)).toBe(true);
   });
 });

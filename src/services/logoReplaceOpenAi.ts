@@ -87,9 +87,11 @@ export function generateLogoReplacementOpenAi(options: { apiKey: string; model: 
   return editImages({ ...options, images, prompt: `${order}\n${options.prompt}` });
 }
 
-export function generateMultiLogoReplacementOpenAi(options: { apiKey: string; model: 'gpt-image-2'; scene: File; logos: File[]; styles: SceneLogoStyle[]; instruction: string; signal?: AbortSignal }) {
+export function generateMultiLogoReplacementOpenAi(options: { apiKey: string; model: 'gpt-image-2'; scene: File; logos: File[]; styles: SceneLogoStyle[]; instruction: string; distinctPerOccurrence?: boolean; signal?: AbortSignal }) {
   const mapping = options.styles.map((style, index) => `${style.label}的全部 ${style.occurrences} 个位置替换为第 ${index + 2} 张图的新 Logo`).join('；');
-  return editImages({ ...options, images: [options.scene, ...options.logos], prompt: `第一张图是必须保持不变的原始场景，后续图片是不同的新 Logo。映射：${mapping}。同一样式所有位置必须使用同一个对应 Logo，不得混用、遗漏或新增。只修改旧 Logo 原本占据的区域，其他区域逐像素保持不变。杯子在盒内的平放、侧放、倾斜、内衬承托、位置及遮挡完全不变，严禁立起、悬浮、移动或旋转。旧 Logo 被手遮挡时，新 Logo 必须仍在手后方，严禁贴到手或皮肤上。盒子、盒盖、盒内、内衬、锁扣和铰链原本没有旧 Logo 的位置绝对禁止新增 Logo。新 Logo 必须贴合载体曲率、透视、反射、折射和原有印刷或雕刻工艺，不得直接平面覆盖。${options.instruction}` });
+  const distinctPerOccurrence = options.distinctPerOccurrence ?? options.styles.some((style) => style.id.includes('-occurrence-'));
+  const mappingRule = distinctPerOccurrence ? '相同旧 Logo 的不同位置已分别编号；每个编号只处理对应的一个位置并使用各自映射的新 Logo，禁止把一个新 Logo 复制到其他编号位置。' : '同一样式所有位置必须使用同一个对应 Logo。';
+  return editImages({ ...options, images: [options.scene, ...options.logos], prompt: `第一张图是必须保持不变的原始场景，后续图片是按映射分配的新 Logo。映射：${mapping}。${mappingRule}不得混用、遗漏或新增。只修改旧 Logo 原本占据的区域，其他区域逐像素保持不变。杯子在盒内的平放、侧放、倾斜、内衬承托、位置及遮挡完全不变，严禁立起、悬浮、移动或旋转。旧 Logo 被手遮挡时，新 Logo 必须仍在手后方，严禁贴到手或皮肤上。盒子、盒盖、盒内、内衬、锁扣和铰链原本没有旧 Logo 的位置绝对禁止新增 Logo。新 Logo 必须贴合载体曲率、透视、反射、折射和原有印刷或雕刻工艺，不得直接平面覆盖。${options.instruction}` });
 }
 
 const verificationSchema = { type: 'object', additionalProperties: false, properties: { passed: { type: 'boolean' }, referenceText: { type: 'string' }, generatedText: { type: 'string' }, differences: { type: 'array', items: { type: 'string' } }, graphicConsistent: { type: 'boolean' }, materialIntegrated: { type: 'boolean' }, placementConsistent: { type: 'boolean' }, originalLogoRemoved: { type: 'boolean' }, flatOverlayDetected: { type: 'boolean' }, summary: { type: 'string' } }, required: ['passed', 'referenceText', 'generatedText', 'differences', 'graphicConsistent', 'materialIntegrated', 'placementConsistent', 'originalLogoRemoved', 'flatOverlayDetected', 'summary'] };

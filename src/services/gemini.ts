@@ -551,6 +551,7 @@ export async function generateMultiLogoReplacement(options: {
   logos: File[];
   styles: SceneLogoStyle[];
   instruction: string;
+  distinctPerOccurrence?: boolean;
   aspectRatio?: string;
   imageSize: ImageSize;
   signal?: AbortSignal;
@@ -558,8 +559,10 @@ export async function generateMultiLogoReplacement(options: {
 }): Promise<GeneratedImage> {
   const [sceneData, ...logoData] = await Promise.all([fileToBase64(options.scene), ...options.logos.map(fileToBase64)]);
   const mapping = options.styles.map((style, index) => `原场景${style.label}（特征：${style.description}；载体：${style.carrier}；共 ${style.occurrences} 个位置）必须全部替换为第 ${index + 2} 张图片的新 Logo`).join('；');
+  const distinctPerOccurrence = options.distinctPerOccurrence ?? options.styles.some((style) => style.id.includes('-occurrence-'));
+  const mappingRule = distinctPerOccurrence ? '相同旧 Logo 的不同出现位置已分别编号，每个编号只替换对应的一个位置并使用各自映射的新 Logo，禁止把其中一个新 Logo 批量复制到其他编号位置。' : '同一样式的所有位置必须使用映射到的同一个新 Logo，不同样式必须使用各自不同的新 Logo。';
   const parts: GeminiPart[] = [
-    { text: `执行多样式 Logo 一对一替换。第一张图是必须保持不变的原场景。后续每张图分别是不同的新 Logo，禁止混用。映射关系：${mapping}。同一样式的所有位置必须使用映射到的同一个新 Logo，不同样式必须使用各自不同的新 Logo；不得遗漏、串换或在无 Logo 处新增。只允许修改每个旧 Logo 原本占据的区域，其他区域逐像素保持原图不变。杯子在盒内的平放、侧放、倾斜、内衬承托、位置和遮挡必须完全不变，严禁杯子立起、悬浮、移动或旋转。旧 Logo 若被手或手指遮挡，新 Logo 必须保持在手后方，严禁贴到手、皮肤或前景遮挡物上。盒子外侧、盒盖、盒内、内衬、锁扣、铰链等原本没有旧 Logo 的位置绝对禁止新增 Logo。必须先清除每处旧 Logo，再按该位置原有载体、曲率、透视、雕刻/印刷工艺、反射、折射、纹理、光线、景深和颗粒自然重建新 Logo，严禁平面贴图、水印或直接覆盖。除 Logo 区域外不得改变场景任何内容。${options.instruction}` },
+    { text: `执行多样式 Logo 一对一替换。第一张图是必须保持不变的原场景。后续图片是按映射分配的新 Logo。映射关系：${mapping}。${mappingRule}不得遗漏、串换或在无 Logo 处新增。只允许修改每个旧 Logo 原本占据的区域，其他区域逐像素保持原图不变。杯子在盒内的平放、侧放、倾斜、内衬承托、位置和遮挡必须完全不变，严禁杯子立起、悬浮、移动或旋转。旧 Logo 若被手或手指遮挡，新 Logo 必须保持在手后方，严禁贴到手、皮肤或前景遮挡物上。盒子外侧、盒盖、盒内、内衬、锁扣、铰链等原本没有旧 Logo 的位置绝对禁止新增 Logo。必须先清除每处旧 Logo，再按该位置原有载体、曲率、透视、雕刻/印刷工艺、反射、折射、纹理、光线、景深和颗粒自然重建新 Logo，严禁平面贴图、水印或直接覆盖。除 Logo 区域外不得改变场景任何内容。${options.instruction}` },
     { inlineData: { mimeType: options.scene.type, data: sceneData } },
     ...options.logos.map((logo, index) => ({ inlineData: { mimeType: logo.type, data: logoData[index] } })),
   ];

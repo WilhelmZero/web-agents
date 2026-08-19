@@ -164,6 +164,8 @@ export interface LogoSettings {
 }
 
 export interface LogoReplaceSettings {
+  multiLogoModeEnabled: boolean;
+  distinctLogoPerOccurrence: boolean;
   perImagePromptEnabled: boolean;
   autoGenerateAfterPromptAnalysis: boolean;
   useOldLogoReference: boolean;

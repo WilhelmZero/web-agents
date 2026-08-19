@@ -51,6 +51,8 @@ export const DEFAULT_LOGO_SETTINGS = {
 } as const;
 
 export const DEFAULT_LOGO_REPLACE_SETTINGS = {
+  multiLogoModeEnabled: false,
+  distinctLogoPerOccurrence: false,
   perImagePromptEnabled: false,
   autoGenerateAfterPromptAnalysis: false,
   useOldLogoReference: false,
