@@ -57,4 +57,9 @@ describe('buildSceneReplacementPrompt', () => {
     expect(prompt).toContain('严禁在画面上方或远处凭空建立墙面、酒吧、酒柜');
     expect(prompt).toContain('不适用“必须换成完整不同地点”的要求');
   });
+  it('uses only image-specific constraints when prompt simplification is enabled', () => {
+    const prompt = buildSceneReplacementPrompt('改为海滨主题', '保持杯子位置和杯身 Logo；保持原景深');
+    expect(prompt).toContain('改为海滨主题'); expect(prompt).toContain('保持杯子位置和杯身 Logo');
+    expect(prompt).not.toContain('多小图必须逐格'); expect(prompt).not.toContain('木盒位置最高优先级锁定');
+  });
 });

@@ -30,7 +30,8 @@ export function usePerImagePrompts(options: { tool: PerImagePromptTool; files: F
 }
 
 export function PerImagePromptEditor({ file, assignment, sourcePrompt, onEdit, onAnalyze }: { file: File; assignment?: PerImagePromptAssignment; sourcePrompt: string; onEdit: (value: string) => void; onAnalyze: () => void }) {
-  const stale = assignmentNeedsAnalysis(assignment, sourcePrompt);
+  const simplifiedSource = `${sourcePrompt.trim()}\n[逐图分析需同时精简通用强制限制]`;
+  const stale = assignmentNeedsAnalysis(assignment, sourcePrompt) && !(assignment?.status === 'ready' && assignment.sourcePrompt === simplifiedSource);
   const status = assignment?.status === 'analyzing' ? '分析中' : assignment?.status === 'failed' ? '失败' : stale ? '待分析' : '已分配';
   const color = assignment?.status === 'failed' ? 'error' : assignment?.status === 'analyzing' ? 'processing' : stale ? 'default' : 'success';
   return <div className="per-image-prompt-editor"><Flex justify="space-between" align="center" gap={8}><Space size={6}><Text strong>本图提示词</Text><Tag color={color}>{status}</Tag></Space><Button size="small" icon={<ReloadOutlined />} loading={assignment?.status === 'analyzing'} onClick={onAnalyze}>重新分析</Button></Flex>{assignment?.summary && <Text type="secondary">{assignment.summary}</Text>}{assignment?.applicableConditions?.length ? <Flex gap={4} wrap>{assignment.applicableConditions.map((item) => <Tag key={item}>{item}</Tag>)}</Flex> : null}<Input.TextArea rows={3} value={assignment?.prompt || ''} placeholder="分析后生成该图片专用提示词" onChange={(event) => onEdit(event.target.value)} status={assignment?.status === 'failed' ? 'error' : undefined} />{assignment?.error && <Text type="danger">{assignment.error}</Text>}</div>;

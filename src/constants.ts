@@ -101,6 +101,8 @@ export const DEFAULT_OBJECT_REPLACE_SETTINGS = {
 export const DEFAULT_SCENE_REPLACE_SETTINGS = {
   perImagePromptEnabled: false,
   autoGenerateAfterPromptAnalysis: false,
+  simplifyPromptConstraints: false,
+  detectInsufficientSceneChange: true,
   autoSkipWhiteBackground: true,
   autoRecommendScene: false,
   sceneRecommendationProvider: 'gemini',

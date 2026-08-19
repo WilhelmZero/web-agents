@@ -18,6 +18,7 @@ import { BUILT_IN_SCENE_REPLACE_PRESETS, normalizeCustomScenePresets, SCENE_PRES
 import { recommendSceneTheme, SCENE_COMMON_CONSTRAINT, SCENE_MANUAL_DEFAULT_PROMPT } from './services/sceneThemeRecommendation';
 import { detectWhiteBackground } from './services/whiteBackgroundDetection';
 import { buildSceneReplacementPrompt } from './services/sceneReplacementPrompt';
+import { detectImageChange, isInsufficientImageChange } from './services/imageChangeDetection';
 import { PerImagePromptEditor, usePerImagePrompts } from './usePerImagePrompts';
 import { perImagePromptFileKey } from './services/perImagePrompt';
 
@@ -45,7 +46,7 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
   const [prompt, setPrompt] = useState(() => settings.autoRecommendScene ? SCENE_COMMON_CONSTRAINT : SCENE_MANUAL_DEFAULT_PROMPT);
   const [whiteBackgroundSceneIds, setWhiteBackgroundSceneIds] = useState<string[]>([]);
   const [detectingWhiteSceneIds, setDetectingWhiteSceneIds] = useState<string[]>([]);
-  const perImagePromptSource = settings.autoRecommendScene ? prompt.trim() : prompt.trim();
+  const perImagePromptSource = `${prompt.trim()}${settings.simplifyPromptConstraints ? '\n[逐图分析需同时精简通用强制限制]' : ''}`;
   const promptReviewScenes = settings.autoSkipWhiteBackground ? scenes.filter((scene) => !whiteBackgroundSceneIds.includes(scene.id) && !detectingWhiteSceneIds.includes(scene.id)) : scenes;
   const perImagePrompts = usePerImagePrompts({ tool: 'scene-replace', files: promptReviewScenes.map((scene) => scene.file), sourcePrompt: perImagePromptSource, initial: initialPerImagePrompts, onChange: onPerImagePromptsChange, config: { provider: settings.sceneRecommendationProvider, apiKey: settings.sceneRecommendationProvider === 'openai' ? openAiApiKey : apiKey, apiBaseUrl, geminiModel: settings.sceneRecommendationModel, openAiModel: settings.openAiSceneRecommendationModel, concurrency: Math.min(8, settings.concurrency), autoRetryErrors: settings.autoRetryErrors, errorRetryLimit: settings.errorRetryLimit, errorRetryDelaySeconds: settings.errorRetryDelaySeconds } });
   const [sceneThemes, setSceneThemes] = useState<Record<string, string>>({});
@@ -142,12 +143,17 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
       const resultBlob = isOpenAiModel(config.imageModel)
         ? await editPaperTextOpenAi({ apiKey: openAiApiKey, model: config.imageModel, image: scene.file, prompt: task.prompt, quality: config.imageQuality, signal: controller.signal })
         : (await generateSceneReplacementImage({ apiKey, apiBaseUrl, signal: controller.signal, model: config.imageModel as ImageModel, prompt: task.prompt, image: scene.file, aspectRatio: config.ratioMode === 'fixed' ? config.aspectRatio : undefined, imageSize: config.imageSize })).blob;
+      if (config.detectInsufficientSceneChange) {
+        const change = await detectImageChange(scene.file, resultBlob);
+        if (isInsufficientImageChange(change.changedRatio)) throw new Error(`场景变化检测未通过：仅 ${(change.changedRatio * 100).toFixed(1)}% 像素发生明显变化，不超过 20%`);
+      }
       const resultUrl = URL.createObjectURL(resultBlob);
       setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status: 'success', resultBlob, resultUrl, resultMimeType: resultBlob.type || 'image/png', outpaintStatus: 'idle' } : item));
       if (config.autoOutpaint) await outpaintTask(task.id, resultBlob, controller.signal);
     } catch (error) {
       const stopped = controller.signal.aborted; const config = settingsRef.current; const detail = error instanceof Error ? error.message : '场景替换失败';
-      if (!stopped && config.autoRetryErrors && task.retryCount < config.errorRetryLimit) {
+      const insufficientChange = detail.startsWith('场景变化检测未通过');
+      if (!stopped && (config.autoRetryErrors || insufficientChange) && task.retryCount < config.errorRetryLimit) {
         const delayMs = Math.max(1, config.errorRetryDelaySeconds) * 1000; const nextRetryAt = Date.now() + delayMs;
         setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status: 'waiting', error: `${detail}；将在 ${config.errorRetryDelaySeconds} 秒后自动重试`, retryCount: item.retryCount + 1, nextRetryAt } : item));
         const timer = window.setTimeout(() => { retryTimers.current.delete(task.id); setTasks((current) => current.map((item) => item.id === task.id && !item.autoRetryStopped ? { ...item, nextRetryAt: undefined, error: undefined } : item)); }, delayMs);
@@ -162,7 +168,8 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
     const assigned = assignments[perImagePromptFileKey(scene.file)]?.prompt.trim();
     const assignedWithRequiredTheme = [perImagePromptPrefix?.trim(), assigned].filter(Boolean).join('；');
     const targetPrompt = config.perImagePromptEnabled ? assignedWithRequiredTheme : config.autoRecommendScene ? `${sceneThemes[scene.id]}，${prompt.trim()}` : prompt.trim();
-    return Array.from({ length: config.copiesPerScene }, (_, copyIndex) => ({ id: createId(), sceneId: scene.id, sceneIndex, copyIndex, status: 'waiting' as const, prompt: buildSceneReplacementPrompt(targetPrompt), retryCount: 0 }));
+    const relevantConstraints = config.simplifyPromptConstraints && config.perImagePromptEnabled ? assignments[perImagePromptFileKey(scene.file)]?.constraints : undefined;
+    return Array.from({ length: config.copiesPerScene }, (_, copyIndex) => ({ id: createId(), sceneId: scene.id, sceneIndex, copyIndex, status: 'waiting' as const, prompt: buildSceneReplacementPrompt(targetPrompt, relevantConstraints), retryCount: 0 }));
   });
   const createPromptAnalysisFailureTasks = (items: LogoAsset[], config: SceneReplaceSettings, error: string): SceneReplaceTask[] => items.flatMap((scene) => {
     const sceneIndex = scenes.findIndex((item) => item.id === scene.id);
@@ -292,6 +299,8 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
   const eligibleSceneCount = settings.autoSkipWhiteBackground ? scenes.length - whiteBackgroundSceneIds.length : scenes.length;
   const panel = <div className="settings-panel scene-replace-settings-panel"><Flex justify="space-between"><Title level={4} style={{ margin: 0 }}>场景替换设置</Title><Tag color="cyan">SCENE</Tag></Flex><Form layout="vertical" style={{ marginTop: 20 }}>
     <Form.Item label="逐图分配提示词"><Flex justify="space-between" align="center"><Text>生成前分析每张图并精简适用条件</Text><Switch checked={settings.perImagePromptEnabled} onChange={(perImagePromptEnabled) => patch({ perImagePromptEnabled })} /></Flex>{settings.perImagePromptEnabled && <Flex justify="space-between" align="center" style={{ marginTop: 10 }}><Text>分析完成后自动生成</Text><Switch checked={settings.autoGenerateAfterPromptAnalysis} onChange={(autoGenerateAfterPromptAnalysis) => patch({ autoGenerateAfterPromptAnalysis })} /></Flex>}</Form.Item>
+    <Form.Item label="提示词简化"><Flex justify="space-between" align="center"><Text>逐图删除木盒、多小图等无关通用限制</Text><Switch checked={settings.simplifyPromptConstraints} disabled={!settings.perImagePromptEnabled} onChange={(simplifyPromptConstraints) => patch({ simplifyPromptConstraints })} /></Flex></Form.Item>
+    <Form.Item label="生成图变化检测"><Flex justify="space-between" align="center"><Text>变化不足 20% 时自动重新生成</Text><Switch checked={settings.detectInsufficientSceneChange} onChange={(detectInsufficientSceneChange) => patch({ detectInsufficientSceneChange })} /></Flex></Form.Item>
     <Form.Item label="自动跳过白底图"><Flex justify="space-between" align="center"><Text>本地算法识别白底商品图，灰显且不参与生成</Text><Switch checked={settings.autoSkipWhiteBackground} onChange={(autoSkipWhiteBackground) => { patch({ autoSkipWhiteBackground }); if (autoSkipWhiteBackground) void scanWhiteBackgrounds(scenes.filter((scene) => !whiteBackgroundSceneIds.includes(scene.id))); }} /></Flex></Form.Item>
     <Form.Item label="上传后自动推荐场景"><Flex justify="space-between" align="center"><Text>扫描杯子、人物和构图，生成非节日场景主题</Text><Switch checked={settings.autoRecommendScene} onChange={(autoRecommendScene) => { patch({ autoRecommendScene }); setPrompt((current) => { const trimmed = current.trim(); if (!trimmed || trimmed === SCENE_COMMON_CONSTRAINT || trimmed === SCENE_MANUAL_DEFAULT_PROMPT) return autoRecommendScene ? SCENE_COMMON_CONSTRAINT : SCENE_MANUAL_DEFAULT_PROMPT; return current; }); if (autoRecommendScene) void recommendThemes(scenes); }} /></Flex>{settings.autoRecommendScene && <Space.Compact style={{ width: '100%', marginTop: 10 }}><Select value={settings.sceneRecommendationProvider} onChange={(sceneRecommendationProvider) => patch({ sceneRecommendationProvider })} options={[{ value: 'gemini', label: 'Gemini' }, { value: 'openai', label: 'GPT' }]} />{settings.sceneRecommendationProvider === 'openai' ? <Select value={settings.openAiSceneRecommendationModel} onChange={(openAiSceneRecommendationModel) => patch({ openAiSceneRecommendationModel })} options={[{ value: 'gpt-5.6-terra', label: 'GPT-5.6 Terra' }, { value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' }, { value: 'gpt-5.6-luna', label: 'GPT-5.6 Luna' }]} /> : <Select value={settings.sceneRecommendationModel} onChange={(sceneRecommendationModel) => patch({ sceneRecommendationModel })} options={[{ value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite' }, { value: 'gemini-3.1-flash', label: 'Gemini 3.1 Flash' }, { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' }]} />}</Space.Compact>}</Form.Item>
     <Form.Item label="场景替换图片模型"><Select value={settings.imageModel} onChange={(imageModel) => patch({ imageModel })} options={MODEL_OPTIONS} /></Form.Item>

@@ -3,13 +3,13 @@ import { analyzePerImagePromptWithRetry, assignmentNeedsAnalysis, buildPerImageA
 
 describe('per image prompt assignment', () => {
   it('parses fenced JSON without relying on additional properties', () => {
-    expect(parsePerImagePromptResult('```json\n{"summary":"木盒和杯子","applicableConditions":["木盒雕刻"],"prompt":"仅替换杯身原 Logo"}\n```')).toEqual({ summary: '木盒和杯子', applicableConditions: ['木盒雕刻'], prompt: '仅替换杯身原 Logo' });
+    expect(parsePerImagePromptResult('```json\n{"summary":"木盒和杯子","applicableConditions":["木盒雕刻"],"prompt":"仅替换杯身原 Logo"}\n```')).toEqual({ summary: '木盒和杯子', applicableConditions: ['木盒雕刻'], prompt: '仅替换杯身原 Logo', constraints: '' });
   });
   it('invalidates assignments when the public prompt changes', () => {
     expect(assignmentNeedsAnalysis({ fileKey: 'a', tool: 'scene-replace', summary: 'a', applicableConditions: [], prompt: 'x', sourcePrompt: 'old', status: 'ready', updatedAt: 1 }, 'new')).toBe(true);
   });
   it('keeps mandatory rules outside the language model allocation prompt', () => {
-    expect(buildPerImageAnalysisPrompt('logo-replace', '木盒用深色雕刻，玻璃用白色')).toContain('系统会在后面统一追加');
+    expect(buildPerImageAnalysisPrompt('logo-replace', '木盒用深色雕刻，玻璃用白色')).toContain('constraints 返回空字符串');
   });
   it('delegates automatic prompt analysis to worker tabs', () => {
     expect(shouldAnalyzePerImagePromptsInController(true, true)).toBe(false);
@@ -17,10 +17,14 @@ describe('per image prompt assignment', () => {
     expect(shouldAnalyzePerImagePromptsInController(false, false)).toBe(false);
   });
   it('forces scene analysis to classify table-only compositions and forbid generated bottles', () => {
-    const prompt = buildPerImageAnalysisPrompt('scene-replace', '替换为家庭酒吧主题');
+    const prompt = buildPerImageAnalysisPrompt('scene-replace', '替换为家庭酒吧主题\n[逐图分析需同时精简通用强制限制]');
     expect(prompt).toContain('纯桌面构图，无可编辑纵深背景');
     expect(prompt).toContain('禁止新增墙面、酒吧、酒柜、货架、房间');
     expect(prompt).toContain('禁止新增任何背景酒瓶、酒类包装');
+  });
+  it('only includes the full constraint catalog when simplification is enabled', () => {
+    expect(buildPerImageAnalysisPrompt('scene-replace', '替换为家庭酒吧主题')).not.toContain('通用强制限制词库');
+    expect(buildPerImageAnalysisPrompt('scene-replace', '替换为家庭酒吧主题\n[逐图分析需同时精简通用强制限制]')).toContain('没有木盒/礼盒就删除全部盒子规则');
   });
   it('retries prompt analysis with the configured image retry policy', async () => {
     let attempts = 0; const waits: number[] = [];

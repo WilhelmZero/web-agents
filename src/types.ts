@@ -238,6 +238,8 @@ export interface ObjectReplaceTask {
 export interface SceneReplaceSettings {
   perImagePromptEnabled: boolean;
   autoGenerateAfterPromptAnalysis: boolean;
+  simplifyPromptConstraints: boolean;
+  detectInsufficientSceneChange: boolean;
   autoSkipWhiteBackground: boolean;
   autoRecommendScene: boolean;
   sceneRecommendationProvider: 'gemini' | 'openai';
@@ -274,6 +276,7 @@ export interface PerImagePromptAssignment {
   summary: string;
   applicableConditions: string[];
   prompt: string;
+  constraints?: string;
   sourcePrompt: string;
   status: PerImagePromptStatus;
   updatedAt: number;
