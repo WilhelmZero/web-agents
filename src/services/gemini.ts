@@ -2,6 +2,7 @@ import type { GeneratedImage, GlassLogoEtchOptions, ImageModel, ImageSize, LogoV
 import { fileToBase64 } from '../utils';
 import { startRequestConsoleEntry, summarizeGeminiRequest, updateRequestConsoleEntry } from './requestConsole';
 import { normalizePaperTextRegions, type PaperTextRegion, type PaperTextVerification } from './paperText';
+import { geminiCapacityWaitMs, getGeminiCapacitySettings, isGeminiCapacityError, registerGeminiCapacityFailure, registerGeminiCapacitySuccess } from './geminiCapacity';
 
 const GOOGLE_API_ROOT = 'https://generativelanguage.googleapis.com/v1beta';
 
@@ -120,8 +121,14 @@ async function postGemini(
     return { prompt: prompts.join('\n\n').trim(), images };
   })();
   const consoleId = startRequestConsoleEntry({ model, connection: apiBaseUrl ? 'proxy' : 'direct', requestSummary: summarizeGeminiRequest(body), requestPrompt: debugParts.prompt, inputImages: debugParts.images });
-  for (let attempt = 0; attempt <= MAX_TRANSIENT_RETRIES; attempt += 1) {
+  const maximumAttempts = Math.max(MAX_TRANSIENT_RETRIES, getGeminiCapacitySettings().enabled ? getGeminiCapacitySettings().retryLimit : 0);
+  for (let attempt = 0; attempt <= maximumAttempts; attempt += 1) {
     try {
+      const sharedWait = geminiCapacityWaitMs();
+      if (sharedWait > 0) {
+        updateRequestConsoleEntry(consoleId, { status: 'retrying', attempt: attempt + 1, message: `Gemini 容量保护已触发，所有标签共享等待 ${Math.ceil(sharedWait / 1000)} 秒` });
+        await waitForRetry(sharedWait, signal);
+      }
       updateRequestConsoleEntry(consoleId, { status: 'running', attempt: attempt + 1, message: attempt ? '正在进行第 ' + (attempt + 1) + ' 次请求' : '请求已发送' });
       const response = await fetch(url, {
         method: 'POST',
@@ -134,21 +141,24 @@ async function postGemini(
       });
       const data = (await response.json().catch(() => ({}))) as GeminiResponse;
       if (response.ok && !data.error) {
+        registerGeminiCapacitySuccess();
         const imageParts = data.candidates?.flatMap((candidate) => candidate.content?.parts ?? []).filter((part) => part.inlineData?.data) ?? [];
         const outputImages = imageParts.slice(0, 4).map((part) => new Blob([Uint8Array.from(atob(part.inlineData!.data), (char) => char.charCodeAt(0))], { type: part.inlineData!.mimeType || 'image/png' }));
         updateRequestConsoleEntry(consoleId, { status: 'success', httpStatus: response.status, durationMs: Math.round(performance.now() - requestStartedAt), resultSummary: (imageParts.length ? imageParts.length + ' 张图片' : '响应成功') + (data.usageMetadata?.totalTokenCount ? ' · ' + data.usageMetadata.totalTokenCount + ' tokens' : ''), message: 'Gemini 请求完成', outputImages });
         return data;
       }
+      const capacityError = isGeminiCapacityError(response.status, data.error?.message);
       const retryable = isRetryableGeminiStatus(response.status);
-      const retryLimit = response.status === 524 ? 1 : MAX_TRANSIENT_RETRIES;
+      const retryLimit = response.status === 524 ? 1 : capacityError && getGeminiCapacitySettings().enabled ? getGeminiCapacitySettings().retryLimit : MAX_TRANSIENT_RETRIES;
       if (!retryable || attempt >= retryLimit) {
         const error = friendlyError(response.status, data);
         if (retryable) error.message += `；已自动重试 ${retryLimit} 次，建议稍后再试、降低并发或临时切换模型`;
         updateRequestConsoleEntry(consoleId, { status: 'failed', httpStatus: response.status, durationMs: Math.round(performance.now() - requestStartedAt), message: error.message });
         throw error;
       }
-      updateRequestConsoleEntry(consoleId, { status: 'retrying', httpStatus: response.status, attempt: attempt + 1, message: 'HTTP ' + response.status + '，等待自动重试' });
-      await waitForRetry(retryDelay(attempt, response.headers.get('Retry-After')), signal);
+      const delay = capacityError ? registerGeminiCapacityFailure() : retryDelay(attempt, response.headers.get('Retry-After'));
+      updateRequestConsoleEntry(consoleId, { status: 'retrying', httpStatus: response.status, attempt: attempt + 1, message: capacityError ? `Gemini 容量不足，已暂停所有标签 ${Math.ceil(delay / 1000)} 秒` : 'HTTP ' + response.status + '，等待自动重试' });
+      await waitForRetry(delay, signal);
     } catch (error) {
       if (signal?.aborted || (error instanceof DOMException && error.name === 'AbortError')) { updateRequestConsoleEntry(consoleId, { status: 'stopped', durationMs: Math.round(performance.now() - requestStartedAt), message: '用户中止请求' }); throw error; }
       if (error instanceof Error && !error.message.startsWith('Failed to fetch') && !(error instanceof TypeError)) throw error;

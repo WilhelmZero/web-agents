@@ -99,6 +99,7 @@ export const DEFAULT_OBJECT_REPLACE_SETTINGS = {
   preservation: { print: false, logo: false, engraving: false, liquid: false, foam: false, custom: [] },
 } as const;
 export const DEFAULT_SCENE_REPLACE_SETTINGS = {
+  executionMode: 'realtime',
   perImagePromptEnabled: false,
   autoGenerateAfterPromptAnalysis: false,
   simplifyPromptConstraints: false,

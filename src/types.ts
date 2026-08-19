@@ -236,6 +236,7 @@ export interface ObjectReplaceTask {
 }
 
 export interface SceneReplaceSettings {
+  executionMode: 'realtime' | 'batch';
   perImagePromptEnabled: boolean;
   autoGenerateAfterPromptAnalysis: boolean;
   simplifyPromptConstraints: boolean;
