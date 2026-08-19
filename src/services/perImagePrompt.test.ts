@@ -16,4 +16,10 @@ describe('per image prompt assignment', () => {
     expect(shouldAnalyzePerImagePromptsInController(true, false)).toBe(true);
     expect(shouldAnalyzePerImagePromptsInController(false, false)).toBe(false);
   });
+  it('forces scene analysis to classify table-only compositions and forbid generated bottles', () => {
+    const prompt = buildPerImageAnalysisPrompt('scene-replace', '替换为家庭酒吧主题');
+    expect(prompt).toContain('纯桌面构图，无可编辑纵深背景');
+    expect(prompt).toContain('禁止新增墙面、酒吧、酒柜、货架、房间');
+    expect(prompt).toContain('禁止新增任何背景酒瓶、酒类包装');
+  });
 });
