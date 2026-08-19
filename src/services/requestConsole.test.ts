@@ -17,7 +17,7 @@ describe('request console', () => {
     startRequestConsoleEntry({ model: 'gpt-image-2', connection: 'direct', requestSummary: 'scene edit', requestPrompt: '  replace the background  ', inputImages: Array.from({ length: 6 }, () => new Blob(['x'], { type: 'image/png' })) });
     unsubscribe();
     expect(latest[0].requestPrompt).toBe('replace the background');
-    expect(latest[0].inputImages).toHaveLength(4);
+    expect(latest[0].inputImages).toHaveLength(2);
   });
 
   it('publishes request status updates', () => {
@@ -36,8 +36,8 @@ describe('request console', () => {
     }
     let latest: RequestConsoleEntry[] = [];
     const unsubscribe = subscribeRequestConsole((items) => { latest = items; });
-    expect(latest.reduce((total, entry) => total + (entry.outputImages?.length || 0), 0)).toBe(24);
-    expect(latest.every((entry) => (entry.outputImages?.length || 0) <= 4)).toBe(true);
+    expect(latest.reduce((total, entry) => total + (entry.outputImages?.length || 0), 0)).toBe(8);
+    expect(latest.every((entry) => (entry.outputImages?.length || 0) <= 2)).toBe(true);
     unsubscribe();
   });
 

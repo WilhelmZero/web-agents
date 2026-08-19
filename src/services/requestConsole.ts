@@ -20,9 +20,9 @@ export interface RequestConsoleEntry {
 
 const entries: RequestConsoleEntry[] = [];
 const listeners = new Set<(items: RequestConsoleEntry[]) => void>();
-const MAX_OUTPUT_IMAGES = 24;
-const MAX_INPUT_IMAGES = 24;
-const MAX_IMAGES_PER_ENTRY = 4;
+const MAX_OUTPUT_IMAGES = 8;
+const MAX_INPUT_IMAGES = 8;
+const MAX_IMAGES_PER_ENTRY = 2;
 
 function snapshot() {
   return [...entries].sort((a, b) => b.startedAt - a.startedAt);
@@ -68,7 +68,7 @@ export function startRequestConsoleEntry(input: Pick<RequestConsoleEntry, 'model
     attempt: 1,
   };
   entries.unshift(entry);
-  if (entries.length > 200) entries.length = 200;
+  if (entries.length > 60) entries.length = 60;
   trimRetainedImages('inputImages', MAX_INPUT_IMAGES);
   notify();
   return entry.id;

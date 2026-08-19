@@ -16,6 +16,7 @@ import { readLocalStorage } from './storage';
 import { PerImagePromptEditor, usePerImagePrompts } from './usePerImagePrompts';
 import { perImagePromptFileKey, shouldAnalyzePerImagePromptsInController } from './services/perImagePrompt';
 import { batchCostMetrics, formatBatchDateTime, percentage } from './services/batchExecutionMetrics';
+import { putMultiTabResult, readMultiTabGroupResults } from './services/multiTabResultStore';
 
 const { Title, Text, Paragraph } = Typography;
 const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
@@ -31,8 +32,8 @@ interface WorkerProgress extends LogoReplaceProgressSnapshot { groupId: string; 
 export function FileThumbnail({ file, onRemove }: { file: File; onRemove?: () => void }) {
   const [previewUrl, setPreviewUrl] = useState('');
   useEffect(() => { const next = URL.createObjectURL(file); setPreviewUrl(next); return () => URL.revokeObjectURL(next); }, [file]);
-  if (!onRemove) return previewUrl ? <Image src={previewUrl} alt={file.name} width={42} height={42} style={{ objectFit: 'cover', borderRadius: 5 }} /> : null;
-  return <div className="batch-asset-card">{previewUrl ? <Image src={previewUrl} alt={file.name} /> : <div className="batch-asset-placeholder"><FileImageOutlined /></div>}<Text ellipsis={{ tooltip: file.name }}>{file.name}</Text>{onRemove && <Popconfirm title="从当前批次移除这张图片？" description="不会删除电脑中的原文件。" onConfirm={onRemove}><Button danger type="text" size="small" icon={<DeleteOutlined />}>移除</Button></Popconfirm>}</div>;
+  if (!onRemove) return previewUrl ? <Image loading="lazy" preview={false} src={previewUrl} alt={file.name} width={42} height={42} style={{ objectFit: 'cover', borderRadius: 5 }} /> : null;
+  return <div className="batch-asset-card">{previewUrl ? <Image loading="lazy" src={previewUrl} alt={file.name} /> : <div className="batch-asset-placeholder"><FileImageOutlined /></div>}<Text ellipsis={{ tooltip: file.name }}>{file.name}</Text>{onRemove && <Popconfirm title="从当前批次移除这张图片？" description="不会删除电脑中的原文件。" onConfirm={onRemove}><Button danger type="text" size="small" icon={<DeleteOutlined />}>移除</Button></Popconfirm>}</div>;
 }
 
 function TaskResultThumbnail({ detail, urls, showOriginal, onToggleOriginal, usable, onUsableChange }: { detail: LogoReplaceTaskDetail; urls: { result: string; original: string }; showOriginal: boolean; onToggleOriginal: () => void; usable: boolean; onUsableChange: (value: boolean) => void }) {
@@ -164,6 +165,7 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
   const [workerProgress, setWorkerProgress] = useState<Record<string, WorkerProgress>>({});
   const [workerTaskDetails, setWorkerTaskDetails] = useState<Record<string, Record<string, LogoReplaceTaskDetail>>>({});
   const [selectedProgressGroupId, setSelectedProgressGroupId] = useState<string>();
+  const [loadedTaskDetails, setLoadedTaskDetails] = useState<LogoReplaceTaskDetail[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState<string>();
   const [pendingFolderFiles, setPendingFolderFiles] = useState<File[]>([]);
   const [checkedFolderKeys, setCheckedFolderKeys] = useState<string[]>([]);
@@ -178,7 +180,7 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
 
   useEffect(() => {
     if (!worker || !batchId || !groupId) return;
-    void readBatch(batchId).then((batch) => { const group = batch?.groups.find((item) => item.id === groupId); setWorkerBatch(batch); setWorkerGroup(group); setAutomationStartToken(batch?.startCommandId); props.onSessionStateChange?.(Boolean(group)); });
+    void readBatch(batchId).then((batch) => { const group = batch?.groups.find((item) => item.id === groupId); setWorkerBatch(batch && group ? { ...batch, groups: [group], perImagePrompts: Object.fromEntries(Object.entries(batch.perImagePrompts || {}).filter(([key]) => group.files.some((file) => perImagePromptFileKey(file) === key))) } : batch); setWorkerGroup(group); setAutomationStartToken(batch?.startCommandId); props.onSessionStateChange?.(Boolean(group)); });
   }, [worker, batchId, groupId, props.onSessionStateChange]);
 
   useEffect(() => {
@@ -203,7 +205,7 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
       if (worker && data.type === 'retry-failed') setAutomationRetryFailedToken(data.commandId);
       if (worker && data.type === 'stop-all') rootRef.current?.querySelector<HTMLButtonElement>('.logo-replace-integrated .action-card button.ant-btn-danger')?.click();
       if (worker && data.type === 'logos-updated' && batchId) void readBatch(batchId).then((batch) => {
-        if (!batch) return; setWorkerBatch(batch); const fresh = batch.logos.filter((file) => !loadedLogoKeys.current.has(`${file.name}:${file.size}:${file.lastModified}`));
+        if (!batch) return; const group = batch.groups.find((item) => item.id === groupId); setWorkerBatch(group ? { ...batch, groups: [group], perImagePrompts: Object.fromEntries(Object.entries(batch.perImagePrompts || {}).filter(([key]) => group.files.some((file) => perImagePromptFileKey(file) === key))) } : batch); const fresh = batch.logos.filter((file) => !loadedLogoKeys.current.has(`${file.name}:${file.size}:${file.lastModified}`));
         if (fresh.length) { const input = rootRef.current?.querySelector<HTMLInputElement>('.logo-replace-integrated input[type="file"][accept*=".psd"]') || null; injectFiles(input, fresh); fresh.forEach((file) => loadedLogoKeys.current.add(`${file.name}:${file.size}:${file.lastModified}`)); message.success(`已同步 ${fresh.length} 个公共 Logo`); }
       });
       if (!worker && data.type === 'worker-ready') setWorkerProgress((current) => ({ ...current, [data.groupId]: { ...(current[data.groupId] || { total: 0, success: 0, failed: 0, stopped: 0, waiting: 0, running: 0, retrying: 0 }), groupId: data.groupId, name: data.name, status: 'ready', updatedAt: Date.now() } }));
@@ -287,7 +289,7 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
   const workerSnapshots = Object.values(workerProgress);
   const selectedGroup = groups.find((group) => group.id === selectedGroupId);
   const selectedProgressWorker = selectedProgressGroupId ? workerProgress[selectedProgressGroupId] : undefined;
-  const selectedTaskDetails = selectedProgressGroupId ? Object.values(workerTaskDetails[selectedProgressGroupId] || {}).sort((a, b) => a.sceneIndex - b.sceneIndex || a.copyIndex - b.copyIndex) : [];
+  const selectedTaskDetails = loadedTaskDetails;
   const removeGroupFile = (groupId: string, target: File) => {
     const group = groups.find((item) => item.id === groupId);
     if (group?.files.length === 1) { setSelectedGroupId(undefined); message.info(`已移除空分组 ${group.name}`); }
@@ -311,22 +313,26 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
     const next = groupFolderFiles(pendingFolderFiles).filter((group) => checkedFolderKeys.includes(`dir:${group.path}`)); const selectedCount = next.reduce((sum, group) => sum + group.files.length, 0); setGroups(next); setPendingFolderFiles([]); setCheckedFolderKeys([]);
     message.success(`已导入 ${selectedCount} 张图片，共 ${next.length} 个分组`);
   };
-  const downloadableDetails = Object.values(workerTaskDetails).flatMap((details) => Object.values(details).filter((detail) => detail.resultBlob));
+  const downloadableDetails = Object.values(workerTaskDetails).flatMap((details) => Object.values(details).filter((detail) => detail.status === 'success'));
   const downloadAllWorkerResults = async () => {
     if (!downloadableDetails.length) return void message.warning('暂无可下载的生成图片');
     setDownloadingAll(true);
     try {
       const zip = new JSZip();
-      Object.entries(workerTaskDetails).forEach(([workerGroupId, details]) => {
+      let packagedCount = 0;
+      await Promise.all(groups.map(async (groupEntry) => {
+        const workerGroupId = groupEntry.id;
+        const stored = await readMultiTabGroupResults<LogoReplaceTaskDetail>('logo', activeBatchId!, workerGroupId);
+        const details = Object.fromEntries(stored.map((detail) => [detail.id, detail]));
         const sourceGroup = groups.find((group) => group.id === workerGroupId);
         const groupName = workerProgress[workerGroupId]?.name || sourceGroup?.name || '未命名分组';
         const folder = zip.folder(sanitizeRelativeFolderPath(sourceGroup?.path || '', groupName));
         const items = Object.values(details).filter((detail) => detail.resultBlob).sort((a, b) => a.sceneIndex - b.sceneIndex || a.copyIndex - b.copyIndex);
         const copiesByScene = new Map<number, number>(); Object.values(details).forEach((detail) => copiesByScene.set(detail.sceneIndex, Math.max(copiesByScene.get(detail.sceneIndex) || 0, detail.copyIndex + 1)));
-        items.forEach((detail) => folder?.file(logoReplaceResultFileName(detail.originalFile?.name || `场景_${detail.sceneIndex + 1}.png`, detail.copyIndex, copiesByScene.get(detail.sceneIndex) || 1, detail.resultBlob?.type), detail.resultBlob!));
-      });
+        items.forEach((detail) => { packagedCount += 1; folder?.file(logoReplaceResultFileName(detail.originalFile?.name || `场景_${detail.sceneIndex + 1}.png`, detail.copyIndex, copiesByScene.get(detail.sceneIndex) || 1, detail.resultBlob?.type), detail.resultBlob!); });
+      }));
       downloadBlob(await zip.generateAsync({ type: 'blob' }), `SceneStudio_多标签Logo替换全部结果_${formatFileTimestamp()}.zip`);
-      message.success(`已打包 ${downloadableDetails.length} 张生成图片`);
+      message.success(`已打包 ${packagedCount} 张生成图片`);
     } catch (error) { message.error(error instanceof Error ? error.message : '打包下载失败'); }
     finally { setDownloadingAll(false); }
   };
@@ -347,12 +353,13 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
   useEffect(() => { if (worker || !runStartedAt || aggregateProcessing || !aggregate.total || aggregateCompleted < aggregate.total) return; const endedAt = Date.now(); setRunDurationMs(endedAt - runStartedAt); setRunEndedAt(endedAt); }, [worker, runStartedAt, aggregateProcessing, aggregate.total, aggregateCompleted]);
   useEffect(() => { if (!activeBatchId) return; const key = `scene-studio.logo-batch-usable.${activeBatchId}`; const stored = localStorage.getItem(key); setUsableTaskIds(stored ? JSON.parse(stored) : []); }, [activeBatchId]);
   useEffect(() => { if (activeBatchId) localStorage.setItem(`scene-studio.logo-batch-usable.${activeBatchId}`, JSON.stringify(usableTaskIds)); }, [activeBatchId, usableTaskIds]);
+  useEffect(() => { if (!activeBatchId || !selectedProgressGroupId) { setLoadedTaskDetails([]); return; } let cancelled = false; void readMultiTabGroupResults<LogoReplaceTaskDetail>('logo', activeBatchId, selectedProgressGroupId).then((items) => { if (!cancelled) setLoadedTaskDetails(items.sort((a, b) => a.sceneIndex - b.sceneIndex || a.copyIndex - b.copyIndex)); }); return () => { cancelled = true; }; }, [activeBatchId, selectedProgressGroupId, workerTaskDetails]);
   const pendingPickerTree = buildLogoPickerFolderTree(groupFolderFiles(pendingFolderFiles)); const pickerKeys: string[] = []; const collectPickerKeys = (nodes: PickerFolderNode[]) => nodes.forEach((node) => { if (node.group) pickerKeys.push(`dir:${node.path}`); collectPickerKeys(node.children); }); collectPickerKeys(pendingPickerTree);
   const levelEmoji = (depth: number) => `${Math.min(depth + 1, 9)}\uFE0F\u20E3`; const togglePickerFolder = (key: string) => setCheckedFolderKeys((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key]);
   const renderPickerTree = (nodes: PickerFolderNode[], depth = 0): React.ReactNode => <Collapse size="small" bordered={false} defaultActiveKey={nodes.map((node) => node.path)} items={nodes.map((node) => { const key = `dir:${node.path}`; const checked = checkedFolderKeys.includes(key); return { key: node.path, label: <Flex align="center" gap={8}><span aria-label={`第 ${depth + 1} 层`}>{levelEmoji(depth)}</span><FolderOpenOutlined /><Text strong={Boolean(node.group)}>{node.name}</Text>{node.group && <Tag>{node.group.files.length} 张</Tag>}</Flex>, children: <><>{node.group && <Card size="small" hoverable className={checked ? 'scene-leaf-folder-card is-selected' : 'scene-leaf-folder-card'} onClick={() => togglePickerFolder(key)}><Checkbox checked={checked} onClick={(event) => event.stopPropagation()} onChange={() => togglePickerFolder(key)}>导入此文件夹</Checkbox><div onClick={(event) => event.stopPropagation()}><Image.PreviewGroup><Flex gap={4} wrap className="scene-folder-mini-thumbnails">{node.group.files.slice(0, 12).map((file, index) => <FileThumbnail key={`${file.name}-${index}`} file={file} />)}</Flex></Image.PreviewGroup></div>{node.group.files.length > 12 && <Text type="secondary">另有 {node.group.files.length - 12} 张</Text>}</Card>}</>{node.children.length ? renderPickerTree(node.children, depth + 1) : null}</> }; })} />;
   useEffect(() => { if (worker) return; reportTaskProgress({ id: 'multi-tab-logo-replace', label: '多标签 Logo 替换', completed: aggregateCompleted, total: aggregate.total, failed: aggregate.failed, running: aggregateProcessing }); }, [worker, aggregateCompleted, aggregate.total, aggregate.failed, aggregateProcessing]);
 
-  if (worker) return <div ref={rootRef}><Alert type={injected ? 'success' : 'info'} showIcon title={workerGroup ? `工作标签：${workerGroup.name}` : '正在加载分组任务'} description={workerGroup ? `${workerGroup.path} · ${workerGroup.files.length} 张场景图 · 公共 Logo ${workerBatch?.logos.length || 0} 个${injected ? '，已自动导入' : '，正在自动导入…'}` : '请保留主控标签页以便接收公共 Logo 更新。'} style={{ marginBottom: 16 }} /><LogoReplaceComposer {...props} initialPerImagePrompts={workerBatch?.perImagePrompts} onPerImagePromptsChange={(items) => { if (workerBatch) void readBatch(workerBatch.id).then((latest) => saveBatch({ ...(latest || workerBatch), perImagePrompts: { ...(latest?.perImagePrompts || {}), ...items } })); }} automationStartToken={automationStartToken} automationRetryFailedToken={automationRetryFailedToken} onTaskDetailChange={(detail) => { if (channel && batchId && groupId) channel.postMessage({ type: 'worker-task', batchId, groupId, detail }); }} onProgressChange={(progress) => { if (!channel || !batchId || !groupId || !workerGroup) return; const status = progress.total > 0 && progress.success + progress.failed + progress.stopped >= progress.total ? 'completed' : progress.waiting + progress.running > 0 ? 'running' : 'ready'; setWorkerTitleState(status === 'completed' ? 'completed' : progress.running > 0 ? 'running' : 'queued'); channel.postMessage({ type: 'worker-progress', batchId, groupId, progress: { ...progress, groupId, name: workerGroup.name, status, updatedAt: Date.now() } }); }} /></div>;
+  if (worker) return <div ref={rootRef}><Alert type={injected ? 'success' : 'info'} showIcon title={workerGroup ? `工作标签：${workerGroup.name}` : '正在加载分组任务'} description={workerGroup ? `${workerGroup.path} · ${workerGroup.files.length} 张场景图 · 公共 Logo ${workerBatch?.logos.length || 0} 个${injected ? '，已自动导入' : '，正在自动导入…'}` : '请保留主控标签页以便接收公共 Logo 更新。'} style={{ marginBottom: 16 }} /><LogoReplaceComposer {...props} initialPerImagePrompts={workerBatch?.perImagePrompts} onPerImagePromptsChange={(items) => { if (workerBatch) void readBatch(workerBatch.id).then((latest) => saveBatch({ ...(latest || workerBatch), perImagePrompts: { ...(latest?.perImagePrompts || {}), ...items } })); }} automationStartToken={automationStartToken} automationRetryFailedToken={automationRetryFailedToken} onTaskDetailChange={(detail) => { if (!channel || !batchId || !groupId) return; const { resultBlob: _resultBlob, originalFile: _originalFile, ...summary } = detail; const publish = () => channel.postMessage({ type: 'worker-task', batchId, groupId, detail: summary }); if (detail.resultBlob || detail.status === 'failed' || detail.status === 'stopped') void putMultiTabResult('logo', batchId, groupId, detail.id, detail).finally(publish); else publish(); }} onProgressChange={(progress) => { if (!channel || !batchId || !groupId || !workerGroup) return; const status = progress.total > 0 && progress.success + progress.failed + progress.stopped >= progress.total ? 'completed' : progress.waiting + progress.running > 0 ? 'running' : 'ready'; setWorkerTitleState(status === 'completed' ? 'completed' : progress.running > 0 ? 'running' : 'queued'); channel.postMessage({ type: 'worker-progress', batchId, groupId, progress: { ...progress, groupId, name: workerGroup.name, status, updatedAt: Date.now() } }); }} /></div>;
 
   return <div className="multi-tab-logo-page"><section className="hero-strip logo-replace-hero"><div><Text className="eyebrow">MULTI-TAB LOGO REPLACER</Text><Title level={2}>一个主控页，分发多组 Logo 替换任务</Title><Paragraph className="hero-description">一次选择场景根文件夹和公共 Logo，每个最深层子目录自动分配到独立标签页；工作页完整使用现有 Logo 替换功能。</Paragraph></div><div className="hero-orb" /></section>
     <Card className="workflow-card" title="1. 选择场景根文件夹"><Upload.Dragger directory multiple showUploadList={false} accept="image/png,image/jpeg,image/webp" beforeUpload={(file, fileList) => { if (file.uid === fileList.at(-1)?.uid) reviewFolderFiles(fileList as File[]); return Upload.LIST_IGNORE; }}><FolderOpenOutlined style={{ fontSize: 34, color: '#7654dd' }} /><p className="ant-upload-text">拖拽或点击选择场景根文件夹</p><p className="ant-upload-hint">支持“测试图片/AM058/AM058”这类两层目录，按最深层图片目录自动分组</p></Upload.Dragger>{groups.length ? <div className="folder-group-grid">{groups.map((group) => <Card key={group.id} size="small" hoverable className="folder-manage-card" onClick={() => setSelectedGroupId(group.id)}><FolderOpenOutlined /> <Text strong>{group.name}</Text><br /><Text type="secondary">{group.path} · {group.files.length} 张</Text><Flex gap={6} wrap><Button type="link" size="small" style={{ paddingInline: 0 }} onClick={(event) => { event.stopPropagation(); setSelectedGroupId(group.id); }}>查看和管理图片</Button><Button type="link" size="small" icon={<RocketOutlined />} onClick={(event) => { event.stopPropagation(); void openSingleWorker(group); }}>单独打开标签</Button><Popconfirm title={`移除分组 ${group.name}？`} description="只从当前批次移除，不会删除电脑中的文件。" onConfirm={() => removeGroup(group)}><Button danger type="link" size="small" icon={<DeleteOutlined />} onClick={(event) => event.stopPropagation()}>移除分组</Button></Popconfirm></Flex></Card>)}</div> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="选择文件夹后显示分组" />}</Card>
@@ -374,7 +381,7 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
     <Modal title={selectedGroup ? `${selectedGroup.name} · 图片管理` : '图片管理'} open={Boolean(selectedGroup)} width={900} footer={<Button onClick={() => setSelectedGroupId(undefined)}>完成</Button>} onCancel={() => setSelectedGroupId(undefined)}>
       {selectedGroup && <><Flex justify="space-between" align="center" gap={12} wrap style={{ marginBottom: 14 }}><Text type="secondary">{selectedGroup.path} · 当前 {selectedGroup.files.length} 张；增删只影响当前网页批次。</Text><Upload multiple showUploadList={false} accept="image/png,image/jpeg,image/webp" beforeUpload={(file) => addGroupFile(selectedGroup.id, file as File)}><Button type="primary" icon={<PlusOutlined />}>添加图片到该文件夹</Button></Upload></Flex><Image.PreviewGroup><div className="batch-asset-grid">{selectedGroup.files.map((file, index) => <FileThumbnail key={`${file.name}-${file.size}-${file.lastModified}-${index}`} file={file} onRemove={() => removeGroupFile(selectedGroup.id, file)} />)}</div></Image.PreviewGroup></>}
     </Modal>
-    <Modal title={selectedProgressWorker ? `${selectedProgressWorker.name} · 任务结果` : '任务结果'} open={Boolean(selectedProgressWorker)} width={1100} footer={<Button onClick={() => setSelectedProgressGroupId(undefined)}>完成</Button>} onCancel={() => setSelectedProgressGroupId(undefined)}>
+    <Modal destroyOnHidden title={selectedProgressWorker ? `${selectedProgressWorker.name} · 任务结果` : '任务结果'} open={Boolean(selectedProgressWorker)} width={1100} footer={<Button onClick={() => setSelectedProgressGroupId(undefined)}>完成</Button>} onCancel={() => setSelectedProgressGroupId(undefined)}>
       {selectedProgressWorker && <Alert type={selectedProgressWorker.failed ? 'warning' : selectedProgressWorker.status === 'running' ? 'info' : 'success'} showIcon title={`成功 ${selectedProgressWorker.success}/${selectedProgressWorker.total || '—'} · 运行 ${selectedProgressWorker.running} · 等待 ${selectedProgressWorker.waiting} · 失败 ${selectedProgressWorker.failed}`} description="点击缩略图可放大；缩略图下方和放大工具栏都可以切换查看原图。" style={{ marginBottom: 16 }} />}
       {selectedTaskDetails.length ? <TaskResultGallery details={selectedTaskDetails} usableIds={usableTaskIds} onUsableChange={setLogoTaskUsable} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="任务开始后，这里会实时显示每张图片的状态和生成结果" />}
     </Modal>
