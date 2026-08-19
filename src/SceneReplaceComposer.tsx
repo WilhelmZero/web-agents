@@ -57,6 +57,8 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
   const [presetEditorOpen, setPresetEditorOpen] = useState(false);
   const [presetDraft, setPresetDraft] = useState({ name: '', icon: '✨', content: '' });
   const [tasks, setTasks] = useState<SceneReplaceTask[]>([]);
+  const [streamingPromptAnalysis, setStreamingPromptAnalysis] = useState(false);
+  const [plannedTaskCount, setPlannedTaskCount] = useState(0);
   const [selectedResultId, setSelectedResultId] = useState<string>();
   const [previewCompareOriginal, setPreviewCompareOriginal] = useState(false);
   const [directPreviewOriginal, setDirectPreviewOriginal] = useState(false);
@@ -64,6 +66,7 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
   const running = useRef(new Set<string>());
   const aborters = useRef(new Map<string, AbortController>());
   const retryTimers = useRef(new Map<string, number>());
+  const promptAnalysisRun = useRef(0);
   const scenesRef = useRef(scenes);
   const settingsRef = useRef(settings);
   useEffect(() => { scenesRef.current = scenes; }, [scenes]);
@@ -72,7 +75,7 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
   useEffect(() => { if (initialPrompt) setPrompt(initialPrompt); }, [initialPrompt]);
   useEffect(() => onSessionStateChange?.(Boolean(scenes.length || tasks.length || prompt.trim())), [scenes.length, tasks.length, prompt, onSessionStateChange]);
 
-  const clearResults = () => { aborters.current.forEach((item) => item.abort()); retryTimers.current.forEach((timer) => window.clearTimeout(timer)); retryTimers.current.clear(); setTasks((current) => { current.forEach((item) => { if (item.resultUrl) URL.revokeObjectURL(item.resultUrl); if (item.outpaintUrl) URL.revokeObjectURL(item.outpaintUrl); item.outpaintResults?.forEach((result) => URL.revokeObjectURL(result.url)); }); return []; }); setCompareOriginalTaskIds(new Set()); setSelectedResultId(undefined); };
+  const clearResults = () => { setPlannedTaskCount(0); aborters.current.forEach((item) => item.abort()); retryTimers.current.forEach((timer) => window.clearTimeout(timer)); retryTimers.current.clear(); setTasks((current) => { current.forEach((item) => { if (item.resultUrl) URL.revokeObjectURL(item.resultUrl); if (item.outpaintUrl) URL.revokeObjectURL(item.outpaintUrl); item.outpaintResults?.forEach((result) => URL.revokeObjectURL(result.url)); }); return []; }); setCompareOriginalTaskIds(new Set()); setSelectedResultId(undefined); };
   const patch = (value: Partial<SceneReplaceSettings>) => setSettings((current) => { const next = { ...current, ...value }; return value.imageModel && !isOpenAiModel(value.imageModel) ? { ...next, ...normalizeSettingsForModel(value.imageModel as ImageModel, next.aspectRatio, next.imageSize) } : next; });
   const valid = (file: File) => { if (!TYPES.includes(file.type)) return void message.error(`${file.name}：仅支持 PNG、JPEG、WebP`); if (!file.size || file.size > MAX_SIZE) return void message.error(`${file.name}：文件需小于 20MB 且不能为空`); return true; };
   const recommendThemes = async (items: LogoAsset[]) => {
@@ -154,6 +157,17 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
     finally { running.current.delete(task.id); aborters.current.delete(task.id); }
   }, [apiKey, openAiApiKey, apiBaseUrl, outpaintTask]);
   useEffect(() => { const free = Math.max(0, settings.concurrency - running.current.size); tasks.filter((item) => item.status === 'waiting' && !item.nextRetryAt && !item.autoRetryStopped && !running.current.has(item.id)).slice(0, free).forEach((item) => void execute(item)); }, [tasks, settings.concurrency, execute]);
+  const createTasksForScenes = (items: LogoAsset[], assignments: Record<string, PerImagePromptAssignment>, config: SceneReplaceSettings) => items.flatMap((scene) => {
+    const sceneIndex = scenes.findIndex((item) => item.id === scene.id);
+    const assigned = assignments[perImagePromptFileKey(scene.file)]?.prompt.trim();
+    const assignedWithRequiredTheme = [perImagePromptPrefix?.trim(), assigned].filter(Boolean).join('；');
+    const targetPrompt = config.perImagePromptEnabled ? assignedWithRequiredTheme : config.autoRecommendScene ? `${sceneThemes[scene.id]}，${prompt.trim()}` : prompt.trim();
+    return Array.from({ length: config.copiesPerScene }, (_, copyIndex) => ({ id: createId(), sceneId: scene.id, sceneIndex, copyIndex, status: 'waiting' as const, prompt: buildSceneReplacementPrompt(targetPrompt), retryCount: 0 }));
+  });
+  const createPromptAnalysisFailureTasks = (items: LogoAsset[], config: SceneReplaceSettings, error: string): SceneReplaceTask[] => items.flatMap((scene) => {
+    const sceneIndex = scenes.findIndex((item) => item.id === scene.id);
+    return Array.from({ length: config.copiesPerScene }, (_, copyIndex) => ({ id: createId(), sceneId: scene.id, sceneIndex, copyIndex, status: 'failed' as const, prompt: '', error, retryCount: 0 }));
+  });
   const start = async () => {
     const config = settingsRef.current; if (isOpenAiModel(config.imageModel) ? !openAiApiKey : !apiKey) return onRequestKey(); if (!isOpenAiModel(config.imageModel) && connectionMode === 'proxy' && !apiBaseUrl) { message.warning('请先配置代理地址'); return onRequestKey(); }
     if (config.autoOutpaint && (isOpenAiModel(config.outpaintImageModel) ? !openAiApiKey : !apiKey)) return onRequestKey();
@@ -165,14 +179,36 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
     if (config.perImagePromptEnabled) {
       const key = config.sceneRecommendationProvider === 'openai' ? openAiApiKey : apiKey; if (!key) return onRequestKey();
       const missing = eligible.filter((scene) => !perImagePrompts.effective(scene.file));
+      if (automationStartToken && config.autoGenerateAfterPromptAnalysis && missing.length) {
+        const runId = ++promptAnalysisRun.current;
+        const analysisConcurrency = Math.max(1, config.concurrency);
+        clearResults(); setPlannedTaskCount(eligible.length * config.copiesPerScene); setStreamingPromptAnalysis(true);
+        try {
+          for (let offset = 0; offset < eligible.length && promptAnalysisRun.current === runId; offset += analysisConcurrency) {
+            const batch = eligible.slice(offset, offset + analysisConcurrency);
+            const batchMissing = batch.filter((scene) => !assignments[perImagePromptFileKey(scene.file)]?.prompt.trim());
+            if (batchMissing.length) {
+              const analyzed = await perImagePrompts.analyze(batchMissing.map((scene) => scene.file));
+              assignments = analyzed.assignments;
+              if (promptAnalysisRun.current !== runId) return;
+              if (analyzed.failed) { const error = `${analyzed.failed} 张图片提示词分析失败，已停止后续排队分析`; setTasks((current) => [...current, ...createPromptAnalysisFailureTasks(eligible.slice(offset), config, error)]); message.error(error); return; }
+            }
+            if (batch.some((scene) => !assignments[perImagePromptFileKey(scene.file)]?.prompt.trim())) { const error = '存在未完成的逐图提示词，已停止后续排队分析'; setTasks((current) => [...current, ...createPromptAnalysisFailureTasks(eligible.slice(offset), config, error)]); message.error(error); return; }
+            setTasks((current) => [...current, ...createTasksForScenes(batch, assignments, config)]);
+          }
+        } finally {
+          if (promptAnalysisRun.current === runId) setStreamingPromptAnalysis(false);
+        }
+        return;
+      }
       if (missing.length) { const analyzed = await perImagePrompts.analyze(missing.map((scene) => scene.file)); assignments = analyzed.assignments; if (analyzed.failed) return void message.error(`${analyzed.failed} 张图片提示词分析失败，请重试后再生成`); if (!config.autoGenerateAfterPromptAnalysis) return void message.success('逐图提示词已分配，请检查修改后再次点击生成'); }
       if (eligible.some((scene) => !assignments[perImagePromptFileKey(scene.file)]?.prompt.trim())) return void message.warning('存在未完成的逐图提示词，请先分析或填写');
     }
-    clearResults(); setTasks(eligible.flatMap((scene) => { const sceneIndex = scenes.findIndex((item) => item.id === scene.id); const assigned = assignments[perImagePromptFileKey(scene.file)]?.prompt.trim(); const assignedWithRequiredTheme = [perImagePromptPrefix?.trim(), assigned].filter(Boolean).join('；'); const targetPrompt = config.perImagePromptEnabled ? assignedWithRequiredTheme : config.autoRecommendScene ? `${sceneThemes[scene.id]}，${prompt.trim()}` : prompt.trim(); return Array.from({ length: config.copiesPerScene }, (_, copyIndex) => ({ id: createId(), sceneId: scene.id, sceneIndex, copyIndex, status: 'waiting' as const, prompt: buildSceneReplacementPrompt(targetPrompt), retryCount: 0 })); }));
+    clearResults(); setPlannedTaskCount(eligible.length * config.copiesPerScene); setTasks(createTasksForScenes(eligible, assignments, config));
   };
   const lastAutomationStart = useRef<string | undefined>(undefined);
   useEffect(() => { if (!automationStartToken || lastAutomationStart.current === automationStartToken || !scenes.length || !prompt.trim()) return; lastAutomationStart.current = automationStartToken; void start(); }, [automationStartToken, scenes.length, prompt]);
-  const stop = () => { aborters.current.forEach((item) => item.abort()); retryTimers.current.forEach((timer) => window.clearTimeout(timer)); retryTimers.current.clear(); setTasks((current) => current.map((item) => item.status === 'waiting' ? { ...item, status: 'stopped', nextRetryAt: undefined } : item)); };
+  const stop = () => { promptAnalysisRun.current += 1; setStreamingPromptAnalysis(false); setPlannedTaskCount(0); aborters.current.forEach((item) => item.abort()); retryTimers.current.forEach((timer) => window.clearTimeout(timer)); retryTimers.current.clear(); setTasks((current) => current.map((item) => item.status === 'waiting' ? { ...item, status: 'stopped', nextRetryAt: undefined } : item)); };
   const lastAutomationStop = useRef<string | undefined>(undefined);
   useEffect(() => { if (!automationStopToken || lastAutomationStop.current === automationStopToken) return; lastAutomationStop.current = automationStopToken; stop(); }, [automationStopToken]);
   const stopTask = (id: string) => { const timer = retryTimers.current.get(id); if (timer) window.clearTimeout(timer); retryTimers.current.delete(id); aborters.current.get(id)?.abort(); setTasks((current) => current.map((item) => item.id === id ? { ...item, status: 'stopped', autoRetryStopped: true, nextRetryAt: undefined, error: '已停止该任务' } : item)); };
@@ -194,9 +230,9 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
     try { await outpaintTask(task.id, task.resultBlob, controller.signal, size); }
     finally { aborters.current.delete(`outpaint-${task.id}-${size.width}x${size.height}`); }
   };
-  const success = tasks.filter((item) => item.status === 'success' && item.resultBlob); const busy = tasks.some((item) => item.status === 'waiting' || item.status === 'running' || item.outpaintStatus === 'running'); const done = tasks.filter((item) => ['success', 'failed', 'stopped'].includes(item.status) && item.outpaintStatus !== 'running').length;
-  useEffect(() => { reportTaskProgress({ id: 'scene-replace', label: '场景替换', completed: done, total: tasks.length, failed: tasks.filter((task) => task.status === 'failed').length, running: busy }); }, [done, tasks, busy]);
-  useEffect(() => { onProgressChange?.({ total: tasks.length, completed: done, failed: tasks.filter((task) => task.status === 'failed').length, running: busy }); onResultsChange?.(tasks); }, [tasks, done, busy, onProgressChange, onResultsChange]);
+  const success = tasks.filter((item) => item.status === 'success' && item.resultBlob); const busy = streamingPromptAnalysis || tasks.some((item) => item.status === 'waiting' || item.status === 'running' || item.outpaintStatus === 'running'); const done = tasks.filter((item) => ['success', 'failed', 'stopped'].includes(item.status) && item.outpaintStatus !== 'running').length; const progressTotal = Math.max(tasks.length, plannedTaskCount);
+  useEffect(() => { reportTaskProgress({ id: 'scene-replace', label: '场景替换', completed: done, total: progressTotal, failed: tasks.filter((task) => task.status === 'failed').length, running: busy }); }, [done, tasks, busy, progressTotal]);
+  useEffect(() => { onProgressChange?.({ total: progressTotal, completed: done, failed: tasks.filter((task) => task.status === 'failed').length, running: busy }); onResultsChange?.(tasks); }, [tasks, done, busy, progressTotal, onProgressChange, onResultsChange]);
   const groups = useMemo(() => scenes.map((scene) => ({ scene, tasks: tasks.filter((item) => item.sceneId === scene.id) })).filter((item) => item.tasks.length), [scenes, tasks]);
   const allPresets = useMemo(() => [...BUILT_IN_SCENE_REPLACE_PRESETS, ...customPresets], [customPresets]);
   const resultItems = useMemo(() => tasks.flatMap((task) => { const scene = scenes.find((item) => item.id === task.sceneId); return scene ? [{ task, scene }] : []; }), [tasks, scenes]);
