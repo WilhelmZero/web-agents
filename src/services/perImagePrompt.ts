@@ -76,3 +76,17 @@ export async function analyzePerImagePromptBatch(files: File[], concurrency: num
   }));
   return results;
 }
+
+export async function analyzePerImagePromptWithRetry<T>(analyze: () => Promise<T>, options: { enabled: boolean; retryLimit: number; delaySeconds: number }, wait: (milliseconds: number) => Promise<void> = (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds))) {
+  const retryLimit = options.enabled ? Math.max(0, options.retryLimit) : 0;
+  let lastError: unknown;
+  for (let retry = 0; retry <= retryLimit; retry += 1) {
+    try { return await analyze(); }
+    catch (error) {
+      lastError = error;
+      if (retry >= retryLimit) break;
+      await wait(Math.max(1, options.delaySeconds) * 1000);
+    }
+  }
+  throw lastError;
+}

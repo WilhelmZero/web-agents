@@ -2,10 +2,10 @@ import { Button, Flex, Input, Space, Tag, Typography } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { OptimizerModel, PerImagePromptAssignment, PerImagePromptTool } from './types';
-import { analyzePerImagePrompt, analyzePerImagePromptBatch, assignmentNeedsAnalysis, perImagePromptFileKey } from './services/perImagePrompt';
+import { analyzePerImagePrompt, analyzePerImagePromptBatch, analyzePerImagePromptWithRetry, assignmentNeedsAnalysis, perImagePromptFileKey } from './services/perImagePrompt';
 
 const { Text } = Typography;
-export interface PerImageAnalysisConfig { provider: 'gemini' | 'openai'; apiKey: string; apiBaseUrl?: string | null; geminiModel: OptimizerModel; openAiModel: string; concurrency: number }
+export interface PerImageAnalysisConfig { provider: 'gemini' | 'openai'; apiKey: string; apiBaseUrl?: string | null; geminiModel: OptimizerModel; openAiModel: string; concurrency: number; autoRetryErrors?: boolean; errorRetryLimit?: number; errorRetryDelaySeconds?: number }
 
 export function usePerImagePrompts(options: { tool: PerImagePromptTool; files: File[]; sourcePrompt: string; config: PerImageAnalysisConfig; initial?: Record<string, PerImagePromptAssignment>; onChange?: (items: Record<string, PerImagePromptAssignment>) => void }) {
   const [assignments, setAssignments] = useState<Record<string, PerImagePromptAssignment>>(() => options.initial || {});
@@ -18,7 +18,7 @@ export function usePerImagePrompts(options: { tool: PerImagePromptTool; files: F
     const sourcePrompt = options.sourcePrompt.trim(); const files = targets || options.files.filter((file) => assignmentNeedsAnalysis(assignmentsRef.current[perImagePromptFileKey(file)], sourcePrompt));
     if (!files.length) return { assignments: assignmentsRef.current, failed: 0 };
     commit((current) => { const next = { ...current }; files.forEach((file) => { const key = perImagePromptFileKey(file); next[key] = { ...(next[key] || { fileKey: key, tool: options.tool, summary: '', applicableConditions: [], prompt: '', updatedAt: Date.now() }), sourcePrompt, status: 'analyzing', error: undefined }; }); return next; });
-    const results = await analyzePerImagePromptBatch(files, options.config.concurrency, (image) => analyzePerImagePrompt({ tool: options.tool, image, sourcePrompt, ...options.config }));
+    const results = await analyzePerImagePromptBatch(files, options.config.concurrency, (image) => analyzePerImagePromptWithRetry(() => analyzePerImagePrompt({ tool: options.tool, image, sourcePrompt, ...options.config }), { enabled: options.config.autoRetryErrors ?? true, retryLimit: options.config.errorRetryLimit ?? 3, delaySeconds: options.config.errorRetryDelaySeconds ?? 30 }));
     let merged: Record<string, PerImagePromptAssignment> = {};
     commit((current) => { merged = { ...current }; results.forEach(({ file, assignment, error }) => { const key = perImagePromptFileKey(file); merged[key] = assignment || { ...(merged[key] || { fileKey: key, tool: options.tool, summary: '', applicableConditions: [], prompt: '', updatedAt: Date.now() }), sourcePrompt, status: 'failed', updatedAt: Date.now(), error }; }); return merged; });
     return { assignments: merged, failed: results.filter((item) => item.error).length };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assignmentNeedsAnalysis, buildPerImageAnalysisPrompt, parsePerImagePromptResult, shouldAnalyzePerImagePromptsInController } from './perImagePrompt';
+import { analyzePerImagePromptWithRetry, assignmentNeedsAnalysis, buildPerImageAnalysisPrompt, parsePerImagePromptResult, shouldAnalyzePerImagePromptsInController } from './perImagePrompt';
 
 describe('per image prompt assignment', () => {
   it('parses fenced JSON without relying on additional properties', () => {
@@ -21,5 +21,15 @@ describe('per image prompt assignment', () => {
     expect(prompt).toContain('纯桌面构图，无可编辑纵深背景');
     expect(prompt).toContain('禁止新增墙面、酒吧、酒柜、货架、房间');
     expect(prompt).toContain('禁止新增任何背景酒瓶、酒类包装');
+  });
+  it('retries prompt analysis with the configured image retry policy', async () => {
+    let attempts = 0; const waits: number[] = [];
+    const result = await analyzePerImagePromptWithRetry(async () => { attempts += 1; if (attempts < 3) throw new Error('busy'); return 'ready'; }, { enabled: true, retryLimit: 3, delaySeconds: 5 }, async (milliseconds) => { waits.push(milliseconds); });
+    expect(result).toBe('ready'); expect(attempts).toBe(3); expect(waits).toEqual([5000, 5000]);
+  });
+  it('does not retry prompt analysis when automatic retries are disabled', async () => {
+    let attempts = 0;
+    await expect(analyzePerImagePromptWithRetry(async () => { attempts += 1; throw new Error('failed'); }, { enabled: false, retryLimit: 3, delaySeconds: 5 }, async () => undefined)).rejects.toThrow('failed');
+    expect(attempts).toBe(1);
   });
 });
