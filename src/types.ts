@@ -328,6 +328,7 @@ export interface LogoReplaceTask {
   sceneId: string;
   sceneIndex: number;
   newLogoId: string;
+  newLogoIds?: string[];
   copyIndex: number;
   status: TaskStatus;
   resultBlob?: Blob;

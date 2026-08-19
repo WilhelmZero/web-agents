@@ -44,8 +44,8 @@ import { DEFAULT_LOGO_REPLACE_SETTINGS, MODEL_CAPABILITIES, PRICING, STORAGE_KEY
 import GeneratingImage from './GeneratingImage';
 import LogoReplaceDevComposer from './LogoReplaceDevComposer';
 import { reportTaskProgress } from './services/taskProgress';
-import { buildLogoReplacementInstruction, generateLogoReplacement, verifyLogoReplacement } from './services/gemini';
-import { generateLogoReplacementOpenAi, verifyLogoReplacementOpenAi } from './services/logoReplaceOpenAi';
+import { analyzeSceneLogoStyles, buildLogoReplacementInstruction, generateLogoReplacement, generateMultiLogoReplacement, verifyLogoReplacement } from './services/gemini';
+import { analyzeSceneLogoStylesOpenAi, generateLogoReplacementOpenAi, generateMultiLogoReplacementOpenAi, verifyLogoReplacementOpenAi } from './services/logoReplaceOpenAi';
 import { imageDimensions, outputAspectRatio, resizeImageBlob } from './services/logoOutputSizing';
 import { assignReplacementLogos, buildLogoReplaceTasks, shouldAutoRetryLogoError } from './services/logoReplaceUtils';
 import { readLocalStorage } from './storage';
@@ -55,6 +55,8 @@ import { logoReplaceResultFileName } from './services/logoReplaceFileName';
 import PsdLogoImportModal from './PsdLogoImportModal';
 import { PerImagePromptEditor, usePerImagePrompts } from './usePerImagePrompts';
 import { perImagePromptFileKey } from './services/perImagePrompt';
+import { assignMultipleLogos, expandStylesByOccurrence } from './services/logoReplaceDevUtils';
+import type { SceneLogoAnalysis } from './types';
 
 const { Text, Title, Paragraph } = Typography;
 const ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
@@ -105,6 +107,8 @@ interface LogoReplaceComposerProps {
   onTaskDetailChange?: (detail: LogoReplaceTaskDetail) => void;
   initialPerImagePrompts?: Record<string, PerImagePromptAssignment>;
   onPerImagePromptsChange?: (items: Record<string, PerImagePromptAssignment>) => void;
+  initialMultiLogoModeEnabled?: boolean;
+  initialDistinctLogoPerOccurrence?: boolean;
 }
 
 function LogoReplaceSingleComposer({
@@ -121,8 +125,10 @@ function LogoReplaceSingleComposer({
   onTaskDetailChange,
   initialPerImagePrompts,
   onPerImagePromptsChange,
+  initialDistinctLogoPerOccurrence,
 }: LogoReplaceComposerProps) {
   const { message } = AntApp.useApp();
+  const distinctLogoPerOccurrence = Boolean(initialDistinctLogoPerOccurrence);
   const [settings, setSettings] = useState<LogoReplaceSettings>(() => {
     const stored = readLocalStorage(STORAGE_KEYS.logoReplaceSettings, {} as Partial<LogoReplaceSettings> & { logoEffect?: string });
     const legacyEffect = (stored as { logoEffect?: string }).logoEffect;
@@ -140,6 +146,10 @@ function LogoReplaceSingleComposer({
   const [previewCompareOriginal, setPreviewCompareOriginal] = useState(false);
   const [selectedResultIds, setSelectedResultIds] = useState<Set<string>>(() => new Set());
   const [tasks, setTasks] = useState<LogoReplaceTask[]>([]);
+  const [occurrenceAnalyses, setOccurrenceAnalyses] = useState<Record<string, SceneLogoAnalysis>>({});
+  const analyzingOccurrences = useRef(new Set<string>());
+  const occurrenceAnalysesRef = useRef(occurrenceAnalyses);
+  const startAfterOccurrenceAnalysis = useRef(false);
   const [pendingPsdFile, setPendingPsdFile] = useState<File>();
   const runningIds = useRef(new Set<string>());
   const aborters = useRef(new Map<string, AbortController>());
@@ -155,6 +165,7 @@ function LogoReplaceSingleComposer({
   useEffect(() => { oldLogoRef.current = oldLogo; }, [oldLogo]);
   useEffect(() => { newLogosRef.current = newLogos; }, [newLogos]);
   useEffect(() => { settingsRef.current = settings; }, [settings]);
+  useEffect(() => { occurrenceAnalysesRef.current = occurrenceAnalyses; }, [occurrenceAnalyses]);
   useEffect(() => localStorage.setItem(STORAGE_KEYS.logoReplaceSettings, JSON.stringify(settings)), [settings]);
   useEffect(() => onSessionStateChange?.(Boolean(scenes.length || oldLogo || newLogos.length || tasks.length)), [scenes.length, oldLogo, newLogos.length, tasks.length, onSessionStateChange]);
   useEffect(() => () => { retryTimers.current.forEach((timer) => window.clearTimeout(timer)); }, []);
@@ -256,6 +267,28 @@ function LogoReplaceSingleComposer({
   );
   const perImagePromptSource = settings.customizeReplacementPrompt ? settings.replacementPrompt.trim() : actualReplacementPrompt;
   const perImagePrompts = usePerImagePrompts({ tool: 'logo-replace', files: scenes.map((scene) => scene.file), sourcePrompt: perImagePromptSource, initial: initialPerImagePrompts, onChange: onPerImagePromptsChange, config: { provider: settings.languageProvider, apiKey: settings.languageProvider === 'openai' ? openAiApiKey : apiKey, apiBaseUrl, geminiModel: settings.verificationModel, openAiModel: settings.openAiLanguageModel, concurrency: Math.min(8, settings.concurrency), autoRetryErrors: settings.autoRetryErrors, errorRetryLimit: settings.errorRetryLimit, errorRetryDelaySeconds: settings.errorRetryDelaySeconds } });
+  const analyzeOccurrences = useCallback(async (scene: LogoAsset) => {
+    if (analyzingOccurrences.current.has(scene.id)) return;
+    analyzingOccurrences.current.add(scene.id);
+    setOccurrenceAnalyses((current) => ({ ...current, [scene.id]: { sceneId: scene.id, status: 'analyzing', styles: [] } }));
+    try {
+      const result = settingsRef.current.languageProvider === 'openai'
+        ? await analyzeSceneLogoStylesOpenAi({ apiKey: openAiApiKey, model: settingsRef.current.openAiLanguageModel, scene: scene.file })
+        : await analyzeSceneLogoStyles({ apiKey, apiBaseUrl, model: settingsRef.current.verificationModel, scene: scene.file });
+      setOccurrenceAnalyses((current) => ({ ...current, [scene.id]: { sceneId: scene.id, status: 'success', ...result } }));
+    } catch (error) {
+      setOccurrenceAnalyses((current) => ({ ...current, [scene.id]: { sceneId: scene.id, status: 'failed', styles: [], error: error instanceof Error ? error.message : 'Logo 位置分析失败' } }));
+    } finally { analyzingOccurrences.current.delete(scene.id); }
+  }, [apiKey, openAiApiKey, apiBaseUrl]);
+  useEffect(() => {
+    if (!distinctLogoPerOccurrence) return;
+    const hasKey = settings.languageProvider === 'openai' ? Boolean(openAiApiKey) : Boolean(apiKey);
+    if (!hasKey) return;
+    const pending = scenes.filter((scene) => !occurrenceAnalyses[scene.id] && !analyzingOccurrences.current.has(scene.id));
+    pending.slice(0, Math.max(0, Math.min(8, settings.concurrency) - analyzingOccurrences.current.size)).forEach((scene) => void analyzeOccurrences(scene));
+  }, [distinctLogoPerOccurrence, scenes, occurrenceAnalyses, settings.languageProvider, settings.concurrency, apiKey, openAiApiKey, analyzeOccurrences]);
+  useEffect(() => { resetTasks(); setOccurrenceAnalyses({}); }, [distinctLogoPerOccurrence]);
+  const occurrenceAssignments = useMemo(() => assignMultipleLogos(scenes.map((scene) => scene.id), occurrenceAnalyses, newLogos, randomSeed, true), [scenes, occurrenceAnalyses, newLogos, randomSeed]);
   const pairings = useMemo(
     () => assignReplacementLogos(scenes, newLogos, settings.randomAssignLogos, randomSeed, manualLogoAssignments),
     [scenes, newLogos, settings.randomAssignLogos, randomSeed, manualLogoAssignments],
@@ -264,7 +297,8 @@ function LogoReplaceSingleComposer({
   const executeTask = useCallback(async (task: LogoReplaceTask) => {
     if (runningIds.current.has(task.id)) return;
     const scene = scenesRef.current.find((item) => item.id === task.sceneId);
-    const replacement = newLogosRef.current.find((item) => item.id === task.newLogoId);
+    const replacements = (task.newLogoIds?.length ? task.newLogoIds : [task.newLogoId]).map((id) => newLogosRef.current.find((item) => item.id === id)).filter(Boolean) as LogoAsset[];
+    const replacement = replacements[0];
     if (!scene || !replacement) return;
     runningIds.current.add(task.id);
     const controller = new AbortController();
@@ -286,14 +320,19 @@ function LogoReplaceSingleComposer({
         const replacementPrompt = buildActualReplacementPrompt(currentSettings, currentSettings.useOldLogoReference && Boolean(oldLogoRef.current), expectedText, correctionFeedback, assignedPrompt);
         const dimensions = await imageDimensions(scene.file);
         const aspectRatio = outputAspectRatio(currentSettings.ratioMode, dimensions.width, dimensions.height, currentSettings.aspectRatio, currentSettings.customOutputWidth, currentSettings.customOutputHeight, MODEL_CAPABILITIES[currentSettings.imageModel].aspectRatios);
-        const result = currentSettings.imageProvider === 'openai'
-          ? await generateLogoReplacementOpenAi({ ...commonGenerateOptions, apiKey: openAiApiKey, model: currentSettings.openAiImageModel, prompt: replacementPrompt })
-          : await generateLogoReplacement({ ...commonGenerateOptions, apiKey, model: currentSettings.imageModel, logoColorMode: currentSettings.logoColorMode, customLogoColor: currentSettings.customLogoColor, promptOverride: replacementPrompt, aspectRatio, imageSize: currentSettings.imageSize, apiBaseUrl });
+        const occurrenceStyles = expandStylesByOccurrence(occurrenceAnalysesRef.current[scene.id]?.styles || [], true).slice(0, replacements.length);
+        const result = task.newLogoIds?.length
+          ? currentSettings.imageProvider === 'openai'
+            ? await generateMultiLogoReplacementOpenAi({ apiKey: openAiApiKey, model: currentSettings.openAiImageModel, scene: scene.file, logos: replacements.map((item) => item.file), styles: occurrenceStyles, distinctPerOccurrence: true, instruction: replacementPrompt, signal: controller.signal })
+            : await generateMultiLogoReplacement({ apiKey, apiBaseUrl, model: currentSettings.imageModel, scene: scene.file, logos: replacements.map((item) => item.file), styles: occurrenceStyles, distinctPerOccurrence: true, instruction: replacementPrompt, aspectRatio, imageSize: currentSettings.imageSize, signal: controller.signal })
+          : currentSettings.imageProvider === 'openai'
+            ? await generateLogoReplacementOpenAi({ ...commonGenerateOptions, apiKey: openAiApiKey, model: currentSettings.openAiImageModel, prompt: replacementPrompt })
+            : await generateLogoReplacement({ ...commonGenerateOptions, apiKey, model: currentSettings.imageModel, logoColorMode: currentSettings.logoColorMode, customLogoColor: currentSettings.customLogoColor, promptOverride: replacementPrompt, aspectRatio, imageSize: currentSettings.imageSize, apiBaseUrl });
         const exactOutputSize = currentSettings.ratioMode === 'custom'
           ? { width: currentSettings.customOutputWidth, height: currentSettings.customOutputHeight }
           : currentSettings.ratioMode === 'original' ? dimensions : undefined;
         if (exactOutputSize) { const resized = await resizeImageBlob(result.blob, exactOutputSize.width, exactOutputSize.height); result.blob = resized; result.mimeType = resized.type || 'image/png'; }
-        if (!currentSettings.strictTextVerification) {
+        if (!currentSettings.strictTextVerification || task.newLogoIds?.length) {
           const resultUrl = URL.createObjectURL(result.blob);
           setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status: 'success', resultBlob: result.blob, resultUrl, resultMimeType: result.mimeType, verificationStatus: 'skipped' } : item));
           return;
@@ -356,7 +395,15 @@ function LogoReplaceSingleComposer({
     if ((settings.imageProvider === 'gemini' || (settings.strictTextVerification && settings.languageProvider === 'gemini')) && connectionMode === 'proxy' && !apiBaseUrl) { message.warning('请先配置代理地址'); return onRequestKey(); }
     if (!scenes.length) return void message.warning('请至少上传一张已贴 Logo 的场景图');
     if (!newLogos.length) return void message.warning('请至少上传一个新 Logo');
-    if (pairings.some((pairing) => !pairing.logo)) return void message.warning('存在尚未匹配新 Logo 的场景图');
+    if (!distinctLogoPerOccurrence && pairings.some((pairing) => !pairing.logo)) return void message.warning('存在尚未匹配新 Logo 的场景图');
+    if (distinctLogoPerOccurrence) {
+      const incomplete = scenes.filter((scene) => occurrenceAnalyses[scene.id]?.status !== 'success');
+      if (incomplete.length) {
+        startAfterOccurrenceAnalysis.current = true;
+        incomplete.filter((scene) => occurrenceAnalyses[scene.id]?.status !== 'analyzing').forEach((scene) => void analyzeOccurrences(scene));
+        return void message.info('正在分析每张场景图的 Logo 实际位置数量，完成后会自动分配');
+      }
+    }
     if (settings.perImagePromptEnabled) {
       const key = settings.languageProvider === 'openai' ? openAiApiKey : apiKey; if (!key) return onRequestKey();
       const missing = scenes.filter((scene) => !perImagePrompts.effective(scene.file));
@@ -364,13 +411,21 @@ function LogoReplaceSingleComposer({
     }
     resetTasks();
     setCompareOriginalIds(new Set());
-    setTasks(buildLogoReplaceTasks(pairings, settings.copiesPerScene));
+    setTasks(distinctLogoPerOccurrence
+      ? scenes.flatMap((scene, sceneIndex) => Array.from({ length: settings.copiesPerScene }, (_, copyIndex) => ({ id: createId(), sceneId: scene.id, sceneIndex, newLogoId: occurrenceAssignments[scene.id]?.[0] || newLogos[0].id, newLogoIds: occurrenceAssignments[scene.id], copyIndex, status: 'waiting' as const, retryCount: 0 })))
+      : buildLogoReplaceTasks(pairings, settings.copiesPerScene));
   };
   useEffect(() => {
     if (!automationStartToken || handledAutomationStart.current === automationStartToken || !scenes.length || !newLogos.length) return;
     handledAutomationStart.current = automationStartToken;
     start();
   }, [automationStartToken, scenes.length, newLogos.length]);
+  useEffect(() => {
+    if (!distinctLogoPerOccurrence || !startAfterOccurrenceAnalysis.current || !scenes.length) return;
+    if (scenes.some((scene) => occurrenceAnalyses[scene.id]?.status !== 'success')) return;
+    startAfterOccurrenceAnalysis.current = false;
+    void start();
+  }, [distinctLogoPerOccurrence, scenes, occurrenceAnalyses]);
   const stop = () => {
     aborters.current.forEach((controller) => controller.abort());
     retryTimers.current.forEach((timer) => window.clearTimeout(timer));
@@ -623,7 +678,8 @@ function LogoReplaceSingleComposer({
             {!newLogos.length ? <Upload.Dragger multiple showUploadList={false} accept={`${ACCEPTED_TYPES.join(',')},.psd,image/vnd.adobe.photoshop`} beforeUpload={(file) => addNewLogoFile(file as File)}><p className="ant-upload-drag-icon"><PlusOutlined /></p><p className="ant-upload-text">上传一个或多个新 Logo</p><p className="ant-upload-hint">PNG / JPEG / WebP / PSD；PSD 可选择包括隐藏图层在内的 Logo</p></Upload.Dragger> : <Image.PreviewGroup><div className="replace-new-logo-grid">{newLogos.map((logo) => <div className="replace-new-logo-card" key={logo.id}><Image src={logo.previewUrl} alt="新 Logo" /><Input size="small" value={expectedTexts[logo.id] || ''} placeholder="准确文字（选填）" onChange={(event) => setExpectedTexts((current) => ({ ...current, [logo.id]: event.target.value }))} /><Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => removeNewLogo(logo.id)}>删除</Button></div>)}<Upload multiple showUploadList={false} accept={`${ACCEPTED_TYPES.join(',')},.psd,image/vnd.adobe.photoshop`} beforeUpload={(file) => addNewLogoFile(file as File)}><button type="button" className="replace-logo-add"><PlusOutlined /><span>添加 Logo / PSD</span></button></Upload></div></Image.PreviewGroup>}
           </Card>
         </div>
-        {!!scenes.length && !!newLogos.length && <Card size="small" className="replace-pair-preview" title="场景与新 Logo 配对预览" extra={settings.randomAssignLogos && <Button size="small" icon={<ReloadOutlined />} onClick={() => { setRandomSeed(createId()); resetTasks(); }}>重新随机</Button>}>
+        {distinctLogoPerOccurrence && !!scenes.length && <Card size="small" className="replace-pair-preview" title="相同 Logo 多位置分配" extra={<Button size="small" icon={<ReloadOutlined />} onClick={() => { setRandomSeed(createId()); resetTasks(); }}>重新随机</Button>}><Flex vertical gap={8}>{scenes.map((scene) => { const analysis = occurrenceAnalyses[scene.id]; const count = analysis?.styles.reduce((sum, style) => sum + Math.max(1, style.occurrences || 1), 0) || 0; return <Flex key={scene.id} justify="space-between" align="center" gap={12}><Text ellipsis={{ tooltip: scene.name }}>{scene.name}</Text>{analysis?.status === 'success' ? <Text type="secondary">识别 {count} 个位置 · 使用 {Math.min(count, newLogos.length)} 个不同 Logo{count > newLogos.length ? ` · 随机补 ${count - newLogos.length} 个` : ''}</Text> : analysis?.status === 'failed' ? <Space><Tag color="error">分析失败</Tag><Button size="small" onClick={() => { setOccurrenceAnalyses((current) => { const next = { ...current }; delete next[scene.id]; return next; }); }}>重试</Button></Space> : <Tag color="processing">分析中</Tag>}</Flex>; })}</Flex></Card>}
+        {!distinctLogoPerOccurrence && !!scenes.length && !!newLogos.length && <Card size="small" className="replace-pair-preview" title="场景与新 Logo 配对预览" extra={settings.randomAssignLogos && <Button size="small" icon={<ReloadOutlined />} onClick={() => { setRandomSeed(createId()); resetTasks(); }}>重新随机</Button>}>
           {pairings.some((pairing) => !pairing.logo) && <Alert type="error" showIcon title="存在未匹配场景" description="请为未匹配的场景手动指定一个新 Logo，或开启随机分配。" style={{ marginBottom: 12 }} />}
           <div className="replace-pair-preview-grid">{pairings.map(({ scene, logo }, index) => <div className="replace-pair-preview-item" key={scene.id}><Image src={scene.previewUrl} alt={`场景 ${index + 1}`} /><SwapOutlined /><div className="pair-logo-box">{logo ? <Image src={logo.previewUrl} alt={`新 Logo ${index + 1}`} /> : <Text type="danger">未匹配</Text>}</div><Text type="secondary">第 {index + 1} 组</Text><Select aria-label={`手动指定第 ${index + 1} 组 Logo`} value={manualLogoAssignments[scene.id] || ''} onChange={(logoId) => { setManualLogoAssignments((current) => { const next = { ...current }; if (logoId) next[scene.id] = logoId; else delete next[scene.id]; return next; }); resetTasks(); }} options={[{ value: '', label: '跟随自动分配' }, ...newLogos.map((item, logoIndex) => ({ value: item.id, label: `Logo ${logoIndex + 1} · ${item.name}` }))]} /></div>)}</div>
         </Card>}
@@ -644,8 +700,8 @@ function LogoReplaceSingleComposer({
 
 export default function LogoReplaceComposer(props: LogoReplaceComposerProps) {
   const initialModes = readLocalStorage<LogoReplaceSettings>(STORAGE_KEYS.logoReplaceSettings, DEFAULT_LOGO_REPLACE_SETTINGS as LogoReplaceSettings);
-  const [multiEnabled, setMultiEnabled] = useState(Boolean(initialModes.multiLogoModeEnabled));
-  const [distinctLogoPerOccurrence, setDistinctLogoPerOccurrence] = useState(Boolean(initialModes.distinctLogoPerOccurrence));
+  const [multiEnabled, setMultiEnabled] = useState(props.initialMultiLogoModeEnabled ?? Boolean(initialModes.multiLogoModeEnabled));
+  const [distinctLogoPerOccurrence, setDistinctLogoPerOccurrence] = useState(props.initialDistinctLogoPerOccurrence ?? Boolean(initialModes.distinctLogoPerOccurrence));
   const [singleHasSession, setSingleHasSession] = useState(false);
   const [multiHasSession, setMultiHasSession] = useState(false);
   useEffect(() => props.onSessionStateChange?.(singleHasSession || multiHasSession), [singleHasSession, multiHasSession, props.onSessionStateChange]);
@@ -659,11 +715,11 @@ export default function LogoReplaceComposer(props: LogoReplaceComposerProps) {
       <Card className="logo-replace-mode-card" size="small">
         <Flex justify="space-between" align="center" gap={16} wrap>
           <div><Text strong>单图匹配多 Logo</Text><br /><Text type="secondary">开启后先解析每张场景中的 Logo 样式和实际位置数量，再按场景独立分配。</Text></div>
-          <Space wrap><Tooltip title="同一种旧 Logo 出现多次时，每个位置尽可能换成不同的新 Logo；新 Logo 不足才重复使用"><Checkbox checked={distinctLogoPerOccurrence} onChange={(event) => { const checked = event.target.checked; setDistinctLogoPerOccurrence(checked); if (checked) setMultiEnabled(true); }}>相同 Logo 多位置随机不同 Logo</Checkbox></Tooltip><Switch checked={multiEnabled} onChange={(checked) => { setMultiEnabled(checked); if (!checked) setDistinctLogoPerOccurrence(false); }} /></Space>
+          <Space wrap><Tooltip title="这是原 Logo 替换流程内的独立功能，不会进入多样式模式"><Checkbox checked={distinctLogoPerOccurrence} onChange={(event) => { setDistinctLogoPerOccurrence(event.target.checked); if (event.target.checked) setMultiEnabled(false); }}>相同 Logo 多位置随机不同 Logo</Checkbox></Tooltip><Switch checked={multiEnabled} onChange={(checked) => { setMultiEnabled(checked); if (checked) setDistinctLogoPerOccurrence(false); }} /></Space>
         </Flex>
       </Card>
       <div hidden={multiEnabled}>
-        <LogoReplaceSingleComposer {...props} settingsHost={multiEnabled ? null : props.settingsHost} onSessionStateChange={setSingleHasSession} />
+        <LogoReplaceSingleComposer {...props} initialDistinctLogoPerOccurrence={distinctLogoPerOccurrence} settingsHost={multiEnabled ? null : props.settingsHost} onSessionStateChange={setSingleHasSession} />
       </div>
       <div hidden={!multiEnabled}>
         <LogoReplaceDevComposer {...props} settingsHost={multiEnabled ? props.settingsHost : null} onSessionStateChange={setMultiHasSession} integrated distinctLogoPerOccurrence={distinctLogoPerOccurrence} />

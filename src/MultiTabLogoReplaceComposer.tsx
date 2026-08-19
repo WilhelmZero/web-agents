@@ -26,7 +26,7 @@ const STORE = 'batches';
 interface FolderGroup { id: string; name: string; path: string; files: File[] }
 interface FolderTreeNode { title: string; key: string; children?: FolderTreeNode[] }
 interface PickerFolderNode { name: string; path: string; children: PickerFolderNode[]; group?: FolderGroup }
-interface SharedBatch { id: string; createdAt: number; groups: FolderGroup[]; logos: File[]; globalConcurrency?: number; perImagePrompts?: Record<string, PerImagePromptAssignment>; startCommandId?: string }
+interface SharedBatch { id: string; createdAt: number; groups: FolderGroup[]; logos: File[]; globalConcurrency?: number; perImagePrompts?: Record<string, PerImagePromptAssignment>; startCommandId?: string; multiLogoModeEnabled?: boolean; distinctLogoPerOccurrence?: boolean }
 interface WorkerProgress extends LogoReplaceProgressSnapshot { groupId: string; name: string; status: 'opening' | 'ready' | 'running' | 'completed'; updatedAt: number }
 
 export function FileThumbnail({ file, onRemove }: { file: File; onRemove?: () => void }) {
@@ -142,6 +142,10 @@ function injectFiles(input: HTMLInputElement | null, files: File[]) {
   input.files = transfer.files; input.dispatchEvent(new Event('change', { bubbles: true })); return true;
 }
 
+function activeLogoComposerRoot(root: HTMLElement | null) {
+  return root?.querySelector<HTMLElement>('.logo-replace-integrated > div:not([hidden])') || null;
+}
+
 interface Props { apiKey: string; openAiApiKey: string; apiBaseUrl: string | null; connectionMode: 'direct' | 'proxy'; onRequestKey: () => void; settingsHost?: HTMLElement | null; onSessionStateChange?: (value: boolean) => void }
 
 export default function MultiTabLogoReplaceComposer(props: Props) {
@@ -186,15 +190,18 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
 
   useEffect(() => {
     if (!workerBatch || !workerGroup || injected) return;
-    const timer = window.setTimeout(() => {
-      const root = rootRef.current; if (!root) return;
-      const sceneInput = root.querySelector<HTMLInputElement>('.logo-replace-integrated input[type="file"][accept="image/png,image/jpeg,image/webp"]');
-      const logoInput = root.querySelector<HTMLInputElement>('.logo-replace-integrated input[type="file"][accept*=".psd"]');
-      const sceneOk = injectFiles(sceneInput, workerGroup.files); const logoOk = injectFiles(logoInput, workerBatch.logos);
-      workerBatch.logos.forEach((file) => loadedLogoKeys.current.add(`${file.name}:${file.size}:${file.lastModified}`));
-      if (sceneOk && logoOk) { setInjected(true); channel?.postMessage({ type: 'worker-ready', batchId, groupId, name: workerGroup.name, count: workerGroup.files.length }); }
-    }, 600);
-    return () => window.clearTimeout(timer);
+    let sceneOk = false; let logoOk = false; let attempts = 0;
+    const timer = window.setInterval(() => {
+      attempts += 1;
+      const activeRoot = activeLogoComposerRoot(rootRef.current); if (!activeRoot) return;
+      if (!sceneOk) sceneOk = injectFiles(activeRoot.querySelector<HTMLInputElement>('input[type="file"][accept="image/png,image/jpeg,image/webp"]'), workerGroup.files);
+      if (!logoOk) logoOk = injectFiles(activeRoot.querySelector<HTMLInputElement>('input[type="file"][accept*=".psd"]'), workerBatch.logos);
+      if (sceneOk && logoOk) {
+        workerBatch.logos.forEach((file) => loadedLogoKeys.current.add(`${file.name}:${file.size}:${file.lastModified}`));
+        window.clearInterval(timer); setInjected(true); channel?.postMessage({ type: 'worker-ready', batchId, groupId, name: workerGroup.name, count: workerGroup.files.length });
+      } else if (attempts >= 40) window.clearInterval(timer);
+    }, 250);
+    return () => window.clearInterval(timer);
   }, [workerBatch, workerGroup, injected, channel, batchId, groupId]);
 
   useEffect(() => {
@@ -204,10 +211,10 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
       if (!data || data.batchId !== (worker ? batchId : activeBatchId)) return;
       if (worker && data.type === 'start-all') setAutomationStartToken(data.commandId);
       if (worker && data.type === 'retry-failed') setAutomationRetryFailedToken(data.commandId);
-      if (worker && data.type === 'stop-all') rootRef.current?.querySelector<HTMLButtonElement>('.logo-replace-integrated .action-card button.ant-btn-danger')?.click();
+      if (worker && data.type === 'stop-all') activeLogoComposerRoot(rootRef.current)?.querySelector<HTMLButtonElement>('.action-card button.ant-btn-danger')?.click();
       if (worker && data.type === 'logos-updated' && batchId) void readBatch(batchId).then((batch) => {
         if (!batch) return; const group = batch.groups.find((item) => item.id === groupId); setWorkerBatch(group ? { ...batch, groups: [group], perImagePrompts: Object.fromEntries(Object.entries(batch.perImagePrompts || {}).filter(([key]) => group.files.some((file) => perImagePromptFileKey(file) === key))) } : batch); const fresh = batch.logos.filter((file) => !loadedLogoKeys.current.has(`${file.name}:${file.size}:${file.lastModified}`));
-        if (fresh.length) { const input = rootRef.current?.querySelector<HTMLInputElement>('.logo-replace-integrated input[type="file"][accept*=".psd"]') || null; injectFiles(input, fresh); fresh.forEach((file) => loadedLogoKeys.current.add(`${file.name}:${file.size}:${file.lastModified}`)); message.success(`已同步 ${fresh.length} 个公共 Logo`); }
+        if (fresh.length) { const input = activeLogoComposerRoot(rootRef.current)?.querySelector<HTMLInputElement>('input[type="file"][accept*=".psd"]') || null; injectFiles(input, fresh); fresh.forEach((file) => loadedLogoKeys.current.add(`${file.name}:${file.size}:${file.lastModified}`)); message.success(`已同步 ${fresh.length} 个公共 Logo`); }
       });
       if (!worker && data.type === 'worker-ready') setWorkerProgress((current) => ({ ...current, [data.groupId]: { ...(current[data.groupId] || { total: 0, success: 0, failed: 0, stopped: 0, waiting: 0, running: 0, retrying: 0 }), groupId: data.groupId, name: data.name, status: 'ready', updatedAt: Date.now() } }));
       if (!worker && data.type === 'worker-progress') setWorkerProgress((current) => ({ ...current, [data.groupId]: data.progress }));
@@ -241,8 +248,8 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
     return { name: group.name, url: url.toString() };
   };
   const persistCurrentBatch = async (id = activeBatchId || `batch-${Date.now()}`) => {
-    localStorage.setItem(STORAGE_KEYS.logoReplaceSettings, JSON.stringify({ ...storedLogoSettings, perImagePromptEnabled, autoGenerateAfterPromptAnalysis, multiLogoModeEnabled: distinctLogoPerOccurrence || storedLogoSettings.multiLogoModeEnabled, distinctLogoPerOccurrence }));
-    await saveBatch({ id, createdAt: Date.now(), groups, logos, globalConcurrency, perImagePrompts: perImagePrompts.current() });
+    localStorage.setItem(STORAGE_KEYS.logoReplaceSettings, JSON.stringify({ ...storedLogoSettings, perImagePromptEnabled, autoGenerateAfterPromptAnalysis, multiLogoModeEnabled: false, distinctLogoPerOccurrence }));
+    await saveBatch({ id, createdAt: Date.now(), groups, logos, globalConcurrency, perImagePrompts: perImagePrompts.current(), multiLogoModeEnabled: false, distinctLogoPerOccurrence });
     setActiveBatchId(id); return id;
   };
   const openWorkers = async () => {
