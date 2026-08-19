@@ -109,6 +109,8 @@ interface LogoReplaceComposerProps {
   onPerImagePromptsChange?: (items: Record<string, PerImagePromptAssignment>) => void;
   initialMultiLogoModeEnabled?: boolean;
   initialDistinctLogoPerOccurrence?: boolean;
+  initialSceneFiles?: File[];
+  initialNewLogoFiles?: File[];
 }
 
 function LogoReplaceSingleComposer({
@@ -126,6 +128,8 @@ function LogoReplaceSingleComposer({
   initialPerImagePrompts,
   onPerImagePromptsChange,
   initialDistinctLogoPerOccurrence,
+  initialSceneFiles,
+  initialNewLogoFiles,
 }: LogoReplaceComposerProps) {
   const { message } = AntApp.useApp();
   const distinctLogoPerOccurrence = Boolean(initialDistinctLogoPerOccurrence);
@@ -160,6 +164,8 @@ function LogoReplaceSingleComposer({
   const oldLogoRef = useRef(oldLogo);
   const newLogosRef = useRef(newLogos);
   const settingsRef = useRef(settings);
+  const importedSceneKeys = useRef(new Set<string>());
+  const importedNewLogoKeys = useRef(new Set<string>());
 
   useEffect(() => { scenesRef.current = scenes; }, [scenes]);
   useEffect(() => { oldLogoRef.current = oldLogo; }, [oldLogo]);
@@ -224,6 +230,24 @@ function LogoReplaceSingleComposer({
     }
     return false;
   };
+  useEffect(() => {
+    const fresh = (initialSceneFiles || []).filter((file) => {
+      const key = `${file.name}:${file.size}:${file.lastModified}`;
+      if (importedSceneKeys.current.has(key)) return false;
+      importedSceneKeys.current.add(key);
+      return true;
+    });
+    if (fresh.length) addScenes(fresh);
+  }, [initialSceneFiles]);
+  useEffect(() => {
+    const fresh = (initialNewLogoFiles || []).filter((file) => {
+      const key = `${file.name}:${file.size}:${file.lastModified}`;
+      if (importedNewLogoKeys.current.has(key)) return false;
+      importedNewLogoKeys.current.add(key);
+      return true;
+    });
+    if (fresh.length) addNewLogos(fresh);
+  }, [initialNewLogoFiles]);
   const loadPsdLogos = async (file: File) => {
     setPendingPsdFile(file);
   };
