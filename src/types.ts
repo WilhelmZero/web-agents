@@ -273,6 +273,7 @@ export interface SceneReplaceSettings {
 
 export type PerImagePromptTool = 'logo-replace' | 'scene-replace';
 export type PerImagePromptStatus = 'pending' | 'analyzing' | 'ready' | 'stale' | 'failed';
+export type PerImagePromptAction = 'replace' | 'skip-no-logo' | 'skip-gift-scene';
 export interface PerImagePromptAssignment {
   fileKey: string;
   tool: PerImagePromptTool;
@@ -280,6 +281,8 @@ export interface PerImagePromptAssignment {
   applicableConditions: string[];
   prompt: string;
   constraints?: string;
+  action?: PerImagePromptAction;
+  actionReason?: string;
   sourcePrompt: string;
   status: PerImagePromptStatus;
   updatedAt: number;
@@ -342,6 +345,7 @@ export interface LogoReplaceTask {
   acceptedVerificationRisk?: boolean;
   nextRetryAt?: number;
   autoRetryStopped?: boolean;
+  skipReason?: string;
 }
 
 export interface LogoReplaceProgressSnapshot {
@@ -364,6 +368,7 @@ export interface LogoReplaceTaskDetail {
   verificationStatus?: LogoReplaceTask['verificationStatus'];
   verificationAttempts?: number;
   acceptedVerificationRisk?: boolean;
+  skipReason?: string;
   resultBlob?: Blob;
   originalFile?: File;
 }

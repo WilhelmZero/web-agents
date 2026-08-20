@@ -39,14 +39,14 @@ export function FileThumbnail({ file, onRemove }: { file: File; onRemove?: () =>
 
 function TaskResultThumbnail({ detail, urls, showOriginal, onToggleOriginal, usable, onUsableChange }: { detail: LogoReplaceTaskDetail; urls: { result: string; original: string }; showOriginal: boolean; onToggleOriginal: () => void; usable: boolean; onUsableChange: (value: boolean) => void }) {
   const toggleOriginal = onToggleOriginal;
-  const statusText = detail.status === 'success' ? '生成完成' : detail.status === 'failed' ? '生成失败' : detail.status === 'stopped' ? '已停止' : detail.status === 'running' ? '生成中' : '等待中';
+  const statusText = detail.skipReason ? '保留原图' : detail.status === 'success' ? '生成完成' : detail.status === 'failed' ? '生成失败' : detail.status === 'stopped' ? '已停止' : detail.status === 'running' ? '生成中' : '等待中';
   const statusColor = detail.status === 'success' ? 'success' : detail.status === 'failed' ? 'error' : detail.status === 'running' ? 'processing' : 'default';
   return <Card size="small" className="batch-result-card" title={`场景 ${detail.sceneIndex + 1} · 结果 ${detail.copyIndex + 1}`} extra={<Tag color={statusColor}>{statusText}</Tag>}>
     {urls.result ? <>
       <div className="batch-result-image"><Image src={showOriginal && urls.original ? urls.original : urls.result} alt={showOriginal ? '原图' : '生成图'} preview={{ src: showOriginal && urls.original ? urls.original : urls.result, actionsRender: (originalNode) => <>{originalNode}{urls.original && <button type="button" className={`scene-preview-compare-action${showOriginal ? ' is-active' : ''}`} title={showOriginal ? '查看生成图' : '查看原图'} onClick={(event) => { event.stopPropagation(); toggleOriginal(); }}><EyeOutlined /></button>}</> }} /></div>
-      {urls.original && <Button block size="small" icon={<EyeOutlined />} onClick={toggleOriginal}>{showOriginal ? '查看生成图' : '查看原图'}</Button>}
+      {urls.original && !detail.skipReason && <Button block size="small" icon={<EyeOutlined />} onClick={toggleOriginal}>{showOriginal ? '查看生成图' : '查看原图'}</Button>}
     </> : <div className="batch-result-state"><FileImageOutlined /><Text type="secondary">{detail.error || statusText}</Text></div>}
-    <Flex gap={6} wrap className="batch-result-meta">{detail.retryCount > 0 && <Tag color="gold">重试 {detail.retryCount} 次</Tag>}{detail.verificationStatus && <Tag>校验：{detail.verificationStatus}</Tag>}{detail.resultBlob && <Checkbox checked={usable} onChange={(event) => onUsableChange(event.target.checked)}>手动标记可用</Checkbox>}</Flex>
+    <Flex gap={6} wrap className="batch-result-meta">{detail.skipReason && <Tag color="warning">未执行替换：{detail.skipReason}</Tag>}{detail.retryCount > 0 && <Tag color="gold">重试 {detail.retryCount} 次</Tag>}{detail.verificationStatus && !detail.skipReason && <Tag>校验：{detail.verificationStatus}</Tag>}{detail.resultBlob && <Checkbox checked={usable} onChange={(event) => onUsableChange(event.target.checked)}>手动标记可用</Checkbox>}</Flex>
   </Card>;
 }
 

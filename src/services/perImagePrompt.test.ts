@@ -3,13 +3,20 @@ import { analyzePerImagePromptWithRetry, assignmentNeedsAnalysis, buildPerImageA
 
 describe('per image prompt assignment', () => {
   it('parses fenced JSON without relying on additional properties', () => {
-    expect(parsePerImagePromptResult('```json\n{"summary":"木盒和杯子","applicableConditions":["木盒雕刻"],"prompt":"仅替换杯身原 Logo"}\n```')).toEqual({ summary: '木盒和杯子', applicableConditions: ['木盒雕刻'], prompt: '仅替换杯身原 Logo', constraints: '' });
+    expect(parsePerImagePromptResult('```json\n{"summary":"木盒和杯子","applicableConditions":["木盒雕刻"],"prompt":"仅替换杯身原 Logo"}\n```')).toEqual({ summary: '木盒和杯子', applicableConditions: ['木盒雕刻'], prompt: '仅替换杯身原 Logo', constraints: '', action: 'replace', actionReason: '' });
+  });
+  it('parses a no-logo decision so the image model can be skipped', () => {
+    expect(parsePerImagePromptResult('{"summary":"无标识玻璃杯","applicableConditions":[],"prompt":"保持原图不变，不执行 Logo 替换","constraints":"","action":"skip-no-logo","actionReason":"杯子与木盒均无可替换 Logo"}')).toMatchObject({ action: 'skip-no-logo', actionReason: '杯子与木盒均无可替换 Logo' });
   });
   it('invalidates assignments when the public prompt changes', () => {
     expect(assignmentNeedsAnalysis({ fileKey: 'a', tool: 'scene-replace', summary: 'a', applicableConditions: [], prompt: 'x', sourcePrompt: 'old', status: 'ready', updatedAt: 1 }, 'new')).toBe(true);
   });
   it('keeps mandatory rules outside the language model allocation prompt', () => {
-    expect(buildPerImageAnalysisPrompt('logo-replace', '木盒用深色雕刻，玻璃用白色')).toContain('constraints 返回空字符串');
+    const prompt = buildPerImageAnalysisPrompt('logo-replace', '木盒用深色雕刻，玻璃用白色');
+    expect(prompt).toContain('constraints 返回空字符串');
+    expect(prompt).toContain('skip-no-logo');
+    expect(prompt).toContain('skip-gift-scene');
+    expect(prompt).toContain('整图保持原样');
   });
   it('delegates automatic prompt analysis to worker tabs', () => {
     expect(shouldAnalyzePerImagePromptsInController(true, true)).toBe(false);
