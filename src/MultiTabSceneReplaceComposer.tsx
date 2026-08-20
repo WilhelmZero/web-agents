@@ -1,205 +1,2122 @@
-import { App, Alert, Button, Card, Checkbox, Collapse, Empty, Flex, Image, Input, InputNumber, Modal, Popconfirm, Progress, Space, Statistic, Switch, Tag, Typography, Upload } from 'antd';
-import { BulbOutlined, DeleteOutlined, DownloadOutlined, EyeOutlined, FolderOpenOutlined, PlusOutlined, ReloadOutlined, RocketOutlined, StopOutlined } from '@ant-design/icons';
-import JSZip from 'jszip';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type * as React from 'react';
-import SceneReplaceComposer from './SceneReplaceComposer';
-import { FileThumbnail, groupFolderFiles } from './MultiTabLogoReplaceComposer';
-import type { PerImagePromptAssignment, SceneReplaceSettings, SceneReplaceTask } from './types';
-import { downloadBlob, formatFileTimestamp, mimeExtension, sanitizeFileName } from './utils';
-import { DEFAULT_SCENE_REPLACE_SETTINGS, STORAGE_KEYS } from './constants';
-import { readLocalStorage } from './storage';
-import { assignFolderScene, FOLDER_SCENE_COMMON_PROMPT, identifyCupType, SCENE_COMMON_CONSTRAINT, SCENE_MANUAL_DEFAULT_PROMPT, type RecommendedCupType } from './services/sceneThemeRecommendation';
-import { detectWhiteBackground } from './services/whiteBackgroundDetection';
-import { formatBatchDuration } from './services/batchTiming';
-import { sanitizeRelativeFolderPath } from './services/batchFolderPath';
-import { PerImagePromptEditor, usePerImagePrompts } from './usePerImagePrompts';
-import { perImagePromptFileKey, shouldAnalyzePerImagePromptsInController } from './services/perImagePrompt';
-import { batchCostMetrics, formatBatchDateTime, imageRequestCostRange, percentage } from './services/batchExecutionMetrics';
-import { putMultiTabResult, readMultiTabGroupResults } from './services/multiTabResultStore';
+import {
+  App,
+  Alert,
+  Button,
+  Card,
+  Checkbox,
+  Collapse,
+  Empty,
+  Flex,
+  Image,
+  Input,
+  InputNumber,
+  Modal,
+  Popconfirm,
+  Progress,
+  Space,
+  Statistic,
+  Switch,
+  Tag,
+  Typography,
+  Upload,
+} from "antd";
+import {
+  BulbOutlined,
+  DeleteOutlined,
+  DownloadOutlined,
+  EyeOutlined,
+  FolderOpenOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+  RocketOutlined,
+  StopOutlined,
+} from "@ant-design/icons";
+import JSZip from "jszip";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type * as React from "react";
+import SceneReplaceComposer from "./SceneReplaceComposer";
+import { FileThumbnail, groupFolderFiles } from "./MultiTabLogoReplaceComposer";
+import type {
+  PerImagePromptAssignment,
+  SceneReplaceSettings,
+  SceneReplaceTask,
+} from "./types";
+import {
+  downloadBlob,
+  formatFileTimestamp,
+  mimeExtension,
+  sanitizeFileName,
+} from "./utils";
+import { DEFAULT_SCENE_REPLACE_SETTINGS, STORAGE_KEYS } from "./constants";
+import { readLocalStorage } from "./storage";
+import {
+  assignFolderScene,
+  FOLDER_SCENE_COMMON_PROMPT,
+  identifyCupType,
+  SCENE_COMMON_CONSTRAINT,
+  SCENE_MANUAL_DEFAULT_PROMPT,
+  type RecommendedCupType,
+} from "./services/sceneThemeRecommendation";
+import { detectWhiteBackground } from "./services/whiteBackgroundDetection";
+import { formatBatchDuration } from "./services/batchTiming";
+import { sanitizeRelativeFolderPath } from "./services/batchFolderPath";
+import { PerImagePromptEditor, usePerImagePrompts } from "./usePerImagePrompts";
+import {
+  perImagePromptFileKey,
+  shouldAnalyzePerImagePromptsInController,
+} from "./services/perImagePrompt";
+import {
+  batchCostMetrics,
+  formatBatchDateTime,
+  imageRequestCostRange,
+  percentage,
+} from "./services/batchExecutionMetrics";
+import {
+  putMultiTabResult,
+  readMultiTabGroupResults,
+} from "./services/multiTabResultStore";
+import {
+  desktopAssetFromFile,
+  isElectronDesktop,
+  submitDesktopJob,
+} from "./desktop/runtime";
 
 const { Title, Text, Paragraph } = Typography;
-const DB_NAME = 'scene-studio.multi-tab-scene-replace.v1'; const STORE = 'batches';
+const DB_NAME = "scene-studio.multi-tab-scene-replace.v1";
+const STORE = "batches";
 type Group = ReturnType<typeof groupFolderFiles>[number];
-interface PickerFolderNode { name: string; path: string; children: PickerFolderNode[]; group?: Group }
+interface PickerFolderNode {
+  name: string;
+  path: string;
+  children: PickerFolderNode[];
+  group?: Group;
+}
 export function buildPickerFolderTree(groups: Group[]): PickerFolderNode[] {
-  const leafGroups = groups.filter((group) => !groups.some((candidate) => candidate.path !== group.path && candidate.path.startsWith(`${group.path}/`)));
+  const leafGroups = groups.filter(
+    (group) =>
+      !groups.some(
+        (candidate) =>
+          candidate.path !== group.path &&
+          candidate.path.startsWith(`${group.path}/`),
+      ),
+  );
   const roots: PickerFolderNode[] = [];
-  leafGroups.forEach((group) => { let nodes = roots; let path = ''; group.path.split('/').filter(Boolean).forEach((name, index, parts) => { path = path ? `${path}/${name}` : name; let node = nodes.find((item) => item.path === path); if (!node) { node = { name, path, children: [] }; nodes.push(node); } if (index === parts.length - 1) node.group = group; nodes = node.children; }); });
+  leafGroups.forEach((group) => {
+    let nodes = roots;
+    let path = "";
+    group.path
+      .split("/")
+      .filter(Boolean)
+      .forEach((name, index, parts) => {
+        path = path ? `${path}/${name}` : name;
+        let node = nodes.find((item) => item.path === path);
+        if (!node) {
+          node = { name, path, children: [] };
+          nodes.push(node);
+        }
+        if (index === parts.length - 1) node.group = group;
+        nodes = node.children;
+      });
+  });
   return roots;
 }
-export interface FolderSceneSuggestion { cupType: RecommendedCupType; theme: string; source: 'matched' | 'fallback' | 'manual'; firstFileKey: string; status: 'ready' | 'stale' }
-interface Batch { id: string; groups: Group[]; prompt: string; concurrency: number; settings?: Partial<SceneReplaceSettings>; folderSuggestionMode?: boolean; folderSuggestions?: Record<string, FolderSceneSuggestion>; perImagePrompts?: Record<string, PerImagePromptAssignment>; startToken?: string; autoDownloadOnComplete?: boolean }
-export function buildFolderScenePrompt(commonPrompt: string, suggestion?: FolderSceneSuggestion) { return suggestion?.theme.trim() ? `${suggestion.theme.trim()}；${commonPrompt.trim()}` : commonPrompt.trim(); }
-interface ProgressState { total: number; completed: number; failed: number; running: boolean }
-function LeafImage({ file }: { file: File }) { const [url, setUrl] = useState(''); useEffect(() => { const next = URL.createObjectURL(file); setUrl(next); return () => URL.revokeObjectURL(next); }, [file]); return url ? <Image loading="lazy" preview={false} src={url} alt={file.name} width={42} height={42} style={{ objectFit: 'cover', borderRadius: 5 }} /> : null; }
-function FolderCover({ file }: { file?: File }) { const [url, setUrl] = useState(''); useEffect(() => { if (!file) return setUrl(''); const next = URL.createObjectURL(file); setUrl(next); return () => URL.revokeObjectURL(next); }, [file]); return url ? <Image loading="lazy" src={url} alt={file?.name} width="100%" height={150} style={{ objectFit: 'cover', borderRadius: 8 }} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="无图片" />; }
-interface SceneOutputItem { id: string; groupId: string; groupName: string; task: SceneReplaceTask; blob: Blob; original?: File; label: string }
-function collectSceneOutputItems(groups: Group[], results: Record<string, SceneReplaceTask[]>) {
+export interface FolderSceneSuggestion {
+  cupType: RecommendedCupType;
+  theme: string;
+  source: "matched" | "fallback" | "manual";
+  firstFileKey: string;
+  status: "ready" | "stale";
+}
+interface Batch {
+  id: string;
+  groups: Group[];
+  prompt: string;
+  concurrency: number;
+  settings?: Partial<SceneReplaceSettings>;
+  folderSuggestionMode?: boolean;
+  folderSuggestions?: Record<string, FolderSceneSuggestion>;
+  perImagePrompts?: Record<string, PerImagePromptAssignment>;
+  startToken?: string;
+  autoDownloadOnComplete?: boolean;
+}
+export function buildFolderScenePrompt(
+  commonPrompt: string,
+  suggestion?: FolderSceneSuggestion,
+) {
+  return suggestion?.theme.trim()
+    ? `${suggestion.theme.trim()}；${commonPrompt.trim()}`
+    : commonPrompt.trim();
+}
+interface ProgressState {
+  total: number;
+  completed: number;
+  failed: number;
+  running: boolean;
+}
+function LeafImage({ file }: { file: File }) {
+  const [url, setUrl] = useState("");
+  useEffect(() => {
+    const next = URL.createObjectURL(file);
+    setUrl(next);
+    return () => URL.revokeObjectURL(next);
+  }, [file]);
+  return url ? (
+    <Image
+      loading="lazy"
+      preview={false}
+      src={url}
+      alt={file.name}
+      width={42}
+      height={42}
+      style={{ objectFit: "cover", borderRadius: 5 }}
+    />
+  ) : null;
+}
+function FolderCover({ file }: { file?: File }) {
+  const [url, setUrl] = useState("");
+  useEffect(() => {
+    if (!file) return setUrl("");
+    const next = URL.createObjectURL(file);
+    setUrl(next);
+    return () => URL.revokeObjectURL(next);
+  }, [file]);
+  return url ? (
+    <Image
+      loading="lazy"
+      src={url}
+      alt={file?.name}
+      width="100%"
+      height={150}
+      style={{ objectFit: "cover", borderRadius: 8 }}
+    />
+  ) : (
+    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="无图片" />
+  );
+}
+interface SceneOutputItem {
+  id: string;
+  groupId: string;
+  groupName: string;
+  task: SceneReplaceTask;
+  blob: Blob;
+  original?: File;
+  label: string;
+}
+function collectSceneOutputItems(
+  groups: Group[],
+  results: Record<string, SceneReplaceTask[]>,
+) {
   return Object.entries(results).flatMap(([groupId, tasks]) => {
     const group = groups.find((item) => item.id === groupId);
     return tasks.flatMap((task) => {
-      const base = task.resultBlob ? [{ id: task.id, groupId, groupName: group?.name || '分组', task, blob: task.resultBlob, original: group?.files[task.sceneIndex], label: `场景结果 ${task.copyIndex + 1}` }] : [];
-      const expanded = (task.outpaintResults || []).map((item, index) => ({ id: `${task.id}:outpaint:${index}`, groupId, groupName: group?.name || '分组', task, blob: item.blob, original: group?.files[task.sceneIndex], label: `扩图 ${item.width}×${item.height}` }));
+      const base = task.resultBlob
+        ? [
+            {
+              id: task.id,
+              groupId,
+              groupName: group?.name || "分组",
+              task,
+              blob: task.resultBlob,
+              original: group?.files[task.sceneIndex],
+              label: `场景结果 ${task.copyIndex + 1}`,
+            },
+          ]
+        : [];
+      const expanded = (task.outpaintResults || []).map((item, index) => ({
+        id: `${task.id}:outpaint:${index}`,
+        groupId,
+        groupName: group?.name || "分组",
+        task,
+        blob: item.blob,
+        original: group?.files[task.sceneIndex],
+        label: `扩图 ${item.width}×${item.height}`,
+      }));
       return [...base, ...expanded];
     });
   });
 }
-function SceneOutputGallery({ items, usableIds, onUsableChange }: { items: SceneOutputItem[]; usableIds: string[]; onUsableChange: (id: string, value: boolean) => void }) {
-  const [urls, setUrls] = useState<Record<string, { output: string; original: string }>>({});
+function SceneOutputGallery({
+  items,
+  usableIds,
+  onUsableChange,
+}: {
+  items: SceneOutputItem[];
+  usableIds: string[];
+  onUsableChange: (id: string, value: boolean) => void;
+}) {
+  const [urls, setUrls] = useState<
+    Record<string, { output: string; original: string }>
+  >({});
   const [showOriginalIds, setShowOriginalIds] = useState<string[]>([]);
-  useEffect(() => { const next = Object.fromEntries(items.map((item) => [item.id, { output: URL.createObjectURL(item.blob), original: item.original ? URL.createObjectURL(item.original) : '' }])); setUrls(next); setShowOriginalIds([]); return () => Object.values(next).forEach((entry) => { URL.revokeObjectURL(entry.output); if (entry.original) URL.revokeObjectURL(entry.original); }); }, [items]);
-  return <Image.PreviewGroup><div className="batch-result-grid">{items.map((item) => { const entry = urls[item.id]; const showOriginal = showOriginalIds.includes(item.id) && Boolean(entry?.original); const shown = showOriginal ? entry?.original : entry?.output; return <Card key={item.id} size="small" className="batch-result-card" title={`${item.groupName} · 图片 ${item.task.sceneIndex + 1}`} extra={<Tag color="success">{item.label}</Tag>}><div className="batch-result-image">{shown && <Image src={shown} alt={showOriginal ? '原图' : item.label} preview={{ src: shown }} />}</div><Flex justify="space-between" align="center" gap={8} wrap style={{ marginTop: 8 }}><Space wrap>{entry?.original && <Button size="small" icon={<EyeOutlined />} onClick={() => setShowOriginalIds((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])}>{showOriginal ? '查看生成图' : '查看原图'}</Button>}{item.task.retryCount > 0 && <Tag color="gold">产品重试 {item.task.retryCount} 次</Tag>}</Space><Checkbox checked={usableIds.includes(item.id)} onChange={(event) => onUsableChange(item.id, event.target.checked)}>标记可用</Checkbox></Flex></Card>; })}</div></Image.PreviewGroup>;
-}
-function db() { return new Promise<IDBDatabase>((resolve, reject) => { const request = indexedDB.open(DB_NAME, 1); request.onupgradeneeded = () => request.result.createObjectStore(STORE, { keyPath: 'id' }); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); }); }
-async function save(batch: Batch) { const store = await db(); const settings = batch.settings || readLocalStorage<SceneReplaceSettings>(STORAGE_KEYS.sceneReplaceSettings, DEFAULT_SCENE_REPLACE_SETTINGS as SceneReplaceSettings); await new Promise<void>((resolve, reject) => { const tx = store.transaction(STORE, 'readwrite'); tx.objectStore(STORE).put({ ...batch, settings }); tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); }); store.close(); }
-async function read(id: string) { const store = await db(); const value = await new Promise<Batch | undefined>((resolve, reject) => { const request = store.transaction(STORE).objectStore(STORE).get(id); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); }); store.close(); return value; }
-function inject(input: HTMLInputElement | null, files: File[]) { if (!input) return; const transfer = new DataTransfer(); files.forEach((file) => transfer.items.add(file)); input.files = transfer.files; input.dispatchEvent(new Event('change', { bubbles: true })); }
-
-export default function MultiTabSceneReplaceComposer(props: Parameters<typeof SceneReplaceComposer>[0]) {
-  const { message } = App.useApp(); const params = new URLSearchParams(location.search); const worker = params.get('worker') === '1'; const batchId = params.get('batch'); const groupId = params.get('group');
-  const [groups, setGroups] = useState<Group[]>([]); const [concurrency, setConcurrency] = useState(6); const [activeBatch, setActiveBatch] = useState<string>();
-  const [autoRecommendScene, setAutoRecommendScene] = useState(() => readLocalStorage<SceneReplaceSettings>(STORAGE_KEYS.sceneReplaceSettings, DEFAULT_SCENE_REPLACE_SETTINGS as SceneReplaceSettings).autoRecommendScene);
-  const storedSceneSettings = readLocalStorage<SceneReplaceSettings>(STORAGE_KEYS.sceneReplaceSettings, DEFAULT_SCENE_REPLACE_SETTINGS as SceneReplaceSettings);
-  const [perImagePromptEnabled, setPerImagePromptEnabled] = useState(storedSceneSettings.perImagePromptEnabled);
-  const [autoGenerateAfterPromptAnalysis, setAutoGenerateAfterPromptAnalysis] = useState(storedSceneSettings.autoGenerateAfterPromptAnalysis);
-  const [autoDownloadOnComplete, setAutoDownloadOnComplete] = useState(() => readLocalStorage('scene-studio.scene-tabs-auto-download', false));
-  const [simplifyPromptConstraints, setSimplifyPromptConstraints] = useState(storedSceneSettings.simplifyPromptConstraints ?? false);
-  const [detectInsufficientSceneChange, setDetectInsufficientSceneChange] = useState(storedSceneSettings.detectInsufficientSceneChange ?? true);
-  const [prompt, setPrompt] = useState(() => autoRecommendScene ? SCENE_COMMON_CONSTRAINT : SCENE_MANUAL_DEFAULT_PROMPT);
-  const [folderSuggestionMode, setFolderSuggestionMode] = useState(() => readLocalStorage('scene-studio.folder-scene-mode', false));
-  const [folderSuggestions, setFolderSuggestions] = useState<Record<string, FolderSceneSuggestion>>(() => readLocalStorage('scene-studio.folder-scene-suggestions', {}));
-  const [suggestingGroupIds, setSuggestingGroupIds] = useState<string[]>([]);
-  const [autoSkipWhiteBackground, setAutoSkipWhiteBackground] = useState(() => readLocalStorage<SceneReplaceSettings>(STORAGE_KEYS.sceneReplaceSettings, DEFAULT_SCENE_REPLACE_SETTINGS as SceneReplaceSettings).autoSkipWhiteBackground);
-  const [whiteBackgroundFileKeys, setWhiteBackgroundFileKeys] = useState<string[]>([]);
-  const [scannedWhiteFileKeys, setScannedWhiteFileKeys] = useState<string[]>([]);
-  const [workerBatch, setWorkerBatch] = useState<Batch>(); const [workerGroup, setWorkerGroup] = useState<Group>(); const [injected, setInjected] = useState(false); const [startToken, setStartToken] = useState<string>(); const [retryFailedToken, setRetryFailedToken] = useState<string>(); const [stopToken, setStopToken] = useState<string>();
-  const [progress, setProgress] = useState<Record<string, ProgressState>>({}); const [results, setResults] = useState<Record<string, SceneReplaceTask[]>>({}); const root = useRef<HTMLDivElement>(null); const channel = useRef<BroadcastChannel | undefined>(undefined);
-  const [pendingFolderFiles, setPendingFolderFiles] = useState<File[]>([]); const [checkedFolderKeys, setCheckedFolderKeys] = useState<string[]>([]); const [selectedGroupId, setSelectedGroupId] = useState<string>(); const [selectedProgressGroupId, setSelectedProgressGroupId] = useState<string>();
-  const [runStartedAt, setRunStartedAt] = useState<number>(); const [runEndedAt, setRunEndedAt] = useState<number>(); const [runDurationMs, setRunDurationMs] = useState<number>(); const [usableTaskIds, setUsableTaskIds] = useState<string[]>([]); const [workerTitleState, setWorkerTitleState] = useState<'queued' | 'running' | 'completed'>('queued'); const [titleFlash, setTitleFlash] = useState(false);
-  const [loadedResultGroups, setLoadedResultGroups] = useState<Record<string, SceneReplaceTask[]>>({});
-  const queuedGroups = useRef<string[]>([]); const activeGroups = useRef(new Set<string>()); const schedulingBatch = useRef<string | undefined>(undefined);
-  const autoDownloadStarted = useRef(false);
-  const fileKey = (file: File) => `${file.name}:${file.size}:${file.lastModified}`;
-  const promptReviewFiles = groups.flatMap((group) => group.files).filter((file) => !autoSkipWhiteBackground || (scannedWhiteFileKeys.includes(fileKey(file)) && !whiteBackgroundFileKeys.includes(fileKey(file))));
-  const perImagePromptSource = `${prompt}${simplifyPromptConstraints ? '\n[逐图分析需同时精简通用强制限制]' : ''}`;
-  const perImagePrompts = usePerImagePrompts({ tool: 'scene-replace', files: promptReviewFiles, sourcePrompt: perImagePromptSource, initial: workerBatch?.perImagePrompts, config: { provider: storedSceneSettings.sceneRecommendationProvider, apiKey: storedSceneSettings.sceneRecommendationProvider === 'openai' ? props.openAiApiKey : props.apiKey, apiBaseUrl: props.apiBaseUrl, geminiModel: storedSceneSettings.sceneRecommendationModel, openAiModel: storedSceneSettings.openAiSceneRecommendationModel, concurrency: Math.min(8, concurrency), autoRetryErrors: storedSceneSettings.autoRetryErrors, errorRetryLimit: storedSceneSettings.errorRetryLimit, errorRetryDelaySeconds: storedSceneSettings.errorRetryDelaySeconds } });
-  useEffect(() => { localStorage.setItem('scene-studio.folder-scene-mode', JSON.stringify(folderSuggestionMode)); }, [folderSuggestionMode]);
-  useEffect(() => { localStorage.setItem('scene-studio.scene-tabs-auto-download', JSON.stringify(autoDownloadOnComplete)); }, [autoDownloadOnComplete]);
-  useEffect(() => { localStorage.setItem('scene-studio.folder-scene-suggestions', JSON.stringify(folderSuggestions)); }, [folderSuggestions]);
-  useEffect(() => { const stored = readLocalStorage<SceneReplaceSettings>(STORAGE_KEYS.sceneReplaceSettings, DEFAULT_SCENE_REPLACE_SETTINGS as SceneReplaceSettings); localStorage.setItem(STORAGE_KEYS.sceneReplaceSettings, JSON.stringify({ ...stored, simplifyPromptConstraints, detectInsufficientSceneChange })); }, [simplifyPromptConstraints, detectInsufficientSceneChange]);
-  useEffect(() => { if (folderSuggestionMode) setPrompt((current) => current === SCENE_COMMON_CONSTRAINT || current === SCENE_MANUAL_DEFAULT_PROMPT ? FOLDER_SCENE_COMMON_PROMPT : current); }, [folderSuggestionMode]);
-  useEffect(() => { setFolderSuggestions((current) => { let changed = false; const next = { ...current }; groups.forEach((group) => { const suggestion = next[group.id]; if (suggestion && suggestion.firstFileKey !== fileKey(group.files[0])) { next[group.id] = { ...suggestion, status: 'stale' }; changed = true; } }); Object.keys(next).forEach((id) => { if (!groups.some((group) => group.id === id)) { delete next[id]; changed = true; } }); return changed ? next : current; }); }, [groups]);
-  useEffect(() => { if (!autoSkipWhiteBackground) return; const files = groups.flatMap((group) => group.files).filter((file) => !scannedWhiteFileKeys.includes(fileKey(file))); if (!files.length) return; let cancelled = false; void Promise.all(files.map(async (file) => ({ file, result: await detectWhiteBackground(file).catch(() => ({ isWhiteBackground: false })) }))).then((items) => { if (cancelled) return; setScannedWhiteFileKeys((current) => [...new Set([...current, ...items.map((item) => fileKey(item.file))])]); setWhiteBackgroundFileKeys((current) => [...new Set([...current, ...items.filter((item) => item.result.isWhiteBackground).map((item) => fileKey(item.file))])]); }); return () => { cancelled = true; }; }, [autoSkipWhiteBackground, groups, scannedWhiteFileKeys]);
-  const launchNextGroups = useCallback((targetBatch?: string) => { if (!targetBatch) return; while (activeGroups.current.size < concurrency && queuedGroups.current.length) { const targetGroupId = queuedGroups.current.shift()!; activeGroups.current.add(targetGroupId); channel.current?.postMessage({ type: 'start', batchId: targetBatch, groupId: targetGroupId, token: `start-${targetGroupId}-${Date.now()}` }); } }, [concurrency]);
-  useEffect(() => { channel.current = new BroadcastChannel('scene-studio-scene-tabs'); const receive = (event: MessageEvent) => { const data = event.data; if (worker && data.batchId === batchId && data.type === 'start' && (!data.groupId || data.groupId === groupId)) setStartToken(data.token); if (worker && data.batchId === batchId && data.type === 'retry-failed') setRetryFailedToken(data.token); if (worker && data.batchId === batchId && data.type === 'stop-all') setStopToken(data.token); if (!worker && data.batchId === activeBatch && data.type === 'progress') { setProgress((current) => ({ ...current, [data.groupId]: data.progress })); if (schedulingBatch.current === activeBatch && data.progress.total > 0 && !data.progress.running && data.progress.completed >= data.progress.total) { activeGroups.current.delete(data.groupId); launchNextGroups(activeBatch); } } if (!worker && data.batchId === activeBatch && data.type === 'results') setResults((current) => ({ ...current, [data.groupId]: data.tasks })); }; channel.current.addEventListener('message', receive); return () => channel.current?.close(); }, [worker, batchId, groupId, activeBatch, launchNextGroups]);
-  useEffect(() => { if (!worker || !batchId || !groupId) return; void read(batchId).then((batch) => { const group = batch?.groups.find((item) => item.id === groupId); setWorkerBatch(batch && group ? { ...batch, groups: [group], perImagePrompts: Object.fromEntries(Object.entries(batch.perImagePrompts || {}).filter(([key]) => group.files.some((file) => perImagePromptFileKey(file) === key))) } : batch); setWorkerGroup(group); setStartToken(batch?.startToken); }); }, [worker, batchId, groupId]);
-  useEffect(() => { if (!worker || !workerBatch?.concurrency || !navigator.locks) return; const originalFetch = window.fetch.bind(window); window.fetch = async (...args) => { const target = typeof args[0] === 'string' ? args[0] : args[0] instanceof URL ? args[0].href : args[0].url; if (!/generativelanguage\.googleapis\.com|api\.openai\.com|\/api\/gemini/i.test(target)) return originalFetch(...args); while (true) { for (let index = 0; index < workerBatch.concurrency; index += 1) { const result = await navigator.locks.request(`scene-studio-scene-ai-slot-${index}`, { ifAvailable: true }, async (lock) => lock ? originalFetch(...args) : undefined); if (result) return result; } await new Promise((resolve) => window.setTimeout(resolve, 120)); } }; return () => { window.fetch = originalFetch; }; }, [worker, workerBatch?.concurrency]);
-  useEffect(() => { if (!workerGroup || injected) return; const timer = window.setTimeout(() => { inject(root.current?.querySelector('input[type="file"]') || null, workerGroup.files); setInjected(true); }, 500); return () => clearTimeout(timer); }, [workerGroup, injected]);
-  const suggestGroups = async (targets = groups) => {
-    if (!targets.length) return void message.warning('请先导入场景文件夹');
-    const stored = readLocalStorage<SceneReplaceSettings>(STORAGE_KEYS.sceneReplaceSettings, DEFAULT_SCENE_REPLACE_SETTINGS as SceneReplaceSettings);
-    const provider = stored.sceneRecommendationProvider; const key = provider === 'openai' ? props.openAiApiKey : props.apiKey;
-    if (!key || (provider === 'gemini' && props.connectionMode === 'proxy' && !props.apiBaseUrl)) return void props.onRequestKey();
-    setSuggestingGroupIds((current) => [...new Set([...current, ...targets.map((group) => group.id)])]);
-    const identified = new Map<string, RecommendedCupType>(); let cursor = 0;
-    await Promise.all(Array.from({ length: Math.min(8, targets.length) }, async () => { while (cursor < targets.length) { const group = targets[cursor++]; try { identified.set(group.id, await identifyCupType({ provider, apiKey: key, apiBaseUrl: props.apiBaseUrl, geminiModel: stored.sceneRecommendationModel, openAiModel: stored.openAiSceneRecommendationModel, image: group.files[0] })); } catch { identified.set(group.id, '其他'); } } }));
-    const usedByType: Record<string, string[]> = {}; const next: Record<string, FolderSceneSuggestion> = {};
-    groups.forEach((group) => { if (targets.some((target) => target.id === group.id)) return; const existing = folderSuggestions[group.id]; if (existing?.status === 'ready') (usedByType[existing.cupType] ||= []).push(existing.theme); });
-    targets.forEach((group) => { const cupType = identified.get(group.id) || '其他'; const assigned = assignFolderScene(cupType, usedByType); (usedByType[cupType] ||= []).push(assigned.theme); next[group.id] = { cupType, theme: assigned.theme, source: assigned.source, firstFileKey: fileKey(group.files[0]), status: 'ready' }; });
-    setFolderSuggestions((current) => ({ ...current, ...next })); setSuggestingGroupIds((current) => current.filter((id) => !targets.some((group) => group.id === id))); message.success(`已为 ${targets.length} 个文件夹分配场景建议`);
-  };
-  const open = async (only?: Group) => { if (!groups.length || !prompt.trim()) return void message.warning('请选择场景文件夹并填写公共提示词'); const stored = readLocalStorage<SceneReplaceSettings>(STORAGE_KEYS.sceneReplaceSettings, DEFAULT_SCENE_REPLACE_SETTINGS as SceneReplaceSettings); localStorage.setItem(STORAGE_KEYS.sceneReplaceSettings, JSON.stringify({ ...stored, autoRecommendScene: folderSuggestionMode ? false : autoRecommendScene, autoSkipWhiteBackground, perImagePromptEnabled, autoGenerateAfterPromptAnalysis })); const source = only ? [only] : groups; const selected = source.map((group) => ({ ...group, files: autoSkipWhiteBackground ? group.files.filter((file) => !whiteBackgroundFileKeys.includes(fileKey(file))) : group.files })).filter((group) => group.files.length); if (!selected.length) return void message.warning('所选分组全部是白底图，没有可打开的任务'); let promptAssignments = perImagePrompts.assignments; if (shouldAnalyzePerImagePromptsInController(perImagePromptEnabled, autoGenerateAfterPromptAnalysis)) { const missing = selected.flatMap((group) => group.files).filter((file) => !perImagePrompts.effective(file)); if (missing.length) { const analyzed = await perImagePrompts.analyze(missing); promptAssignments = analyzed.assignments; if (analyzed.failed) return void message.error(`${analyzed.failed} 张图片提示词分析失败，请重试`); return void message.success('逐图提示词已分配，请审核后再次打开标签'); } } const effectiveSuggestions = { ...folderSuggestions }; if (folderSuggestionMode) groups.forEach((group) => { const existing = effectiveSuggestions[group.id]; if (!existing?.theme.trim() || existing.status === 'stale') { const fallback = assignFolderScene('其他', {}); effectiveSuggestions[group.id] = { cupType: '其他', theme: fallback.theme, source: 'fallback', firstFileKey: fileKey(group.files[0]), status: 'ready' }; } }); if (folderSuggestionMode) setFolderSuggestions(effectiveSuggestions); const id = activeBatch || `scene-batch-${Date.now()}`; const windows = selected.map((group) => window.open('', `scene-worker-${id}-${group.id}-${Date.now()}`)); await save({ id, groups, prompt: prompt.trim(), concurrency, folderSuggestionMode, folderSuggestions: effectiveSuggestions, perImagePrompts: promptAssignments }); setActiveBatch(id); selected.forEach((group, index) => { const url = new URL(location.href); url.searchParams.set('tool', 'scene-replace-tabs'); url.searchParams.set('worker', '1'); url.searchParams.set('batch', id); url.searchParams.set('group', group.id); url.searchParams.set('folder', group.name); if (windows[index]) windows[index]!.location.href = url.toString(); }); };
-  const startAll = async () => { if (!activeBatch) return void message.warning('请先打开工作标签'); const batch = await read(activeBatch); if (!batch) return; delete batch.startToken; batch.concurrency = concurrency; await save(batch); setRunStartedAt(Date.now()); setRunEndedAt(undefined); setRunDurationMs(undefined); setUsableTaskIds([]); schedulingBatch.current = activeBatch; activeGroups.current.clear(); queuedGroups.current = batch.groups.map((group) => group.id); setProgress({}); setResults({}); launchNextGroups(activeBatch); message.success(`已按主控并发 ${concurrency} 启动分组队列`); };
-  const retryAllFailed = () => { if (!activeBatch || !totals.failed) return; channel.current?.postMessage({ type: 'retry-failed', batchId: activeBatch, token: `retry-${Date.now()}` }); message.success('已通知所有工作标签重试失败任务'); };
-  const stopAll = () => { if (!activeBatch) return; queuedGroups.current = []; activeGroups.current.clear(); schedulingBatch.current = undefined; channel.current?.postMessage({ type: 'stop-all', batchId: activeBatch, token: `stop-${Date.now()}` }); message.info('已停止队列，并通知所有工作标签停止任务'); };
-  const disableCloseWarnings = () => { channel.current?.postMessage({ type: 'disable-close-warning', batchId: activeBatch }); message.success('已通知所有工作标签关闭离页提醒'); };
-  const downloadableCount = Object.values(results).flatMap((tasks) => tasks).filter((task) => task.status === 'success').length;
-  const reportWorkerProgress = useCallback((value: ProgressState) => channel.current?.postMessage({ type: 'progress', batchId, groupId, progress: value }), [batchId, groupId]);
-  const reportWorkerResults = useCallback((tasks: SceneReplaceTask[]) => {
-    if (!batchId || !groupId) return;
-    const summaries = tasks.map(({ resultBlob: _resultBlob, resultUrl: _resultUrl, outpaintBlob: _outpaintBlob, outpaintUrl: _outpaintUrl, outpaintResults: _outpaintResults, ...task }) => task);
-    const storedTasks = tasks.filter((task) => task.resultBlob || task.status === 'failed' || task.status === 'stopped');
-    void Promise.all(storedTasks.map((task) => putMultiTabResult('scene', batchId, groupId, task.id, task))).finally(() => channel.current?.postMessage({ type: 'results', batchId, groupId, tasks: summaries }));
-  }, [batchId, groupId]);
   useEffect(() => {
-    if (!worker || workerTitleState !== 'completed' || !readLocalStorage('scene-studio.scene-tabs-auto-download', false) || !batchId || !groupId || !workerGroup || autoDownloadStarted.current) return;
+    const next = Object.fromEntries(
+      items.map((item) => [
+        item.id,
+        {
+          output: URL.createObjectURL(item.blob),
+          original: item.original ? URL.createObjectURL(item.original) : "",
+        },
+      ]),
+    );
+    setUrls(next);
+    setShowOriginalIds([]);
+    return () =>
+      Object.values(next).forEach((entry) => {
+        URL.revokeObjectURL(entry.output);
+        if (entry.original) URL.revokeObjectURL(entry.original);
+      });
+  }, [items]);
+  return (
+    <Image.PreviewGroup>
+      <div className="batch-result-grid">
+        {items.map((item) => {
+          const entry = urls[item.id];
+          const showOriginal =
+            showOriginalIds.includes(item.id) && Boolean(entry?.original);
+          const shown = showOriginal ? entry?.original : entry?.output;
+          return (
+            <Card
+              key={item.id}
+              size="small"
+              className="batch-result-card"
+              title={`${item.groupName} · 图片 ${item.task.sceneIndex + 1}`}
+              extra={<Tag color="success">{item.label}</Tag>}
+            >
+              <div className="batch-result-image">
+                {shown && (
+                  <Image
+                    src={shown}
+                    alt={showOriginal ? "原图" : item.label}
+                    preview={{ src: shown }}
+                  />
+                )}
+              </div>
+              <Flex
+                justify="space-between"
+                align="center"
+                gap={8}
+                wrap
+                style={{ marginTop: 8 }}
+              >
+                <Space wrap>
+                  {entry?.original && (
+                    <Button
+                      size="small"
+                      icon={<EyeOutlined />}
+                      onClick={() =>
+                        setShowOriginalIds((current) =>
+                          current.includes(item.id)
+                            ? current.filter((id) => id !== item.id)
+                            : [...current, item.id],
+                        )
+                      }
+                    >
+                      {showOriginal ? "查看生成图" : "查看原图"}
+                    </Button>
+                  )}
+                  {item.task.retryCount > 0 && (
+                    <Tag color="gold">产品重试 {item.task.retryCount} 次</Tag>
+                  )}
+                </Space>
+                <Checkbox
+                  checked={usableIds.includes(item.id)}
+                  onChange={(event) =>
+                    onUsableChange(item.id, event.target.checked)
+                  }
+                >
+                  标记可用
+                </Checkbox>
+              </Flex>
+            </Card>
+          );
+        })}
+      </div>
+    </Image.PreviewGroup>
+  );
+}
+function db() {
+  return new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, 1);
+    request.onupgradeneeded = () =>
+      request.result.createObjectStore(STORE, { keyPath: "id" });
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+async function save(batch: Batch) {
+  const store = await db();
+  const settings =
+    batch.settings ||
+    readLocalStorage<SceneReplaceSettings>(
+      STORAGE_KEYS.sceneReplaceSettings,
+      DEFAULT_SCENE_REPLACE_SETTINGS as SceneReplaceSettings,
+    );
+  await new Promise<void>((resolve, reject) => {
+    const tx = store.transaction(STORE, "readwrite");
+    tx.objectStore(STORE).put({ ...batch, settings });
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  store.close();
+}
+async function read(id: string) {
+  const store = await db();
+  const value = await new Promise<Batch | undefined>((resolve, reject) => {
+    const request = store.transaction(STORE).objectStore(STORE).get(id);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  store.close();
+  return value;
+}
+function inject(input: HTMLInputElement | null, files: File[]) {
+  if (!input) return;
+  const transfer = new DataTransfer();
+  files.forEach((file) => transfer.items.add(file));
+  input.files = transfer.files;
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+export default function MultiTabSceneReplaceComposer(
+  props: Parameters<typeof SceneReplaceComposer>[0],
+) {
+  const { message } = App.useApp();
+  const params = new URLSearchParams(location.search);
+  const worker = params.get("worker") === "1";
+  const batchId = params.get("batch");
+  const groupId = params.get("group");
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [concurrency, setConcurrency] = useState(6);
+  const [activeBatch, setActiveBatch] = useState<string>();
+  const [autoRecommendScene, setAutoRecommendScene] = useState(
+    () =>
+      readLocalStorage<SceneReplaceSettings>(
+        STORAGE_KEYS.sceneReplaceSettings,
+        DEFAULT_SCENE_REPLACE_SETTINGS as SceneReplaceSettings,
+      ).autoRecommendScene,
+  );
+  const storedSceneSettings = readLocalStorage<SceneReplaceSettings>(
+    STORAGE_KEYS.sceneReplaceSettings,
+    DEFAULT_SCENE_REPLACE_SETTINGS as SceneReplaceSettings,
+  );
+  const [perImagePromptEnabled, setPerImagePromptEnabled] = useState(
+    storedSceneSettings.perImagePromptEnabled,
+  );
+  const [autoGenerateAfterPromptAnalysis, setAutoGenerateAfterPromptAnalysis] =
+    useState(storedSceneSettings.autoGenerateAfterPromptAnalysis);
+  const [autoDownloadOnComplete, setAutoDownloadOnComplete] = useState(() =>
+    readLocalStorage("scene-studio.scene-tabs-auto-download", false),
+  );
+  const [simplifyPromptConstraints, setSimplifyPromptConstraints] = useState(
+    storedSceneSettings.simplifyPromptConstraints ?? false,
+  );
+  const [detectInsufficientSceneChange, setDetectInsufficientSceneChange] =
+    useState(storedSceneSettings.detectInsufficientSceneChange ?? true);
+  const [prompt, setPrompt] = useState(() =>
+    autoRecommendScene ? SCENE_COMMON_CONSTRAINT : SCENE_MANUAL_DEFAULT_PROMPT,
+  );
+  const [folderSuggestionMode, setFolderSuggestionMode] = useState(() =>
+    readLocalStorage("scene-studio.folder-scene-mode", false),
+  );
+  const [folderSuggestions, setFolderSuggestions] = useState<
+    Record<string, FolderSceneSuggestion>
+  >(() => readLocalStorage("scene-studio.folder-scene-suggestions", {}));
+  const [suggestingGroupIds, setSuggestingGroupIds] = useState<string[]>([]);
+  const [autoSkipWhiteBackground, setAutoSkipWhiteBackground] = useState(
+    () =>
+      readLocalStorage<SceneReplaceSettings>(
+        STORAGE_KEYS.sceneReplaceSettings,
+        DEFAULT_SCENE_REPLACE_SETTINGS as SceneReplaceSettings,
+      ).autoSkipWhiteBackground,
+  );
+  const [whiteBackgroundFileKeys, setWhiteBackgroundFileKeys] = useState<
+    string[]
+  >([]);
+  const [scannedWhiteFileKeys, setScannedWhiteFileKeys] = useState<string[]>(
+    [],
+  );
+  const [workerBatch, setWorkerBatch] = useState<Batch>();
+  const [workerGroup, setWorkerGroup] = useState<Group>();
+  const [injected, setInjected] = useState(false);
+  const [startToken, setStartToken] = useState<string>();
+  const [retryFailedToken, setRetryFailedToken] = useState<string>();
+  const [stopToken, setStopToken] = useState<string>();
+  const [progress, setProgress] = useState<Record<string, ProgressState>>({});
+  const [results, setResults] = useState<Record<string, SceneReplaceTask[]>>(
+    {},
+  );
+  const root = useRef<HTMLDivElement>(null);
+  const channel = useRef<BroadcastChannel | undefined>(undefined);
+  const [pendingFolderFiles, setPendingFolderFiles] = useState<File[]>([]);
+  const [checkedFolderKeys, setCheckedFolderKeys] = useState<string[]>([]);
+  const [selectedGroupId, setSelectedGroupId] = useState<string>();
+  const [selectedProgressGroupId, setSelectedProgressGroupId] =
+    useState<string>();
+  const [runStartedAt, setRunStartedAt] = useState<number>();
+  const [runEndedAt, setRunEndedAt] = useState<number>();
+  const [runDurationMs, setRunDurationMs] = useState<number>();
+  const [usableTaskIds, setUsableTaskIds] = useState<string[]>([]);
+  const [workerTitleState, setWorkerTitleState] = useState<
+    "queued" | "running" | "completed"
+  >("queued");
+  const [titleFlash, setTitleFlash] = useState(false);
+  const [loadedResultGroups, setLoadedResultGroups] = useState<
+    Record<string, SceneReplaceTask[]>
+  >({});
+  const queuedGroups = useRef<string[]>([]);
+  const activeGroups = useRef(new Set<string>());
+  const schedulingBatch = useRef<string | undefined>(undefined);
+  const autoDownloadStarted = useRef(false);
+  const fileKey = (file: File) =>
+    `${file.name}:${file.size}:${file.lastModified}`;
+  const promptReviewFiles = groups
+    .flatMap((group) => group.files)
+    .filter(
+      (file) =>
+        !autoSkipWhiteBackground ||
+        (scannedWhiteFileKeys.includes(fileKey(file)) &&
+          !whiteBackgroundFileKeys.includes(fileKey(file))),
+    );
+  const perImagePromptSource = `${prompt}${simplifyPromptConstraints ? "\n[逐图分析需同时精简通用强制限制]" : ""}`;
+  const perImagePrompts = usePerImagePrompts({
+    tool: "scene-replace",
+    files: promptReviewFiles,
+    sourcePrompt: perImagePromptSource,
+    initial: workerBatch?.perImagePrompts,
+    config: {
+      provider: storedSceneSettings.sceneRecommendationProvider,
+      apiKey:
+        storedSceneSettings.sceneRecommendationProvider === "openai"
+          ? props.openAiApiKey
+          : props.apiKey,
+      apiBaseUrl: props.apiBaseUrl,
+      geminiModel: storedSceneSettings.sceneRecommendationModel,
+      openAiModel: storedSceneSettings.openAiSceneRecommendationModel,
+      concurrency: Math.min(8, concurrency),
+      autoRetryErrors: storedSceneSettings.autoRetryErrors,
+      errorRetryLimit: storedSceneSettings.errorRetryLimit,
+      errorRetryDelaySeconds: storedSceneSettings.errorRetryDelaySeconds,
+    },
+  });
+  useEffect(() => {
+    localStorage.setItem(
+      "scene-studio.folder-scene-mode",
+      JSON.stringify(folderSuggestionMode),
+    );
+  }, [folderSuggestionMode]);
+  useEffect(() => {
+    localStorage.setItem(
+      "scene-studio.scene-tabs-auto-download",
+      JSON.stringify(autoDownloadOnComplete),
+    );
+  }, [autoDownloadOnComplete]);
+  useEffect(() => {
+    localStorage.setItem(
+      "scene-studio.folder-scene-suggestions",
+      JSON.stringify(folderSuggestions),
+    );
+  }, [folderSuggestions]);
+  useEffect(() => {
+    const stored = readLocalStorage<SceneReplaceSettings>(
+      STORAGE_KEYS.sceneReplaceSettings,
+      DEFAULT_SCENE_REPLACE_SETTINGS as SceneReplaceSettings,
+    );
+    localStorage.setItem(
+      STORAGE_KEYS.sceneReplaceSettings,
+      JSON.stringify({
+        ...stored,
+        simplifyPromptConstraints,
+        detectInsufficientSceneChange,
+      }),
+    );
+  }, [simplifyPromptConstraints, detectInsufficientSceneChange]);
+  useEffect(() => {
+    if (folderSuggestionMode)
+      setPrompt((current) =>
+        current === SCENE_COMMON_CONSTRAINT ||
+        current === SCENE_MANUAL_DEFAULT_PROMPT
+          ? FOLDER_SCENE_COMMON_PROMPT
+          : current,
+      );
+  }, [folderSuggestionMode]);
+  useEffect(() => {
+    setFolderSuggestions((current) => {
+      let changed = false;
+      const next = { ...current };
+      groups.forEach((group) => {
+        const suggestion = next[group.id];
+        if (suggestion && suggestion.firstFileKey !== fileKey(group.files[0])) {
+          next[group.id] = { ...suggestion, status: "stale" };
+          changed = true;
+        }
+      });
+      Object.keys(next).forEach((id) => {
+        if (!groups.some((group) => group.id === id)) {
+          delete next[id];
+          changed = true;
+        }
+      });
+      return changed ? next : current;
+    });
+  }, [groups]);
+  useEffect(() => {
+    if (!autoSkipWhiteBackground) return;
+    const files = groups
+      .flatMap((group) => group.files)
+      .filter((file) => !scannedWhiteFileKeys.includes(fileKey(file)));
+    if (!files.length) return;
+    let cancelled = false;
+    void Promise.all(
+      files.map(async (file) => ({
+        file,
+        result: await detectWhiteBackground(file).catch(() => ({
+          isWhiteBackground: false,
+        })),
+      })),
+    ).then((items) => {
+      if (cancelled) return;
+      setScannedWhiteFileKeys((current) => [
+        ...new Set([...current, ...items.map((item) => fileKey(item.file))]),
+      ]);
+      setWhiteBackgroundFileKeys((current) => [
+        ...new Set([
+          ...current,
+          ...items
+            .filter((item) => item.result.isWhiteBackground)
+            .map((item) => fileKey(item.file)),
+        ]),
+      ]);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [autoSkipWhiteBackground, groups, scannedWhiteFileKeys]);
+  const launchNextGroups = useCallback(
+    (targetBatch?: string) => {
+      if (!targetBatch) return;
+      while (
+        activeGroups.current.size < concurrency &&
+        queuedGroups.current.length
+      ) {
+        const targetGroupId = queuedGroups.current.shift()!;
+        activeGroups.current.add(targetGroupId);
+        channel.current?.postMessage({
+          type: "start",
+          batchId: targetBatch,
+          groupId: targetGroupId,
+          token: `start-${targetGroupId}-${Date.now()}`,
+        });
+      }
+    },
+    [concurrency],
+  );
+  useEffect(() => {
+    channel.current = new BroadcastChannel("scene-studio-scene-tabs");
+    const receive = (event: MessageEvent) => {
+      const data = event.data;
+      if (
+        worker &&
+        data.batchId === batchId &&
+        data.type === "start" &&
+        (!data.groupId || data.groupId === groupId)
+      )
+        setStartToken(data.token);
+      if (worker && data.batchId === batchId && data.type === "retry-failed")
+        setRetryFailedToken(data.token);
+      if (worker && data.batchId === batchId && data.type === "stop-all")
+        setStopToken(data.token);
+      if (!worker && data.batchId === activeBatch && data.type === "progress") {
+        setProgress((current) => ({
+          ...current,
+          [data.groupId]: data.progress,
+        }));
+        if (
+          schedulingBatch.current === activeBatch &&
+          data.progress.total > 0 &&
+          !data.progress.running &&
+          data.progress.completed >= data.progress.total
+        ) {
+          activeGroups.current.delete(data.groupId);
+          launchNextGroups(activeBatch);
+        }
+      }
+      if (!worker && data.batchId === activeBatch && data.type === "results")
+        setResults((current) => ({ ...current, [data.groupId]: data.tasks }));
+    };
+    channel.current.addEventListener("message", receive);
+    return () => channel.current?.close();
+  }, [worker, batchId, groupId, activeBatch, launchNextGroups]);
+  useEffect(() => {
+    if (!worker || !batchId || !groupId) return;
+    void read(batchId).then((batch) => {
+      const group = batch?.groups.find((item) => item.id === groupId);
+      setWorkerBatch(
+        batch && group
+          ? {
+              ...batch,
+              groups: [group],
+              perImagePrompts: Object.fromEntries(
+                Object.entries(batch.perImagePrompts || {}).filter(([key]) =>
+                  group.files.some(
+                    (file) => perImagePromptFileKey(file) === key,
+                  ),
+                ),
+              ),
+            }
+          : batch,
+      );
+      setWorkerGroup(group);
+      setStartToken(batch?.startToken);
+    });
+  }, [worker, batchId, groupId]);
+  useEffect(() => {
+    if (!worker || !workerBatch?.concurrency || !navigator.locks) return;
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = async (...args) => {
+      const target =
+        typeof args[0] === "string"
+          ? args[0]
+          : args[0] instanceof URL
+            ? args[0].href
+            : args[0].url;
+      if (
+        !/generativelanguage\.googleapis\.com|api\.openai\.com|\/api\/gemini/i.test(
+          target,
+        )
+      )
+        return originalFetch(...args);
+      while (true) {
+        for (let index = 0; index < workerBatch.concurrency; index += 1) {
+          const result = await navigator.locks.request(
+            `scene-studio-scene-ai-slot-${index}`,
+            { ifAvailable: true },
+            async (lock) => (lock ? originalFetch(...args) : undefined),
+          );
+          if (result) return result;
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 120));
+      }
+    };
+    return () => {
+      window.fetch = originalFetch;
+    };
+  }, [worker, workerBatch?.concurrency]);
+  useEffect(() => {
+    if (!workerGroup || injected) return;
+    const timer = window.setTimeout(() => {
+      inject(
+        root.current?.querySelector('input[type="file"]') || null,
+        workerGroup.files,
+      );
+      setInjected(true);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [workerGroup, injected]);
+  const suggestGroups = async (targets = groups) => {
+    if (!targets.length) return void message.warning("请先导入场景文件夹");
+    const stored = readLocalStorage<SceneReplaceSettings>(
+      STORAGE_KEYS.sceneReplaceSettings,
+      DEFAULT_SCENE_REPLACE_SETTINGS as SceneReplaceSettings,
+    );
+    const provider = stored.sceneRecommendationProvider;
+    const key = provider === "openai" ? props.openAiApiKey : props.apiKey;
+    if (
+      !key ||
+      (provider === "gemini" &&
+        props.connectionMode === "proxy" &&
+        !props.apiBaseUrl)
+    )
+      return void props.onRequestKey();
+    setSuggestingGroupIds((current) => [
+      ...new Set([...current, ...targets.map((group) => group.id)]),
+    ]);
+    const identified = new Map<string, RecommendedCupType>();
+    let cursor = 0;
+    await Promise.all(
+      Array.from({ length: Math.min(8, targets.length) }, async () => {
+        while (cursor < targets.length) {
+          const group = targets[cursor++];
+          try {
+            identified.set(
+              group.id,
+              await identifyCupType({
+                provider,
+                apiKey: key,
+                apiBaseUrl: props.apiBaseUrl,
+                geminiModel: stored.sceneRecommendationModel,
+                openAiModel: stored.openAiSceneRecommendationModel,
+                image: group.files[0],
+              }),
+            );
+          } catch {
+            identified.set(group.id, "其他");
+          }
+        }
+      }),
+    );
+    const usedByType: Record<string, string[]> = {};
+    const next: Record<string, FolderSceneSuggestion> = {};
+    groups.forEach((group) => {
+      if (targets.some((target) => target.id === group.id)) return;
+      const existing = folderSuggestions[group.id];
+      if (existing?.status === "ready")
+        (usedByType[existing.cupType] ||= []).push(existing.theme);
+    });
+    targets.forEach((group) => {
+      const cupType = identified.get(group.id) || "其他";
+      const assigned = assignFolderScene(cupType, usedByType);
+      (usedByType[cupType] ||= []).push(assigned.theme);
+      next[group.id] = {
+        cupType,
+        theme: assigned.theme,
+        source: assigned.source,
+        firstFileKey: fileKey(group.files[0]),
+        status: "ready",
+      };
+    });
+    setFolderSuggestions((current) => ({ ...current, ...next }));
+    setSuggestingGroupIds((current) =>
+      current.filter((id) => !targets.some((group) => group.id === id)),
+    );
+    message.success(`已为 ${targets.length} 个文件夹分配场景建议`);
+  };
+  const open = async (only?: Group) => {
+    if (isElectronDesktop()) {
+      if (!groups.length || !prompt.trim()) return void message.warning("请选择场景文件夹并填写公共提示词");
+      const selected = (only ? [only] : groups)
+        .map((group) => ({ ...group, files: autoSkipWhiteBackground ? group.files.filter((file) => !whiteBackgroundFileKeys.includes(fileKey(file))) : group.files }))
+        .filter((group) => group.files.length);
+      if (!selected.length) return void message.warning("所选分组全部是白底图，没有可执行的任务");
+      const outputRoot = await window.desktop?.pickOutputDirectory();
+      if (!outputRoot) return;
+      try {
+        const desktopGroups = selected.map((group) => ({
+          id: group.id,
+          name: group.name,
+          relativePath: group.path,
+          scenes: group.files.map(desktopAssetFromFile),
+          prompt: [folderSuggestionMode ? folderSuggestions[group.id]?.theme : "", prompt].filter(Boolean).join("；"),
+        }));
+        const id = await submitDesktopJob({
+          name: `多文件夹场景替换 ${new Date().toLocaleString()}`,
+          outputRoot,
+          globalConcurrency: concurrency,
+          startPaused: !only,
+          apiBaseUrl: props.apiBaseUrl,
+          groups: desktopGroups,
+          config: {
+            tool: "scene-replace",
+            settings: {
+              ...storedSceneSettings,
+              autoRecommendScene: folderSuggestionMode ? false : autoRecommendScene,
+              autoSkipWhiteBackground,
+              perImagePromptEnabled: perImagePromptEnabled || autoRecommendScene,
+              autoGenerateAfterPromptAnalysis: true,
+              simplifyPromptConstraints,
+              detectInsufficientSceneChange,
+            },
+            prompt: prompt.trim(),
+          },
+        });
+        setActiveBatch(id);
+        window.dispatchEvent(new Event("desktop-task-created"));
+        message.success("全部文件夹已加入桌面后台队列，不再创建子标签");
+      } catch (error) {
+        message.error(error instanceof Error ? error.message : "创建桌面批次失败");
+      }
+      return;
+    }
+    if (!groups.length || !prompt.trim())
+      return void message.warning("请选择场景文件夹并填写公共提示词");
+    const stored = readLocalStorage<SceneReplaceSettings>(
+      STORAGE_KEYS.sceneReplaceSettings,
+      DEFAULT_SCENE_REPLACE_SETTINGS as SceneReplaceSettings,
+    );
+    localStorage.setItem(
+      STORAGE_KEYS.sceneReplaceSettings,
+      JSON.stringify({
+        ...stored,
+        autoRecommendScene: folderSuggestionMode ? false : autoRecommendScene,
+        autoSkipWhiteBackground,
+        perImagePromptEnabled,
+        autoGenerateAfterPromptAnalysis,
+      }),
+    );
+    const source = only ? [only] : groups;
+    const selected = source
+      .map((group) => ({
+        ...group,
+        files: autoSkipWhiteBackground
+          ? group.files.filter(
+              (file) => !whiteBackgroundFileKeys.includes(fileKey(file)),
+            )
+          : group.files,
+      }))
+      .filter((group) => group.files.length);
+    if (!selected.length)
+      return void message.warning("所选分组全部是白底图，没有可打开的任务");
+    let promptAssignments = perImagePrompts.assignments;
+    if (
+      shouldAnalyzePerImagePromptsInController(
+        perImagePromptEnabled,
+        autoGenerateAfterPromptAnalysis,
+      )
+    ) {
+      const missing = selected
+        .flatMap((group) => group.files)
+        .filter((file) => !perImagePrompts.effective(file));
+      if (missing.length) {
+        const analyzed = await perImagePrompts.analyze(missing);
+        promptAssignments = analyzed.assignments;
+        if (analyzed.failed)
+          return void message.error(
+            `${analyzed.failed} 张图片提示词分析失败，请重试`,
+          );
+        return void message.success("逐图提示词已分配，请审核后再次打开标签");
+      }
+    }
+    const effectiveSuggestions = { ...folderSuggestions };
+    if (folderSuggestionMode)
+      groups.forEach((group) => {
+        const existing = effectiveSuggestions[group.id];
+        if (!existing?.theme.trim() || existing.status === "stale") {
+          const fallback = assignFolderScene("其他", {});
+          effectiveSuggestions[group.id] = {
+            cupType: "其他",
+            theme: fallback.theme,
+            source: "fallback",
+            firstFileKey: fileKey(group.files[0]),
+            status: "ready",
+          };
+        }
+      });
+    if (folderSuggestionMode) setFolderSuggestions(effectiveSuggestions);
+    const id = activeBatch || `scene-batch-${Date.now()}`;
+    const windows = selected.map((group) =>
+      window.open("", `scene-worker-${id}-${group.id}-${Date.now()}`),
+    );
+    await save({
+      id,
+      groups,
+      prompt: prompt.trim(),
+      concurrency,
+      folderSuggestionMode,
+      folderSuggestions: effectiveSuggestions,
+      perImagePrompts: promptAssignments,
+    });
+    setActiveBatch(id);
+    selected.forEach((group, index) => {
+      const url = new URL(location.href);
+      url.searchParams.set("tool", "scene-replace-tabs");
+      url.searchParams.set("worker", "1");
+      url.searchParams.set("batch", id);
+      url.searchParams.set("group", group.id);
+      url.searchParams.set("folder", group.name);
+      if (windows[index]) windows[index]!.location.href = url.toString();
+    });
+  };
+  const startAll = async () => {
+    if (isElectronDesktop()) {
+      if (!activeBatch) return void message.warning("请先创建桌面后台批次");
+      await window.desktop?.resumeJob(activeBatch);
+      window.dispatchEvent(new Event("desktop-task-created"));
+      return void message.success("桌面后台队列已开始执行");
+    }
+    if (!activeBatch) return void message.warning("请先打开工作标签");
+    const batch = await read(activeBatch);
+    if (!batch) return;
+    delete batch.startToken;
+    batch.concurrency = concurrency;
+    await save(batch);
+    setRunStartedAt(Date.now());
+    setRunEndedAt(undefined);
+    setRunDurationMs(undefined);
+    setUsableTaskIds([]);
+    schedulingBatch.current = activeBatch;
+    activeGroups.current.clear();
+    queuedGroups.current = batch.groups.map((group) => group.id);
+    setProgress({});
+    setResults({});
+    launchNextGroups(activeBatch);
+    message.success(`已按主控并发 ${concurrency} 启动分组队列`);
+  };
+  const retryAllFailed = () => {
+    if (!activeBatch || !totals.failed) return;
+    channel.current?.postMessage({
+      type: "retry-failed",
+      batchId: activeBatch,
+      token: `retry-${Date.now()}`,
+    });
+    message.success("已通知所有工作标签重试失败任务");
+  };
+  const stopAll = () => {
+    if (!activeBatch) return;
+    queuedGroups.current = [];
+    activeGroups.current.clear();
+    schedulingBatch.current = undefined;
+    channel.current?.postMessage({
+      type: "stop-all",
+      batchId: activeBatch,
+      token: `stop-${Date.now()}`,
+    });
+    message.info("已停止队列，并通知所有工作标签停止任务");
+  };
+  const disableCloseWarnings = () => {
+    channel.current?.postMessage({
+      type: "disable-close-warning",
+      batchId: activeBatch,
+    });
+    message.success("已通知所有工作标签关闭离页提醒");
+  };
+  const downloadableCount = Object.values(results)
+    .flatMap((tasks) => tasks)
+    .filter((task) => task.status === "success").length;
+  const reportWorkerProgress = useCallback(
+    (value: ProgressState) =>
+      channel.current?.postMessage({
+        type: "progress",
+        batchId,
+        groupId,
+        progress: value,
+      }),
+    [batchId, groupId],
+  );
+  const reportWorkerResults = useCallback(
+    (tasks: SceneReplaceTask[]) => {
+      if (!batchId || !groupId) return;
+      const summaries = tasks.map(
+        ({
+          resultBlob: _resultBlob,
+          resultUrl: _resultUrl,
+          outpaintBlob: _outpaintBlob,
+          outpaintUrl: _outpaintUrl,
+          outpaintResults: _outpaintResults,
+          ...task
+        }) => task,
+      );
+      const storedTasks = tasks.filter(
+        (task) =>
+          task.resultBlob ||
+          task.status === "failed" ||
+          task.status === "stopped",
+      );
+      void Promise.all(
+        storedTasks.map((task) =>
+          putMultiTabResult("scene", batchId, groupId, task.id, task),
+        ),
+      ).finally(() =>
+        channel.current?.postMessage({
+          type: "results",
+          batchId,
+          groupId,
+          tasks: summaries,
+        }),
+      );
+    },
+    [batchId, groupId],
+  );
+  useEffect(() => {
+    if (
+      !worker ||
+      workerTitleState !== "completed" ||
+      !readLocalStorage("scene-studio.scene-tabs-auto-download", false) ||
+      !batchId ||
+      !groupId ||
+      !workerGroup ||
+      autoDownloadStarted.current
+    )
+      return;
     const marker = `scene-studio.scene-auto-downloaded.${batchId}.${groupId}`;
     if (sessionStorage.getItem(marker)) return;
     autoDownloadStarted.current = true;
-    const timer = window.setTimeout(() => void (async () => {
-      try {
-        const tasks = await readMultiTabGroupResults<SceneReplaceTask>('scene', batchId, groupId);
-        const completed = tasks.filter((task) => task.status === 'success' && task.resultBlob);
-        if (!completed.length) { autoDownloadStarted.current = false; return; }
-        const zip = new JSZip();
-        completed.forEach((task) => { zip.file(`${task.sceneIndex + 1}_${task.copyIndex + 1}.${mimeExtension(task.resultMimeType)}`, task.resultBlob!); task.outpaintResults?.forEach((item) => zip.file(`${task.sceneIndex + 1}_${task.copyIndex + 1}_扩图_${item.width}x${item.height}.png`, item.blob)); });
-        downloadBlob(await zip.generateAsync({ type: 'blob' }), `${sanitizeFileName(workerGroup.name)}_场景替换结果_${formatFileTimestamp()}.zip`);
-        sessionStorage.setItem(marker, '1'); message.success(`本组已完成，自动下载 ${completed.length} 组结果`);
-      } catch { autoDownloadStarted.current = false; message.warning('本组自动下载失败，可在主控页手动下载'); }
-    })(), 800);
+    const timer = window.setTimeout(
+      () =>
+        void (async () => {
+          try {
+            const tasks = await readMultiTabGroupResults<SceneReplaceTask>(
+              "scene",
+              batchId,
+              groupId,
+            );
+            const completed = tasks.filter(
+              (task) => task.status === "success" && task.resultBlob,
+            );
+            if (!completed.length) {
+              autoDownloadStarted.current = false;
+              return;
+            }
+            const zip = new JSZip();
+            completed.forEach((task) => {
+              zip.file(
+                `${task.sceneIndex + 1}_${task.copyIndex + 1}.${mimeExtension(task.resultMimeType)}`,
+                task.resultBlob!,
+              );
+              task.outpaintResults?.forEach((item) =>
+                zip.file(
+                  `${task.sceneIndex + 1}_${task.copyIndex + 1}_扩图_${item.width}x${item.height}.png`,
+                  item.blob,
+                ),
+              );
+            });
+            downloadBlob(
+              await zip.generateAsync({ type: "blob" }),
+              `${sanitizeFileName(workerGroup.name)}_场景替换结果_${formatFileTimestamp()}.zip`,
+            );
+            sessionStorage.setItem(marker, "1");
+            message.success(`本组已完成，自动下载 ${completed.length} 组结果`);
+          } catch {
+            autoDownloadStarted.current = false;
+            message.warning("本组自动下载失败，可在主控页手动下载");
+          }
+        })(),
+      800,
+    );
     return () => window.clearTimeout(timer);
   }, [worker, workerTitleState, batchId, groupId, workerGroup, message]);
   const reviewFolderFiles = (files: File[]) => {
-    const accepted = files.filter((file) => ['image/png', 'image/jpeg', 'image/webp'].includes(file.type));
-    const leafGroups = buildPickerFolderTree(groupFolderFiles(accepted)); const leafPaths: string[] = []; const collect = (nodes: PickerFolderNode[]) => nodes.forEach((node) => { if (node.group) leafPaths.push(`dir:${node.path}`); collect(node.children); }); collect(leafGroups);
-    setPendingFolderFiles(accepted); setCheckedFolderKeys(leafPaths);
+    const accepted = files.filter((file) =>
+      ["image/png", "image/jpeg", "image/webp"].includes(file.type),
+    );
+    const leafGroups = buildPickerFolderTree(groupFolderFiles(accepted));
+    const leafPaths: string[] = [];
+    const collect = (nodes: PickerFolderNode[]) =>
+      nodes.forEach((node) => {
+        if (node.group) leafPaths.push(`dir:${node.path}`);
+        collect(node.children);
+      });
+    collect(leafGroups);
+    setPendingFolderFiles(accepted);
+    setCheckedFolderKeys(leafPaths);
   };
   const importCheckedFolderFiles = () => {
-    const pendingGroups = groupFolderFiles(pendingFolderFiles); const next = pendingGroups.filter((group) => checkedFolderKeys.includes(`dir:${group.path}`)); const selectedCount = next.reduce((sum, group) => sum + group.files.length, 0);
-    setGroups(next); setPendingFolderFiles([]); setCheckedFolderKeys([]); message.success(`已导入 ${selectedCount} 张图片，共 ${next.length} 个分组`);
+    const pendingGroups = groupFolderFiles(pendingFolderFiles);
+    const next = pendingGroups.filter((group) =>
+      checkedFolderKeys.includes(`dir:${group.path}`),
+    );
+    const selectedCount = next.reduce(
+      (sum, group) => sum + group.files.length,
+      0,
+    );
+    setGroups(next);
+    setPendingFolderFiles([]);
+    setCheckedFolderKeys([]);
+    message.success(`已导入 ${selectedCount} 张图片，共 ${next.length} 个分组`);
   };
-  const downloadAll = async () => { if (!activeBatch) return; const zip = new JSZip(); let count = 0; await Promise.all(groups.map(async (group) => { const tasks = await readMultiTabGroupResults<SceneReplaceTask>('scene', activeBatch, group.id); const folder = zip.folder(sanitizeRelativeFolderPath(group.path || '', group.name || group.id)); tasks.filter((task) => task.resultBlob).forEach((task) => { count += 1; folder?.file(`${task.sceneIndex + 1}_${task.copyIndex + 1}.${mimeExtension(task.resultMimeType)}`, task.resultBlob!); task.outpaintResults?.forEach((item) => folder?.file(`${task.sceneIndex + 1}_${task.copyIndex + 1}_扩图_${item.width}x${item.height}.png`, item.blob)); }); })); if (!count) return void message.warning('暂无可下载的生成图片'); downloadBlob(await zip.generateAsync({ type: 'blob' }), `SceneStudio_多标签场景替换_${formatFileTimestamp()}.zip`); };
-  const totals = Object.values(progress).reduce((sum, item) => ({ total: sum.total + item.total, completed: sum.completed + item.completed, failed: sum.failed + item.failed }), { total: 0, completed: 0, failed: 0 });
+  const downloadAll = async () => {
+    if (!activeBatch) return;
+    const zip = new JSZip();
+    let count = 0;
+    await Promise.all(
+      groups.map(async (group) => {
+        const tasks = await readMultiTabGroupResults<SceneReplaceTask>(
+          "scene",
+          activeBatch,
+          group.id,
+        );
+        const folder = zip.folder(
+          sanitizeRelativeFolderPath(group.path || "", group.name || group.id),
+        );
+        tasks
+          .filter((task) => task.resultBlob)
+          .forEach((task) => {
+            count += 1;
+            folder?.file(
+              `${task.sceneIndex + 1}_${task.copyIndex + 1}.${mimeExtension(task.resultMimeType)}`,
+              task.resultBlob!,
+            );
+            task.outpaintResults?.forEach((item) =>
+              folder?.file(
+                `${task.sceneIndex + 1}_${task.copyIndex + 1}_扩图_${item.width}x${item.height}.png`,
+                item.blob,
+              ),
+            );
+          });
+      }),
+    );
+    if (!count) return void message.warning("暂无可下载的生成图片");
+    downloadBlob(
+      await zip.generateAsync({ type: "blob" }),
+      `SceneStudio_多标签场景替换_${formatFileTimestamp()}.zip`,
+    );
+  };
+  const totals = Object.values(progress).reduce(
+    (sum, item) => ({
+      total: sum.total + item.total,
+      completed: sum.completed + item.completed,
+      failed: sum.failed + item.failed,
+    }),
+    { total: 0, completed: 0, failed: 0 },
+  );
   const resultTasks = Object.values(results).flat();
-  const selectedSceneOutputItems = useMemo(() => selectedProgressGroupId ? collectSceneOutputItems(groups, { [selectedProgressGroupId]: loadedResultGroups[selectedProgressGroupId] || [] }) : [], [groups, loadedResultGroups, selectedProgressGroupId]);
-  const plannedSceneTasks = groups.reduce((sum, group) => sum + group.files.filter((file) => !autoSkipWhiteBackground || !whiteBackgroundFileKeys.includes(fileKey(file))).length, 0) * storedSceneSettings.copiesPerScene;
-  const actualSceneRequests = resultTasks.reduce((sum, task) => sum + (task.status === 'waiting' && !task.retryCount ? 0 : 1 + task.retryCount), 0);
-  const actualOutpaintRequests = resultTasks.reduce((sum, task) => sum + (task.outpaintResults?.length || (task.outpaintBlob ? 1 : 0)), 0);
-  const plannedOutpaintRequests = storedSceneSettings.autoOutpaint ? plannedSceneTasks * (storedSceneSettings.outpaintBothSizes ? 2 : 1) : 0;
-  const outpaintPlannedCost = imageRequestCostRange(storedSceneSettings.outpaintImageModel, storedSceneSettings.outpaintImageSize, plannedOutpaintRequests);
-  const outpaintActualCost = imageRequestCostRange(storedSceneSettings.outpaintImageModel, storedSceneSettings.outpaintImageSize, actualOutpaintRequests);
-  const sceneCostMetricsBase = batchCostMetrics({ model: storedSceneSettings.imageModel, size: storedSceneSettings.imageSize, plannedRequests: plannedSceneTasks, worstCaseMultiplier: storedSceneSettings.autoRetryErrors ? storedSceneSettings.errorRetryLimit + 1 : 1, actualRequests: actualSceneRequests, extraActualCost: outpaintActualCost.max });
-  const sceneCostMetrics = { ...sceneCostMetricsBase, estimatedMinimum: sceneCostMetricsBase.estimatedMinimum + outpaintPlannedCost.min, estimatedWorst: sceneCostMetricsBase.estimatedWorst + outpaintPlannedCost.max * (storedSceneSettings.autoRetryErrors ? storedSceneSettings.errorRetryLimit + 1 : 1) };
-  const checkedSceneTasks = resultTasks.filter((task) => task.status === 'success' || task.status === 'failed');
-  const firstPassSceneTasks = checkedSceneTasks.filter((task) => task.status === 'success' && task.retryCount === 0);
+  const selectedSceneOutputItems = useMemo(
+    () =>
+      selectedProgressGroupId
+        ? collectSceneOutputItems(groups, {
+            [selectedProgressGroupId]:
+              loadedResultGroups[selectedProgressGroupId] || [],
+          })
+        : [],
+    [groups, loadedResultGroups, selectedProgressGroupId],
+  );
+  const plannedSceneTasks =
+    groups.reduce(
+      (sum, group) =>
+        sum +
+        group.files.filter(
+          (file) =>
+            !autoSkipWhiteBackground ||
+            !whiteBackgroundFileKeys.includes(fileKey(file)),
+        ).length,
+      0,
+    ) * storedSceneSettings.copiesPerScene;
+  const actualSceneRequests = resultTasks.reduce(
+    (sum, task) =>
+      sum +
+      (task.status === "waiting" && !task.retryCount ? 0 : 1 + task.retryCount),
+    0,
+  );
+  const actualOutpaintRequests = resultTasks.reduce(
+    (sum, task) =>
+      sum + (task.outpaintResults?.length || (task.outpaintBlob ? 1 : 0)),
+    0,
+  );
+  const plannedOutpaintRequests = storedSceneSettings.autoOutpaint
+    ? plannedSceneTasks * (storedSceneSettings.outpaintBothSizes ? 2 : 1)
+    : 0;
+  const outpaintPlannedCost = imageRequestCostRange(
+    storedSceneSettings.outpaintImageModel,
+    storedSceneSettings.outpaintImageSize,
+    plannedOutpaintRequests,
+  );
+  const outpaintActualCost = imageRequestCostRange(
+    storedSceneSettings.outpaintImageModel,
+    storedSceneSettings.outpaintImageSize,
+    actualOutpaintRequests,
+  );
+  const sceneCostMetricsBase = batchCostMetrics({
+    model: storedSceneSettings.imageModel,
+    size: storedSceneSettings.imageSize,
+    plannedRequests: plannedSceneTasks,
+    worstCaseMultiplier: storedSceneSettings.autoRetryErrors
+      ? storedSceneSettings.errorRetryLimit + 1
+      : 1,
+    actualRequests: actualSceneRequests,
+    extraActualCost: outpaintActualCost.max,
+  });
+  const sceneCostMetrics = {
+    ...sceneCostMetricsBase,
+    estimatedMinimum:
+      sceneCostMetricsBase.estimatedMinimum + outpaintPlannedCost.min,
+    estimatedWorst:
+      sceneCostMetricsBase.estimatedWorst +
+      outpaintPlannedCost.max *
+        (storedSceneSettings.autoRetryErrors
+          ? storedSceneSettings.errorRetryLimit + 1
+          : 1),
+  };
+  const checkedSceneTasks = resultTasks.filter(
+    (task) => task.status === "success" || task.status === "failed",
+  );
+  const firstPassSceneTasks = checkedSceneTasks.filter(
+    (task) => task.status === "success" && task.retryCount === 0,
+  );
   const availableSceneOutputs = usableTaskIds.length;
-  const setSceneTaskUsable = (id: string, value: boolean) => setUsableTaskIds((current) => value ? [...new Set([...current, id])] : current.filter((item) => item !== id));
-  const batchCompleted = totals.total > 0 && totals.completed >= totals.total && queuedGroups.current.length === 0 && activeGroups.current.size === 0;
-  useEffect(() => { if (worker || !runStartedAt || !batchCompleted) return; const endedAt = Date.now(); setRunDurationMs(endedAt - runStartedAt); setRunEndedAt(endedAt); }, [worker, runStartedAt, batchCompleted]);
-  useEffect(() => { if (!activeBatch) return; const stored = localStorage.getItem(`scene-studio.scene-batch-usable.${activeBatch}`); setUsableTaskIds(stored ? JSON.parse(stored) : []); }, [activeBatch]);
-  useEffect(() => { if (activeBatch) localStorage.setItem(`scene-studio.scene-batch-usable.${activeBatch}`, JSON.stringify(usableTaskIds)); }, [activeBatch, usableTaskIds]);
-  useEffect(() => { if (!activeBatch || !selectedProgressGroupId) return; let cancelled = false; void readMultiTabGroupResults<SceneReplaceTask>('scene', activeBatch, selectedProgressGroupId).then((tasks) => { if (!cancelled) setLoadedResultGroups({ [selectedProgressGroupId]: tasks }); }); return () => { cancelled = true; }; }, [activeBatch, selectedProgressGroupId, results]);
-  useEffect(() => { if (!worker || workerTitleState !== 'running') return; const timer = window.setInterval(() => setTitleFlash((value) => !value), 1000); return () => window.clearInterval(timer); }, [worker, workerTitleState]);
-  useEffect(() => { if (!worker || !workerGroup) return; const light = workerTitleState === 'completed' ? '🟢' : workerTitleState === 'running' ? (titleFlash ? '⚪' : '🟡') : '🟡'; document.title = `${light} ${workerGroup.name} - Scene Studio`; }, [worker, workerGroup, workerTitleState, titleFlash]);
-  useEffect(() => { if (!worker || !startToken) return; setWorkerTitleState('running'); }, [worker, startToken]);
+  const setSceneTaskUsable = (id: string, value: boolean) =>
+    setUsableTaskIds((current) =>
+      value
+        ? [...new Set([...current, id])]
+        : current.filter((item) => item !== id),
+    );
+  const batchCompleted =
+    totals.total > 0 &&
+    totals.completed >= totals.total &&
+    queuedGroups.current.length === 0 &&
+    activeGroups.current.size === 0;
+  useEffect(() => {
+    if (worker || !runStartedAt || !batchCompleted) return;
+    const endedAt = Date.now();
+    setRunDurationMs(endedAt - runStartedAt);
+    setRunEndedAt(endedAt);
+  }, [worker, runStartedAt, batchCompleted]);
+  useEffect(() => {
+    if (!activeBatch) return;
+    const stored = localStorage.getItem(
+      `scene-studio.scene-batch-usable.${activeBatch}`,
+    );
+    setUsableTaskIds(stored ? JSON.parse(stored) : []);
+  }, [activeBatch]);
+  useEffect(() => {
+    if (activeBatch)
+      localStorage.setItem(
+        `scene-studio.scene-batch-usable.${activeBatch}`,
+        JSON.stringify(usableTaskIds),
+      );
+  }, [activeBatch, usableTaskIds]);
+  useEffect(() => {
+    if (!activeBatch || !selectedProgressGroupId) return;
+    let cancelled = false;
+    void readMultiTabGroupResults<SceneReplaceTask>(
+      "scene",
+      activeBatch,
+      selectedProgressGroupId,
+    ).then((tasks) => {
+      if (!cancelled)
+        setLoadedResultGroups({ [selectedProgressGroupId]: tasks });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeBatch, selectedProgressGroupId, results]);
+  useEffect(() => {
+    if (!worker || workerTitleState !== "running") return;
+    const timer = window.setInterval(
+      () => setTitleFlash((value) => !value),
+      1000,
+    );
+    return () => window.clearInterval(timer);
+  }, [worker, workerTitleState]);
+  useEffect(() => {
+    if (!worker || !workerGroup) return;
+    const light =
+      workerTitleState === "completed"
+        ? "🟢"
+        : workerTitleState === "running"
+          ? titleFlash
+            ? "⚪"
+            : "🟡"
+          : "🟡";
+    document.title = `${light} ${workerGroup.name} - Scene Studio`;
+  }, [worker, workerGroup, workerTitleState, titleFlash]);
+  useEffect(() => {
+    if (!worker || !startToken) return;
+    setWorkerTitleState("running");
+  }, [worker, startToken]);
   if (worker) {
-    const folderSuggestion = workerGroup ? workerBatch?.folderSuggestions?.[workerGroup.id] : undefined;
-    const folderTheme = folderSuggestion?.theme || '';
+    const folderSuggestion = workerGroup
+      ? workerBatch?.folderSuggestions?.[workerGroup.id]
+      : undefined;
+    const folderTheme = folderSuggestion?.theme || "";
     const workerPrompt = workerBatch?.prompt;
-    return <div ref={root}><Alert type={injected ? 'success' : 'info'} showIcon title={workerGroup ? `场景工作标签：${workerGroup.name}` : '正在加载分组'} description={injected ? `已导入 ${workerGroup?.files.length || 0} 张图片${folderTheme ? ` · ${folderTheme}` : ''}` : '正在自动导入'} style={{ marginBottom: 16 }} /><SceneReplaceComposer {...props} initialPrompt={workerPrompt} initialSettings={workerBatch?.settings} perImagePromptPrefix={workerBatch?.folderSuggestionMode ? folderTheme : undefined} initialPerImagePrompts={workerBatch?.perImagePrompts} onPerImagePromptsChange={(items) => { if (workerBatch) void read(workerBatch.id).then((latest) => save({ ...(latest || workerBatch), perImagePrompts: { ...(latest?.perImagePrompts || {}), ...items } })); }} automationStartToken={startToken} automationRetryFailedToken={retryFailedToken} automationStopToken={stopToken} onProgressChange={(value) => { setWorkerTitleState(value.total > 0 && value.completed >= value.total && !value.running ? 'completed' : value.running ? 'running' : 'queued'); reportWorkerProgress(value); }} onResultsChange={reportWorkerResults} /></div>;
+    return (
+      <div ref={root}>
+        <Alert
+          type={injected ? "success" : "info"}
+          showIcon
+          title={
+            workerGroup ? `场景工作标签：${workerGroup.name}` : "正在加载分组"
+          }
+          description={
+            injected
+              ? `已导入 ${workerGroup?.files.length || 0} 张图片${folderTheme ? ` · ${folderTheme}` : ""}`
+              : "正在自动导入"
+          }
+          style={{ marginBottom: 16 }}
+        />
+        <SceneReplaceComposer
+          {...props}
+          initialPrompt={workerPrompt}
+          initialSettings={workerBatch?.settings}
+          perImagePromptPrefix={
+            workerBatch?.folderSuggestionMode ? folderTheme : undefined
+          }
+          initialPerImagePrompts={workerBatch?.perImagePrompts}
+          onPerImagePromptsChange={(items) => {
+            if (workerBatch)
+              void read(workerBatch.id).then((latest) =>
+                save({
+                  ...(latest || workerBatch),
+                  perImagePrompts: {
+                    ...(latest?.perImagePrompts || {}),
+                    ...items,
+                  },
+                }),
+              );
+          }}
+          automationStartToken={startToken}
+          automationRetryFailedToken={retryFailedToken}
+          automationStopToken={stopToken}
+          onProgressChange={(value) => {
+            setWorkerTitleState(
+              value.total > 0 &&
+                value.completed >= value.total &&
+                !value.running
+                ? "completed"
+                : value.running
+                  ? "running"
+                  : "queued",
+            );
+            reportWorkerProgress(value);
+          }}
+          onResultsChange={reportWorkerResults}
+        />
+      </div>
+    );
   }
-  const pendingGroups = groupFolderFiles(pendingFolderFiles); const pendingTree = buildPickerFolderTree(pendingGroups); const selectedGroup = groups.find((group) => group.id === selectedGroupId);
-  const leafFolderKeys: string[] = []; const collectLeafKeys = (nodes: PickerFolderNode[]) => nodes.forEach((node) => { if (node.group) leafFolderKeys.push(`dir:${node.path}`); collectLeafKeys(node.children); }); collectLeafKeys(pendingTree);
+  const pendingGroups = groupFolderFiles(pendingFolderFiles);
+  const pendingTree = buildPickerFolderTree(pendingGroups);
+  const selectedGroup = groups.find((group) => group.id === selectedGroupId);
+  const leafFolderKeys: string[] = [];
+  const collectLeafKeys = (nodes: PickerFolderNode[]) =>
+    nodes.forEach((node) => {
+      if (node.group) leafFolderKeys.push(`dir:${node.path}`);
+      collectLeafKeys(node.children);
+    });
+  collectLeafKeys(pendingTree);
   const levelEmoji = (depth: number) => `${Math.min(depth + 1, 9)}\uFE0F\u20E3`;
-  const toggleFolder = (key: string) => setCheckedFolderKeys((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key]);
-  const renderPickerTree = (nodes: PickerFolderNode[], depth = 0): React.ReactNode => <Collapse size="small" bordered={false} defaultActiveKey={nodes.map((node) => node.path)} items={nodes.map((node) => { const key = `dir:${node.path}`; const checked = checkedFolderKeys.includes(key); return { key: node.path, label: <Flex align="center" gap={8}><span aria-label={`第 ${depth + 1} 层`}>{levelEmoji(depth)}</span><FolderOpenOutlined /><Text strong={Boolean(node.group)}>{node.name}</Text>{node.group && <Tag>{node.group.files.length} 张</Tag>}</Flex>, children: <><>{node.group && <Card size="small" hoverable className={checked ? 'scene-leaf-folder-card is-selected' : 'scene-leaf-folder-card'} onClick={() => toggleFolder(key)}><Checkbox checked={checked} onClick={(event) => event.stopPropagation()} onChange={() => toggleFolder(key)}>导入此文件夹</Checkbox><div onClick={(event) => event.stopPropagation()}><Image.PreviewGroup><Flex gap={4} wrap className="scene-folder-mini-thumbnails">{node.group.files.slice(0, 12).map((file, index) => <LeafImage file={file} key={`${file.name}-${index}`} />)}</Flex></Image.PreviewGroup></div>{node.group.files.length > 12 && <Text type="secondary">另有 {node.group.files.length - 12} 张</Text>}</Card>}</>{node.children.length ? renderPickerTree(node.children, depth + 1) : null}</> }; })} />;
-  const removeGroup = (id: string) => { setGroups((current) => current.filter((group) => group.id !== id)); setSelectedGroupId((current) => current === id ? undefined : current); };
-  const removeGroupFile = (groupId: string, target: File) => setGroups((current) => current.flatMap((group) => { if (group.id !== groupId) return [group]; const files = group.files.filter((file) => file !== target); return files.length ? [{ ...group, files }] : []; }));
-  const addGroupFile = (groupId: string, file: File) => { if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) { message.error(`${file.name} 不是支持的图片格式`); return Upload.LIST_IGNORE; } setGroups((current) => current.map((group) => group.id === groupId ? { ...group, files: [...group.files, file] } : group)); return Upload.LIST_IGNORE; };
-  return <div className="multi-tab-logo-page"><section className="hero-strip scene-replace-hero"><div><Text className="eyebrow">MULTI-TAB SCENE REPLACER</Text><Title level={2}>一个主控页，分发多组场景替换任务</Title><Paragraph>按最深层图片目录分组，共用提示词与本地场景替换设置，并在独立标签中并行执行。</Paragraph></div><div className="hero-orb" /></section>
-    <Card title="1. 选择场景根文件夹" extra={<Space><Text>文件夹场景建议</Text><Switch checked={folderSuggestionMode} onChange={(value) => { setFolderSuggestionMode(value); setPrompt((current) => value ? FOLDER_SCENE_COMMON_PROMPT : current === FOLDER_SCENE_COMMON_PROMPT ? (autoRecommendScene ? SCENE_COMMON_CONSTRAINT : SCENE_MANUAL_DEFAULT_PROMPT) : current); }} /><Button icon={<BulbOutlined />} loading={suggestingGroupIds.length > 0} disabled={!folderSuggestionMode || !groups.length} onClick={() => void suggestGroups()}>自动场景建议</Button></Space>}><Upload.Dragger directory multiple showUploadList={false} accept="image/png,image/jpeg,image/webp" beforeUpload={(file, list) => { if (file.uid === list.at(-1)?.uid) reviewFolderFiles(list as File[]); return Upload.LIST_IGNORE; }}><FolderOpenOutlined style={{ fontSize: 34 }} /><p>拖拽或点击选择场景根文件夹</p></Upload.Dragger>{groups.length ? <div className="folder-group-grid">{groups.map((group) => { const suggestion = folderSuggestions[group.id]; const suggesting = suggestingGroupIds.includes(group.id); return <Card key={group.id} size="small" hoverable title={group.name} onClick={() => setSelectedGroupId(group.id)}><FolderCover file={group.files[0]} /><Text type="secondary">{group.path} · {group.files.length} 张</Text>{folderSuggestionMode && <div onClick={(event) => event.stopPropagation()} style={{ marginTop: 10 }}><Flex justify="space-between" align="center"><Text strong>{suggestion?.cupType || "等待杯型识别"}</Text>{suggesting ? <Tag color="processing">分析中</Tag> : suggestion?.source === "fallback" ? <Tag color="warning">随机补充</Tag> : suggestion?.status === "stale" ? <Tag color="error">建议已失效</Tag> : suggestion ? <Tag color="success">已建议</Tag> : <Tag>未建议</Tag>}</Flex><Input.TextArea rows={3} value={suggestion?.theme || ""} placeholder="点击自动场景建议，或手动输入该文件夹的场景需求" onChange={(event) => setFolderSuggestions((current) => ({ ...current, [group.id]: { cupType: current[group.id]?.cupType || "其他", theme: event.target.value, source: "manual", firstFileKey: fileKey(group.files[0]), status: "ready" } }))} /><Button size="small" icon={<ReloadOutlined />} loading={suggesting} onClick={() => void suggestGroups([group])}>重新建议</Button></div>}<Flex gap={6} wrap><Button type="link" size="small" onClick={(event) => { event.stopPropagation(); setSelectedGroupId(group.id); }}>管理图片</Button><Button type="link" size="small" onClick={(event) => { event.stopPropagation(); void open(group); }}>单独打开标签</Button><Popconfirm title={`移除分组 ${group.name}？`} onConfirm={() => removeGroup(group.id)}><Button danger type="link" size="small" icon={<DeleteOutlined />} onClick={(event) => event.stopPropagation()}>移除</Button></Popconfirm></Flex></Card>; })}</div> : <Empty description="选择文件夹后显示分组" />}</Card>
-    <Card title="2. 公共场景替换提示词"><Flex justify="space-between" align="center" style={{ marginBottom: 12 }}><Text strong>自动跳过白底图（默认开启）</Text><Switch checked={autoSkipWhiteBackground} onChange={setAutoSkipWhiteBackground} /></Flex><Flex justify="space-between" align="center" style={{ marginBottom: 12 }}><Text strong>生成前逐图分配提示词</Text><Switch checked={perImagePromptEnabled} onChange={setPerImagePromptEnabled} /></Flex>{perImagePromptEnabled && <><Flex justify="space-between" align="center" style={{ marginBottom: 12 }}><Text strong>提示词简化（仅保留本图相关限制）</Text><Switch checked={simplifyPromptConstraints} onChange={setSimplifyPromptConstraints} /></Flex><Flex justify="space-between" align="center" style={{ marginBottom: 12 }}><Text strong>由子标签分析并自动生成</Text><Switch checked={autoGenerateAfterPromptAnalysis} onChange={setAutoGenerateAfterPromptAnalysis} /></Flex></>}<Flex justify="space-between" align="center" style={{ marginBottom: 12 }}><Text strong>生成图变化不足 20% 自动重试</Text><Switch checked={detectInsufficientSceneChange} onChange={setDetectInsufficientSceneChange} /></Flex>{!folderSuggestionMode && <Flex justify="space-between" align="center" style={{ marginBottom: 12 }}><Text strong>上传后自动推荐非节日场景</Text><Switch checked={autoRecommendScene} onChange={(value) => { setAutoRecommendScene(value); setPrompt((current) => { const trimmed = current.trim(); if (!trimmed || trimmed === SCENE_COMMON_CONSTRAINT || trimmed === SCENE_MANUAL_DEFAULT_PROMPT) return value ? SCENE_COMMON_CONSTRAINT : SCENE_MANUAL_DEFAULT_PROMPT; return current; }); }} /></Flex>}<Input.TextArea value={prompt} onChange={(event) => setPrompt(event.target.value)} autoSize={{ minRows: 5, maxRows: 12 }} placeholder="输入发送给所有工作标签的完整场景替换提示词" /></Card>
-    {perImagePromptEnabled && autoGenerateAfterPromptAnalysis && <Alert type="info" showIcon title="主控页不再分析或显示审核列表" description="打开工作标签后，点击一键开始所有替换；每个子标签只分析自己的图片，分析成功后自动进入生成，不占用主控页的分析资源。" />}{perImagePromptEnabled && !autoGenerateAfterPromptAnalysis && <Card title="3. 逐图提示词审核" extra={<Button icon={<ReloadOutlined />} disabled={!promptReviewFiles.length} onClick={() => void perImagePrompts.analyze()}>分析全部 / 重试失败</Button>}>{autoSkipWhiteBackground && whiteBackgroundFileKeys.length > 0 && <Alert type="info" showIcon style={{ marginBottom: 12 }} title={`${whiteBackgroundFileKeys.length} 张白底图无需生成，已从逐图提示词审核中排除`} />}<div className="per-image-prompt-grid">{groups.flatMap((group) => group.files.filter((file) => promptReviewFiles.includes(file)).map((file) => <Card size="small" key={`${group.id}-${perImagePromptFileKey(file)}`} title={`${group.name} · ${file.name}`}><PerImagePromptEditor file={file} assignment={perImagePrompts.assignments[perImagePromptFileKey(file)]} sourcePrompt={prompt} onEdit={(value) => perImagePrompts.edit(file, value)} onAnalyze={() => void perImagePrompts.analyze([file])} /></Card>))}</div></Card>}
-    <Card className="action-card"><Flex justify="space-between" wrap gap={12}><div><Title level={4}>准备分发 {groups.length} 组</Title><Text type="secondary">所有标签完整复用场景替换功能、模型、自动重试与扩图设置</Text></div><Space wrap><Text>全局并发</Text><InputNumber min={1} max={12} value={concurrency} onChange={(value) => setConcurrency(value || 1)} /><Button icon={<RocketOutlined />} onClick={() => void open()}>保存批次并打开全部标签</Button><Button type="primary" disabled={!activeBatch} onClick={startAll}>一键开始所有替换</Button>{totals.failed > 0 && <Button icon={<ReloadOutlined />} onClick={retryAllFailed}>一键重试所有失败</Button>}{activeBatch && totals.total > totals.completed && <Button danger icon={<StopOutlined />} onClick={stopAll}>一键停止全部</Button>}<Button disabled={!activeBatch} onClick={disableCloseWarnings}>解除全部标签关闭提醒</Button><Button icon={<DownloadOutlined />} disabled={!downloadableCount} onClick={() => void downloadAll()}>下载全部（{downloadableCount}）</Button></Space></Flex>{totals.total > 0 && <><Flex gap={24}><Statistic title="任务总数" value={totals.total} /><Statistic title="已完成" value={totals.completed} /><Statistic title="失败" value={totals.failed} />{runDurationMs !== undefined && <Statistic title="本次执行耗时" value={formatBatchDuration(runDurationMs)} />}</Flex><Flex gap={24} wrap style={{ marginTop: 16 }}><Statistic title="预计最低金额" prefix="$" precision={3} value={sceneCostMetrics.estimatedMinimum} /><Statistic title="预计最差金额" prefix="$" precision={3} value={sceneCostMetrics.estimatedWorst} /><Statistic title="实际消费金额（实时预估）" prefix="$" precision={3} value={sceneCostMetrics.actual} /><Statistic title="已发生生图请求" suffix=" 次" value={actualSceneRequests + actualOutpaintRequests} /><Statistic title="开始计时时间" value={formatBatchDateTime(runStartedAt)} /><Statistic title="结束计时时间" value={formatBatchDateTime(runEndedAt)} /><Statistic title="一次检测成功率" suffix="%" precision={1} value={percentage(firstPassSceneTasks.length, checkedSceneTasks.length)} /><Statistic title="可用率（手动标记）" suffix="%" precision={1} value={percentage(availableSceneOutputs, downloadableCount)} /></Flex><Text type="secondary">未开始的任务不计入实际消费；当前只按每个产品已经发出的首次生图、产品重试和扩图请求实时估算，全部任务结束后即为本批次最终预估值。语言模型文本 Token 费用另计。</Text><Progress percent={Math.round(totals.completed / totals.total * 100)} /></>}</Card>
-    {!!Object.keys(progress).length && <Card title="批次任务进度" extra={<Text type="secondary">点击分组后按需读取完整图片，关闭弹窗即可释放预览内存</Text>}><div className="folder-group-grid">{Object.entries(progress).map(([id, item]) => { const group = groups.find((entry) => entry.id === id); const outputs = results[id] || []; return <Card key={id} size="small" hoverable className="batch-progress-card" title={group?.name || id} onClick={() => setSelectedProgressGroupId(id)} extra={<Tag color={item.failed ? 'error' : item.running ? 'processing' : item.total && item.completed >= item.total ? 'success' : 'default'}>{item.running ? '执行中' : item.total && item.completed >= item.total ? '已完成' : '等待中'}</Tag>}><Text>完成 {item.completed}/{item.total || '—'} · 失败 {item.failed}</Text><br /><Text type="secondary">生成成功 {outputs.filter((task) => task.status === 'success').length} 张</Text><Button type="link" size="small" icon={<EyeOutlined />} style={{ display: 'block', paddingInline: 0 }}>查看所有图片</Button></Card>; })}</div></Card>}
-    <Modal destroyOnHidden title={`${groups.find((group) => group.id === selectedProgressGroupId)?.name || '分组'} · 全部生成图片`} open={Boolean(selectedProgressGroupId)} width={1160} footer={<Button onClick={() => setSelectedProgressGroupId(undefined)}>完成</Button>} onCancel={() => setSelectedProgressGroupId(undefined)}><Alert type="info" showIcon title={`共 ${selectedSceneOutputItems.length} 张场景结果及扩图结果`} description="点击图片放大查看；查看原图和标记可用均位于对应图片旁边。" style={{ marginBottom: 16 }} />{selectedSceneOutputItems.length ? <SceneOutputGallery items={selectedSceneOutputItems} usableIds={usableTaskIds} onUsableChange={setSceneTaskUsable} /> : <Empty description="该分组暂时没有生成图片" />}</Modal>
-    <Modal title="选择要导入的图片目录" open={pendingFolderFiles.length > 0} width={980} okText={`导入已选 ${checkedFolderKeys.length} 个目录`} cancelText="取消" okButtonProps={{ disabled: !checkedFolderKeys.length }} onOk={importCheckedFolderFiles} onCancel={() => { setPendingFolderFiles([]); setCheckedFolderKeys([]); }}>
-      <Alert type="info" showIcon title="保留完整目录结构，仅选择最深层图片文件夹" description="父级目录只展示结构，不显示图片也不会被导入；叶子目录可以独立勾选，一个目录对应一个工作标签。" style={{ marginBottom: 14 }} />
-      <Flex justify="space-between" align="center" style={{ marginBottom: 12 }}><Text type="secondary">已选择 {checkedFolderKeys.length} / {leafFolderKeys.length} 个最深层目录</Text><Space><Button size="small" onClick={() => setCheckedFolderKeys(leafFolderKeys)}>全选</Button><Button size="small" onClick={() => setCheckedFolderKeys([])}>取消全选</Button></Space></Flex>
-      <div className="scene-folder-picker-tree" style={{ maxHeight: '58vh', overflowY: 'auto', paddingRight: 8 }}>{renderPickerTree(pendingTree)}</div>
-    </Modal>
-    <Modal title={selectedGroup ? `${selectedGroup.name} · 图片管理` : '图片管理'} open={Boolean(selectedGroup)} width={900} footer={<Button onClick={() => setSelectedGroupId(undefined)}>完成</Button>} onCancel={() => setSelectedGroupId(undefined)}>{selectedGroup && <><Flex justify="space-between" align="center" wrap gap={12} style={{ marginBottom: 14 }}><Text type="secondary">{selectedGroup.path} · 当前 {selectedGroup.files.length} 张</Text><Upload multiple showUploadList={false} accept="image/png,image/jpeg,image/webp" beforeUpload={(file) => addGroupFile(selectedGroup.id, file as File)}><Button type="primary" icon={<PlusOutlined />}>添加图片</Button></Upload></Flex><Image.PreviewGroup><div className="batch-asset-grid">{selectedGroup.files.map((file, index) => <div className={autoSkipWhiteBackground && whiteBackgroundFileKeys.includes(fileKey(file)) ? 'batch-white-background-file' : ''} key={`${file.name}-${file.size}-${index}`}><FileThumbnail file={file} onRemove={() => removeGroupFile(selectedGroup.id, file)} />{autoSkipWhiteBackground && whiteBackgroundFileKeys.includes(fileKey(file)) && <Tag>白底图 · 已跳过</Tag>}</div>)}</div></Image.PreviewGroup></>}</Modal>
-    <Card title="自动下载"><Flex justify="space-between" align="center" gap={16} wrap><div><Text strong>每个子标签完成后自动下载本组 ZIP</Text><br /><Text type="secondary">浏览器首次可能要求允许多个文件自动下载；每个标签仅触发一次。</Text></div><Switch checked={autoDownloadOnComplete} onChange={setAutoDownloadOnComplete} /></Flex></Card>
-  </div>;
+  const toggleFolder = (key: string) =>
+    setCheckedFolderKeys((current) =>
+      current.includes(key)
+        ? current.filter((item) => item !== key)
+        : [...current, key],
+    );
+  const renderPickerTree = (
+    nodes: PickerFolderNode[],
+    depth = 0,
+  ): React.ReactNode => (
+    <Collapse
+      size="small"
+      bordered={false}
+      defaultActiveKey={nodes.map((node) => node.path)}
+      items={nodes.map((node) => {
+        const key = `dir:${node.path}`;
+        const checked = checkedFolderKeys.includes(key);
+        return {
+          key: node.path,
+          label: (
+            <Flex align="center" gap={8}>
+              <span aria-label={`第 ${depth + 1} 层`}>{levelEmoji(depth)}</span>
+              <FolderOpenOutlined />
+              <Text strong={Boolean(node.group)}>{node.name}</Text>
+              {node.group && <Tag>{node.group.files.length} 张</Tag>}
+            </Flex>
+          ),
+          children: (
+            <>
+              <>
+                {node.group && (
+                  <Card
+                    size="small"
+                    hoverable
+                    className={
+                      checked
+                        ? "scene-leaf-folder-card is-selected"
+                        : "scene-leaf-folder-card"
+                    }
+                    onClick={() => toggleFolder(key)}
+                  >
+                    <Checkbox
+                      checked={checked}
+                      onClick={(event) => event.stopPropagation()}
+                      onChange={() => toggleFolder(key)}
+                    >
+                      导入此文件夹
+                    </Checkbox>
+                    <div onClick={(event) => event.stopPropagation()}>
+                      <Image.PreviewGroup>
+                        <Flex
+                          gap={4}
+                          wrap
+                          className="scene-folder-mini-thumbnails"
+                        >
+                          {node.group.files.slice(0, 12).map((file, index) => (
+                            <LeafImage
+                              file={file}
+                              key={`${file.name}-${index}`}
+                            />
+                          ))}
+                        </Flex>
+                      </Image.PreviewGroup>
+                    </div>
+                    {node.group.files.length > 12 && (
+                      <Text type="secondary">
+                        另有 {node.group.files.length - 12} 张
+                      </Text>
+                    )}
+                  </Card>
+                )}
+              </>
+              {node.children.length
+                ? renderPickerTree(node.children, depth + 1)
+                : null}
+            </>
+          ),
+        };
+      })}
+    />
+  );
+  const removeGroup = (id: string) => {
+    setGroups((current) => current.filter((group) => group.id !== id));
+    setSelectedGroupId((current) => (current === id ? undefined : current));
+  };
+  const removeGroupFile = (groupId: string, target: File) =>
+    setGroups((current) =>
+      current.flatMap((group) => {
+        if (group.id !== groupId) return [group];
+        const files = group.files.filter((file) => file !== target);
+        return files.length ? [{ ...group, files }] : [];
+      }),
+    );
+  const addGroupFile = (groupId: string, file: File) => {
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+      message.error(`${file.name} 不是支持的图片格式`);
+      return Upload.LIST_IGNORE;
+    }
+    setGroups((current) =>
+      current.map((group) =>
+        group.id === groupId
+          ? { ...group, files: [...group.files, file] }
+          : group,
+      ),
+    );
+    return Upload.LIST_IGNORE;
+  };
+  return (
+    <div className="multi-tab-logo-page">
+      <section className="hero-strip scene-replace-hero">
+        <div>
+          <Text className="eyebrow">MULTI-TAB SCENE REPLACER</Text>
+          <Title level={2}>一个主控页，分发多组场景替换任务</Title>
+          <Paragraph>
+            按最深层图片目录分组，共用提示词与本地场景替换设置，并在独立标签中并行执行。
+          </Paragraph>
+        </div>
+        <div className="hero-orb" />
+      </section>
+      <Card
+        title="1. 选择场景根文件夹"
+        extra={
+          <Space>
+            <Text>文件夹场景建议</Text>
+            <Switch
+              checked={folderSuggestionMode}
+              onChange={(value) => {
+                setFolderSuggestionMode(value);
+                setPrompt((current) =>
+                  value
+                    ? FOLDER_SCENE_COMMON_PROMPT
+                    : current === FOLDER_SCENE_COMMON_PROMPT
+                      ? autoRecommendScene
+                        ? SCENE_COMMON_CONSTRAINT
+                        : SCENE_MANUAL_DEFAULT_PROMPT
+                      : current,
+                );
+              }}
+            />
+            <Button
+              icon={<BulbOutlined />}
+              loading={suggestingGroupIds.length > 0}
+              disabled={!folderSuggestionMode || !groups.length}
+              onClick={() => void suggestGroups()}
+            >
+              自动场景建议
+            </Button>
+          </Space>
+        }
+      >
+        <Upload.Dragger
+          directory
+          multiple
+          showUploadList={false}
+          accept="image/png,image/jpeg,image/webp"
+          beforeUpload={(file, list) => {
+            if (file.uid === list.at(-1)?.uid)
+              reviewFolderFiles(list as File[]);
+            return Upload.LIST_IGNORE;
+          }}
+        >
+          <FolderOpenOutlined style={{ fontSize: 34 }} />
+          <p>拖拽或点击选择场景根文件夹</p>
+        </Upload.Dragger>
+        {groups.length ? (
+          <div className="folder-group-grid">
+            {groups.map((group) => {
+              const suggestion = folderSuggestions[group.id];
+              const suggesting = suggestingGroupIds.includes(group.id);
+              return (
+                <Card
+                  key={group.id}
+                  size="small"
+                  hoverable
+                  title={group.name}
+                  onClick={() => setSelectedGroupId(group.id)}
+                >
+                  <FolderCover file={group.files[0]} />
+                  <Text type="secondary">
+                    {group.path} · {group.files.length} 张
+                  </Text>
+                  {folderSuggestionMode && (
+                    <div
+                      onClick={(event) => event.stopPropagation()}
+                      style={{ marginTop: 10 }}
+                    >
+                      <Flex justify="space-between" align="center">
+                        <Text strong>
+                          {suggestion?.cupType || "等待杯型识别"}
+                        </Text>
+                        {suggesting ? (
+                          <Tag color="processing">分析中</Tag>
+                        ) : suggestion?.source === "fallback" ? (
+                          <Tag color="warning">随机补充</Tag>
+                        ) : suggestion?.status === "stale" ? (
+                          <Tag color="error">建议已失效</Tag>
+                        ) : suggestion ? (
+                          <Tag color="success">已建议</Tag>
+                        ) : (
+                          <Tag>未建议</Tag>
+                        )}
+                      </Flex>
+                      <Input.TextArea
+                        rows={3}
+                        value={suggestion?.theme || ""}
+                        placeholder="点击自动场景建议，或手动输入该文件夹的场景需求"
+                        onChange={(event) =>
+                          setFolderSuggestions((current) => ({
+                            ...current,
+                            [group.id]: {
+                              cupType: current[group.id]?.cupType || "其他",
+                              theme: event.target.value,
+                              source: "manual",
+                              firstFileKey: fileKey(group.files[0]),
+                              status: "ready",
+                            },
+                          }))
+                        }
+                      />
+                      <Button
+                        size="small"
+                        icon={<ReloadOutlined />}
+                        loading={suggesting}
+                        onClick={() => void suggestGroups([group])}
+                      >
+                        重新建议
+                      </Button>
+                    </div>
+                  )}
+                  <Flex gap={6} wrap>
+                    <Button
+                      type="link"
+                      size="small"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setSelectedGroupId(group.id);
+                      }}
+                    >
+                      管理图片
+                    </Button>
+                    <Button
+                      type="link"
+                      size="small"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void open(group);
+                      }}
+                    >
+                      单独打开标签
+                    </Button>
+                    <Popconfirm
+                      title={`移除分组 ${group.name}？`}
+                      onConfirm={() => removeGroup(group.id)}
+                    >
+                      <Button
+                        danger
+                        type="link"
+                        size="small"
+                        icon={<DeleteOutlined />}
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        移除
+                      </Button>
+                    </Popconfirm>
+                  </Flex>
+                </Card>
+              );
+            })}
+          </div>
+        ) : (
+          <Empty description="选择文件夹后显示分组" />
+        )}
+      </Card>
+      <Card title="2. 公共场景替换提示词">
+        <Flex
+          justify="space-between"
+          align="center"
+          style={{ marginBottom: 12 }}
+        >
+          <Text strong>自动跳过白底图（默认开启）</Text>
+          <Switch
+            checked={autoSkipWhiteBackground}
+            onChange={setAutoSkipWhiteBackground}
+          />
+        </Flex>
+        <Flex
+          justify="space-between"
+          align="center"
+          style={{ marginBottom: 12 }}
+        >
+          <Text strong>生成前逐图分配提示词</Text>
+          <Switch
+            checked={perImagePromptEnabled}
+            onChange={setPerImagePromptEnabled}
+          />
+        </Flex>
+        {perImagePromptEnabled && (
+          <>
+            <Flex
+              justify="space-between"
+              align="center"
+              style={{ marginBottom: 12 }}
+            >
+              <Text strong>提示词简化（仅保留本图相关限制）</Text>
+              <Switch
+                checked={simplifyPromptConstraints}
+                onChange={setSimplifyPromptConstraints}
+              />
+            </Flex>
+            <Flex
+              justify="space-between"
+              align="center"
+              style={{ marginBottom: 12 }}
+            >
+              <Text strong>由子标签分析并自动生成</Text>
+              <Switch
+                checked={autoGenerateAfterPromptAnalysis}
+                onChange={setAutoGenerateAfterPromptAnalysis}
+              />
+            </Flex>
+          </>
+        )}
+        <Flex
+          justify="space-between"
+          align="center"
+          style={{ marginBottom: 12 }}
+        >
+          <Text strong>生成图变化不足 20% 自动重试</Text>
+          <Switch
+            checked={detectInsufficientSceneChange}
+            onChange={setDetectInsufficientSceneChange}
+          />
+        </Flex>
+        {!folderSuggestionMode && (
+          <Flex
+            justify="space-between"
+            align="center"
+            style={{ marginBottom: 12 }}
+          >
+            <Text strong>上传后自动推荐非节日场景</Text>
+            <Switch
+              checked={autoRecommendScene}
+              onChange={(value) => {
+                setAutoRecommendScene(value);
+                setPrompt((current) => {
+                  const trimmed = current.trim();
+                  if (
+                    !trimmed ||
+                    trimmed === SCENE_COMMON_CONSTRAINT ||
+                    trimmed === SCENE_MANUAL_DEFAULT_PROMPT
+                  )
+                    return value
+                      ? SCENE_COMMON_CONSTRAINT
+                      : SCENE_MANUAL_DEFAULT_PROMPT;
+                  return current;
+                });
+              }}
+            />
+          </Flex>
+        )}
+        <Input.TextArea
+          value={prompt}
+          onChange={(event) => setPrompt(event.target.value)}
+          autoSize={{ minRows: 5, maxRows: 12 }}
+          placeholder="输入发送给所有工作标签的完整场景替换提示词"
+        />
+      </Card>
+      {perImagePromptEnabled && autoGenerateAfterPromptAnalysis && (
+        <Alert
+          type="info"
+          showIcon
+          title="主控页不再分析或显示审核列表"
+          description="打开工作标签后，点击一键开始所有替换；每个子标签只分析自己的图片，分析成功后自动进入生成，不占用主控页的分析资源。"
+        />
+      )}
+      {perImagePromptEnabled && !autoGenerateAfterPromptAnalysis && (
+        <Card
+          title="3. 逐图提示词审核"
+          extra={
+            <Button
+              icon={<ReloadOutlined />}
+              disabled={!promptReviewFiles.length}
+              onClick={() => void perImagePrompts.analyze()}
+            >
+              分析全部 / 重试失败
+            </Button>
+          }
+        >
+          {autoSkipWhiteBackground && whiteBackgroundFileKeys.length > 0 && (
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 12 }}
+              title={`${whiteBackgroundFileKeys.length} 张白底图无需生成，已从逐图提示词审核中排除`}
+            />
+          )}
+          <div className="per-image-prompt-grid">
+            {groups.flatMap((group) =>
+              group.files
+                .filter((file) => promptReviewFiles.includes(file))
+                .map((file) => (
+                  <Card
+                    size="small"
+                    key={`${group.id}-${perImagePromptFileKey(file)}`}
+                    title={`${group.name} · ${file.name}`}
+                  >
+                    <PerImagePromptEditor
+                      file={file}
+                      assignment={
+                        perImagePrompts.assignments[perImagePromptFileKey(file)]
+                      }
+                      sourcePrompt={prompt}
+                      onEdit={(value) => perImagePrompts.edit(file, value)}
+                      onAnalyze={() => void perImagePrompts.analyze([file])}
+                    />
+                  </Card>
+                )),
+            )}
+          </div>
+        </Card>
+      )}
+      <Card className="action-card">
+        <Flex justify="space-between" wrap gap={12}>
+          <div>
+            <Title level={4}>准备分发 {groups.length} 组</Title>
+            <Text type="secondary">
+              所有标签完整复用场景替换功能、模型、自动重试与扩图设置
+            </Text>
+          </div>
+          <Space wrap>
+            <Text>全局并发</Text>
+            <InputNumber
+              min={1}
+              max={12}
+              value={concurrency}
+              onChange={(value) => setConcurrency(value || 1)}
+            />
+            <Button icon={<RocketOutlined />} onClick={() => void open()}>
+              保存批次并打开全部标签
+            </Button>
+            <Button type="primary" disabled={!activeBatch} onClick={startAll}>
+              一键开始所有替换
+            </Button>
+            {totals.failed > 0 && (
+              <Button icon={<ReloadOutlined />} onClick={retryAllFailed}>
+                一键重试所有失败
+              </Button>
+            )}
+            {activeBatch && totals.total > totals.completed && (
+              <Button danger icon={<StopOutlined />} onClick={stopAll}>
+                一键停止全部
+              </Button>
+            )}
+            <Button disabled={!activeBatch} onClick={disableCloseWarnings}>
+              解除全部标签关闭提醒
+            </Button>
+            <Button
+              icon={<DownloadOutlined />}
+              disabled={!downloadableCount}
+              onClick={() => void downloadAll()}
+            >
+              下载全部（{downloadableCount}）
+            </Button>
+          </Space>
+        </Flex>
+        {totals.total > 0 && (
+          <>
+            <Flex gap={24}>
+              <Statistic title="任务总数" value={totals.total} />
+              <Statistic title="已完成" value={totals.completed} />
+              <Statistic title="失败" value={totals.failed} />
+              {runDurationMs !== undefined && (
+                <Statistic
+                  title="本次执行耗时"
+                  value={formatBatchDuration(runDurationMs)}
+                />
+              )}
+            </Flex>
+            <Flex gap={24} wrap style={{ marginTop: 16 }}>
+              <Statistic
+                title="预计最低金额"
+                prefix="$"
+                precision={3}
+                value={sceneCostMetrics.estimatedMinimum}
+              />
+              <Statistic
+                title="预计最差金额"
+                prefix="$"
+                precision={3}
+                value={sceneCostMetrics.estimatedWorst}
+              />
+              <Statistic
+                title="实际消费金额（实时预估）"
+                prefix="$"
+                precision={3}
+                value={sceneCostMetrics.actual}
+              />
+              <Statistic
+                title="已发生生图请求"
+                suffix=" 次"
+                value={actualSceneRequests + actualOutpaintRequests}
+              />
+              <Statistic
+                title="开始计时时间"
+                value={formatBatchDateTime(runStartedAt)}
+              />
+              <Statistic
+                title="结束计时时间"
+                value={formatBatchDateTime(runEndedAt)}
+              />
+              <Statistic
+                title="一次检测成功率"
+                suffix="%"
+                precision={1}
+                value={percentage(
+                  firstPassSceneTasks.length,
+                  checkedSceneTasks.length,
+                )}
+              />
+              <Statistic
+                title="可用率（手动标记）"
+                suffix="%"
+                precision={1}
+                value={percentage(availableSceneOutputs, downloadableCount)}
+              />
+            </Flex>
+            <Text type="secondary">
+              未开始的任务不计入实际消费；当前只按每个产品已经发出的首次生图、产品重试和扩图请求实时估算，全部任务结束后即为本批次最终预估值。语言模型文本
+              Token 费用另计。
+            </Text>
+            <Progress
+              percent={Math.round((totals.completed / totals.total) * 100)}
+            />
+          </>
+        )}
+      </Card>
+      {!!Object.keys(progress).length && (
+        <Card
+          title="批次任务进度"
+          extra={
+            <Text type="secondary">
+              点击分组后按需读取完整图片，关闭弹窗即可释放预览内存
+            </Text>
+          }
+        >
+          <div className="folder-group-grid">
+            {Object.entries(progress).map(([id, item]) => {
+              const group = groups.find((entry) => entry.id === id);
+              const outputs = results[id] || [];
+              return (
+                <Card
+                  key={id}
+                  size="small"
+                  hoverable
+                  className="batch-progress-card"
+                  title={group?.name || id}
+                  onClick={() => setSelectedProgressGroupId(id)}
+                  extra={
+                    <Tag
+                      color={
+                        item.failed
+                          ? "error"
+                          : item.running
+                            ? "processing"
+                            : item.total && item.completed >= item.total
+                              ? "success"
+                              : "default"
+                      }
+                    >
+                      {item.running
+                        ? "执行中"
+                        : item.total && item.completed >= item.total
+                          ? "已完成"
+                          : "等待中"}
+                    </Tag>
+                  }
+                >
+                  <Text>
+                    完成 {item.completed}/{item.total || "—"} · 失败{" "}
+                    {item.failed}
+                  </Text>
+                  <br />
+                  <Text type="secondary">
+                    生成成功{" "}
+                    {outputs.filter((task) => task.status === "success").length}{" "}
+                    张
+                  </Text>
+                  <Button
+                    type="link"
+                    size="small"
+                    icon={<EyeOutlined />}
+                    style={{ display: "block", paddingInline: 0 }}
+                  >
+                    查看所有图片
+                  </Button>
+                </Card>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+      <Modal
+        destroyOnHidden
+        title={`${groups.find((group) => group.id === selectedProgressGroupId)?.name || "分组"} · 全部生成图片`}
+        open={Boolean(selectedProgressGroupId)}
+        width={1160}
+        footer={
+          <Button onClick={() => setSelectedProgressGroupId(undefined)}>
+            完成
+          </Button>
+        }
+        onCancel={() => setSelectedProgressGroupId(undefined)}
+      >
+        <Alert
+          type="info"
+          showIcon
+          title={`共 ${selectedSceneOutputItems.length} 张场景结果及扩图结果`}
+          description="点击图片放大查看；查看原图和标记可用均位于对应图片旁边。"
+          style={{ marginBottom: 16 }}
+        />
+        {selectedSceneOutputItems.length ? (
+          <SceneOutputGallery
+            items={selectedSceneOutputItems}
+            usableIds={usableTaskIds}
+            onUsableChange={setSceneTaskUsable}
+          />
+        ) : (
+          <Empty description="该分组暂时没有生成图片" />
+        )}
+      </Modal>
+      <Modal
+        title="选择要导入的图片目录"
+        open={pendingFolderFiles.length > 0}
+        width={980}
+        okText={`导入已选 ${checkedFolderKeys.length} 个目录`}
+        cancelText="取消"
+        okButtonProps={{ disabled: !checkedFolderKeys.length }}
+        onOk={importCheckedFolderFiles}
+        onCancel={() => {
+          setPendingFolderFiles([]);
+          setCheckedFolderKeys([]);
+        }}
+      >
+        <Alert
+          type="info"
+          showIcon
+          title="保留完整目录结构，仅选择最深层图片文件夹"
+          description="父级目录只展示结构，不显示图片也不会被导入；叶子目录可以独立勾选，一个目录对应一个工作标签。"
+          style={{ marginBottom: 14 }}
+        />
+        <Flex
+          justify="space-between"
+          align="center"
+          style={{ marginBottom: 12 }}
+        >
+          <Text type="secondary">
+            已选择 {checkedFolderKeys.length} / {leafFolderKeys.length}{" "}
+            个最深层目录
+          </Text>
+          <Space>
+            <Button
+              size="small"
+              onClick={() => setCheckedFolderKeys(leafFolderKeys)}
+            >
+              全选
+            </Button>
+            <Button size="small" onClick={() => setCheckedFolderKeys([])}>
+              取消全选
+            </Button>
+          </Space>
+        </Flex>
+        <div
+          className="scene-folder-picker-tree"
+          style={{ maxHeight: "58vh", overflowY: "auto", paddingRight: 8 }}
+        >
+          {renderPickerTree(pendingTree)}
+        </div>
+      </Modal>
+      <Modal
+        title={selectedGroup ? `${selectedGroup.name} · 图片管理` : "图片管理"}
+        open={Boolean(selectedGroup)}
+        width={900}
+        footer={
+          <Button onClick={() => setSelectedGroupId(undefined)}>完成</Button>
+        }
+        onCancel={() => setSelectedGroupId(undefined)}
+      >
+        {selectedGroup && (
+          <>
+            <Flex
+              justify="space-between"
+              align="center"
+              wrap
+              gap={12}
+              style={{ marginBottom: 14 }}
+            >
+              <Text type="secondary">
+                {selectedGroup.path} · 当前 {selectedGroup.files.length} 张
+              </Text>
+              <Upload
+                multiple
+                showUploadList={false}
+                accept="image/png,image/jpeg,image/webp"
+                beforeUpload={(file) =>
+                  addGroupFile(selectedGroup.id, file as File)
+                }
+              >
+                <Button type="primary" icon={<PlusOutlined />}>
+                  添加图片
+                </Button>
+              </Upload>
+            </Flex>
+            <Image.PreviewGroup>
+              <div className="batch-asset-grid">
+                {selectedGroup.files.map((file, index) => (
+                  <div
+                    className={
+                      autoSkipWhiteBackground &&
+                      whiteBackgroundFileKeys.includes(fileKey(file))
+                        ? "batch-white-background-file"
+                        : ""
+                    }
+                    key={`${file.name}-${file.size}-${index}`}
+                  >
+                    <FileThumbnail
+                      file={file}
+                      onRemove={() => removeGroupFile(selectedGroup.id, file)}
+                    />
+                    {autoSkipWhiteBackground &&
+                      whiteBackgroundFileKeys.includes(fileKey(file)) && (
+                        <Tag>白底图 · 已跳过</Tag>
+                      )}
+                  </div>
+                ))}
+              </div>
+            </Image.PreviewGroup>
+          </>
+        )}
+      </Modal>
+      <Card title="自动下载">
+        <Flex justify="space-between" align="center" gap={16} wrap>
+          <div>
+            <Text strong>每个子标签完成后自动下载本组 ZIP</Text>
+            <br />
+            <Text type="secondary">
+              浏览器首次可能要求允许多个文件自动下载；每个标签仅触发一次。
+            </Text>
+          </div>
+          <Switch
+            checked={autoDownloadOnComplete}
+            onChange={setAutoDownloadOnComplete}
+          />
+        </Flex>
+      </Card>
+    </div>
+  );
 }

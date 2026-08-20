@@ -1,14 +1,23 @@
 {
   "name": "scene-studio",
+  "description": "Scene Studio desktop background image production queue",
+  "author": "WilhelmZero",
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "main": "dist-electron/main.cjs",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:electron": "node scripts/build-electron.mjs",
+    "build:desktop": "npm run build && npm run build:electron",
+    "desktop:dev": "npm run build:desktop && electron .",
+    "desktop:dir": "npm run build:desktop && electron-builder --dir --win",
+    "desktop:pack": "npm run build:desktop && electron-builder --win nsis zip",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc -b --pretty false && tsc -p worker/tsconfig.json --pretty false"
+    "typecheck": "tsc -b --pretty false && tsc -p worker/tsconfig.json --pretty false",
+    "typecheck:electron": "tsc -p electron/tsconfig.json --pretty false"
   },
   "dependencies": {
     "@ant-design/icons": "^6.1.0",
@@ -18,21 +27,63 @@
     "@xyflow/react": "^12.11.2",
     "ag-psd": "^27.0.0",
     "antd": "^6.1.0",
+    "better-sqlite3": "^13.0.3",
     "imagetracerjs": "^1.2.6",
     "jszip": "^3.10.1",
     "pica": "^10.0.2",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "sharp": "^0.35.3"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.1",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.1.0",
+    "electron": "^43.4.1",
+    "electron-builder": "^26.15.3",
     "jsdom": "^27.0.0",
+    "prettier": "^3.9.6",
     "typescript": "^5.9.0",
     "vite": "^7.2.0",
     "vitest": "^4.0.0"
+  },
+  "build": {
+    "appId": "com.webagents.scenestudio",
+    "productName": "Scene Studio",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json",
+      "node_modules/better-sqlite3/**/*",
+      "node_modules/bindings/**/*",
+      "node_modules/file-uri-to-path/**/*",
+      "node_modules/sharp/**/*",
+      "node_modules/@img/**/*"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**/*",
+      "node_modules/sharp/**/*",
+      "node_modules/@img/**/*"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "zip"
+      ],
+      "artifactName": "Scene-Studio-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
   }
 }

@@ -10,6 +10,7 @@ import {
   CopyOutlined,
   CodeOutlined,
   DeleteOutlined,
+  DesktopOutlined,
   DownloadOutlined,
   EditOutlined,
   ExperimentOutlined,
@@ -86,6 +87,7 @@ import WorkflowComposer from './WorkflowComposer';
 import CombinedReplaceComposer from './CombinedReplaceComposer';
 import RequestConsoleDrawer from './RequestConsoleDrawer';
 import GeneratingImage from './GeneratingImage';
+import DesktopTaskCenter from './DesktopTaskCenter';
 import OriginalCompareImage from './OriginalCompareImage';
 import { useLanguage } from './i18n';
 import { readLocalStorage } from './storage';
@@ -364,6 +366,7 @@ function AppContent() {
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [keyOpen, setKeyOpen] = useState(false);
+  const [desktopTaskCenterOpen, setDesktopTaskCenterOpen] = useState(false);
   const [requestConsoleOpen, setRequestConsoleOpen] = useState(false);
   const [globalProgress, setGlobalProgress] = useState<TaskProgress[]>([]);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | 'unsupported'>(() => typeof Notification === 'undefined' ? 'unsupported' : Notification.permission);
@@ -404,6 +407,11 @@ function AppContent() {
   const [optimizingAll, setOptimizingAll] = useState(false);
   const [testingProxy, setTestingProxy] = useState(false);
   const runningIds = useRef(new Set<string>());
+  useEffect(() => {
+    const openDesktopCenter = () => setDesktopTaskCenterOpen(true);
+    window.addEventListener('desktop-task-created', openDesktopCenter);
+    return () => window.removeEventListener('desktop-task-created', openDesktopCenter);
+  }, []);
 
   const navigateToHome = useCallback(() => {
     if (showPinnedHome) return;
@@ -823,20 +831,22 @@ function AppContent() {
               <Badge status={isProcessing ? 'processing' : 'success'} text={`${completedCount}/${tasks.length}`} />
             )}
             <Button icon={<CodeOutlined />} onClick={() => setRequestConsoleOpen(true)}>控制台</Button>
+            {window.desktop && <Button type="primary" ghost icon={<DesktopOutlined />} onClick={() => setDesktopTaskCenterOpen(true)}>后台任务</Button>}
             {globalTotal > 0 && <Tooltip title={runningProgress.map((item) => `${item.label} ${item.completed}/${item.total}`).join(' · ')}><Tag color="processing"><Progress type="circle" size={18} percent={Math.round(globalCompleted / globalTotal * 100)} showInfo={false} /> {globalCompleted}/{globalTotal}</Tag></Tooltip>}
             {notificationPermission !== 'granted' && notificationPermission !== 'unsupported' && <Tooltip title="任务完成后发送浏览器系统通知"><Button icon={<BellOutlined />} onClick={async () => setNotificationPermission(await requestTaskNotifications())}>开启通知</Button></Tooltip>}
             {notificationPermission === 'granted' && <Tooltip title="系统通知已开启"><Button icon={<BellOutlined />} type="text" aria-label="系统通知已开启" /></Tooltip>}
             {compact && !showPinnedHome && <Button icon={<SettingOutlined />} onClick={() => setSettingsOpen(true)}>设置</Button>}
             <Button
-              type={settings.apiKey || settings.openAiApiKey ? 'default' : 'primary'}
-              icon={settings.apiKey || settings.openAiApiKey ? <CheckCircleFilled /> : <KeyOutlined />}
-              onClick={() => setKeyOpen(true)}
+              type={window.desktop ? 'default' : settings.apiKey || settings.openAiApiKey ? 'default' : 'primary'}
+              icon={window.desktop ? <KeyOutlined /> : settings.apiKey || settings.openAiApiKey ? <CheckCircleFilled /> : <KeyOutlined />}
+              onClick={() => window.desktop ? setDesktopTaskCenterOpen(true) : setKeyOpen(true)}
             >
-              {settings.apiKey || settings.openAiApiKey ? 'Key 已配置' : '配置 API Key'}
+              {window.desktop ? '桌面 Key 设置' : settings.apiKey || settings.openAiApiKey ? 'Key 已配置' : '配置 API Key'}
             </Button>
           </Space>
         </Flex>
       </Header>
+      {window.desktop && <DesktopTaskCenter open={desktopTaskCenterOpen} onClose={() => setDesktopTaskCenterOpen(false)} />}
 
       <Layout className={`workspace-layout${showPinnedHome ? ' is-tool-home' : ''}${creationTool === 'workflow' && !showPinnedHome ? ' is-workflow' : ''}`}>
         <Sider width={214} className="nav-sider" breakpoint="lg" collapsedWidth={64}>

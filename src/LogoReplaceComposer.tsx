@@ -57,6 +57,7 @@ import { PerImagePromptEditor, usePerImagePrompts } from './usePerImagePrompts';
 import { perImagePromptFileKey } from './services/perImagePrompt';
 import { assignMultipleLogos, expandStylesByOccurrence } from './services/logoReplaceDevUtils';
 import type { SceneLogoAnalysis } from './types';
+import { desktopAssetFromFile, isElectronDesktop, submitDesktopJob } from './desktop/runtime';
 
 const { Text, Title, Paragraph } = Typography;
 const ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
@@ -426,10 +427,21 @@ function LogoReplaceSingleComposer({
   }, [tasks, settings.concurrency, executeTask]);
 
   const start = async () => {
+    if (!scenes.length) return void message.warning('请至少上传一张已贴 Logo 的场景图');
+    if (isElectronDesktop()) {
+      if (!newLogos.length) return void message.warning('请至少上传一个新 Logo');
+      const outputRoot = await window.desktop?.pickOutputDirectory(); if (!outputRoot) return;
+      try {
+        const logoAssets = newLogos.map((logo) => desktopAssetFromFile(logo.file)); const oldLogoAsset = oldLogo ? desktopAssetFromFile(oldLogo.file) : undefined;
+        const groups = scenes.map((scene) => { const asset = desktopAssetFromFile(scene.file); const parts = (asset.relativePath || scene.name).split(/[\\/]+/); parts.pop(); return { id: scene.id, name: scene.name, relativePath: parts.join('/'), scenes: [asset], logos: logoAssets, oldLogo: oldLogoAsset }; });
+        await submitDesktopJob({ name: `Logo 替换 ${new Date().toLocaleString()}`, outputRoot, globalConcurrency: settings.concurrency, apiBaseUrl, groups, config: { tool: 'logo-replace', settings: { ...settings, distinctLogoPerOccurrence } } });
+        window.dispatchEvent(new Event('desktop-task-created')); message.success('Logo 任务已提交到桌面后台，刷新页面或隐藏到托盘不会中断');
+      } catch (error) { message.error(error instanceof Error ? error.message : '创建桌面后台任务失败'); }
+      return;
+    }
     if (settings.imageProvider === 'openai' || (settings.strictTextVerification && settings.languageProvider === 'openai')) { if (!openAiApiKey) return onRequestKey(); }
     else if (!apiKey) return onRequestKey();
     if ((settings.imageProvider === 'gemini' || (settings.strictTextVerification && settings.languageProvider === 'gemini')) && connectionMode === 'proxy' && !apiBaseUrl) { message.warning('请先配置代理地址'); return onRequestKey(); }
-    if (!scenes.length) return void message.warning('请至少上传一张已贴 Logo 的场景图');
     if (settings.perImagePromptEnabled) {
       const key = settings.languageProvider === 'openai' ? openAiApiKey : apiKey; if (!key) return onRequestKey();
       const missing = scenes.filter((scene) => !perImagePrompts.effective(scene.file));

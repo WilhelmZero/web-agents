@@ -589,3 +589,14 @@ button, input, textarea { font: inherit; }
 .combined-results-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; }
 .combined-results-grid > .ant-card > .ant-card-cover img { max-height: 360px; object-fit: contain; background: #f5f5f5; }
 @media (max-width: 700px) { .combined-results-grid { grid-template-columns: 1fr; } .combined-thumb-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.desktop-task-thumb-placeholder {
+  width: 76px;
+  height: 76px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  color: #7d70d8;
+  background: linear-gradient(135deg, #f0edff, #f7f9fc);
+  border: 1px solid #e1dcff;
+  font-size: 24px;
+}

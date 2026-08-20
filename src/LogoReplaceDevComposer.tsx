@@ -14,6 +14,7 @@ import type { LogoAsset, LogoReplaceDevTask, LogoReplaceSettings, SceneLogoAnaly
 import { createId, downloadBlob, normalizeSettingsForModel } from './utils';
 import { logoReplaceResultFileName } from './services/logoReplaceFileName';
 import PsdLogoImportModal from './PsdLogoImportModal';
+import { desktopAssetFromFile, isElectronDesktop, submitDesktopJob } from './desktop/runtime';
 
 const { Title, Text, Paragraph } = Typography;
 const TYPES = ['image/png', 'image/jpeg', 'image/webp'];
@@ -62,6 +63,7 @@ export default function LogoReplaceDevComposer({ apiKey, openAiApiKey, apiBaseUr
     finally { analyzing.current.delete(scene.id); }
   }, [apiKey, openAiApiKey, apiBaseUrl, settings.languageProvider, settings.verificationModel, settings.openAiLanguageModel]);
   useEffect(() => {
+    if (isElectronDesktop()) return;
     if (!multiEnabled || (settings.languageProvider === 'openai' ? !openAiApiKey : !apiKey)) return;
     const pending = scenes.filter((scene) => !analyses[scene.id] && !analyzing.current.has(scene.id));
     pending.slice(0, Math.max(0, 8 - analyzing.current.size)).forEach((scene) => void analyzeOne(scene));
@@ -79,7 +81,18 @@ export default function LogoReplaceDevComposer({ apiKey, openAiApiKey, apiBaseUr
   }, [apiKey, openAiApiKey, apiBaseUrl, distinctLogoPerOccurrence]);
   useEffect(() => { const free = Math.max(0, settings.concurrency - running.current.size); tasks.filter((item) => item.status === 'waiting' && !running.current.has(item.id)).slice(0, free).forEach((item) => void execute(item)); }, [tasks, settings.concurrency, execute]);
 
-  const start = () => {
+  const start = async () => {
+    if (!scenes.length || !logos.length) return void message.warning('请先上传场景图和新 Logo');
+    if (isElectronDesktop()) {
+      const outputRoot = await window.desktop?.pickOutputDirectory(); if (!outputRoot) return;
+      try {
+        const logoAssets = logos.map((logo) => desktopAssetFromFile(logo.file));
+        const groups = scenes.map((scene) => { const source = desktopAssetFromFile(scene.file); const parts = (source.relativePath || scene.name).split(/[\\/]+/); parts.pop(); return { id: scene.id, name: scene.name, relativePath: parts.join('/'), scenes: [source], logos: logoAssets }; });
+        await submitDesktopJob({ name: `多 Logo 替换 ${new Date().toLocaleString()}`, outputRoot, globalConcurrency: settings.concurrency, apiBaseUrl, groups, config: { tool: 'logo-replace', settings: { ...settings, multiLogoModeEnabled: true, distinctLogoPerOccurrence } } });
+        window.dispatchEvent(new Event('desktop-task-created')); message.success('多 Logo 任务已交给桌面主进程分析并生成');
+      } catch (error) { message.error(error instanceof Error ? error.message : '创建桌面后台任务失败'); }
+      return;
+    }
     if (settings.imageProvider === 'openai' || (multiEnabled && settings.languageProvider === 'openai')) { if (!openAiApiKey) return onRequestKey(); } else if (!apiKey) return onRequestKey(); if ((settings.imageProvider === 'gemini' || (multiEnabled && settings.languageProvider === 'gemini')) && connectionMode === 'proxy' && !apiBaseUrl) return onRequestKey(); if (!scenes.length || !logos.length) return void message.warning('请先上传场景图和新 Logo');
     if (multiEnabled && scenes.some((scene) => analyses[scene.id]?.status !== 'success')) return void message.warning('请等待所有场景解析完成，失败项可点击重新解析');
     const invalid = scenes.find((scene) => { const styles = analyses[scene.id]?.styles || []; const required = distinctLogoPerOccurrence ? Math.max(1, styles.reduce((sum, style) => sum + Math.max(1, style.occurrences || 1), 0)) : (multiEnabled ? Math.max(1, styles.length || 1) : 1); return (assignments[scene.id]?.length || 0) < required; }); if (invalid) return void message.warning('新 Logo 分配不足，或部分场景尚未完成 Logo 分析');

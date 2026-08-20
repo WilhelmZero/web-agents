@@ -23,6 +23,7 @@ import { PerImagePromptEditor, usePerImagePrompts } from './usePerImagePrompts';
 import { perImagePromptFileKey } from './services/perImagePrompt';
 import { generateSceneReplacementBatch } from './services/geminiBatch';
 import { DEFAULT_GEMINI_CAPACITY_SETTINGS, getGeminiCapacitySettings, saveGeminiCapacitySettings, type GeminiCapacitySettings } from './services/geminiCapacity';
+import { desktopAssetFromFile, isElectronDesktop, submitDesktopJob } from './desktop/runtime';
 
 const { Text, Title, Paragraph } = Typography;
 const TYPES = ['image/png', 'image/jpeg', 'image/webp'];
@@ -85,6 +86,7 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
   const valid = (file: File) => { if (!TYPES.includes(file.type)) return void message.error(`${file.name}：仅支持 PNG、JPEG、WebP`); if (!file.size || file.size > MAX_SIZE) return void message.error(`${file.name}：文件需小于 20MB 且不能为空`); return true; };
   const recommendThemes = async (items: LogoAsset[]) => {
     const config = settingsRef.current; if (!config.autoRecommendScene || !items.length) return;
+    if (isElectronDesktop()) return;
     const pending = items.filter((item) => !sceneThemes[item.id] && !recommendingSceneIdsRef.current.has(item.id));
     if (!pending.length) return;
     const provider = config.sceneRecommendationProvider; const key = provider === 'openai' ? openAiApiKey : apiKey;
@@ -208,11 +210,24 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
     }
   };
   const start = async () => {
-    const config = settingsRef.current; if (isOpenAiModel(config.imageModel) ? !openAiApiKey : !apiKey) return onRequestKey(); if (!isOpenAiModel(config.imageModel) && connectionMode === 'proxy' && !apiBaseUrl) { message.warning('请先配置代理地址'); return onRequestKey(); }
-    if (config.autoOutpaint && (isOpenAiModel(config.outpaintImageModel) ? !openAiApiKey : !apiKey)) return onRequestKey();
-    if (config.autoOutpaint && !isOpenAiModel(config.outpaintImageModel) && connectionMode === 'proxy' && !apiBaseUrl) { message.warning('请先配置 Gemini 代理地址'); return onRequestKey(); }
+    const config = settingsRef.current;
     const eligible = settings.autoSkipWhiteBackground ? scenes.filter((scene) => !whiteBackgroundSceneIds.includes(scene.id)) : scenes;
     if (!eligible.length) return void message.warning('没有可参与生成的场景图，请关闭白底图跳过开关或上传非白底图'); if (!prompt.trim()) return void message.warning('请选择预设或填写目标场景提示词');
+    if (isElectronDesktop()) {
+      const outputRoot = await window.desktop?.pickOutputDirectory(); if (!outputRoot) return;
+      try {
+        const groups = eligible.map((scene) => {
+          const asset = desktopAssetFromFile(scene.file); const relativeParts = (asset.relativePath || scene.name).split(/[\\/]+/); relativeParts.pop();
+          return { id: scene.id, name: scene.name, relativePath: relativeParts.join('/'), scenes: [asset], prompt: [sceneThemes[scene.id], prompt].filter(Boolean).join('；') };
+        });
+        await submitDesktopJob({ name: `场景替换 ${new Date().toLocaleString()}`, outputRoot, globalConcurrency: config.concurrency, apiBaseUrl, groups, config: { tool: 'scene-replace', settings: { ...config, perImagePromptEnabled: config.perImagePromptEnabled || config.autoRecommendScene }, prompt, perImagePromptPrefix } });
+        window.dispatchEvent(new Event('desktop-task-created')); message.success('任务已提交到桌面后台，关闭窗口或刷新页面也会继续运行');
+      } catch (error) { message.error(error instanceof Error ? error.message : '创建桌面后台任务失败'); }
+      return;
+    }
+    if (isOpenAiModel(config.imageModel) ? !openAiApiKey : !apiKey) return onRequestKey(); if (!isOpenAiModel(config.imageModel) && connectionMode === 'proxy' && !apiBaseUrl) { message.warning('请先配置代理地址'); return onRequestKey(); }
+    if (config.autoOutpaint && (isOpenAiModel(config.outpaintImageModel) ? !openAiApiKey : !apiKey)) return onRequestKey();
+    if (config.autoOutpaint && !isOpenAiModel(config.outpaintImageModel) && connectionMode === 'proxy' && !apiBaseUrl) { message.warning('请先配置 Gemini 代理地址'); return onRequestKey(); }
     if (settings.autoRecommendScene && eligible.some((scene) => !sceneThemes[scene.id])) return void message.warning('请等待所有参与生成的图片完成场景推荐，或手动填写缺少的主题');
     let assignments = perImagePrompts.assignments;
     if (config.perImagePromptEnabled) {
