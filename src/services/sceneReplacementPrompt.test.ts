@@ -26,7 +26,7 @@ describe('buildSceneReplacementPrompt', () => {
     expect(prompt).toContain('无论盒子是打开、关闭');
     expect(prompt).toContain('禁止悬空、漂浮');
     expect(prompt).toContain('禁止无中生有地加入前景手');
-    expect(prompt).toContain('穿搭允许为适应目标场景而改变');
+    expect(prompt).toContain('背景人物的穿搭必须整体更换');
     expect(prompt).toContain('统一重建与新场景一致的光照');
     expect(prompt).toContain('直接查看并判断输入画面中是否存在多个小图');
     expect(prompt).toContain('对模型判断出的每一个小图逐一、完整地执行');
@@ -49,6 +49,8 @@ describe('buildSceneReplacementPrompt', () => {
     expect(prompt).toContain('不得用背景酒瓶表达主题');
     expect(prompt).toContain('原图已有的非背景酒瓶仍按 A 层原样保留');
     expect(prompt).toContain('严禁删除背景人物、只留下手或手臂');
+    expect(prompt).toContain('若原图背景没有人物');
+    expect(prompt).toContain('背景人物的穿搭必须整体更换');
     expect(prompt).toContain('新旧场景必须明显不同');
     expect(prompt).toContain('若目标描述与原场景属于同一类型或视觉过于相似');
     expect(prompt).toContain('同样符合杯型真实用途、但地点类型');

@@ -29,7 +29,7 @@ export function buildPickerFolderTree(groups: Group[]): PickerFolderNode[] {
   return roots;
 }
 export interface FolderSceneSuggestion { cupType: RecommendedCupType; theme: string; source: 'matched' | 'fallback' | 'manual'; firstFileKey: string; status: 'ready' | 'stale' }
-interface Batch { id: string; groups: Group[]; prompt: string; concurrency: number; settings?: Partial<SceneReplaceSettings>; folderSuggestionMode?: boolean; folderSuggestions?: Record<string, FolderSceneSuggestion>; perImagePrompts?: Record<string, PerImagePromptAssignment>; startToken?: string }
+interface Batch { id: string; groups: Group[]; prompt: string; concurrency: number; settings?: Partial<SceneReplaceSettings>; folderSuggestionMode?: boolean; folderSuggestions?: Record<string, FolderSceneSuggestion>; perImagePrompts?: Record<string, PerImagePromptAssignment>; startToken?: string; autoDownloadOnComplete?: boolean }
 export function buildFolderScenePrompt(commonPrompt: string, suggestion?: FolderSceneSuggestion) { return suggestion?.theme.trim() ? `${suggestion.theme.trim()}；${commonPrompt.trim()}` : commonPrompt.trim(); }
 interface ProgressState { total: number; completed: number; failed: number; running: boolean }
 function LeafImage({ file }: { file: File }) { const [url, setUrl] = useState(''); useEffect(() => { const next = URL.createObjectURL(file); setUrl(next); return () => URL.revokeObjectURL(next); }, [file]); return url ? <Image loading="lazy" preview={false} src={url} alt={file.name} width={42} height={42} style={{ objectFit: 'cover', borderRadius: 5 }} /> : null; }
@@ -63,6 +63,7 @@ export default function MultiTabSceneReplaceComposer(props: Parameters<typeof Sc
   const storedSceneSettings = readLocalStorage<SceneReplaceSettings>(STORAGE_KEYS.sceneReplaceSettings, DEFAULT_SCENE_REPLACE_SETTINGS as SceneReplaceSettings);
   const [perImagePromptEnabled, setPerImagePromptEnabled] = useState(storedSceneSettings.perImagePromptEnabled);
   const [autoGenerateAfterPromptAnalysis, setAutoGenerateAfterPromptAnalysis] = useState(storedSceneSettings.autoGenerateAfterPromptAnalysis);
+  const [autoDownloadOnComplete, setAutoDownloadOnComplete] = useState(() => readLocalStorage('scene-studio.scene-tabs-auto-download', false));
   const [simplifyPromptConstraints, setSimplifyPromptConstraints] = useState(storedSceneSettings.simplifyPromptConstraints ?? false);
   const [detectInsufficientSceneChange, setDetectInsufficientSceneChange] = useState(storedSceneSettings.detectInsufficientSceneChange ?? true);
   const [prompt, setPrompt] = useState(() => autoRecommendScene ? SCENE_COMMON_CONSTRAINT : SCENE_MANUAL_DEFAULT_PROMPT);
@@ -78,11 +79,13 @@ export default function MultiTabSceneReplaceComposer(props: Parameters<typeof Sc
   const [runStartedAt, setRunStartedAt] = useState<number>(); const [runEndedAt, setRunEndedAt] = useState<number>(); const [runDurationMs, setRunDurationMs] = useState<number>(); const [usableTaskIds, setUsableTaskIds] = useState<string[]>([]); const [workerTitleState, setWorkerTitleState] = useState<'queued' | 'running' | 'completed'>('queued'); const [titleFlash, setTitleFlash] = useState(false);
   const [loadedResultGroups, setLoadedResultGroups] = useState<Record<string, SceneReplaceTask[]>>({});
   const queuedGroups = useRef<string[]>([]); const activeGroups = useRef(new Set<string>()); const schedulingBatch = useRef<string | undefined>(undefined);
+  const autoDownloadStarted = useRef(false);
   const fileKey = (file: File) => `${file.name}:${file.size}:${file.lastModified}`;
   const promptReviewFiles = groups.flatMap((group) => group.files).filter((file) => !autoSkipWhiteBackground || (scannedWhiteFileKeys.includes(fileKey(file)) && !whiteBackgroundFileKeys.includes(fileKey(file))));
   const perImagePromptSource = `${prompt}${simplifyPromptConstraints ? '\n[逐图分析需同时精简通用强制限制]' : ''}`;
   const perImagePrompts = usePerImagePrompts({ tool: 'scene-replace', files: promptReviewFiles, sourcePrompt: perImagePromptSource, initial: workerBatch?.perImagePrompts, config: { provider: storedSceneSettings.sceneRecommendationProvider, apiKey: storedSceneSettings.sceneRecommendationProvider === 'openai' ? props.openAiApiKey : props.apiKey, apiBaseUrl: props.apiBaseUrl, geminiModel: storedSceneSettings.sceneRecommendationModel, openAiModel: storedSceneSettings.openAiSceneRecommendationModel, concurrency: Math.min(8, concurrency), autoRetryErrors: storedSceneSettings.autoRetryErrors, errorRetryLimit: storedSceneSettings.errorRetryLimit, errorRetryDelaySeconds: storedSceneSettings.errorRetryDelaySeconds } });
   useEffect(() => { localStorage.setItem('scene-studio.folder-scene-mode', JSON.stringify(folderSuggestionMode)); }, [folderSuggestionMode]);
+  useEffect(() => { localStorage.setItem('scene-studio.scene-tabs-auto-download', JSON.stringify(autoDownloadOnComplete)); }, [autoDownloadOnComplete]);
   useEffect(() => { localStorage.setItem('scene-studio.folder-scene-suggestions', JSON.stringify(folderSuggestions)); }, [folderSuggestions]);
   useEffect(() => { const stored = readLocalStorage<SceneReplaceSettings>(STORAGE_KEYS.sceneReplaceSettings, DEFAULT_SCENE_REPLACE_SETTINGS as SceneReplaceSettings); localStorage.setItem(STORAGE_KEYS.sceneReplaceSettings, JSON.stringify({ ...stored, simplifyPromptConstraints, detectInsufficientSceneChange })); }, [simplifyPromptConstraints, detectInsufficientSceneChange]);
   useEffect(() => { if (folderSuggestionMode) setPrompt((current) => current === SCENE_COMMON_CONSTRAINT || current === SCENE_MANUAL_DEFAULT_PROMPT ? FOLDER_SCENE_COMMON_PROMPT : current); }, [folderSuggestionMode]);
@@ -119,6 +122,24 @@ export default function MultiTabSceneReplaceComposer(props: Parameters<typeof Sc
     const storedTasks = tasks.filter((task) => task.resultBlob || task.status === 'failed' || task.status === 'stopped');
     void Promise.all(storedTasks.map((task) => putMultiTabResult('scene', batchId, groupId, task.id, task))).finally(() => channel.current?.postMessage({ type: 'results', batchId, groupId, tasks: summaries }));
   }, [batchId, groupId]);
+  useEffect(() => {
+    if (!worker || workerTitleState !== 'completed' || !readLocalStorage('scene-studio.scene-tabs-auto-download', false) || !batchId || !groupId || !workerGroup || autoDownloadStarted.current) return;
+    const marker = `scene-studio.scene-auto-downloaded.${batchId}.${groupId}`;
+    if (sessionStorage.getItem(marker)) return;
+    autoDownloadStarted.current = true;
+    const timer = window.setTimeout(() => void (async () => {
+      try {
+        const tasks = await readMultiTabGroupResults<SceneReplaceTask>('scene', batchId, groupId);
+        const completed = tasks.filter((task) => task.status === 'success' && task.resultBlob);
+        if (!completed.length) { autoDownloadStarted.current = false; return; }
+        const zip = new JSZip();
+        completed.forEach((task) => { zip.file(`${task.sceneIndex + 1}_${task.copyIndex + 1}.${mimeExtension(task.resultMimeType)}`, task.resultBlob!); task.outpaintResults?.forEach((item) => zip.file(`${task.sceneIndex + 1}_${task.copyIndex + 1}_扩图_${item.width}x${item.height}.png`, item.blob)); });
+        downloadBlob(await zip.generateAsync({ type: 'blob' }), `${sanitizeFileName(workerGroup.name)}_场景替换结果_${formatFileTimestamp()}.zip`);
+        sessionStorage.setItem(marker, '1'); message.success(`本组已完成，自动下载 ${completed.length} 组结果`);
+      } catch { autoDownloadStarted.current = false; message.warning('本组自动下载失败，可在主控页手动下载'); }
+    })(), 800);
+    return () => window.clearTimeout(timer);
+  }, [worker, workerTitleState, batchId, groupId, workerGroup, message]);
   const reviewFolderFiles = (files: File[]) => {
     const accepted = files.filter((file) => ['image/png', 'image/jpeg', 'image/webp'].includes(file.type));
     const leafGroups = buildPickerFolderTree(groupFolderFiles(accepted)); const leafPaths: string[] = []; const collect = (nodes: PickerFolderNode[]) => nodes.forEach((node) => { if (node.group) leafPaths.push(`dir:${node.path}`); collect(node.children); }); collect(leafGroups);
@@ -179,5 +200,6 @@ export default function MultiTabSceneReplaceComposer(props: Parameters<typeof Sc
       <div className="scene-folder-picker-tree" style={{ maxHeight: '58vh', overflowY: 'auto', paddingRight: 8 }}>{renderPickerTree(pendingTree)}</div>
     </Modal>
     <Modal title={selectedGroup ? `${selectedGroup.name} · 图片管理` : '图片管理'} open={Boolean(selectedGroup)} width={900} footer={<Button onClick={() => setSelectedGroupId(undefined)}>完成</Button>} onCancel={() => setSelectedGroupId(undefined)}>{selectedGroup && <><Flex justify="space-between" align="center" wrap gap={12} style={{ marginBottom: 14 }}><Text type="secondary">{selectedGroup.path} · 当前 {selectedGroup.files.length} 张</Text><Upload multiple showUploadList={false} accept="image/png,image/jpeg,image/webp" beforeUpload={(file) => addGroupFile(selectedGroup.id, file as File)}><Button type="primary" icon={<PlusOutlined />}>添加图片</Button></Upload></Flex><Image.PreviewGroup><div className="batch-asset-grid">{selectedGroup.files.map((file, index) => <div className={autoSkipWhiteBackground && whiteBackgroundFileKeys.includes(fileKey(file)) ? 'batch-white-background-file' : ''} key={`${file.name}-${file.size}-${index}`}><FileThumbnail file={file} onRemove={() => removeGroupFile(selectedGroup.id, file)} />{autoSkipWhiteBackground && whiteBackgroundFileKeys.includes(fileKey(file)) && <Tag>白底图 · 已跳过</Tag>}</div>)}</div></Image.PreviewGroup></>}</Modal>
+    <Card title="自动下载"><Flex justify="space-between" align="center" gap={16} wrap><div><Text strong>每个子标签完成后自动下载本组 ZIP</Text><br /><Text type="secondary">浏览器首次可能要求允许多个文件自动下载；每个标签仅触发一次。</Text></div><Switch checked={autoDownloadOnComplete} onChange={setAutoDownloadOnComplete} /></Flex></Card>
   </div>;
 }

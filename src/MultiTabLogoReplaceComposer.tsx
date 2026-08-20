@@ -27,7 +27,7 @@ const LAST_BATCH_KEY = 'scene-studio.multi-tab-logo-replace.last-batch';
 interface FolderGroup { id: string; name: string; path: string; files: File[] }
 interface FolderTreeNode { title: string; key: string; children?: FolderTreeNode[] }
 interface PickerFolderNode { name: string; path: string; children: PickerFolderNode[]; group?: FolderGroup }
-interface SharedBatch { id: string; createdAt: number; groups: FolderGroup[]; logos: File[]; globalConcurrency?: number; perImagePrompts?: Record<string, PerImagePromptAssignment>; startCommandId?: string; multiLogoModeEnabled?: boolean; distinctLogoPerOccurrence?: boolean }
+interface SharedBatch { id: string; createdAt: number; groups: FolderGroup[]; logos: File[]; globalConcurrency?: number; perImagePrompts?: Record<string, PerImagePromptAssignment>; startCommandId?: string; multiLogoModeEnabled?: boolean; distinctLogoPerOccurrence?: boolean; autoDownloadOnComplete?: boolean }
 interface WorkerProgress extends LogoReplaceProgressSnapshot { groupId: string; name: string; status: 'opening' | 'ready' | 'running' | 'completed'; updatedAt: number }
 
 export function FileThumbnail({ file, onRemove }: { file: File; onRemove?: () => void }) {
@@ -162,6 +162,7 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
   const [perImagePromptEnabled, setPerImagePromptEnabled] = useState(storedLogoSettings.perImagePromptEnabled);
   const [autoGenerateAfterPromptAnalysis, setAutoGenerateAfterPromptAnalysis] = useState(storedLogoSettings.autoGenerateAfterPromptAnalysis);
   const [distinctLogoPerOccurrence, setDistinctLogoPerOccurrence] = useState(Boolean(storedLogoSettings.distinctLogoPerOccurrence));
+  const [autoDownloadOnComplete, setAutoDownloadOnComplete] = useState(() => readLocalStorage('scene-studio.logo-tabs-auto-download', false));
   const [activeBatchId, setActiveBatchId] = useState<string>();
   const [pendingPsdFile, setPendingPsdFile] = useState<File>();
   const [blockedWorkerUrls, setBlockedWorkerUrls] = useState<Array<{ name: string; url: string }>>([]);
@@ -188,6 +189,7 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
   const [runDurationMs, setRunDurationMs] = useState<number>();
   const [usableTaskIds, setUsableTaskIds] = useState<string[]>([]);
   const [workerTitleState, setWorkerTitleState] = useState<'queued' | 'running' | 'completed'>('queued');
+  const autoDownloadStarted = useRef(false);
   const [titleFlash, setTitleFlash] = useState(false);
   useEffect(() => { if (typeof BroadcastChannel === 'undefined') return; const next = new BroadcastChannel('scene-studio-logo-tabs'); setChannel(next); return () => next.close(); }, []);
 
@@ -206,7 +208,7 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
       }));
       const count = entries.reduce((sum, [, progress]) => sum + progress.success, 0);
       setGroups(batch.groups); setLogos(batch.logos); setGlobalConcurrency(batch.globalConcurrency || 6);
-      setDistinctLogoPerOccurrence(Boolean(batch.distinctLogoPerOccurrence)); setActiveBatchId(batch.id);
+      setDistinctLogoPerOccurrence(Boolean(batch.distinctLogoPerOccurrence)); setAutoDownloadOnComplete(Boolean(batch.autoDownloadOnComplete)); setActiveBatchId(batch.id);
       setWorkerProgress(Object.fromEntries(entries)); setCachedResultCount(count);
       localStorage.setItem(LAST_BATCH_KEY, batch.id);
       message.success(`已从 IndexedDB 恢复批次，共找到 ${count} 张生成图片`);
@@ -276,7 +278,8 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
   };
   const persistCurrentBatch = async (id = activeBatchId || `batch-${Date.now()}`) => {
     localStorage.setItem(STORAGE_KEYS.logoReplaceSettings, JSON.stringify({ ...storedLogoSettings, perImagePromptEnabled, autoGenerateAfterPromptAnalysis, multiLogoModeEnabled: false, distinctLogoPerOccurrence }));
-    await saveBatch({ id, createdAt: Date.now(), groups, logos, globalConcurrency, perImagePrompts: perImagePrompts.current(), multiLogoModeEnabled: false, distinctLogoPerOccurrence });
+    localStorage.setItem('scene-studio.logo-tabs-auto-download', JSON.stringify(autoDownloadOnComplete));
+    await saveBatch({ id, createdAt: Date.now(), groups, logos, globalConcurrency, perImagePrompts: perImagePrompts.current(), multiLogoModeEnabled: false, distinctLogoPerOccurrence, autoDownloadOnComplete });
     setActiveBatchId(id); localStorage.setItem(LAST_BATCH_KEY, id); return id;
   };
   const openWorkers = async () => {
@@ -391,6 +394,25 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
     } catch (error) { message.error(error instanceof Error ? error.message : '本组图片打包失败'); }
     finally { setDownloadingGroup(false); }
   };
+  useEffect(() => {
+    if (!worker || workerTitleState !== 'completed' || !workerBatch?.autoDownloadOnComplete || !batchId || !groupId || !workerGroup || autoDownloadStarted.current) return;
+    const marker = `scene-studio.logo-auto-downloaded.${batchId}.${groupId}`;
+    if (sessionStorage.getItem(marker)) return;
+    autoDownloadStarted.current = true;
+    const timer = window.setTimeout(() => void (async () => {
+      try {
+        const details = await readMultiTabGroupResults<LogoReplaceTaskDetail>('logo', batchId, groupId);
+        const items = details.filter((detail) => detail.status === 'success' && detail.resultBlob).sort((a, b) => a.sceneIndex - b.sceneIndex || a.copyIndex - b.copyIndex);
+        if (!items.length) { autoDownloadStarted.current = false; return; }
+        const zip = new JSZip(); const copiesByScene = new Map<number, number>();
+        details.forEach((detail) => copiesByScene.set(detail.sceneIndex, Math.max(copiesByScene.get(detail.sceneIndex) || 0, detail.copyIndex + 1)));
+        items.forEach((detail) => zip.file(logoReplaceResultFileName(detail.originalFile?.name || `场景_${detail.sceneIndex + 1}.png`, detail.copyIndex, copiesByScene.get(detail.sceneIndex) || 1, detail.resultBlob?.type), detail.resultBlob!));
+        downloadBlob(await zip.generateAsync({ type: 'blob' }), `${sanitizeFileName(workerGroup.name)}_Logo替换结果_${formatFileTimestamp()}.zip`);
+        sessionStorage.setItem(marker, '1'); message.success(`本组已完成，自动下载 ${items.length} 张结果`);
+      } catch { autoDownloadStarted.current = false; message.warning('本组自动下载失败，可在主控页手动下载'); }
+    })(), 800);
+    return () => window.clearTimeout(timer);
+  }, [worker, workerTitleState, workerBatch?.autoDownloadOnComplete, batchId, groupId, workerGroup, message]);
   const aggregate = workerSnapshots.reduce((sum, item) => ({ total: sum.total + item.total, success: sum.success + item.success, failed: sum.failed + item.failed, stopped: sum.stopped + item.stopped, waiting: sum.waiting + item.waiting, running: sum.running + item.running, retrying: sum.retrying + item.retrying }), { total: 0, success: 0, failed: 0, stopped: 0, waiting: 0, running: 0, retrying: 0 });
   const aggregateCompleted = aggregate.success + aggregate.failed + aggregate.stopped;
   const aggregateProcessing = aggregate.waiting + aggregate.running > 0 || workerSnapshots.some((item) => item.status === 'opening' || item.status === 'running');
@@ -421,6 +443,7 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
     <Card className="workflow-card" title="2. 上传所有标签共用的 Logo" extra={<Text type="secondary">{logos.length} 个</Text>}><Upload.Dragger multiple showUploadList={false} accept="image/png,image/jpeg,image/webp,.psd,image/vnd.adobe.photoshop" beforeUpload={(file) => { const next = file as File; if (next.name.toLowerCase().endsWith('.psd') || next.type === 'image/vnd.adobe.photoshop') setPendingPsdFile(next); else setLogos((current) => [...current, next]); return false; }}><FileImageOutlined style={{ fontSize: 30 }} /><p>拖拽或选择公共 Logo / PSD</p></Upload.Dragger>{logos.length ? <Image.PreviewGroup><div className="batch-asset-grid">{logos.map((logo, index) => <FileThumbnail key={`${logo.name}-${logo.size}-${logo.lastModified}-${index}`} file={logo} onRemove={() => setLogos((current) => current.filter((item) => item !== logo))} />)}<Upload multiple showUploadList={false} accept="image/png,image/jpeg,image/webp,.psd,image/vnd.adobe.photoshop" beforeUpload={(file) => { const next = file as File; if (next.name.toLowerCase().endsWith('.psd') || next.type === 'image/vnd.adobe.photoshop') setPendingPsdFile(next); else setLogos((current) => [...current, next]); return false; }}><button type="button" className="batch-asset-add"><PlusOutlined /><span>继续添加 Logo</span></button></Upload></div></Image.PreviewGroup> : null}{activeBatchId && <Button style={{ marginTop: 12 }} icon={<SyncOutlined />} onClick={() => void syncLogos()}>同步到已打开标签</Button>}</Card>
     <Card className="workflow-card" title="Logo 分配模式"><Flex justify="space-between" align="center" gap={16} wrap><div><Text strong>原图多个相同 Logo，随机匹配不同 Logo</Text><br /><Text type="secondary">每张场景独立识别实际 Logo 位置数；先用完尽可能多的不同 Logo，不足时再随机重复，多余 Logo 不使用。</Text></div><Switch checked={distinctLogoPerOccurrence} onChange={setDistinctLogoPerOccurrence} /></Flex></Card>
     <Card className="action-card"><Flex justify="space-between" align="center" wrap gap={12}><div><Title level={4} style={{ margin: 0 }}>准备分发 {groups.length} 组任务</Title><Text type="secondary">自动按当前 {groups.length} 个分组打开全部标签，不限制个数；Web Locks 将所有标签的 AI 请求合计限制在 {globalConcurrency} 个</Text></div><Space wrap><Text>全局并发</Text><InputNumber min={1} max={12} value={globalConcurrency} onChange={(value) => setGlobalConcurrency(value || 1)} /><Button size="large" icon={<RocketOutlined />} onClick={() => void openWorkers()}>保存批次并打开全部标签</Button><Button type="primary" size="large" icon={<RocketOutlined />} disabled={!activeBatchId} onClick={() => void startAllWorkers()}>一键开始所有替换</Button>{aggregate.failed > 0 && <Button icon={<ReloadOutlined />} onClick={retryAllFailedWorkers}>一键重试所有失败</Button>}{aggregateProcessing && <Button danger size="large" icon={<StopOutlined />} onClick={stopAllWorkers}>停止全部</Button>}<Button disabled={!activeBatchId} onClick={disableCloseWarnings}>解除全部标签关闭提醒</Button></Space></Flex></Card>
+    <Card className="workflow-card" title="自动下载"><Flex justify="space-between" align="center" gap={16} wrap><div><Text strong>每个子标签完成后自动下载本组 ZIP</Text><br /><Text type="secondary">浏览器首次可能要求允许多个文件自动下载；每个标签仅触发一次。</Text></div><Switch checked={autoDownloadOnComplete} onChange={setAutoDownloadOnComplete} /></Flex></Card>
     <Card className="workflow-card" title="IndexedDB 缓存结果" extra={<Space wrap><Button icon={<ReloadOutlined />} loading={restoringCache} onClick={() => void restoreCachedBatch(activeBatchId)}>从缓存恢复结果</Button><Button type="primary" icon={<DownloadOutlined />} loading={downloadingAll} disabled={!activeBatchId} onClick={() => void downloadAllWorkerResults()}>强制下载缓存 ZIP{cachedResultCount ? `（${cachedResultCount}）` : ''}</Button></Space>}><Text type="secondary">子标签刷新后结果区可能清空，但已完成图片仍保存在浏览器 IndexedDB。这里会直接扫描缓存，不依赖子标签当前内存状态。</Text></Card>
     {!!workerSnapshots.length && <Card className="workflow-card" title="批次任务进度" extra={<Space wrap><Button type="primary" icon={<DownloadOutlined />} loading={downloadingAll} disabled={!activeBatchId} onClick={() => void downloadAllWorkerResults()}>一键下载全部生成图片（{Math.max(cachedResultCount, downloadableDetails.length)}）</Button><Tag color={aggregate.failed ? 'error' : aggregateProcessing ? 'processing' : aggregate.total && aggregate.success === aggregate.total ? 'success' : 'default'}>{aggregate.failed ? '存在最终失败' : aggregateProcessing ? '执行中' : aggregate.total ? '已完成' : '等待开始'}</Tag></Space>}>
       <Flex gap={28} wrap><Statistic title="工作标签" value={workerSnapshots.length} suffix={` / 就绪 ${workerSnapshots.filter((item) => item.status !== 'opening').length}`} /><Statistic title="任务总数" value={aggregate.total} /><Statistic title="成功" value={aggregate.success} valueStyle={{ color: '#389e0d' }} /><Statistic title="自动重试中" value={aggregate.retrying} valueStyle={{ color: '#d48806' }} /><Statistic title="最终失败" value={aggregate.failed} valueStyle={{ color: aggregate.failed ? '#cf1322' : undefined }} /><Statistic title="已停止" value={aggregate.stopped} />{runDurationMs !== undefined && <Statistic title="本次执行耗时" value={formatBatchDuration(runDurationMs)} />}</Flex>
