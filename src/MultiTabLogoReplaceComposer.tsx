@@ -180,6 +180,7 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
   const [pendingFolderFiles, setPendingFolderFiles] = useState<File[]>([]);
   const [checkedFolderKeys, setCheckedFolderKeys] = useState<string[]>([]);
   const [downloadingAll, setDownloadingAll] = useState(false);
+  const [downloadingGroup, setDownloadingGroup] = useState(false);
   const [cachedResultCount, setCachedResultCount] = useState(0);
   const [restoringCache, setRestoringCache] = useState(false);
   const [runStartedAt, setRunStartedAt] = useState<number>();
@@ -372,6 +373,24 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
     } catch (error) { message.error(error instanceof Error ? error.message : '打包下载失败'); }
     finally { setDownloadingAll(false); }
   };
+  const downloadSelectedGroupResults = async () => {
+    if (!activeBatchId || !selectedProgressGroupId) return void message.warning('未选择可下载的任务分组');
+    const group = groups.find((item) => item.id === selectedProgressGroupId);
+    if (!group) return void message.warning('未找到该分组的批次信息');
+    setDownloadingGroup(true);
+    try {
+      const details = await readMultiTabGroupResults<LogoReplaceTaskDetail>('logo', activeBatchId, selectedProgressGroupId);
+      const items = details.filter((detail) => detail.status === 'success' && detail.resultBlob).sort((a, b) => a.sceneIndex - b.sceneIndex || a.copyIndex - b.copyIndex);
+      if (!items.length) return void message.warning('该组缓存中没有可下载的生成图片');
+      const zip = new JSZip();
+      const copiesByScene = new Map<number, number>();
+      details.forEach((detail) => copiesByScene.set(detail.sceneIndex, Math.max(copiesByScene.get(detail.sceneIndex) || 0, detail.copyIndex + 1)));
+      items.forEach((detail) => zip.file(logoReplaceResultFileName(detail.originalFile?.name || `场景_${detail.sceneIndex + 1}.png`, detail.copyIndex, copiesByScene.get(detail.sceneIndex) || 1, detail.resultBlob?.type), detail.resultBlob!));
+      downloadBlob(await zip.generateAsync({ type: 'blob' }), `${sanitizeFileName(group.name || '未命名分组')}_Logo替换结果_${formatFileTimestamp()}.zip`);
+      message.success(`已打包下载本组 ${items.length} 张生成图片`);
+    } catch (error) { message.error(error instanceof Error ? error.message : '本组图片打包失败'); }
+    finally { setDownloadingGroup(false); }
+  };
   const aggregate = workerSnapshots.reduce((sum, item) => ({ total: sum.total + item.total, success: sum.success + item.success, failed: sum.failed + item.failed, stopped: sum.stopped + item.stopped, waiting: sum.waiting + item.waiting, running: sum.running + item.running, retrying: sum.retrying + item.retrying }), { total: 0, success: 0, failed: 0, stopped: 0, waiting: 0, running: 0, retrying: 0 });
   const aggregateCompleted = aggregate.success + aggregate.failed + aggregate.stopped;
   const aggregateProcessing = aggregate.waiting + aggregate.running > 0 || workerSnapshots.some((item) => item.status === 'opening' || item.status === 'running');
@@ -419,7 +438,7 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
     <Modal title={selectedGroup ? `${selectedGroup.name} · 图片管理` : '图片管理'} open={Boolean(selectedGroup)} width={900} footer={<Button onClick={() => setSelectedGroupId(undefined)}>完成</Button>} onCancel={() => setSelectedGroupId(undefined)}>
       {selectedGroup && <><Flex justify="space-between" align="center" gap={12} wrap style={{ marginBottom: 14 }}><Text type="secondary">{selectedGroup.path} · 当前 {selectedGroup.files.length} 张；增删只影响当前网页批次。</Text><Upload multiple showUploadList={false} accept="image/png,image/jpeg,image/webp" beforeUpload={(file) => addGroupFile(selectedGroup.id, file as File)}><Button type="primary" icon={<PlusOutlined />}>添加图片到该文件夹</Button></Upload></Flex><Image.PreviewGroup><div className="batch-asset-grid">{selectedGroup.files.map((file, index) => <FileThumbnail key={`${file.name}-${file.size}-${file.lastModified}-${index}`} file={file} onRemove={() => removeGroupFile(selectedGroup.id, file)} />)}</div></Image.PreviewGroup></>}
     </Modal>
-    <Modal destroyOnHidden title={selectedProgressWorker ? `${selectedProgressWorker.name} · 任务结果` : '任务结果'} open={Boolean(selectedProgressWorker)} width={1100} footer={<Button onClick={() => setSelectedProgressGroupId(undefined)}>完成</Button>} onCancel={() => setSelectedProgressGroupId(undefined)}>
+    <Modal destroyOnHidden title={selectedProgressWorker ? `${selectedProgressWorker.name} · 任务结果` : '任务结果'} open={Boolean(selectedProgressWorker)} width={1100} footer={<Space><Button type="primary" icon={<DownloadOutlined />} loading={downloadingGroup} onClick={() => void downloadSelectedGroupResults()}>一键下载本组图片</Button><Button onClick={() => setSelectedProgressGroupId(undefined)}>完成</Button></Space>} onCancel={() => setSelectedProgressGroupId(undefined)}>
       {selectedProgressWorker && <Alert type={selectedProgressWorker.failed ? 'warning' : selectedProgressWorker.status === 'running' ? 'info' : 'success'} showIcon title={`成功 ${selectedProgressWorker.success}/${selectedProgressWorker.total || '—'} · 运行 ${selectedProgressWorker.running} · 等待 ${selectedProgressWorker.waiting} · 失败 ${selectedProgressWorker.failed}`} description="点击缩略图可放大；缩略图下方和放大工具栏都可以切换查看原图。" style={{ marginBottom: 16 }} />}
       {selectedTaskDetails.length ? <TaskResultGallery details={selectedTaskDetails} usableIds={usableTaskIds} onUsableChange={setLogoTaskUsable} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="任务开始后，这里会实时显示每张图片的状态和生成结果" />}
     </Modal>
