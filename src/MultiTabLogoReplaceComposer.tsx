@@ -22,6 +22,7 @@ const { Title, Text, Paragraph } = Typography;
 const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 const DB_NAME = 'scene-studio.multi-tab-logo-replace.v1';
 const STORE = 'batches';
+const LAST_BATCH_KEY = 'scene-studio.multi-tab-logo-replace.last-batch';
 
 interface FolderGroup { id: string; name: string; path: string; files: File[] }
 interface FolderTreeNode { title: string; key: string; children?: FolderTreeNode[] }
@@ -87,6 +88,16 @@ async function saveBatch(batch: SharedBatch) {
 async function readBatch(id: string) {
   const db = await openDb();
   const result = await new Promise<SharedBatch | undefined>((resolve, reject) => { const request = db.transaction(STORE).objectStore(STORE).get(id); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
+  db.close(); return result;
+}
+
+async function readLatestBatch() {
+  const db = await openDb();
+  const result = await new Promise<SharedBatch | undefined>((resolve, reject) => {
+    const request = db.transaction(STORE).objectStore(STORE).getAll();
+    request.onsuccess = () => resolve((request.result as SharedBatch[]).sort((a, b) => b.createdAt - a.createdAt)[0]);
+    request.onerror = () => reject(request.error);
+  });
   db.close(); return result;
 }
 
@@ -169,6 +180,8 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
   const [pendingFolderFiles, setPendingFolderFiles] = useState<File[]>([]);
   const [checkedFolderKeys, setCheckedFolderKeys] = useState<string[]>([]);
   const [downloadingAll, setDownloadingAll] = useState(false);
+  const [cachedResultCount, setCachedResultCount] = useState(0);
+  const [restoringCache, setRestoringCache] = useState(false);
   const [runStartedAt, setRunStartedAt] = useState<number>();
   const [runEndedAt, setRunEndedAt] = useState<number>();
   const [runDurationMs, setRunDurationMs] = useState<number>();
@@ -176,6 +189,34 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
   const [workerTitleState, setWorkerTitleState] = useState<'queued' | 'running' | 'completed'>('queued');
   const [titleFlash, setTitleFlash] = useState(false);
   useEffect(() => { if (typeof BroadcastChannel === 'undefined') return; const next = new BroadcastChannel('scene-studio-logo-tabs'); setChannel(next); return () => next.close(); }, []);
+
+  const restoreCachedBatch = async (preferredId?: string) => {
+    if (worker) return;
+    setRestoringCache(true);
+    try {
+      const batch = (preferredId ? await readBatch(preferredId) : undefined) || await readLatestBatch();
+      if (!batch) return void message.info('没有找到可恢复的多标签 Logo 批次缓存');
+      const entries = await Promise.all(batch.groups.map(async (group) => {
+        const tasks = await readMultiTabGroupResults<LogoReplaceTaskDetail>('logo', batch.id, group.id);
+        const success = tasks.filter((task) => task.status === 'success' && task.resultBlob).length;
+        const failed = tasks.filter((task) => task.status === 'failed').length;
+        const stopped = tasks.filter((task) => task.status === 'stopped').length;
+        return [group.id, { groupId: group.id, name: group.name, status: 'completed', total: tasks.length, success, failed, stopped, waiting: 0, running: 0, retrying: 0, updatedAt: Date.now() } satisfies WorkerProgress] as const;
+      }));
+      const count = entries.reduce((sum, [, progress]) => sum + progress.success, 0);
+      setGroups(batch.groups); setLogos(batch.logos); setGlobalConcurrency(batch.globalConcurrency || 6);
+      setDistinctLogoPerOccurrence(Boolean(batch.distinctLogoPerOccurrence)); setActiveBatchId(batch.id);
+      setWorkerProgress(Object.fromEntries(entries)); setCachedResultCount(count);
+      localStorage.setItem(LAST_BATCH_KEY, batch.id);
+      message.success(`已从 IndexedDB 恢复批次，共找到 ${count} 张生成图片`);
+    } catch (error) { message.error(error instanceof Error ? error.message : '恢复缓存失败'); }
+    finally { setRestoringCache(false); }
+  };
+  useEffect(() => {
+    if (worker || activeBatchId) return;
+    const lastId = localStorage.getItem(LAST_BATCH_KEY) || undefined;
+    void restoreCachedBatch(lastId);
+  }, [worker]);
 
   useEffect(() => {
     if (!worker || !batchId || !groupId) return;
@@ -235,7 +276,7 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
   const persistCurrentBatch = async (id = activeBatchId || `batch-${Date.now()}`) => {
     localStorage.setItem(STORAGE_KEYS.logoReplaceSettings, JSON.stringify({ ...storedLogoSettings, perImagePromptEnabled, autoGenerateAfterPromptAnalysis, multiLogoModeEnabled: false, distinctLogoPerOccurrence }));
     await saveBatch({ id, createdAt: Date.now(), groups, logos, globalConcurrency, perImagePrompts: perImagePrompts.current(), multiLogoModeEnabled: false, distinctLogoPerOccurrence });
-    setActiveBatchId(id); return id;
+    setActiveBatchId(id); localStorage.setItem(LAST_BATCH_KEY, id); return id;
   };
   const openWorkers = async () => {
     if (!groups.length) return void message.warning('请先选择包含各组图片的根文件夹'); if (!logos.length) return void message.warning('请先上传公共 Logo');
@@ -308,7 +349,7 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
   };
   const downloadableDetails = Object.values(workerTaskDetails).flatMap((details) => Object.values(details).filter((detail) => detail.status === 'success'));
   const downloadAllWorkerResults = async () => {
-    if (!downloadableDetails.length) return void message.warning('暂无可下载的生成图片');
+    if (!activeBatchId) return void message.warning('请先恢复或创建一个批次');
     setDownloadingAll(true);
     try {
       const zip = new JSZip();
@@ -325,7 +366,9 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
         items.forEach((detail) => { packagedCount += 1; folder?.file(logoReplaceResultFileName(detail.originalFile?.name || `场景_${detail.sceneIndex + 1}.png`, detail.copyIndex, copiesByScene.get(detail.sceneIndex) || 1, detail.resultBlob?.type), detail.resultBlob!); });
       }));
       downloadBlob(await zip.generateAsync({ type: 'blob' }), `SceneStudio_多标签Logo替换全部结果_${formatFileTimestamp()}.zip`);
-      message.success(`已打包 ${packagedCount} 张生成图片`);
+      if (!packagedCount) return void message.warning('当前批次缓存中没有可下载的生成图片');
+      setCachedResultCount(packagedCount);
+      message.success(`已从 IndexedDB 打包 ${packagedCount} 张生成图片`);
     } catch (error) { message.error(error instanceof Error ? error.message : '打包下载失败'); }
     finally { setDownloadingAll(false); }
   };
@@ -359,7 +402,8 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
     <Card className="workflow-card" title="2. 上传所有标签共用的 Logo" extra={<Text type="secondary">{logos.length} 个</Text>}><Upload.Dragger multiple showUploadList={false} accept="image/png,image/jpeg,image/webp,.psd,image/vnd.adobe.photoshop" beforeUpload={(file) => { const next = file as File; if (next.name.toLowerCase().endsWith('.psd') || next.type === 'image/vnd.adobe.photoshop') setPendingPsdFile(next); else setLogos((current) => [...current, next]); return false; }}><FileImageOutlined style={{ fontSize: 30 }} /><p>拖拽或选择公共 Logo / PSD</p></Upload.Dragger>{logos.length ? <Image.PreviewGroup><div className="batch-asset-grid">{logos.map((logo, index) => <FileThumbnail key={`${logo.name}-${logo.size}-${logo.lastModified}-${index}`} file={logo} onRemove={() => setLogos((current) => current.filter((item) => item !== logo))} />)}<Upload multiple showUploadList={false} accept="image/png,image/jpeg,image/webp,.psd,image/vnd.adobe.photoshop" beforeUpload={(file) => { const next = file as File; if (next.name.toLowerCase().endsWith('.psd') || next.type === 'image/vnd.adobe.photoshop') setPendingPsdFile(next); else setLogos((current) => [...current, next]); return false; }}><button type="button" className="batch-asset-add"><PlusOutlined /><span>继续添加 Logo</span></button></Upload></div></Image.PreviewGroup> : null}{activeBatchId && <Button style={{ marginTop: 12 }} icon={<SyncOutlined />} onClick={() => void syncLogos()}>同步到已打开标签</Button>}</Card>
     <Card className="workflow-card" title="Logo 分配模式"><Flex justify="space-between" align="center" gap={16} wrap><div><Text strong>原图多个相同 Logo，随机匹配不同 Logo</Text><br /><Text type="secondary">每张场景独立识别实际 Logo 位置数；先用完尽可能多的不同 Logo，不足时再随机重复，多余 Logo 不使用。</Text></div><Switch checked={distinctLogoPerOccurrence} onChange={setDistinctLogoPerOccurrence} /></Flex></Card>
     <Card className="action-card"><Flex justify="space-between" align="center" wrap gap={12}><div><Title level={4} style={{ margin: 0 }}>准备分发 {groups.length} 组任务</Title><Text type="secondary">自动按当前 {groups.length} 个分组打开全部标签，不限制个数；Web Locks 将所有标签的 AI 请求合计限制在 {globalConcurrency} 个</Text></div><Space wrap><Text>全局并发</Text><InputNumber min={1} max={12} value={globalConcurrency} onChange={(value) => setGlobalConcurrency(value || 1)} /><Button size="large" icon={<RocketOutlined />} onClick={() => void openWorkers()}>保存批次并打开全部标签</Button><Button type="primary" size="large" icon={<RocketOutlined />} disabled={!activeBatchId} onClick={() => void startAllWorkers()}>一键开始所有替换</Button>{aggregate.failed > 0 && <Button icon={<ReloadOutlined />} onClick={retryAllFailedWorkers}>一键重试所有失败</Button>}{aggregateProcessing && <Button danger size="large" icon={<StopOutlined />} onClick={stopAllWorkers}>停止全部</Button>}<Button disabled={!activeBatchId} onClick={disableCloseWarnings}>解除全部标签关闭提醒</Button></Space></Flex></Card>
-    {!!workerSnapshots.length && <Card className="workflow-card" title="批次任务进度" extra={<Space wrap><Button type="primary" icon={<DownloadOutlined />} loading={downloadingAll} disabled={!downloadableDetails.length} onClick={() => void downloadAllWorkerResults()}>一键下载全部生成图片（{downloadableDetails.length}）</Button><Tag color={aggregate.failed ? 'error' : aggregateProcessing ? 'processing' : aggregate.total && aggregate.success === aggregate.total ? 'success' : 'default'}>{aggregate.failed ? '存在最终失败' : aggregateProcessing ? '执行中' : aggregate.total ? '已完成' : '等待开始'}</Tag></Space>}>
+    <Card className="workflow-card" title="IndexedDB 缓存结果" extra={<Space wrap><Button icon={<ReloadOutlined />} loading={restoringCache} onClick={() => void restoreCachedBatch(activeBatchId)}>从缓存恢复结果</Button><Button type="primary" icon={<DownloadOutlined />} loading={downloadingAll} disabled={!activeBatchId} onClick={() => void downloadAllWorkerResults()}>强制下载缓存 ZIP{cachedResultCount ? `（${cachedResultCount}）` : ''}</Button></Space>}><Text type="secondary">子标签刷新后结果区可能清空，但已完成图片仍保存在浏览器 IndexedDB。这里会直接扫描缓存，不依赖子标签当前内存状态。</Text></Card>
+    {!!workerSnapshots.length && <Card className="workflow-card" title="批次任务进度" extra={<Space wrap><Button type="primary" icon={<DownloadOutlined />} loading={downloadingAll} disabled={!activeBatchId} onClick={() => void downloadAllWorkerResults()}>一键下载全部生成图片（{Math.max(cachedResultCount, downloadableDetails.length)}）</Button><Tag color={aggregate.failed ? 'error' : aggregateProcessing ? 'processing' : aggregate.total && aggregate.success === aggregate.total ? 'success' : 'default'}>{aggregate.failed ? '存在最终失败' : aggregateProcessing ? '执行中' : aggregate.total ? '已完成' : '等待开始'}</Tag></Space>}>
       <Flex gap={28} wrap><Statistic title="工作标签" value={workerSnapshots.length} suffix={` / 就绪 ${workerSnapshots.filter((item) => item.status !== 'opening').length}`} /><Statistic title="任务总数" value={aggregate.total} /><Statistic title="成功" value={aggregate.success} valueStyle={{ color: '#389e0d' }} /><Statistic title="自动重试中" value={aggregate.retrying} valueStyle={{ color: '#d48806' }} /><Statistic title="最终失败" value={aggregate.failed} valueStyle={{ color: aggregate.failed ? '#cf1322' : undefined }} /><Statistic title="已停止" value={aggregate.stopped} />{runDurationMs !== undefined && <Statistic title="本次执行耗时" value={formatBatchDuration(runDurationMs)} />}</Flex>
       <Flex gap={28} wrap style={{ marginTop: 16 }}><Statistic title="预计最低金额" prefix="$" precision={3} value={logoCostMetrics.estimatedMinimum} /><Statistic title="预计最差金额" prefix="$" precision={3} value={logoCostMetrics.estimatedWorst} /><Statistic title="实际消费金额（实时预估）" prefix="$" precision={3} value={logoCostMetrics.actual} /><Statistic title="已发生生图请求" suffix=" 次" value={actualLogoRequests} /><Statistic title="开始计时时间" value={formatBatchDateTime(runStartedAt)} /><Statistic title="结束计时时间" value={formatBatchDateTime(runEndedAt)} /><Statistic title="一次检测成功率" suffix="%" precision={1} value={percentage(firstPassLogoTasks.length, checkedLogoTasks.length)} /><Statistic title="可用率（手动标记）" suffix="%" precision={1} value={percentage(availableLogoTasks.length, downloadableDetails.length)} /></Flex>
       <Text type="secondary">未开始的任务不计入实际消费；当前只按已经发出的生图、校验重绘和接口重试请求实时估算，全部结束后即为本批次最终预估值。语言模型文本 Token 费用另计；可用率请在任务缩略图弹窗中逐张标记。</Text>
