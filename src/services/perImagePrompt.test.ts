@@ -20,6 +20,9 @@ describe('per image prompt assignment', () => {
     expect(prompt).toContain('归一化包围框 left/top/right/bottom');
     expect(prompt).toContain('禁止移到载体中间');
     expect(prompt).toContain('泡沫/液面分界');
+    expect(prompt).toContain('上部连续光滑、下部竖纹/棱柱/浮雕/切面');
+    expect(prompt).toContain('纹理开始线的归一化 y 坐标');
+    expect(prompt).toContain('宁可明显缩小也不得向下进入竖纹区');
   });
   it('delegates automatic prompt analysis to worker tabs', () => {
     expect(shouldAnalyzePerImagePromptsInController(true, true)).toBe(false);

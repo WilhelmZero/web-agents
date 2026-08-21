@@ -49,6 +49,8 @@ describe('Logo 结果校验', () => {
     expect(body.contents[0].parts[0].text).toContain('宽度不超过杯肚最大宽度约 42%');
     expect(body.contents[0].parts[0].text).toContain('归一化包围框、中心点');
     expect(body.contents[0].parts[0].text).toContain('移到杯身视觉中心即判失败');
+    expect(body.contents[0].parts[0].text).toContain('必须测量原图的竖纹开始线');
+    expect(body.contents[0].parts[0].text).toContain('等比缩小到上部光滑区');
     expect(body.contents[0].parts.filter((part: { inlineData?: unknown }) => part.inlineData)).toHaveLength(3);
   });
 
@@ -113,6 +115,10 @@ describe('Logo 替换指令', () => {
     expect(instruction).toContain('归一化包围框 left/top/right/bottom');
     expect(instruction).toContain('严禁把 Logo 自动移到杯子或载体中间');
     expect(instruction).toContain('泡沫线或液面线附近');
+    expect(instruction).toContain('上部光滑带、下部竖纹啤酒杯专项');
+    expect(instruction).toContain('下部竖纹/浮雕开始线');
+    expect(instruction).toContain('只能同时缩小宽高');
+    expect(instruction).toContain('宁可明显缩小，也不得触碰竖纹开始线');
   });
 
   it('将准确文字和校验差异作为不可覆盖的修复约束', () => {

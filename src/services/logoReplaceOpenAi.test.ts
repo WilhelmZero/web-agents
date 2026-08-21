@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { generateLogoReplacementOpenAi } from './logoReplaceOpenAi';
+import { generateLogoReplacementOpenAi, verifyLogoReplacementOpenAi } from './logoReplaceOpenAi';
 
 describe('OpenAI Logo replacement', () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -21,5 +21,22 @@ describe('OpenAI Logo replacement', () => {
     expect(form.get('model')).toBe('gpt-image-2');
     expect(form.has('input_fidelity')).toBe(false);
     expect(result.mimeType).toBe('image/png');
+  });
+
+  it('rejects Logos that extend from the smooth upper band into lower ribs', async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({
+      output_text: JSON.stringify({ passed: false, referenceText: 'H', generatedText: 'H', differences: ['Logo 底边进入竖纹区'], graphicConsistent: true, materialIntegrated: true, placementConsistent: false, originalLogoRemoved: true, flatOverlayDetected: false, summary: '位置过低' }),
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    const result = await verifyLogoReplacementOpenAi({
+      apiKey: 'openai-key', model: 'gpt-5.4-mini',
+      referenceLogo: new File(['logo'], 'logo.png', { type: 'image/png' }),
+      originalScene: new File(['scene'], 'scene.png', { type: 'image/png' }),
+      generatedImage: new Blob(['generated'], { type: 'image/png' }),
+    });
+    const body = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body));
+    expect(body.input[0].content[0].text).toContain('必须识别竖纹开始线');
+    expect(body.input[0].content[0].text).toContain('缩小到上部光滑带内');
+    expect(result).toMatchObject({ passed: false, placementConsistent: false });
   });
 });
