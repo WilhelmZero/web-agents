@@ -70,11 +70,24 @@ button, input, textarea { font: inherit; }
 .psd-logo-layer-preview { width: 64px; height: 52px; display: grid; place-items: center; overflow: hidden; border: 1px solid rgba(0,0,0,.12); border-radius: 7px; transition: background-color .2s ease; }
 .psd-logo-layer-preview .ant-image, .psd-logo-layer-preview img { width: 100%; height: 100%; object-fit: contain; }
 .logo-checkerboard,
-.replace-logo-slot > .ant-image,
-.replace-logo-slot > .ant-image img,
-.replace-new-logo-card .ant-image-img,
-.pair-logo-box .ant-image,
-.pair-logo-box .ant-image img { background-color: #fff; background-image: linear-gradient(45deg,#dfe3e8 25%,transparent 25%),linear-gradient(-45deg,#dfe3e8 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#dfe3e8 75%),linear-gradient(-45deg,transparent 75%,#dfe3e8 75%); background-size: 16px 16px; background-position: 0 0,0 8px,8px -8px,-8px 0; }
+.logo-preview-background-transparent .replace-logo-slot > .ant-image,
+.logo-preview-background-transparent .replace-logo-slot > .ant-image img,
+.logo-preview-background-transparent .replace-new-logo-card .ant-image-img,
+.logo-preview-background-transparent .pair-logo-box .ant-image,
+.logo-preview-background-transparent .pair-logo-box .ant-image img,
+.logo-preview-background-transparent .batch-asset-card .ant-image-img { background-color: #fff; background-image: linear-gradient(45deg,#dfe3e8 25%,transparent 25%),linear-gradient(-45deg,#dfe3e8 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#dfe3e8 75%),linear-gradient(-45deg,transparent 75%,#dfe3e8 75%); background-size: 16px 16px; background-position: 0 0,0 8px,8px -8px,-8px 0; }
+.logo-preview-background-white .replace-logo-slot > .ant-image,
+.logo-preview-background-white .replace-logo-slot > .ant-image img,
+.logo-preview-background-white .replace-new-logo-card .ant-image-img,
+.logo-preview-background-white .pair-logo-box .ant-image,
+.logo-preview-background-white .pair-logo-box .ant-image img,
+.logo-preview-background-white .batch-asset-card .ant-image-img { background-color: #fff; background-image: none; }
+.logo-preview-background-black .replace-logo-slot > .ant-image,
+.logo-preview-background-black .replace-logo-slot > .ant-image img,
+.logo-preview-background-black .replace-new-logo-card .ant-image-img,
+.logo-preview-background-black .pair-logo-box .ant-image,
+.logo-preview-background-black .pair-logo-box .ant-image img,
+.logo-preview-background-black .batch-asset-card .ant-image-img { background-color: #000; background-image: none; }
 .psd-logo-import-copy { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .folder-import-tree { max-height: 520px; overflow: auto; padding: 10px 12px; border: 1px solid #e8eaf0; border-radius: 10px; background: #fafbff; }
 .brand-subtitle { display: block; line-height: 1.15 !important; font-size: 13px; }

@@ -179,6 +179,7 @@ export interface LogoReplaceSettings {
   customOutputHeight: number;
   concurrency: number;
   copiesPerScene: number;
+  logoPreviewBackground: 'transparent' | 'white' | 'black';
   logoColorMode: 'original' | 'white' | 'black' | 'custom';
   customLogoColor: string;
   engravingMode: 'auto' | 'custom';

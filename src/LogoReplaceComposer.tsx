@@ -666,6 +666,14 @@ function LogoReplaceSingleComposer({
           ]} />
           {settings.logoColorMode === 'custom' && <Flex gap={8} align="center" style={{ marginTop: 10 }}><ColorPicker value={settings.customLogoColor} onChange={(_, hex) => patchSettings({ customLogoColor: hex })} /><Text code>{settings.customLogoColor}</Text></Flex>}
         </Form.Item>
+        <Form.Item label="Logo 预览底色">
+          <Segmented block value={settings.logoPreviewBackground} onChange={(logoPreviewBackground) => patchSettings({ logoPreviewBackground: logoPreviewBackground as LogoReplaceSettings['logoPreviewBackground'] })} options={[
+            { value: 'transparent', label: '透明棋盘格' },
+            { value: 'white', label: '白底' },
+            { value: 'black', label: '黑底' },
+          ]} />
+          <Text type="secondary" className="field-help">只改变 Logo 缩略图的查看底色，不会修改或导出到图片中。</Text>
+        </Form.Item>
         <Form.Item label="雕刻工艺">
           <Segmented block value={settings.engravingMode} onChange={(engravingMode) => patchSettings({ engravingMode: engravingMode as LogoReplaceSettings['engravingMode'] })} options={[
             { value: 'auto', label: '自动识别图片工艺' },
@@ -748,7 +756,7 @@ function LogoReplaceSingleComposer({
         {!scenes.length && <Upload.Dragger multiple showUploadList={false} accept={ACCEPTED_TYPES.join(',')} beforeUpload={(file) => addScenes([file as File])}><p className="ant-upload-drag-icon"><FileImageOutlined /></p><p className="ant-upload-text">拖拽、点击或粘贴场景图</p><p className="ant-upload-hint">支持多张 PNG / JPEG / WebP，单张不超过 20MB</p></Upload.Dragger>}
         {!!scenes.length && <Image.PreviewGroup><div className="replace-scene-grid">{scenes.map((scene) => <div className="replace-scene-card" key={scene.id}><Image src={scene.previewUrl} alt={scene.name} preview={{ mask: <EyeOutlined /> }} /><Button type="text" danger block icon={<DeleteOutlined />} onClick={() => removeScene(scene.id)}>删除</Button></div>)}<Upload multiple showUploadList={false} accept={ACCEPTED_TYPES.join(',')} beforeUpload={(file) => addScenes([file as File])}><button type="button" className="scene-product-add"><PlusOutlined /><span>继续添加图片</span></button></Upload></div></Image.PreviewGroup>}
       </Card>
-      <Card className="workflow-card" title={<Space><span className="step-badge">2</span><span>设置 Logo</span></Space>} extra={<Space><Text type="secondary">使用旧 Logo 参考</Text><Switch checked={settings.useOldLogoReference} onChange={(useOldLogoReference) => patchSettings({ useOldLogoReference })} /></Space>}>
+      <Card className={`workflow-card logo-preview-background-${settings.logoPreviewBackground || 'transparent'}`} title={<Space><span className="step-badge">2</span><span>设置 Logo</span></Space>} extra={<Space><Text type="secondary">使用旧 Logo 参考</Text><Switch checked={settings.useOldLogoReference} onChange={(useOldLogoReference) => patchSettings({ useOldLogoReference })} /></Space>}>
         {settings.useOldLogoReference && <Alert type="info" showIcon title="旧 Logo 可不上传" description="上传旧 Logo 能帮助 AI 更准确识别需要替换的标识；新 Logo 必须上传。" style={{ marginBottom: 16 }} />}
         <div className={`replace-logo-grid${settings.useOldLogoReference ? '' : ' is-single'}`}>
           {settings.useOldLogoReference && <><Card size="small" title="旧 Logo（选填）">{oldLogoCard}</Card><div className="replace-arrow"><SwapOutlined /></div></>}

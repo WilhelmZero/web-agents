@@ -12,6 +12,7 @@ import {
   Modal,
   Popconfirm,
   Progress,
+  Segmented,
   Space,
   Statistic,
   Switch,
@@ -551,6 +552,9 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
   const [distinctLogoPerOccurrence, setDistinctLogoPerOccurrence] = useState(
     Boolean(storedLogoSettings.distinctLogoPerOccurrence),
   );
+  const [logoPreviewBackground, setLogoPreviewBackground] = useState<
+    LogoReplaceSettings['logoPreviewBackground']
+  >(storedLogoSettings.logoPreviewBackground || 'transparent');
   const [autoDownloadOnComplete, setAutoDownloadOnComplete] = useState(() =>
     readLocalStorage("scene-studio.logo-tabs-auto-download", false),
   );
@@ -692,12 +696,6 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
       setRestoringCache(false);
     }
   };
-  useEffect(() => {
-    if (worker || activeBatchId) return;
-    const lastId = localStorage.getItem(LAST_BATCH_KEY) || undefined;
-    void restoreCachedBatch(lastId);
-  }, [worker]);
-
   useEffect(() => {
     if (!worker || !batchId || !groupId) return;
     void readBatch(batchId).then((batch) => {
@@ -894,6 +892,7 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
         autoGenerateAfterPromptAnalysis,
         multiLogoModeEnabled: false,
         distinctLogoPerOccurrence,
+        logoPreviewBackground,
       }),
     );
     localStorage.setItem(
@@ -1930,11 +1929,35 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
         )}
       </Card>
       <Card
-        className="workflow-card"
+        className={`workflow-card logo-preview-background-${logoPreviewBackground}`}
         title="2. 上传所有标签共用的新 Logo 与旧 Logo 参考"
         extra={<Text type="secondary">{logos.length} 个</Text>}
       >
-        <Flex justify="flex-end" style={{ marginBottom: 12 }}>
+        <Flex justify="space-between" align="center" gap={12} wrap style={{ marginBottom: 12 }}>
+          <Flex align="center" gap={8} wrap>
+            <Text type="secondary">Logo 预览底色</Text>
+            <Segmented
+              size="small"
+              value={logoPreviewBackground}
+              onChange={(value) => {
+                const next = value as LogoReplaceSettings['logoPreviewBackground'];
+                setLogoPreviewBackground(next);
+                const stored = readLocalStorage<LogoReplaceSettings>(
+                  STORAGE_KEYS.logoReplaceSettings,
+                  DEFAULT_LOGO_REPLACE_SETTINGS as LogoReplaceSettings,
+                );
+                localStorage.setItem(
+                  STORAGE_KEYS.logoReplaceSettings,
+                  JSON.stringify({ ...stored, logoPreviewBackground: next }),
+                );
+              }}
+              options={[
+                { value: 'transparent', label: '透明棋盘格' },
+                { value: 'white', label: '白底' },
+                { value: 'black', label: '黑底' },
+              ]}
+            />
+          </Flex>
           <Popconfirm
             title="移除全部 Logo？"
             description="将同时清空公共新 Logo 和旧 Logo 参考图，不会删除电脑中的原文件。"

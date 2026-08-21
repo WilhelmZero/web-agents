@@ -66,6 +66,7 @@ export const DEFAULT_LOGO_REPLACE_SETTINGS = {
   customOutputHeight: 1310,
   concurrency: 3,
   copiesPerScene: 1,
+  logoPreviewBackground: 'transparent',
   logoColorMode: 'original',
   customLogoColor: '#ffffff',
   engravingMode: 'auto',
