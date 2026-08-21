@@ -35,8 +35,8 @@ describe('OpenAI Logo replacement', () => {
       generatedImage: new Blob(['generated'], { type: 'image/png' }),
     });
     const body = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body));
-    expect(body.input[0].content[0].text).toContain('必须识别竖纹开始线');
-    expect(body.input[0].content[0].text).toContain('缩小到上部光滑带内');
+    expect(body.input[0].content[0].text).toContain('必须从旧 Logo 框计算最终安全框');
+    expect(body.input[0].content[0].text).toContain('contain 等比缩放');
     expect(result).toMatchObject({ passed: false, placementConsistent: false });
   });
 });

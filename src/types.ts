@@ -284,6 +284,7 @@ export interface PerImagePromptAssignment {
   action?: PerImagePromptAction;
   actionReason?: string;
   sourcePrompt: string;
+  analysisVersion?: number;
   status: PerImagePromptStatus;
   updatedAt: number;
   error?: string;

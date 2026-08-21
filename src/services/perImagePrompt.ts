@@ -3,12 +3,17 @@ import { getSceneReplacementConstraintCatalog } from './sceneReplacementPrompt';
 import { fileToBase64 } from '../utils';
 import { startRequestConsoleEntry, updateRequestConsoleEntry } from './requestConsole';
 
+export const LOGO_PER_IMAGE_ANALYSIS_VERSION = 2;
+
 export function perImagePromptFileKey(file: File) {
   return `${file.name}:${file.size}:${file.lastModified}`;
 }
 
 export function assignmentNeedsAnalysis(assignment: PerImagePromptAssignment | undefined, sourcePrompt: string) {
-  return !assignment || assignment.status !== 'ready' || assignment.sourcePrompt !== sourcePrompt.trim() || (assignment.tool === 'logo-replace' && !assignment.action);
+  return !assignment
+    || assignment.status !== 'ready'
+    || assignment.sourcePrompt !== sourcePrompt.trim()
+    || (assignment.tool === 'logo-replace' && (!assignment.action || assignment.analysisVersion !== LOGO_PER_IMAGE_ANALYSIS_VERSION));
 }
 
 export function shouldAnalyzePerImagePromptsInController(enabled: boolean, autoGenerateAfterAnalysis: boolean) {
@@ -34,7 +39,7 @@ export function buildPerImageAnalysisPrompt(tool: PerImagePromptTool, sourceProm
   const simplifySceneConstraints = tool === 'scene-replace' && sourcePrompt.includes('[逐图分析需同时精简通用强制限制]');
   const cleanSourcePrompt = sourcePrompt.replace(/\n?\[逐图分析需同时精简通用强制限制\]/g, '').trim();
   let focus = tool === 'logo-replace'
-    ? '先判断本图是否应执行 Logo 替换，再识别所有真实原 Logo 所在载体、材质、曲面透视、遮挡关系、手部遮挡、礼盒内外区域、图中图以及实际适用的雕刻或印刷工艺。对于每个旧 Logo，必须用整图宽高百分比写出其归一化包围框 left/top/right/bottom 和中心点 cx/cy，并写明它相对杯口、泡沫线、液面线、杯把、杯身花纹起始线、杯底或载体边缘等最近地标的位置；这些位置数据必须进入独立提示词，用于锁定新 Logo 的原位替换，禁止把上半部 Logo 自动移到杯子或载体中间。带把啤酒杯或马克杯若 Logo 位于杯口下方上半部、跨越或贴近泡沫/液面分界，必须明确写出并要求新 Logo 保持相同高度与分界关系。还必须判断杯身是否呈“上部连续光滑、下部竖纹/棱柱/浮雕/切面”结构；若是，必须估算下部纹理开始线的归一化 y 坐标，把它列为不可越过的硬下边界，并在独立提示词中明确要求新 Logo 全部收纳在上部光滑带内、底边留安全间距、保持原始宽高比等比缩小，宁可明显缩小也不得向下进入竖纹区。只有杯子、酒杯、醒酒器、酒瓶等产品本体或木盒表面已经真实存在可替换 Logo 时才 action=replace；装饰纹理、切割花纹、反光、产品轮廓、说明文字和纯背景文字均不算待替换 Logo。如果杯子和木盒等允许载体上完全没有可替换 Logo，必须 action=skip-no-logo，禁止建议新增 Logo。如果画面是人物递送礼物、收礼、送礼或仅展示人物与礼盒的生活方式图，且没有清晰可替换的杯子/木盒原 Logo，则必须 action=skip-gift-scene，整图保持原样。只保留与本图真实情况有关的条件；没有 Logo 的盒子或盒内衬不得新增 Logo。'
+    ? '先判断本图是否应执行 Logo 替换，再识别所有真实原 Logo 所在载体、材质、曲面透视、遮挡关系、手部遮挡、礼盒内外区域、图中图以及实际适用的雕刻或印刷工艺。对于每个旧 Logo，必须用整图宽高百分比写出其归一化包围框 left/top/right/bottom 和中心点 cx/cy，并写明它相对杯口、泡沫线、液面线、杯把、杯身花纹起始线、杯底或载体边缘等最近地标的位置；这些位置数据必须进入独立提示词，用于锁定新 Logo 的原位替换，禁止把上半部 Logo 自动移到杯子或载体中间。带把啤酒杯或马克杯若 Logo 位于杯口下方上半部、跨越或贴近泡沫/液面分界，必须明确写出并要求新 Logo 保持相同高度与分界关系。还必须判断杯身是否呈“上部连续光滑、下部竖纹/棱柱/浮雕/切面”结构；若是，必须估算下部纹理开始线的归一化 y 坐标，并从旧 Logo 包围框计算一个更小的最终安全框：左右各向内缩旧框宽度约 4%，顶部向内缩旧框高度约 4%，安全底边取“旧框底边向上缩约 8% 旧框高度”和“纹理开始线向上留约 6% 旧框高度”两者中更靠上的值。必须把最终安全框的 left/top/right/bottom 数值明确写入独立提示词，并声明它是新 Logo 全部可见像素不可越过的绝对边界。新 Logo 必须采用 contain 等比装入：保持参考 Logo 原始宽高比，以宽度限制和高度限制中更严格的一项决定统一缩放倍率，整体居中放入安全框；不得同时撑满宽和高，不得裁切、拉伸或固定顶部后向下展开，允许另一方向留下明显空白。宁可明显缩小，也不得向下进入竖纹区。只有杯子、酒杯、醒酒器、酒瓶等产品本体或木盒表面已经真实存在可替换 Logo 时才 action=replace；装饰纹理、切割花纹、反光、产品轮廓、说明文字和纯背景文字均不算待替换 Logo。如果杯子和木盒等允许载体上完全没有可替换 Logo，必须 action=skip-no-logo，禁止建议新增 Logo。如果画面是人物递送礼物、收礼、送礼或仅展示人物与礼盒的生活方式图，且没有清晰可替换的杯子/木盒原 Logo，则必须 action=skip-gift-scene，整图保持原样。只保留与本图真实情况有关的条件；没有 Logo 的盒子或盒内衬不得新增 Logo。'
     : '识别杯型、人物及手势、礼盒/木盒、产品说明文字、尺寸标注、功能图标、悬浮营销标题、杯身 Logo/刻字、裁切主体、图中图和当前构图，并评估真正环境背景的可编辑面积、是否属于无纵深商品棚拍/纯桌面俯拍或斜俯拍构图、原图焦平面及背景虚化强度。必须明确判断画面是否只有连续桌面而没有墙面、房间、地平线或可替换的纵深背景；若是，摘要和适用条件必须写明“纯桌面构图，无可编辑纵深背景”，独立提示词必须写明“只更换原桌面材质、纹理、色调与光影，并在原有桌面空白处保留或加入极少量平面小装饰；禁止新增墙面、酒吧、酒柜、货架、房间、家具、窗户、地平线或任何竖向背景”。必须把文字分成两类：第一类是前景商品说明、营销标题、尺寸标注、功能徽标、包装或产品本体文字，逐字列为保留项；第二类是与墙面、窗户、招牌、海报、横幅、旗帜、灯牌、黑板、画板或其他环境陈设存在透视、材质和空间关系的背景场景文字，逐字列为删除项。杯子、酒杯、醒酒器等饮具表面的 Logo、品牌名、姓名、年份、日期、节日词、赛事词、祝福语、占位文字、印刷和雕刻无论内容是什么，一律属于第一类，必须逐字保留，绝不能因为内容像节日或场景文字而列入删除项。所有真正位于背景环境中的原节日、庆典、赛事名称、祝福语、年份和节日符号必须跟随旧背景删除，即使目标也是另一个节日也不得保留。如果存在多个小图或场景面板，必须按阅读顺序逐格列出每格的原环境与应执行的目标变化，明确要求每一格都发生可见的环境替换，不能遗漏、轻微处理或保持任意一格不变。把所有不属于真实环境的商品信息叠加层视为受保护前景，不得当作背景删除；木盒、礼盒和包装无论占据多大面积都属于商品。若产品和木盒后方没有真实空间，只允许更换桌面材质、调整氛围并在空白处加入少量装饰，禁止删除木盒来补出完整房间。若原背景虚化，明确要求新背景保持相同焦平面、景深和模糊强度。若某一格真实背景面积很少，该格提示词必须改为仅在剩余背景、台面材质、光影和少量边缘装饰中表达主题，不得要求完整房间，但也不得跳过该格。识别所有原有产品和参照物之间的相对比例，禁止为适配新场景而缩放产品。在摘要和适用条件中分别按可见原文及位置列出必须保留的前景文字/图标，以及必须删除的背景文字/节日元素。只保留与本图有关的条件。';
   if (tool === 'scene-replace') focus += ' 只要识别到木盒、礼盒或包装盒，必须在独立提示词中原样写入“木盒位置不要改变”，并锁定盒子的坐标、边界、大小、透视、朝向、前后层级以及它与杯子、酒瓶的相对位置。只要画面任意位置存在人物，包括背景人物，就必须逐人列出其位置、可见身体范围、姿态、动作、手势、遮挡与裁切，并明确写入“人物完整保留，禁止删除人物后只留下手或手臂；背景人物穿搭必须整体更换为符合目标场景氛围的服装，不得改变人体轮廓”。若原图背景没有人物，则独立提示词必须写入“禁止新增人物、人体、脸、手或人影”。无论目标主题为何，独立提示词都必须明确写入“禁止新增任何背景酒瓶、酒类包装、酒瓶标签、贴纸、Logo、品牌名、文字或商标图案；用无文字调酒工具、普通玻璃器皿或非品牌装饰表达氛围”。';
   const constraintTask = simplifySceneConstraints ? `\n\n通用强制限制词库：\n${getSceneReplacementConstraintCatalog()}\n\n请把限制词库按本图真实内容进行删减后写入 constraints：没有木盒/礼盒就删除全部盒子规则；不是多小图就删除逐格规则；没有人物或手就删除对应规则；没有裁切主体就删除裁切规则；没有背景文字就删除背景文字载体规则；不是纯桌面/无纵深构图就删除对应规则；仅保留本图确实需要的保护项。杯子/商品形状位置、Logo 与商品文字、构图比例、承托接触、光影景深以及新旧场景明显不同等实际相关基础规则必须保留。不得把目标场景描述混入 constraints。` : '\nconstraints 返回空字符串。';
@@ -63,7 +68,7 @@ export async function analyzePerImagePrompt(options: { tool: PerImagePromptTool;
     }
     const parsed = parsePerImagePromptResult(text);
     if (options.tool === 'scene-replace' && options.sourcePrompt.includes('[逐图分析需同时精简通用强制限制]') && !parsed.constraints) throw new Error('语言模型未返回本图相关的简化限制词');
-    const result: PerImagePromptAssignment = { fileKey: perImagePromptFileKey(options.image), tool: options.tool, ...parsed, sourcePrompt: options.sourcePrompt.trim(), status: 'ready', updatedAt: Date.now() };
+    const result: PerImagePromptAssignment = { fileKey: perImagePromptFileKey(options.image), tool: options.tool, ...parsed, sourcePrompt: options.sourcePrompt.trim(), analysisVersion: options.tool === 'logo-replace' ? LOGO_PER_IMAGE_ANALYSIS_VERSION : undefined, status: 'ready', updatedAt: Date.now() };
     updateRequestConsoleEntry(id, { status: 'success', durationMs: Math.round(performance.now() - startedAt), resultSummary: result.prompt, message: '逐图提示词分析完成' });
     return result;
   } catch (error) {

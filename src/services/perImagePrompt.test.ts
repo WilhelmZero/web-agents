@@ -11,6 +11,10 @@ describe('per image prompt assignment', () => {
   it('invalidates assignments when the public prompt changes', () => {
     expect(assignmentNeedsAnalysis({ fileKey: 'a', tool: 'scene-replace', summary: 'a', applicableConditions: [], prompt: 'x', sourcePrompt: 'old', status: 'ready', updatedAt: 1 }, 'new')).toBe(true);
   });
+  it('invalidates cached Logo analysis created before the safe-box algorithm', () => {
+    expect(assignmentNeedsAnalysis({ fileKey: 'a', tool: 'logo-replace', summary: 'a', applicableConditions: [], prompt: 'x', sourcePrompt: 'same', status: 'ready', action: 'replace', updatedAt: 1 }, 'same')).toBe(true);
+    expect(assignmentNeedsAnalysis({ fileKey: 'a', tool: 'logo-replace', summary: 'a', applicableConditions: [], prompt: 'x', sourcePrompt: 'same', status: 'ready', action: 'replace', analysisVersion: 2, updatedAt: 1 }, 'same')).toBe(false);
+  });
   it('keeps mandatory rules outside the language model allocation prompt', () => {
     const prompt = buildPerImageAnalysisPrompt('logo-replace', '木盒用深色雕刻，玻璃用白色');
     expect(prompt).toContain('constraints 返回空字符串');
@@ -22,7 +26,10 @@ describe('per image prompt assignment', () => {
     expect(prompt).toContain('泡沫/液面分界');
     expect(prompt).toContain('上部连续光滑、下部竖纹/棱柱/浮雕/切面');
     expect(prompt).toContain('纹理开始线的归一化 y 坐标');
-    expect(prompt).toContain('宁可明显缩小也不得向下进入竖纹区');
+    expect(prompt).toContain('宁可明显缩小，也不得向下进入竖纹区');
+    expect(prompt).toContain('最终安全框的 left/top/right/bottom');
+    expect(prompt).toContain('contain 等比装入');
+    expect(prompt).toContain('不得同时撑满宽和高');
   });
   it('delegates automatic prompt analysis to worker tabs', () => {
     expect(shouldAnalyzePerImagePromptsInController(true, true)).toBe(false);
