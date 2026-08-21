@@ -1448,6 +1448,37 @@ export default function MultiTabSceneReplaceComposer(
     setGroups((current) => current.filter((group) => group.id !== id));
     setSelectedGroupId((current) => (current === id ? undefined : current));
   };
+  const removeAllGroups = async () => {
+    const id = activeBatch || batchId;
+    setGroups([]);
+    setSelectedGroupId(undefined);
+    setSelectedProgressGroupId(undefined);
+    setFolderSuggestions({});
+    setSuggestingGroupIds([]);
+    setWhiteBackgroundFileKeys([]);
+    setScannedWhiteFileKeys([]);
+    setPendingFolderFiles([]);
+    setCheckedFolderKeys([]);
+    setProgress({});
+    setResults({});
+    setLoadedResultGroups({});
+    setUsableTaskIds([]);
+    perImagePrompts.clear();
+    queuedGroups.current = [];
+    activeGroups.current.clear();
+    schedulingBatch.current = undefined;
+    if (id) {
+      const batch = await read(id);
+      if (batch)
+        await save({
+          ...batch,
+          groups: [],
+          folderSuggestions: {},
+          perImagePrompts: {},
+        });
+    }
+    message.success("已移除全部文件夹分组");
+  };
   const removeGroupFile = (groupId: string, target: File) =>
     setGroups((current) =>
       current.flatMap((group) => {
@@ -1513,6 +1544,18 @@ export default function MultiTabSceneReplaceComposer(
           </Space>
         }
       >
+        <Flex justify="flex-end" style={{ marginBottom: 12 }}>
+          <Popconfirm
+            title="移除全部文件夹？"
+            description="只清空当前批次中的文件夹，不会删除电脑中的原文件。"
+            disabled={!groups.length}
+            onConfirm={() => void removeAllGroups()}
+          >
+            <Button danger icon={<DeleteOutlined />} disabled={!groups.length}>
+              移除全部文件夹
+            </Button>
+          </Popconfirm>
+        </Flex>
         <Upload.Dragger
           directory
           multiple

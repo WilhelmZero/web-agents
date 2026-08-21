@@ -24,9 +24,10 @@ export function usePerImagePrompts(options: { tool: PerImagePromptTool; files: F
     return { assignments: merged, failed: results.filter((item) => item.error).length };
   }, [commit, options.config, options.files, options.sourcePrompt, options.tool]);
   const edit = useCallback((file: File, prompt: string) => commit((current) => { const key = perImagePromptFileKey(file); const existing = current[key]; return { ...current, [key]: { ...(existing || { fileKey: key, tool: options.tool, summary: '人工编辑', applicableConditions: [] }), prompt, sourcePrompt: options.sourcePrompt.trim(), status: 'ready', updatedAt: Date.now(), error: undefined } }; }), [commit, options.sourcePrompt, options.tool]);
+  const clear = useCallback(() => commit(() => ({})), [commit]);
   const effective = useCallback((file: File) => { const item = assignmentsRef.current[perImagePromptFileKey(file)]; return item && !assignmentNeedsAnalysis(item, options.sourcePrompt) ? item : undefined; }, [options.sourcePrompt]);
   const current = useCallback(() => assignmentsRef.current, []);
-  return { assignments, analyze, edit, effective, current };
+  return { assignments, analyze, edit, clear, effective, current };
 }
 
 export function PerImagePromptEditor({ file, assignment, sourcePrompt, onEdit, onAnalyze }: { file: File; assignment?: PerImagePromptAssignment; sourcePrompt: string; onEdit: (value: string) => void; onAnalyze: () => void }) {

@@ -1074,6 +1074,39 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
     });
     message.success(`已移除分组 ${group.name}`);
   };
+  const removeAllGroups = async () => {
+    const id = activeBatchId || batchId;
+    setGroups([]);
+    setSelectedGroupId(undefined);
+    setSelectedProgressGroupId(undefined);
+    setWorkerProgress({});
+    setWorkerTaskDetails({});
+    setLoadedTaskDetails([]);
+    setPendingFolderFiles([]);
+    setCheckedFolderKeys([]);
+    setBlockedWorkerUrls([]);
+    setCachedResultCount(0);
+    setUsableTaskIds([]);
+    perImagePrompts.clear();
+    if (id) {
+      const batch = await readBatch(id);
+      if (batch) await saveBatch({ ...batch, groups: [], perImagePrompts: {} });
+    }
+    message.success("已移除全部文件夹分组");
+  };
+  const removeAllLogos = async () => {
+    const id = activeBatchId || batchId;
+    setLogos([]);
+    setOldLogo(undefined);
+    setPendingPsdFile(undefined);
+    if (id) {
+      const batch = await readBatch(id);
+      if (batch)
+        await saveBatch({ ...batch, logos: [], oldLogo: undefined });
+      channel?.postMessage({ type: "logos-updated", batchId: id });
+    }
+    message.success("已移除全部 Logo");
+  };
   const syncLogos = async () => {
     const id = activeBatchId || batchId;
     if (!id) return;
@@ -1799,7 +1832,22 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
         </div>
         <div className="hero-orb" />
       </section>
-      <Card className="workflow-card" title="1. 选择场景根文件夹">
+      <Card
+        className="workflow-card"
+        title="1. 选择场景根文件夹"
+      >
+        <Flex justify="flex-end" style={{ marginBottom: 12 }}>
+          <Popconfirm
+            title="移除全部文件夹？"
+            description="只清空当前批次中的文件夹，不会删除电脑中的原文件。"
+            disabled={!groups.length}
+            onConfirm={() => void removeAllGroups()}
+          >
+            <Button danger icon={<DeleteOutlined />} disabled={!groups.length}>
+              移除全部文件夹
+            </Button>
+          </Popconfirm>
+        </Flex>
         <Upload.Dragger
           directory
           multiple
@@ -1886,6 +1934,22 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
         title="2. 上传所有标签共用的新 Logo 与旧 Logo 参考"
         extra={<Text type="secondary">{logos.length} 个</Text>}
       >
+        <Flex justify="flex-end" style={{ marginBottom: 12 }}>
+          <Popconfirm
+            title="移除全部 Logo？"
+            description="将同时清空公共新 Logo 和旧 Logo 参考图，不会删除电脑中的原文件。"
+            disabled={!logos.length && !oldLogo}
+            onConfirm={() => void removeAllLogos()}
+          >
+            <Button
+              danger
+              icon={<DeleteOutlined />}
+              disabled={!logos.length && !oldLogo}
+            >
+              移除全部 Logo
+            </Button>
+          </Popconfirm>
+        </Flex>
         <Upload.Dragger
           multiple
           showUploadList={false}
