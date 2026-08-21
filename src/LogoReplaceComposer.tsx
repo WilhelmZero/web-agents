@@ -112,6 +112,8 @@ interface LogoReplaceComposerProps {
   initialDistinctLogoPerOccurrence?: boolean;
   initialSceneFiles?: File[];
   initialNewLogoFiles?: File[];
+  /** `null` explicitly clears a reference synchronized by a batch controller. */
+  initialOldLogoFile?: File | null;
 }
 
 function LogoReplaceSingleComposer({
@@ -131,6 +133,7 @@ function LogoReplaceSingleComposer({
   initialDistinctLogoPerOccurrence,
   initialSceneFiles,
   initialNewLogoFiles,
+  initialOldLogoFile,
 }: LogoReplaceComposerProps) {
   const { message } = AntApp.useApp();
   const distinctLogoPerOccurrence = Boolean(initialDistinctLogoPerOccurrence);
@@ -140,9 +143,9 @@ function LogoReplaceSingleComposer({
     const glassEngravingEnabled = stored.glassEngravingEnabled ?? (!legacyEffect || legacyEffect === 'glass-engrave' || legacyEffect === 'laser-engrave');
     const woodEngravingEnabled = stored.woodEngravingEnabled ?? (legacyEffect === 'wood-engrave' || legacyEffect === 'deboss' || legacyEffect === 'emboss');
     const customEngravingEnabled = stored.customEngravingEnabled ?? legacyEffect === 'custom-engrave';
-    return { ...(DEFAULT_LOGO_REPLACE_SETTINGS as LogoReplaceSettings), ...stored, glassEngravingEnabled, woodEngravingEnabled, customEngravingEnabled };
+    return { ...(DEFAULT_LOGO_REPLACE_SETTINGS as LogoReplaceSettings), ...stored, useOldLogoReference: initialOldLogoFile === undefined ? Boolean(stored.useOldLogoReference ?? DEFAULT_LOGO_REPLACE_SETTINGS.useOldLogoReference) : Boolean(initialOldLogoFile), glassEngravingEnabled, woodEngravingEnabled, customEngravingEnabled };
   });  const [scenes, setScenes] = useState<LogoAsset[]>([]);
-  const [oldLogo, setOldLogo] = useState<LogoAsset>();
+  const [oldLogo, setOldLogo] = useState<LogoAsset | undefined>(() => initialOldLogoFile ? { id: createId(), file: initialOldLogoFile, name: initialOldLogoFile.name, mimeType: initialOldLogoFile.type, previewUrl: URL.createObjectURL(initialOldLogoFile) } : undefined);
   const [newLogos, setNewLogos] = useState<LogoAsset[]>([]);
   const [expectedTexts, setExpectedTexts] = useState<Record<string, string>>({});
   const [randomSeed, setRandomSeed] = useState(() => createId());
@@ -167,6 +170,7 @@ function LogoReplaceSingleComposer({
   const settingsRef = useRef(settings);
   const importedSceneKeys = useRef(new Set<string>());
   const importedNewLogoKeys = useRef(new Set<string>());
+  const importedOldLogoKey = useRef<string | undefined>(initialOldLogoFile ? `${initialOldLogoFile.name}:${initialOldLogoFile.size}:${initialOldLogoFile.lastModified}` : undefined);
 
   useEffect(() => { scenesRef.current = scenes; }, [scenes]);
   useEffect(() => { oldLogoRef.current = oldLogo; }, [oldLogo]);
@@ -249,6 +253,22 @@ function LogoReplaceSingleComposer({
     });
     if (fresh.length) addNewLogos(fresh);
   }, [initialNewLogoFiles]);
+  useEffect(() => {
+    if (initialOldLogoFile === undefined) return;
+    if (initialOldLogoFile === null) {
+      if (importedOldLogoKey.current !== undefined) {
+        importedOldLogoKey.current = undefined;
+        clearOldLogo();
+      }
+      setSettings((current) => current.useOldLogoReference ? ({ ...current, useOldLogoReference: false }) : current);
+      return;
+    }
+    const key = `${initialOldLogoFile.name}:${initialOldLogoFile.size}:${initialOldLogoFile.lastModified}`;
+    if (importedOldLogoKey.current === key) return;
+    importedOldLogoKey.current = key;
+    setOldLogoAsset(initialOldLogoFile);
+    setSettings((current) => ({ ...current, useOldLogoReference: true }));
+  }, [initialOldLogoFile]);
   const loadPsdLogos = async (file: File) => {
     setPendingPsdFile(file);
   };

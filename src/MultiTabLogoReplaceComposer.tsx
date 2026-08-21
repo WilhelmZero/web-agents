@@ -95,6 +95,7 @@ interface SharedBatch {
   createdAt: number;
   groups: FolderGroup[];
   logos: File[];
+  oldLogo?: File;
   globalConcurrency?: number;
   perImagePrompts?: Record<string, PerImagePromptAssignment>;
   startCommandId?: string;
@@ -536,6 +537,7 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
   const worker = params.get("worker") === "1";
   const [groups, setGroups] = useState<FolderGroup[]>([]);
   const [logos, setLogos] = useState<File[]>([]);
+  const [oldLogo, setOldLogo] = useState<File>();
   const [globalConcurrency, setGlobalConcurrency] = useState(6);
   const storedLogoSettings = readLocalStorage<LogoReplaceSettings>(
     STORAGE_KEYS.logoReplaceSettings,
@@ -564,7 +566,7 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
     ? storedLogoSettings.replacementPrompt
     : buildActualReplacementPrompt(
         storedLogoSettings,
-        storedLogoSettings.useOldLogoReference,
+        Boolean(oldLogo),
       );
   const perImagePrompts = usePerImagePrompts({
     tool: "logo-replace",
@@ -675,6 +677,7 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
       );
       setGroups(batch.groups);
       setLogos(batch.logos);
+      setOldLogo(batch.oldLogo);
       setGlobalConcurrency(batch.globalConcurrency || 6);
       setDistinctLogoPerOccurrence(Boolean(batch.distinctLogoPerOccurrence));
       setAutoDownloadOnComplete(Boolean(batch.autoDownloadOnComplete));
@@ -727,6 +730,11 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
         `${file.name}:${file.size}:${file.lastModified}`,
       ),
     );
+    if (workerBatch.oldLogo) {
+      loadedLogoKeys.current.add(
+        `old:${workerBatch.oldLogo.name}:${workerBatch.oldLogo.size}:${workerBatch.oldLogo.lastModified}`,
+      );
+    }
     setInjected(true);
     channel?.postMessage({
       type: "worker-ready",
@@ -785,6 +793,13 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
               ),
             );
             message.success(`已同步 ${fresh.length} 个公共 Logo`);
+          }
+          const oldLogoKey = batch.oldLogo
+            ? `old:${batch.oldLogo.name}:${batch.oldLogo.size}:${batch.oldLogo.lastModified}`
+            : undefined;
+          if (oldLogoKey && !loadedLogoKeys.current.has(oldLogoKey)) {
+            loadedLogoKeys.current.add(oldLogoKey);
+            message.success("已同步旧 Logo 参考图");
           }
         });
       if (!worker && data.type === "worker-ready")
@@ -874,6 +889,7 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
       STORAGE_KEYS.logoReplaceSettings,
       JSON.stringify({
         ...storedLogoSettings,
+        useOldLogoReference: Boolean(oldLogo),
         perImagePromptEnabled,
         autoGenerateAfterPromptAnalysis,
         multiLogoModeEnabled: false,
@@ -889,6 +905,7 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
       createdAt: Date.now(),
       groups,
       logos,
+      oldLogo,
       globalConcurrency,
       perImagePrompts: perImagePrompts.current(),
       multiLogoModeEnabled: false,
@@ -914,8 +931,8 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
           globalConcurrency,
           startPaused: true,
           apiBaseUrl: props.apiBaseUrl,
-          groups: groups.map((group) => ({ id: group.id, name: group.name, relativePath: group.path, scenes: group.files.map(desktopAssetFromFile), logos: sharedLogos })),
-          config: { tool: "logo-replace", settings: { ...storedLogoSettings, perImagePromptEnabled, autoGenerateAfterPromptAnalysis: true, distinctLogoPerOccurrence } },
+          groups: groups.map((group) => ({ id: group.id, name: group.name, relativePath: group.path, scenes: group.files.map(desktopAssetFromFile), logos: sharedLogos, oldLogo: oldLogo ? desktopAssetFromFile(oldLogo) : undefined })),
+          config: { tool: "logo-replace", settings: { ...storedLogoSettings, useOldLogoReference: Boolean(oldLogo), perImagePromptEnabled, autoGenerateAfterPromptAnalysis: true, distinctLogoPerOccurrence } },
         });
         setActiveBatchId(id);
         window.dispatchEvent(new Event("desktop-task-created"));
@@ -989,7 +1006,7 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
     if (isElectronDesktop()) {
       try {
         const outputRoot = await window.desktop?.pickOutputDirectory(); if (!outputRoot) return;
-        const id = await submitDesktopJob({ name: `${group.name} · Logo 替换`, outputRoot, globalConcurrency, apiBaseUrl: props.apiBaseUrl, groups: [{ id: group.id, name: group.name, relativePath: group.path, scenes: group.files.map(desktopAssetFromFile), logos: logos.map(desktopAssetFromFile) }], config: { tool: "logo-replace", settings: { ...storedLogoSettings, perImagePromptEnabled, autoGenerateAfterPromptAnalysis: true, distinctLogoPerOccurrence } } });
+        const id = await submitDesktopJob({ name: `${group.name} · Logo 替换`, outputRoot, globalConcurrency, apiBaseUrl: props.apiBaseUrl, groups: [{ id: group.id, name: group.name, relativePath: group.path, scenes: group.files.map(desktopAssetFromFile), logos: logos.map(desktopAssetFromFile), oldLogo: oldLogo ? desktopAssetFromFile(oldLogo) : undefined }], config: { tool: "logo-replace", settings: { ...storedLogoSettings, useOldLogoReference: Boolean(oldLogo), perImagePromptEnabled, autoGenerateAfterPromptAnalysis: true, distinctLogoPerOccurrence } } });
         setActiveBatchId(id); window.dispatchEvent(new Event("desktop-task-created")); message.success(`${group.name} 已加入桌面后台队列`);
       } catch (error) { message.error(error instanceof Error ? error.message : "创建桌面批次失败"); }
       return;
@@ -1063,9 +1080,10 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
     const batch = await readBatch(id);
     if (!batch) return;
     batch.logos = logos;
+    batch.oldLogo = oldLogo;
     await saveBatch(batch);
     channel?.postMessage({ type: "logos-updated", batchId: id });
-    message.success("公共 Logo 更新已广播");
+    message.success("公共新 Logo 与旧 Logo 参考已同步到子标签");
   };
   const startAllWorkers = async () => {
     if (isElectronDesktop()) {
@@ -1675,7 +1693,7 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
           }
           description={
             workerGroup
-              ? `${workerGroup.path} · ${workerGroup.files.length} 张场景图 · 公共 Logo ${workerBatch?.logos.length || 0} 个${injected ? "，已自动导入" : "，正在自动导入…"}`
+              ? `${workerGroup.path} · ${workerGroup.files.length} 张场景图 · 公共新 Logo ${workerBatch?.logos.length || 0} 个 · 旧 Logo 参考${workerBatch?.oldLogo ? "已导入" : "未提供"}${injected ? "，素材已自动导入" : "，正在自动导入…"}`
               : "正在从批次中读取图片，请保留主控标签页。"
           }
           style={{ marginBottom: 16 }}
@@ -1685,6 +1703,7 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
             {...props}
             initialSceneFiles={workerGroup.files}
             initialNewLogoFiles={workerBatch.logos}
+            initialOldLogoFile={workerBatch.oldLogo ?? null}
             initialMultiLogoModeEnabled={workerBatch.multiLogoModeEnabled}
             initialDistinctLogoPerOccurrence={
               workerBatch.distinctLogoPerOccurrence
@@ -1864,7 +1883,7 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
       </Card>
       <Card
         className="workflow-card"
-        title="2. 上传所有标签共用的 Logo"
+        title="2. 上传所有标签共用的新 Logo 与旧 Logo 参考"
         extra={<Text type="secondary">{logos.length} 个</Text>}
       >
         <Upload.Dragger
@@ -1922,13 +1941,56 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
             </div>
           </Image.PreviewGroup>
         ) : null}
+        <Card
+          size="small"
+          title="旧 Logo 参考（选填，所有子标签共用）"
+          style={{ marginTop: 16 }}
+          extra={oldLogo ? <Tag color="success">已启用识别参考</Tag> : null}
+        >
+          <Text type="secondary">
+            用于帮助模型准确定位场景中需要被替换的旧标识；只上传一张参考图，不会作为新 Logo 使用。
+          </Text>
+          <div style={{ marginTop: 12 }}>
+            {oldLogo ? (
+              <div className="batch-asset-grid">
+                <FileThumbnail file={oldLogo} onRemove={() => setOldLogo(undefined)} />
+                <Upload
+                  showUploadList={false}
+                  accept="image/png,image/jpeg,image/webp"
+                  beforeUpload={(file) => {
+                    setOldLogo(file as File);
+                    return false;
+                  }}
+                >
+                  <button type="button" className="batch-asset-add">
+                    <ReloadOutlined />
+                    <span>替换参考图</span>
+                  </button>
+                </Upload>
+              </div>
+            ) : (
+              <Upload.Dragger
+                showUploadList={false}
+                accept="image/png,image/jpeg,image/webp"
+                beforeUpload={(file) => {
+                  setOldLogo(file as File);
+                  return false;
+                }}
+              >
+                <FileImageOutlined style={{ fontSize: 30 }} />
+                <p>拖拽或选择旧 Logo 参考图</p>
+                <p className="ant-upload-hint">PNG / JPEG / WebP</p>
+              </Upload.Dragger>
+            )}
+          </div>
+        </Card>
         {activeBatchId && (
           <Button
             style={{ marginTop: 12 }}
             icon={<SyncOutlined />}
             onClick={() => void syncLogos()}
           >
-            同步到已打开标签
+            同步新 Logo 与旧 Logo 参考到已打开标签
           </Button>
         )}
       </Card>
@@ -2246,7 +2308,7 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
         type="info"
         showIcon
         title="公共 Logo 采用批次锁定"
-        description="工作标签从 IndexedDB 读取同一组 Logo；新增公共 Logo 后可广播同步。为避免运行中的校验基准变化，删除或替换 Logo 建议创建新批次。"
+        description="工作标签从 IndexedDB 读取同一组新 Logo 和旧 Logo 参考图；更新后可广播同步。为避免运行中的校验基准变化，运行期间不建议替换参考素材。"
       />
       <Modal
         title="选择要导入的场景文件夹"
