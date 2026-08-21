@@ -47,6 +47,8 @@ describe('Logo 结果校验', () => {
     expect(body.contents[0].parts[0].text).toContain('referenceText 和 generatedText 只记录图片中实际识别到的原始字符');
     expect(body.contents[0].parts[0].text).toContain('flatOverlayDetected=true');
     expect(body.contents[0].parts[0].text).toContain('宽度不超过杯肚最大宽度约 42%');
+    expect(body.contents[0].parts[0].text).toContain('归一化包围框、中心点');
+    expect(body.contents[0].parts[0].text).toContain('移到杯身视觉中心即判失败');
     expect(body.contents[0].parts.filter((part: { inlineData?: unknown }) => part.inlineData)).toHaveLength(3);
   });
 
@@ -98,7 +100,7 @@ describe('Logo 替换指令', () => {
     expect(instruction).toContain('杯体及曲面贴合强制规则');
     expect(instruction).toContain('当作附着于该三维表面的二维纹理进行 UV 投影');
     expect(instruction).toContain('左右两侧逐渐横向压缩');
-    expect(instruction).toContain('严禁复制或继承旧 Logo 的平面形状、错误弧度');
+    expect(instruction).toContain('其图形内容、平面形状或错误曲面变形不得作为新 Logo 的外观参考');
     expect(instruction).toContain('杯口与杯底椭圆');
     expect(instruction).toContain('而不是照抄旧 Logo');
     expect(instruction).toContain('上、中、下三条水平带');
@@ -107,6 +109,10 @@ describe('Logo 替换指令', () => {
     expect(instruction).toContain('严禁立起、悬浮、漂移、旋转');
     expect(instruction).toContain('新 Logo 的相同部分也必须位于遮挡物后方');
     expect(instruction).toContain('盒子内部、内衬、锁扣、铰链');
+    expect(instruction).toContain('旧 Logo 定位遮罩锁定');
+    expect(instruction).toContain('归一化包围框 left/top/right/bottom');
+    expect(instruction).toContain('严禁把 Logo 自动移到杯子或载体中间');
+    expect(instruction).toContain('泡沫线或液面线附近');
   });
 
   it('将准确文字和校验差异作为不可覆盖的修复约束', () => {

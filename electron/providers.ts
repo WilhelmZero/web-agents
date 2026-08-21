@@ -59,7 +59,7 @@ export async function analyzeLogoScene(options: { sourcePath: string; settings: 
   const apiKey = provider === 'openai' ? options.secrets.openAi : options.secrets.gemini;
   if (!apiKey) throw new Error(`未配置 ${provider === 'openai' ? 'OpenAI' : 'Gemini'} API Key`);
   const model = provider === 'openai' ? options.settings.openAiLanguageModel : options.settings.verificationModel;
-  const text = await requestJson({ provider, apiKey, apiBaseUrl: options.apiBaseUrl, model, imagePaths: [options.sourcePath], signal: options.signal, prompt: `分析输入场景中杯子、醒酒器及木盒表面已经存在、确实需要替换的 Logo。不要把商品说明、背景装饰、无 Logo 礼盒或人物送礼图误判为 Logo。输出严格 JSON：{"summary":"摘要","action":"replace|skip-no-logo|skip-gift-scene","reason":"原因","styles":[{"id":"style-1","label":"样式1","description":"位置特征","occurrences":1,"carrier":"载体"}]}。同一视觉 Logo 多次出现合并为一个样式并准确统计次数。` });
+  const text = await requestJson({ provider, apiKey, apiBaseUrl: options.apiBaseUrl, model, imagePaths: [options.sourcePath], signal: options.signal, prompt: `分析输入场景中杯子、醒酒器及木盒表面已经存在、确实需要替换的 Logo。不要把商品说明、背景装饰、无 Logo 礼盒或人物送礼图误判为 Logo。每个样式的 description 必须逐个写出旧 Logo 在整图中的归一化包围框 left/top/right/bottom、中心点 cx/cy，以及相对杯口、泡沫线、液面线、杯把、杯身花纹起始线、杯底或载体边缘等最近地标的位置。带把啤酒杯或马克杯上半部、泡沫/液面附近的 Logo 必须明确标注其高度，禁止描述成杯身居中。输出严格 JSON：{"summary":"摘要","action":"replace|skip-no-logo|skip-gift-scene","reason":"原因","styles":[{"id":"style-1","label":"样式1","description":"位置、归一化包围框与地标特征","occurrences":1,"carrier":"载体"}]}。同一视觉 Logo 多次出现合并为一个样式并准确统计次数。` });
   const parsed = extractJson<{ summary?: string; action?: string; reason?: string; styles?: SceneLogoStyle[] }>(text);
   const action = parsed.action === 'skip-gift-scene' || parsed.action === 'skip-no-logo' ? parsed.action : 'replace';
   return { summary: parsed.summary || '', action, reason: parsed.reason || '', styles: (parsed.styles || []).map((style, index) => ({ ...style, id: style.id || `style-${index + 1}`, occurrences: Math.max(1, Number(style.occurrences) || 1) })) };
@@ -149,7 +149,7 @@ export async function generateScene(options: { sourcePath: string; prompt: strin
 }
 
 function logoHardConstraints() {
-  return `只替换输入场景中原本存在的 Logo 区域，禁止在无 Logo 处新增。除 Logo 区域外，场景、构图、杯子、木盒、内衬、人物、手、光影、位置、承托和遮挡关系全部保持不变。新 Logo 的图形拓扑、文字、比例、镂空、孔洞和负空间必须与参考完全一致，镂空处继续显示载体，禁止填实或重新设计。若旧 Logo 被手遮挡，新 Logo 必须仍位于手后方，禁止贴到手或皮肤上。盒子内部、内衬、盒盖或其他原本无 Logo 的位置禁止新增 Logo。杯底 Logo 必须完整位于杯底最内层平坦安全区，四周保留 10%–15% 净空，不得跨出内圈、装饰环、倒角、外缘或侧壁。Logo 必须贴合原载体的曲率、透视、反射、折射和雕刻/印刷工艺，禁止平面覆盖。`;
+  return `只替换输入场景中原本存在的 Logo 区域，禁止在无 Logo 处新增。生成前逐个测量旧 Logo 在整图中的归一化包围框 left/top/right/bottom、中心点 cx/cy、文字基线、旋转角，以及相对杯口、泡沫线、液面线、杯把、杯身花纹起始线、杯底和载体边缘的位置，并把它锁定为不可移动定位遮罩。新 Logo 必须在该遮罩内保持原中心点与上下高度原位替换；中心偏移不得超过载体可见宽高约 1.5%，包围框边不得无故漂移超过约 3%，严禁自动移动到杯子或载体中间。带把啤酒杯或马克杯的旧 Logo 若位于上半部并跨越或贴近泡沫/液面分界，新 Logo 必须保持同一高度和分界关系，绝不能下移到杯身中段。新旧宽高比不同时，只能保持新 Logo 原始比例在旧包围框内等比适配。除 Logo 区域外，场景、构图、杯子、木盒、内衬、人物、手、光影、位置、承托和遮挡关系全部保持不变。新 Logo 的图形拓扑、文字、比例、镂空、孔洞和负空间必须与参考完全一致，镂空处继续显示载体，禁止填实或重新设计。若旧 Logo 被手遮挡，新 Logo 必须仍位于手后方，禁止贴到手或皮肤上。盒子内部、内衬、盒盖或其他原本无 Logo 的位置禁止新增 Logo。杯底 Logo 必须完整位于杯底最内层平坦安全区，四周保留 10%–15% 净空，不得跨出内圈、装饰环、倒角、外缘或侧壁。Logo 必须在锁定位置贴合原载体的曲率、透视、反射、折射和雕刻/印刷工艺，禁止平面覆盖。`;
 }
 
 export async function generateLogo(options: { sourcePath: string; logoPaths: string[]; oldLogoPath?: string; prompt: string; styles?: SceneLogoStyle[]; settings: LogoReplaceSettings; secrets: ProviderSecrets; apiBaseUrl?: string | null; signal: AbortSignal }): Promise<GeneratedBuffer> {
@@ -172,6 +172,6 @@ export async function verifyLogo(options: { sourcePath: string; logoPath: string
   const apiKey = provider === 'openai' ? options.secrets.openAi : options.secrets.gemini;
   if (!apiKey) throw new Error(`未配置 ${provider === 'openai' ? 'OpenAI' : 'Gemini'} API Key`);
   const model = provider === 'openai' ? options.settings.openAiLanguageModel : options.settings.verificationModel;
-  const text = await requestJson({ provider, apiKey, apiBaseUrl: options.apiBaseUrl, model, imagePaths: [options.logoPath, options.sourcePath, options.generatedPath], signal: options.signal, prompt: `第一张是新 Logo 参考，第二张是原场景，第三张是生成结果。严格检查 Logo 图形、文字、比例、镂空和负空间是否一致；旧 Logo 是否移除；是否真实融合；是否只修改原 Logo 区域；杯子、木盒、人物、手及遮挡承托是否不变；杯底 Logo 是否完整位于安全区。只输出 JSON：{"passed":true,"summary":"说明"}。` });
+  const text = await requestJson({ provider, apiKey, apiBaseUrl: options.apiBaseUrl, model, imagePaths: [options.logoPath, options.sourcePath, options.generatedPath], signal: options.signal, prompt: `第一张是新 Logo 参考，第二张是原场景，第三张是生成结果。严格检查 Logo 图形、文字、比例、镂空和负空间是否一致；旧 Logo 是否移除；是否真实融合；是否只修改原 Logo 区域；杯子、木盒、人物、手及遮挡承托是否不变；杯底 Logo 是否完整位于安全区。必须测量新旧 Logo 相对同一载体的归一化包围框、中心点和相对杯口、泡沫线、液面线、杯把、花纹边界的位置；中心漂移超过载体宽高约 1.5%、包围框边漂移超过约 3%、从杯身上半部或泡沫/液面附近移到杯子中间或下方时 passed 必须为 false。只输出 JSON：{"passed":true,"summary":"说明"}。` });
   return extractJson<{ passed: boolean; summary: string }>(text);
 }

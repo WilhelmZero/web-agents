@@ -17,6 +17,9 @@ describe('per image prompt assignment', () => {
     expect(prompt).toContain('skip-no-logo');
     expect(prompt).toContain('skip-gift-scene');
     expect(prompt).toContain('整图保持原样');
+    expect(prompt).toContain('归一化包围框 left/top/right/bottom');
+    expect(prompt).toContain('禁止移到载体中间');
+    expect(prompt).toContain('泡沫/液面分界');
   });
   it('delegates automatic prompt analysis to worker tabs', () => {
     expect(shouldAnalyzePerImagePromptsInController(true, true)).toBe(false);
