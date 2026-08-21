@@ -1,4 +1,4 @@
-import type { GeneratedImage, GlassLogoEtchOptions, ImageModel, ImageSize, LogoVerificationResult, ObjectPreservationOptions, OptimizerModel, SceneLogoStyle } from '../types';
+import type { GeneratedImage, GlassLogoEtchOptions, ImageModel, ImageSize, LogoRemovalAnalysis, LogoRemovalVerification, LogoVerificationResult, ObjectPreservationOptions, OptimizerModel, SceneLogoStyle } from '../types';
 import { fileToBase64 } from '../utils';
 import { startRequestConsoleEntry, summarizeGeminiRequest, updateRequestConsoleEntry } from './requestConsole';
 import { normalizePaperTextRegions, type PaperTextRegion, type PaperTextVerification } from './paperText';
@@ -617,6 +617,57 @@ export async function verifyLogoReplacement(options: {
   } catch {
     throw new Error('Logo 校验结果格式无效，请重试');
   }
+}
+
+export async function analyzeLogoRemovalGemini(options: { apiKey: string; model: OptimizerModel; scene: File; prompt: string; signal?: AbortSignal; apiBaseUrl?: string | null }): Promise<LogoRemovalAnalysis> {
+  const sceneData = await fileToBase64(options.scene);
+  const data = await postGemini(options.model, options.apiKey, {
+    contents: [{ role: 'user', parts: [{ text: options.prompt }, { inlineData: { mimeType: options.scene.type, data: sceneData } }] }],
+    generationConfig: { responseMimeType: 'application/json', responseSchema: {
+      type: 'OBJECT', properties: {
+        action: { type: 'STRING', enum: ['remove', 'skip_no_target'] }, summary: { type: 'STRING' }, reason: { type: 'STRING' },
+        targets: { type: 'ARRAY', items: { type: 'OBJECT', properties: {
+          id: { type: 'STRING' }, carrier: { type: 'STRING' }, markType: { type: 'STRING' }, description: { type: 'STRING' },
+          left: { type: 'NUMBER' }, top: { type: 'NUMBER' }, right: { type: 'NUMBER' }, bottom: { type: 'NUMBER' }, occlusion: { type: 'STRING' },
+        }, required: ['id', 'carrier', 'markType', 'description', 'left', 'top', 'right', 'bottom', 'occlusion'] } },
+        preserve: { type: 'ARRAY', items: { type: 'STRING' } },
+      }, required: ['action', 'summary', 'reason', 'targets', 'preserve'],
+    } },
+  }, options.signal, options.apiBaseUrl);
+  const raw = data.candidates?.flatMap((candidate) => candidate.content?.parts ?? []).map((part) => part.text || '').join('').trim();
+  if (!raw) throw new Error('Logo 去除分析模型未返回结果');
+  const parsed = JSON.parse(raw) as LogoRemovalAnalysis;
+  return { ...parsed, action: parsed.action === 'remove' && parsed.targets.length ? 'remove' : 'skip_no_target' };
+}
+
+export async function generateLogoRemovalGemini(options: { apiKey: string; model: ImageModel; scene: File; prompt: string; imageSize: ImageSize; signal?: AbortSignal; apiBaseUrl?: string | null }): Promise<GeneratedImage> {
+  const sceneData = await fileToBase64(options.scene);
+  const data = await postGemini(options.model, options.apiKey, {
+    contents: [{ role: 'user', parts: [{ text: options.prompt }, { inlineData: { mimeType: options.scene.type, data: sceneData } }] }],
+    generationConfig: { responseModalities: ['IMAGE'], imageConfig: { imageSize: options.imageSize } },
+  }, options.signal, options.apiBaseUrl);
+  const imagePart = data.candidates?.flatMap((candidate) => candidate.content?.parts ?? []).find((part) => part.inlineData?.data);
+  if (!imagePart?.inlineData?.data) throw new Error('模型未返回去除 Logo 后的图片');
+  const bytes = Uint8Array.from(atob(imagePart.inlineData.data), (char) => char.charCodeAt(0));
+  const mimeType = imagePart.inlineData.mimeType || 'image/png';
+  return { blob: new Blob([bytes], { type: mimeType }), mimeType, usageTokens: data.usageMetadata?.totalTokenCount };
+}
+
+export async function verifyLogoRemovalGemini(options: { apiKey: string; model: OptimizerModel; originalScene: File; generatedImage: Blob; prompt: string; signal?: AbortSignal; apiBaseUrl?: string | null }): Promise<LogoRemovalVerification> {
+  const [original, generated] = await Promise.all([fileToBase64(options.originalScene), fileToBase64(options.generatedImage)]);
+  const data = await postGemini(options.model, options.apiKey, {
+    contents: [{ role: 'user', parts: [{ text: options.prompt }, { inlineData: { mimeType: options.originalScene.type, data: original } }, { inlineData: { mimeType: options.generatedImage.type || 'image/png', data: generated } }] }],
+    generationConfig: { responseMimeType: 'application/json', responseSchema: {
+      type: 'OBJECT', properties: {
+        passed: { type: 'BOOLEAN' }, logoRemoved: { type: 'BOOLEAN' }, reconstructionNatural: { type: 'BOOLEAN' }, nonTargetPreserved: { type: 'BOOLEAN' },
+        differences: { type: 'ARRAY', items: { type: 'STRING' } }, summary: { type: 'STRING' },
+      }, required: ['passed', 'logoRemoved', 'reconstructionNatural', 'nonTargetPreserved', 'differences', 'summary'],
+    } },
+  }, options.signal, options.apiBaseUrl);
+  const raw = data.candidates?.flatMap((candidate) => candidate.content?.parts ?? []).map((part) => part.text || '').join('').trim();
+  if (!raw) throw new Error('Logo 去除校验模型未返回结果');
+  const parsed = JSON.parse(raw) as LogoRemovalVerification;
+  return { ...parsed, passed: Boolean(parsed.passed && parsed.logoRemoved && parsed.reconstructionNatural && parsed.nonTargetPreserved) };
 }
 export function buildObjectReplacementInstruction(options: {
   sourceObjectName: string;

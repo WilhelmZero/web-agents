@@ -619,3 +619,59 @@ button, input, textarea { font: inherit; }
   border: 1px solid #e1dcff;
   font-size: 24px;
 }
+.logo-removal-composer {
+  display: grid;
+  gap: 18px;
+}
+
+.logo-removal-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 24px 28px;
+  border-radius: 20px;
+  color: #fff;
+  background: linear-gradient(135deg, #172554 0%, #312e81 54%, #6d28d9 100%);
+  box-shadow: 0 16px 40px rgba(49, 46, 129, .2);
+}
+
+.logo-removal-hero h2,
+.logo-removal-hero .ant-typography { color: inherit; }
+.logo-removal-hero .eyebrow { opacity: .78; letter-spacing: .08em; }
+.logo-removal-hero-stat { display: flex; gap: 24px; text-align: center; white-space: nowrap; }
+.logo-removal-hero-stat strong { display: block; font-size: 25px; }
+.logo-removal-hero-stat span { font-size: 12px; opacity: .78; }
+
+.logo-removal-folder-grid,
+.logo-removal-task-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.logo-removal-folder-card .ant-card-body { padding: 12px; }
+.logo-removal-folder-card img { width: 100%; height: 150px; object-fit: cover; border-radius: 10px; background: #f2f4f8; }
+.logo-removal-control-card { border-radius: 16px; }
+
+.logo-removal-result-button {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 10px;
+  background: #f3f4f6;
+  cursor: zoom-in;
+}
+.logo-removal-result-button img,
+.logo-removal-result-placeholder { display: block; width: 100%; height: 220px; object-fit: contain; background: #eef0f4; }
+.logo-removal-result-button span { position: absolute; right: 8px; bottom: 8px; padding: 5px 9px; border-radius: 999px; color: #fff; background: rgba(0,0,0,.62); font-size: 12px; }
+.logo-removal-preview-stage { min-height: 360px; border-radius: 12px; overflow: hidden; background: #111827; }
+
+@media (max-width: 900px) {
+  .logo-removal-hero { align-items: flex-start; flex-direction: column; }
+  .logo-removal-folder-grid,
+  .logo-removal-task-grid { grid-template-columns: 1fr; }
+}

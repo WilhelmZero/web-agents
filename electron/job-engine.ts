@@ -3,9 +3,9 @@ import { copyFile, mkdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import sharp from 'sharp';
 import type { DesktopAssetInput } from '../src/desktop/types';
-import type { LogoReplaceSettings, SceneLogoStyle, SceneReplaceSettings } from '../src/types';
+import type { LogoRemovalAnalysis, LogoRemovalSettings, LogoReplaceSettings, SceneLogoStyle, SceneReplaceSettings } from '../src/types';
 import { DesktopDatabase, type ClaimedItem } from './database';
-import { analyzeLogoScene, analyzeScenePrompt, generateLogo, generateScene, type ProviderSecrets, verifyLogo } from './providers';
+import { analyzeLogoRemoval, analyzeLogoScene, analyzeScenePrompt, generateLogo, generateLogoRemovalDesktop, generateScene, type ProviderSecrets, verifyLogo, verifyLogoRemovalDesktop } from './providers';
 
 const SAFE_PART = /[<>:"/\\|?*\u0000-\u001f]/g;
 function safePart(value: string) { return value.replace(SAFE_PART, '_').replace(/[. ]+$/, '').slice(0, 100) || '未命名'; }
@@ -20,7 +20,7 @@ async function atomicWrite(path: string, buffer: Buffer) {
   await rename(temporary, path);
 }
 
-function outputBase(item: ClaimedItem, kind: 'scene' | 'logo') {
+function outputBase(item: ClaimedItem, kind: 'scene' | 'logo' | 'logo_removed' | '_attempts') {
   const root = resolve(item.outputRoot);
   const relative = item.groupPath.split(/[\\/]+/).filter(Boolean).map(safePart);
   const source = safePart(basename(item.sourceName, extname(item.sourceName)));
@@ -29,7 +29,7 @@ function outputBase(item: ClaimedItem, kind: 'scene' | 'logo') {
   return { folder, source };
 }
 
-async function uniqueOutputPath(item: ClaimedItem, kind: 'scene' | 'logo', mimeType: string, suffix = '') {
+async function uniqueOutputPath(item: ClaimedItem, kind: 'scene' | 'logo' | 'logo_removed' | '_attempts', mimeType: string, suffix = '') {
   const { folder, source } = outputBase(item, kind);
   const ext = extensionFor(mimeType);
   const base = `${source}_${item.copyIndex + 1}${suffix}`;
@@ -113,12 +113,13 @@ export class DesktopJobEngine {
   }
 
   private async execute(item: ClaimedItem, controller: AbortController) {
-    const config = item.jobConfig as { tool: string; settings: SceneReplaceSettings | LogoReplaceSettings; prompt?: string; perImagePromptPrefix?: string; apiBaseUrl?: string | null };
+    const config = item.jobConfig as { tool: string; settings: SceneReplaceSettings | LogoReplaceSettings | LogoRemovalSettings; prompt?: string; perImagePromptPrefix?: string; apiBaseUrl?: string | null };
     const payload = item.payload as { scene: DesktopAssetInput; logos: DesktopAssetInput[]; oldLogo?: DesktopAssetInput | null; analysis?: Record<string, unknown>; remoteBatchName?: string };
     try {
       if (!(await exists(item.sourcePath))) throw new Error(`源文件不存在：${item.sourcePath}`);
       if (item.tool === 'scene-replace') await this.executeScene(item, payload, config as typeof config & { settings: SceneReplaceSettings }, controller.signal);
-      else await this.executeLogo(item, payload, config as typeof config & { settings: LogoReplaceSettings }, controller.signal);
+      else if (item.tool === 'logo-replace') await this.executeLogo(item, payload, config as typeof config & { settings: LogoReplaceSettings }, controller.signal);
+      else await this.executeLogoRemoval(item, payload as { scene: DesktopAssetInput; analysis?: LogoRemovalAnalysis }, config as typeof config & { settings: LogoRemovalSettings }, controller.signal);
     } catch (error) {
       const message = error instanceof Error ? error.message : '后台任务失败';
       if (controller.signal.aborted) {
@@ -225,6 +226,68 @@ export class DesktopJobEngine {
       const thumbnailPath = await makeThumbnail(outputPath); this.store.addArtifact(item.jobId, item.id, 'logo', outputPath, generated.mimeType); this.store.addArtifact(item.jobId, item.id, 'thumbnail', thumbnailPath, 'image/webp'); this.store.setItemState(item.id, 'completed', '已完成', { outputPath, thumbnailPath, error: null, nextRetryAt: null });
       this.store.addEvent(item.jobId, item.id, 'info', 'item-completed', `${item.sourceName} 已保存到 ${outputPath}`);
     } catch (error) { if (!outputPath) this.store.finishAttempt(attempt, signal.aborted ? 'interrupted' : 'failed', { error: error instanceof Error ? error.message : String(error) }); throw error; }
+  }
+
+  private async executeLogoRemoval(item: ClaimedItem, payload: { scene: DesktopAssetInput; analysis?: LogoRemovalAnalysis }, config: { settings: LogoRemovalSettings; apiBaseUrl?: string | null }, signal: AbortSignal) {
+    let analysis = payload.analysis;
+    if (!analysis) {
+      this.store.setItemState(item.id, 'analyzing', '分析待去除 Logo'); this.onChange();
+      const provider = config.settings.analysisProvider;
+      const model = provider === 'openai' ? config.settings.openAiAnalysisModel : config.settings.analysisModel;
+      const attempt = this.store.startAttempt(item, 'logo-removal-analysis', provider, model, item.prompt);
+      try {
+        analysis = await analyzeLogoRemoval({ sourcePath: item.sourcePath, settings: config.settings, secrets: this.getSecrets(), apiBaseUrl: config.apiBaseUrl, signal });
+        payload.analysis = analysis; this.store.updatePayload(item.id, payload); this.store.finishAttempt(attempt, 'success');
+      } catch (error) { this.store.finishAttempt(attempt, signal.aborted ? 'interrupted' : 'failed', { error: error instanceof Error ? error.message : String(error) }); throw error; }
+    }
+    if (analysis.action === 'skip_no_target') {
+      const outputPath = await uniqueOutputPath(item, 'logo_removed', mimeForPath(item.sourcePath), '_无需处理');
+      await mkdir(dirname(outputPath), { recursive: true }); await copyFile(item.sourcePath, outputPath);
+      const thumbnailPath = await makeThumbnail(outputPath);
+      this.store.addArtifact(item.jobId, item.id, 'logo-removal-skip', outputPath, mimeForPath(item.sourcePath));
+      this.store.addArtifact(item.jobId, item.id, 'thumbnail', thumbnailPath, 'image/webp');
+      this.store.setItemState(item.id, 'completed', `无需处理：${analysis.reason || '未识别到目标 Logo'}`, { outputPath, thumbnailPath, error: null, nextRetryAt: null });
+      this.store.addEvent(item.jobId, item.id, 'info', 'item-skipped', `${item.sourceName} 未识别到目标 Logo，已原样保存`); return;
+    }
+
+    let feedback = '';
+    for (let repair = 0; repair <= config.settings.verificationRetries; repair += 1) {
+      this.store.setItemState(item.id, 'running', repair ? `自动修复 ${repair}/${config.settings.verificationRetries}` : '去除 Logo'); this.onChange();
+      const provider = config.settings.imageProvider; const model = provider === 'openai' ? config.settings.openAiImageModel : config.settings.imageModel;
+      const attempt = this.store.startAttempt(item, repair ? 'logo-removal-repair' : 'logo-removal-generation', provider, model, item.prompt);
+      let candidatePath = '';
+      try {
+        const generated = await generateLogoRemovalDesktop({ sourcePath: item.sourcePath, analysis, settings: config.settings, secrets: this.getSecrets(), apiBaseUrl: config.apiBaseUrl, signal, feedback });
+        candidatePath = await uniqueOutputPath(item, '_attempts', generated.mimeType, `_候选${repair + 1}`);
+        await atomicWrite(candidatePath, generated.buffer);
+        if (!config.settings.verificationEnabled) {
+          const outputPath = await uniqueOutputPath(item, 'logo_removed', generated.mimeType); await mkdir(dirname(outputPath), { recursive: true }); await copyFile(candidatePath, outputPath);
+          const thumbnailPath = await makeThumbnail(outputPath); this.store.finishAttempt(attempt, 'success', { outputPath: candidatePath, cost: generated.estimatedCost });
+          this.store.addArtifact(item.jobId, item.id, 'logo-removed', outputPath, generated.mimeType); this.store.addArtifact(item.jobId, item.id, 'thumbnail', thumbnailPath, 'image/webp');
+          this.store.setItemState(item.id, 'completed', '已完成', { outputPath, thumbnailPath, error: null, nextRetryAt: null }); return;
+        }
+        this.store.setItemState(item.id, 'verifying', '校验去除结果', { outputPath: candidatePath }); this.onChange();
+        const verification = await verifyLogoRemovalDesktop({ sourcePath: item.sourcePath, generatedPath: candidatePath, analysis, settings: config.settings, secrets: this.getSecrets(), apiBaseUrl: config.apiBaseUrl, signal });
+        if (!verification.passed) {
+          feedback = [...verification.differences, verification.summary].filter(Boolean).join('；');
+          this.store.finishAttempt(attempt, 'failed', { outputPath: candidatePath, cost: generated.estimatedCost, error: feedback });
+          if (repair >= config.settings.verificationRetries) throw new Error(`去除结果校验未通过：${feedback}`);
+          continue;
+        }
+        const outputPath = await uniqueOutputPath(item, 'logo_removed', generated.mimeType); await mkdir(dirname(outputPath), { recursive: true }); await copyFile(candidatePath, outputPath);
+        const thumbnailPath = await makeThumbnail(outputPath); this.store.finishAttempt(attempt, 'success', { outputPath: candidatePath, cost: generated.estimatedCost });
+        this.store.addArtifact(item.jobId, item.id, 'logo-removal-attempt', candidatePath, generated.mimeType);
+        this.store.addArtifact(item.jobId, item.id, 'logo-removed', outputPath, generated.mimeType); this.store.addArtifact(item.jobId, item.id, 'thumbnail', thumbnailPath, 'image/webp');
+        this.store.setItemState(item.id, 'completed', '已完成并通过校验', { outputPath, thumbnailPath, error: null, nextRetryAt: null });
+        this.store.addEvent(item.jobId, item.id, 'info', 'item-completed', `${item.sourceName} 已保存到 ${outputPath}`); return;
+      } catch (error) {
+        if (!feedback || signal.aborted || repair >= config.settings.verificationRetries) {
+          if (candidatePath) this.store.addArtifact(item.jobId, item.id, 'logo-removal-attempt', candidatePath, mimeForPath(candidatePath));
+          if (!feedback) this.store.finishAttempt(attempt, signal.aborted ? 'interrupted' : 'failed', { outputPath: candidatePath || undefined, error: error instanceof Error ? error.message : String(error) });
+          throw error;
+        }
+      }
+    }
   }
 
   pauseJob(jobId: string) { this.store.setJobStatus(jobId, 'paused'); this.onChange(); }

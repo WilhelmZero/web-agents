@@ -1,6 +1,6 @@
-import type { LogoReplaceSettings, SceneReplaceSettings } from '../types';
+import type { LogoRemovalSettings, LogoReplaceSettings, SceneReplaceSettings } from '../types';
 
-export type DesktopJobTool = 'scene-replace' | 'logo-replace';
+export type DesktopJobTool = 'scene-replace' | 'logo-replace' | 'logo-removal';
 export type DesktopJobStatus = 'queued' | 'analyzing' | 'running' | 'verifying' | 'retry_wait' | 'paused' | 'completed' | 'failed' | 'cancelled' | 'interrupted';
 
 export interface DesktopAssetInput {
@@ -34,7 +34,12 @@ export interface DesktopLogoJobConfig {
   distinctLogoPerOccurrence?: boolean;
 }
 
-export type DesktopJobConfig = DesktopSceneJobConfig | DesktopLogoJobConfig;
+export interface DesktopLogoRemovalJobConfig {
+  tool: 'logo-removal';
+  settings: LogoRemovalSettings;
+}
+
+export type DesktopJobConfig = DesktopSceneJobConfig | DesktopLogoJobConfig | DesktopLogoRemovalJobConfig;
 
 export interface DesktopCreateJobRequest {
   name: string;

@@ -1,4 +1,4 @@
-import type { GeneratedImage, LogoVerificationResult, SceneLogoStyle } from '../types';
+import type { GeneratedImage, LogoRemovalAnalysis, LogoRemovalVerification, LogoVerificationResult, SceneLogoStyle } from '../types';
 import { fileToBase64 } from '../utils';
 import { startRequestConsoleEntry, updateRequestConsoleEntry } from './requestConsole';
 
@@ -85,6 +85,40 @@ export function generateLogoReplacementOpenAi(options: { apiKey: string; model: 
   const images = [options.scene, ...(options.oldLogo ? [options.oldLogo] : []), options.newLogo];
   const order = options.oldLogo ? '第一张是原始场景，第二张是需要移除的旧 Logo 参考，第三张是必须替换成的新 Logo。' : '第一张是原始场景，第二张是必须替换成的新 Logo。';
   return editImages({ ...options, images, prompt: `${order}\n${options.prompt}` });
+}
+
+const removalAnalysisSchema = {
+  type: 'object', additionalProperties: false,
+  properties: {
+    action: { type: 'string', enum: ['remove', 'skip_no_target'] }, summary: { type: 'string' }, reason: { type: 'string' },
+    targets: { type: 'array', items: { type: 'object', additionalProperties: false, properties: {
+      id: { type: 'string' }, carrier: { type: 'string' }, markType: { type: 'string' }, description: { type: 'string' },
+      left: { type: 'number' }, top: { type: 'number' }, right: { type: 'number' }, bottom: { type: 'number' }, occlusion: { type: 'string' },
+    }, required: ['id', 'carrier', 'markType', 'description', 'left', 'top', 'right', 'bottom', 'occlusion'] } },
+    preserve: { type: 'array', items: { type: 'string' } },
+  }, required: ['action', 'summary', 'reason', 'targets', 'preserve'],
+};
+
+export async function analyzeLogoRemovalOpenAi(options: { apiKey: string; model: string; scene: File; prompt: string; signal?: AbortSignal }): Promise<LogoRemovalAnalysis> {
+  const parsed = await requestJson({ ...options, images: [options.scene], schemaName: 'logo_removal_analysis', schema: removalAnalysisSchema }) as LogoRemovalAnalysis;
+  return { ...parsed, action: parsed.action === 'remove' && parsed.targets.length ? 'remove' : 'skip_no_target' };
+}
+
+export function generateLogoRemovalOpenAi(options: { apiKey: string; model: 'gpt-image-2' | 'gpt-image-2-2026-04-21'; scene: File; prompt: string; signal?: AbortSignal }) {
+  return editImages({ ...options, images: [options.scene], quality: 'high', requestLabel: '去除 Logo' });
+}
+
+const removalVerificationSchema = {
+  type: 'object', additionalProperties: false,
+  properties: {
+    passed: { type: 'boolean' }, logoRemoved: { type: 'boolean' }, reconstructionNatural: { type: 'boolean' }, nonTargetPreserved: { type: 'boolean' },
+    differences: { type: 'array', items: { type: 'string' } }, summary: { type: 'string' },
+  }, required: ['passed', 'logoRemoved', 'reconstructionNatural', 'nonTargetPreserved', 'differences', 'summary'],
+};
+
+export async function verifyLogoRemovalOpenAi(options: { apiKey: string; model: string; originalScene: File; generatedImage: Blob; prompt: string; signal?: AbortSignal }): Promise<LogoRemovalVerification> {
+  const parsed = await requestJson({ ...options, images: [options.originalScene, options.generatedImage], schemaName: 'logo_removal_verification', schema: removalVerificationSchema }) as LogoRemovalVerification;
+  return { ...parsed, passed: Boolean(parsed.passed && parsed.logoRemoved && parsed.reconstructionNatural && parsed.nonTargetPreserved) };
 }
 
 export function generateMultiLogoReplacementOpenAi(options: { apiKey: string; model: 'gpt-image-2'; scene: File; logos: File[]; styles: SceneLogoStyle[]; instruction: string; distinctPerOccurrence?: boolean; signal?: AbortSignal }) {

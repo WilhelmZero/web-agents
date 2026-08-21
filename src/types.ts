@@ -12,7 +12,91 @@ export type OptimizerModel =
 export type CombinationMode = 'cartesian' | 'paired';
 export type TaskStatus = 'waiting' | 'running' | 'success' | 'failed' | 'stopped';
 export type ImageSize = '0.5K' | '1K' | '2K' | '4K';
-export type CreationTool = 'workflow' | 'scene' | 'scene-replace' | 'scene-logo-replace' | 'scene-replace-tabs' | 'cup-resize' | 'logo' | 'logo-replace' | 'logo-replace-tabs' | 'logo-export' | 'paper-text' | 'background-removal' | 'outpaint' | 'object-replace' | 'inpaint' | 'product-detail';
+export type CreationTool = 'workflow' | 'scene' | 'scene-replace' | 'scene-logo-replace' | 'scene-replace-tabs' | 'cup-resize' | 'logo' | 'logo-replace' | 'logo-replace-tabs' | 'logo-removal' | 'logo-export' | 'paper-text' | 'background-removal' | 'outpaint' | 'object-replace' | 'inpaint' | 'product-detail';
+
+export type LogoRemovalScope = 'cup-body' | 'cup-and-bottom' | 'all-product-carriers';
+export type AiProvider = 'gemini' | 'openai';
+
+export interface LogoRemovalSettings {
+  scope: LogoRemovalScope;
+  analysisProvider: AiProvider;
+  analysisModel: OptimizerModel;
+  openAiAnalysisModel: 'gpt-5.6-sol' | 'gpt-5.6-terra' | 'gpt-5.6-luna';
+  imageProvider: AiProvider;
+  imageModel: ImageModel;
+  openAiImageModel: 'gpt-image-2' | 'gpt-image-2-2026-04-21';
+  imageSize: ImageSize;
+  verificationEnabled: boolean;
+  verificationProvider: AiProvider;
+  verificationModel: OptimizerModel;
+  openAiVerificationModel: 'gpt-5.6-sol' | 'gpt-5.6-terra' | 'gpt-5.6-luna';
+  prompt: string;
+  concurrency: number;
+  copiesPerImage: number;
+  verificationRetries: number;
+  autoRetryErrors: boolean;
+  errorRetryLimit: number;
+  errorRetryDelaySeconds: number;
+}
+
+export interface LogoRemovalTargetRegion {
+  id: string;
+  carrier: string;
+  markType: string;
+  description: string;
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+  occlusion: string;
+}
+
+export interface LogoRemovalAnalysis {
+  action: 'remove' | 'skip_no_target';
+  summary: string;
+  reason: string;
+  targets: LogoRemovalTargetRegion[];
+  preserve: string[];
+}
+
+export interface LogoRemovalVerification {
+  passed: boolean;
+  logoRemoved: boolean;
+  reconstructionNatural: boolean;
+  nonTargetPreserved: boolean;
+  differences: string[];
+  summary: string;
+}
+
+export interface LogoRemovalAttempt {
+  id: string;
+  index: number;
+  startedAt: number;
+  endedAt?: number;
+  status: 'running' | 'passed' | 'failed' | 'stopped';
+  prompt: string;
+  model: string;
+  resultKey?: string;
+  verification?: LogoRemovalVerification;
+  error?: string;
+}
+
+export interface LogoRemovalTask {
+  id: string;
+  groupId: string;
+  sourceName: string;
+  sourceRelativePath: string;
+  copyIndex: number;
+  status: 'waiting' | 'analyzing' | 'running' | 'verifying' | 'retry_wait' | 'success' | 'failed' | 'stopped' | 'skipped';
+  stage: string;
+  analysis?: LogoRemovalAnalysis;
+  attempts: LogoRemovalAttempt[];
+  resultKey?: string;
+  resultMimeType?: string;
+  markedUsable?: boolean;
+  retryCount: number;
+  error?: string;
+}
 
 export interface AppSettings {
   apiKey: string;

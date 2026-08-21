@@ -58,7 +58,7 @@ async function saveSecrets(next: ProviderSecrets) {
 }
 
 function validateCreateRequest(request: DesktopCreateJobRequest) {
-  if (!request || !['scene-replace', 'logo-replace'].includes(request.config?.tool)) throw new Error('不支持的桌面任务类型');
+  if (!request || !['scene-replace', 'logo-replace', 'logo-removal'].includes(request.config?.tool)) throw new Error('不支持的桌面任务类型');
   if (!request.name?.trim() || !request.outputRoot) throw new Error('任务名称和输出目录不能为空');
   if (!existsSync(request.outputRoot)) throw new Error('输出目录不存在');
   if (!Array.isArray(request.groups) || !request.groups.length) throw new Error('任务至少需要一个图片分组');
@@ -76,12 +76,20 @@ function validateCreateRequest(request: DesktopCreateJobRequest) {
     if (!settings.imageModel.startsWith('gpt-image') && !secrets.gemini) throw new Error('请先在桌面后台任务中心配置 Gemini API Key');
     if ((settings.perImagePromptEnabled || settings.autoRecommendScene) && settings.sceneRecommendationProvider === 'openai' && !secrets.openAi) throw new Error('逐图分析需要 OpenAI API Key');
     if ((settings.perImagePromptEnabled || settings.autoRecommendScene) && settings.sceneRecommendationProvider === 'gemini' && !secrets.gemini) throw new Error('逐图分析需要 Gemini API Key');
-  } else {
+  } else if (request.config.tool === 'logo-replace') {
     const settings = request.config.settings;
     if (settings.imageProvider === 'openai' && !secrets.openAi) throw new Error('请先在桌面后台任务中心配置 OpenAI API Key');
     if (settings.imageProvider === 'gemini' && !secrets.gemini) throw new Error('请先在桌面后台任务中心配置 Gemini API Key');
     if ((settings.perImagePromptEnabled || settings.multiLogoModeEnabled || settings.distinctLogoPerOccurrence || settings.strictTextVerification) && settings.languageProvider === 'openai' && !secrets.openAi) throw new Error('Logo 分析与校验需要 OpenAI API Key');
     if ((settings.perImagePromptEnabled || settings.multiLogoModeEnabled || settings.distinctLogoPerOccurrence || settings.strictTextVerification) && settings.languageProvider === 'gemini' && !secrets.gemini) throw new Error('Logo 分析与校验需要 Gemini API Key');
+  } else {
+    const settings = request.config.settings;
+    if (settings.imageProvider === 'openai' && !secrets.openAi) throw new Error('请先在桌面后台任务中心配置 OpenAI API Key');
+    if (settings.imageProvider === 'gemini' && !secrets.gemini) throw new Error('请先在桌面后台任务中心配置 Gemini API Key');
+    if (settings.analysisProvider === 'openai' && !secrets.openAi) throw new Error('去除 Logo 分析需要 OpenAI API Key');
+    if (settings.analysisProvider === 'gemini' && !secrets.gemini) throw new Error('去除 Logo 分析需要 Gemini API Key');
+    if (settings.verificationEnabled && settings.verificationProvider === 'openai' && !secrets.openAi) throw new Error('去除 Logo 校验需要 OpenAI API Key');
+    if (settings.verificationEnabled && settings.verificationProvider === 'gemini' && !secrets.gemini) throw new Error('去除 Logo 校验需要 Gemini API Key');
   }
   request.globalConcurrency = Math.max(1, Math.min(32, Number(request.globalConcurrency) || 1));
 }

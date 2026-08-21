@@ -72,6 +72,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { DEFAULT_SETTINGS, localizeBuiltInScenePresets, MODEL_CAPABILITIES, PRICING, STORAGE_KEYS } from './constants';
 import LogoComposer from './LogoComposer';
 import LogoReplaceComposer from './LogoReplaceComposer';
+import LogoRemovalComposer from './LogoRemovalComposer';
 import MultiTabLogoReplaceComposer from './MultiTabLogoReplaceComposer';
 import MultiTabSceneReplaceComposer from './MultiTabSceneReplaceComposer';
 import ObjectReplaceComposer from './ObjectReplaceComposer';
@@ -135,6 +136,7 @@ const CREATION_TOOL_ITEMS: Array<{ key: CreationTool; label: string; description
   { key: 'cup-resize', icon: <ExpandOutlined />, label: '杯子大小精确调整', description: '精确控制杯子的位置、尺寸与融合' },
   { key: 'logo', icon: <ExperimentOutlined />, label: 'Logo 合成', description: '将品牌标识自然合成到产品图片' },
   { key: 'logo-replace', icon: <SwapOutlined />, label: 'Logo 替换', description: '批量识别、替换并校验场景 Logo' },
+  { key: 'logo-removal', icon: <DeleteOutlined />, label: '去除 Logo', description: '批量识别并自然去除产品表面的 Logo' },
   { key: 'logo-replace-tabs', icon: <AppstoreOutlined />, label: '多标签 Logo 替换', description: '跨标签并行执行多组 Logo 替换任务' },
   { key: 'scene-replace-tabs', icon: <AppstoreOutlined />, label: '多标签场景替换', description: '跨标签并行执行多组场景替换与扩图任务' },
   { key: 'logo-export', icon: <DownloadOutlined />, label: '批量导出 Logo', description: '从图片或 PSD 图层批量整理 Logo' },
@@ -374,6 +376,7 @@ function AppContent() {
   const [inpaintSettingsHost, setInpaintSettingsHost] = useState<HTMLElement | null>(null);
   const [productDetailSettingsHost, setProductDetailSettingsHost] = useState<HTMLElement | null>(null);
   const [logoReplaceSettingsHost, setLogoReplaceSettingsHost] = useState<HTMLElement | null>(null);
+  const [logoRemovalSettingsHost, setLogoRemovalSettingsHost] = useState<HTMLElement | null>(null);
   const [multiTabLogoSettingsHost, setMultiTabLogoSettingsHost] = useState<HTMLElement | null>(null);
   const [multiTabSceneSettingsHost, setMultiTabSceneSettingsHost] = useState<HTMLElement | null>(null);
   const [objectReplaceSettingsHost, setObjectReplaceSettingsHost] = useState<HTMLElement | null>(null);
@@ -912,6 +915,16 @@ function AppContent() {
                 settingsHost={logoReplaceSettingsHost}
               />
             </div>
+            <div hidden={creationTool !== 'logo-removal'}>
+              <LogoRemovalComposer
+                apiKey={settings.apiKey}
+                openAiApiKey={settings.openAiApiKey}
+                apiBaseUrl={apiBaseUrl}
+                connectionMode={settings.connectionMode}
+                onRequestKey={() => setKeyOpen(true)}
+                settingsHost={logoRemovalSettingsHost}
+              />
+            </div>
             <div hidden={creationTool !== 'logo-replace-tabs'}>
               <MultiTabLogoReplaceComposer apiKey={settings.apiKey} openAiApiKey={settings.openAiApiKey} apiBaseUrl={apiBaseUrl} connectionMode={settings.connectionMode} onRequestKey={() => setKeyOpen(true)} settingsHost={multiTabLogoSettingsHost} />
             </div>
@@ -1233,6 +1246,7 @@ function AppContent() {
             <div ref={setLogoReplaceSettingsHost} />
           </Sider>
         )}
+        {!compact && creationTool === 'logo-removal' && <Sider width={330} theme="light" className="settings-sider"><div ref={setLogoRemovalSettingsHost} /></Sider>}
         {!compact && creationTool === 'logo-replace-tabs' && new URLSearchParams(window.location.search).get('worker') === '1' && <Sider width={330} theme="light" className="settings-sider"><div ref={setMultiTabLogoSettingsHost} /></Sider>}
         {!compact && creationTool === 'scene-replace-tabs' && new URLSearchParams(window.location.search).get('worker') === '1' && <Sider width={330} theme="light" className="settings-sider"><div ref={setMultiTabSceneSettingsHost} /></Sider>}
         {!compact && creationTool === 'paper-text' && <Sider width={330} theme="light" className="settings-sider"><div ref={setPaperTextSettingsHost} /></Sider>}
@@ -1269,7 +1283,7 @@ function AppContent() {
         {creationTool === 'scene'
           ? settingsPanel
           : compact
-            ? <div ref={creationTool === 'logo' ? setLogoSettingsHost : creationTool === 'logo-replace' ? setLogoReplaceSettingsHost : creationTool === 'logo-replace-tabs' ? setMultiTabLogoSettingsHost : creationTool === 'logo-export' ? setLogoExportSettingsHost : creationTool === 'paper-text' ? setPaperTextSettingsHost : creationTool === 'background-removal' ? setBackgroundRemovalSettingsHost : creationTool === 'outpaint' ? setOutpaintSettingsHost : creationTool === 'object-replace' ? setObjectReplaceSettingsHost : creationTool === 'scene-replace' ? setSceneReplaceSettingsHost : creationTool === 'scene-logo-replace' ? setCombinedReplaceSettingsHost : creationTool === 'cup-resize' ? setCupResizeSettingsHost : creationTool === 'inpaint' ? setInpaintSettingsHost : setProductDetailSettingsHost} />
+            ? <div ref={creationTool === 'logo' ? setLogoSettingsHost : creationTool === 'logo-replace' ? setLogoReplaceSettingsHost : creationTool === 'logo-removal' ? setLogoRemovalSettingsHost : creationTool === 'logo-replace-tabs' ? setMultiTabLogoSettingsHost : creationTool === 'logo-export' ? setLogoExportSettingsHost : creationTool === 'paper-text' ? setPaperTextSettingsHost : creationTool === 'background-removal' ? setBackgroundRemovalSettingsHost : creationTool === 'outpaint' ? setOutpaintSettingsHost : creationTool === 'object-replace' ? setObjectReplaceSettingsHost : creationTool === 'scene-replace' ? setSceneReplaceSettingsHost : creationTool === 'scene-logo-replace' ? setCombinedReplaceSettingsHost : creationTool === 'cup-resize' ? setCupResizeSettingsHost : creationTool === 'inpaint' ? setInpaintSettingsHost : setProductDetailSettingsHost} />
             : null}
       </Drawer>
 

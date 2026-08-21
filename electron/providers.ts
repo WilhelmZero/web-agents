@@ -1,7 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import { readFile } from 'node:fs/promises';
 import { basename, extname } from 'node:path';
-import type { LogoReplaceSettings, SceneLogoStyle, SceneReplaceSettings } from '../src/types';
+import type { LogoRemovalAnalysis, LogoRemovalSettings, LogoRemovalVerification, LogoReplaceSettings, SceneLogoStyle, SceneReplaceSettings } from '../src/types';
 import { buildSceneReplacementPrompt } from '../src/services/sceneReplacementPrompt';
 
 export interface ProviderSecrets { gemini?: string; openAi?: string }
@@ -174,4 +174,50 @@ export async function verifyLogo(options: { sourcePath: string; logoPath: string
   const model = provider === 'openai' ? options.settings.openAiLanguageModel : options.settings.verificationModel;
   const text = await requestJson({ provider, apiKey, apiBaseUrl: options.apiBaseUrl, model, imagePaths: [options.logoPath, options.sourcePath, options.generatedPath], signal: options.signal, prompt: `第一张是新 Logo 参考，第二张是原场景，第三张是生成结果。严格检查 Logo 图形、文字、比例、镂空和负空间是否一致；旧 Logo 是否移除；是否真实融合；是否只修改原 Logo 区域；杯子、木盒、人物、手及遮挡承托是否不变；杯底 Logo 是否完整位于安全区。必须测量新旧 Logo 相对同一载体的归一化包围框、中心点和相对杯口、泡沫线、液面线、杯把、花纹边界的位置；中心漂移超过载体宽高约 1.5%、包围框边漂移超过约 3%、从杯身上半部或泡沫/液面附近移到杯子中间或下方时 passed 必须为 false。只输出 JSON：{"passed":true,"summary":"说明"}。` });
   return extractJson<{ passed: boolean; summary: string }>(text);
+}
+
+function removalProvider(settings: LogoRemovalSettings, phase: 'analysis' | 'verification') {
+  if (phase === 'analysis') return { provider: settings.analysisProvider, model: settings.analysisProvider === 'openai' ? settings.openAiAnalysisModel : settings.analysisModel } as const;
+  return { provider: settings.verificationProvider, model: settings.verificationProvider === 'openai' ? settings.openAiVerificationModel : settings.verificationModel } as const;
+}
+
+function removalScopeText(scope: LogoRemovalSettings['scope']) {
+  if (scope === 'cup-and-bottom') return '只识别杯身表面和杯底的 Logo';
+  if (scope === 'all-product-carriers') return '识别杯、瓶、礼盒及配件等全部产品载体上的 Logo';
+  return '只识别杯身表面的 Logo，杯底、礼盒、背景及其他载体不属于目标';
+}
+
+export async function analyzeLogoRemoval(options: { sourcePath: string; settings: LogoRemovalSettings; secrets: ProviderSecrets; apiBaseUrl?: string | null; signal: AbortSignal }): Promise<LogoRemovalAnalysis> {
+  const route = removalProvider(options.settings, 'analysis');
+  const apiKey = route.provider === 'openai' ? options.secrets.openAi : options.secrets.gemini;
+  if (!apiKey) throw new Error(`未配置 ${route.provider === 'openai' ? 'OpenAI' : 'Gemini'} API Key`);
+  const text = await requestJson({ provider: route.provider, apiKey, apiBaseUrl: options.apiBaseUrl, model: route.model, imagePaths: [options.sourcePath], signal: options.signal, prompt: `分析输入商品图，${removalScopeText(options.settings.scope)}。目标仅限载体表面的印刷、雕刻、蚀刻或贴附 Logo。不要把商品说明、尺寸标注、排版文字、背景装饰、人物、手势或未选中载体上的标识当作目标。输出严格 JSON：{"action":"remove|skip_no_target","summary":"摘要","reason":"原因","targets":[{"id":"target-1","carrier":"载体","markType":"工艺","occlusion":"遮挡关系","left":0,"top":0,"right":1,"bottom":1,"description":"位置说明"}],"preserve":["必须保护的元素"]}。坐标为 0 到 1。没有目标时必须 action=skip_no_target 且 targets=[]。` });
+  const parsed = extractJson<LogoRemovalAnalysis>(text);
+  return { action: parsed.action === 'remove' && parsed.targets?.length ? 'remove' : 'skip_no_target', summary: parsed.summary || '', reason: parsed.reason || '', targets: parsed.targets || [], preserve: parsed.preserve || [] };
+}
+
+function removalGenerationPrompt(settings: LogoRemovalSettings, analysis: LogoRemovalAnalysis, feedback = '') {
+  const targets = analysis.targets.map((target, index) => `${index + 1}. ${target.carrier}上的${target.markType} Logo，区域 left=${target.left}, top=${target.top}, right=${target.right}, bottom=${target.bottom}；${target.description}`).join('\n');
+  return `${settings.prompt}\n只编辑以下已分析目标区域：\n${targets}\n必须保护：${analysis.preserve.join('、') || '除目标 Logo 外的全部内容'}。移除后自然重建目标下方原有玻璃透明度、折射、反射、液体颜色、杯体曲率和材质纹理。构图、产品位置、人物、手势、礼盒、商品说明、尺寸标注、排版文字和背景元素保持原样。不得去除选定范围之外的标识，不得新增任何文字或图形。${feedback ? `\n上一轮校验反馈，必须修复：${feedback}` : ''}`;
+}
+
+export async function generateLogoRemovalDesktop(options: { sourcePath: string; analysis: LogoRemovalAnalysis; settings: LogoRemovalSettings; secrets: ProviderSecrets; apiBaseUrl?: string | null; signal: AbortSignal; feedback?: string }): Promise<GeneratedBuffer> {
+  const prompt = removalGenerationPrompt(options.settings, options.analysis, options.feedback);
+  if (options.settings.imageProvider === 'openai') {
+    if (!options.secrets.openAi) throw new Error('未配置 OpenAI API Key');
+    const result = await generateOpenAi({ apiKey: options.secrets.openAi, model: options.settings.openAiImageModel, imagePaths: [options.sourcePath], prompt, quality: 'high', signal: options.signal });
+    return { ...result, model: options.settings.openAiImageModel, provider: 'openai', estimatedCost: 0.211 };
+  }
+  if (!options.secrets.gemini) throw new Error('未配置 Gemini API Key');
+  const result = await generateGemini({ apiKey: options.secrets.gemini, apiBaseUrl: options.apiBaseUrl, model: options.settings.imageModel, imagePaths: [options.sourcePath], prompt, imageSize: options.settings.imageSize, signal: options.signal });
+  return { ...result, model: options.settings.imageModel, provider: 'gemini', estimatedCost: 0.067 };
+}
+
+export async function verifyLogoRemovalDesktop(options: { sourcePath: string; generatedPath: string; analysis: LogoRemovalAnalysis; settings: LogoRemovalSettings; secrets: ProviderSecrets; apiBaseUrl?: string | null; signal: AbortSignal }): Promise<LogoRemovalVerification> {
+  const route = removalProvider(options.settings, 'verification');
+  const apiKey = route.provider === 'openai' ? options.secrets.openAi : options.secrets.gemini;
+  if (!apiKey) throw new Error(`未配置 ${route.provider === 'openai' ? 'OpenAI' : 'Gemini'} API Key`);
+  const text = await requestJson({ provider: route.provider, apiKey, apiBaseUrl: options.apiBaseUrl, model: route.model, imagePaths: [options.sourcePath, options.generatedPath], signal: options.signal, prompt: `第一张是原图，第二张是去除 Logo 的结果。目标区域为 ${JSON.stringify(options.analysis.targets)}。检查目标 Logo、文字轮廓和贴纸边缘是否完全去除，同时杯型、液体、透明度、纹理、人物、手势、礼盒、商品说明、尺寸标注、背景和非目标文字是否保持。只输出 JSON：{"passed":true,"logoRemoved":true,"reconstructionNatural":true,"nonTargetPreserved":true,"summary":"结论","differences":["问题"]}。` });
+  const parsed = extractJson<LogoRemovalVerification>(text);
+  return { passed: Boolean(parsed.passed), summary: parsed.summary || '', logoRemoved: Boolean(parsed.logoRemoved), reconstructionNatural: Boolean(parsed.reconstructionNatural), nonTargetPreserved: Boolean(parsed.nonTargetPreserved), differences: parsed.differences || [] };
 }

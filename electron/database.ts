@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
@@ -13,7 +13,7 @@ type ItemRow = {
 
 export interface ClaimedItem extends DesktopJobItem {
   payload: Record<string, unknown>;
-  tool: 'scene-replace' | 'logo-replace';
+  tool: 'scene-replace' | 'logo-replace' | 'logo-removal';
   outputRoot: string;
   groupName: string;
   groupPath: string;
@@ -32,7 +32,7 @@ function itemFromRow(row: ItemRow): DesktopJobItem {
 function estimateJobCost(tool: string, configValue: unknown, total: number) {
   const config = configValue as { settings?: Record<string, unknown> };
   const settings = config.settings || {};
-  const imageModel = String(tool === 'logo-replace' && settings.imageProvider === 'openai' ? settings.openAiImageModel : settings.imageModel || '');
+  const imageModel = String((tool === 'logo-replace' || tool === 'logo-removal') && settings.imageProvider === 'openai' ? settings.openAiImageModel : settings.imageModel || '');
   const imageSize = String(settings.imageSize || '1K');
   const geminiPrices: Record<string, number> = { '0.5K': 0.045, '1K': 0.067, '2K': 0.101, '4K': 0.151 };
   let unit = imageModel.startsWith('gpt-image') ? 0.211 : geminiPrices[imageSize] || 0.067;
@@ -49,16 +49,14 @@ function estimateJobCost(tool: string, configValue: unknown, total: number) {
 }
 
 export class DesktopDatabase {
-  readonly db: Database.Database;
+  readonly db: DatabaseSync;
   readonly path: string;
 
   constructor(path: string) {
     this.path = path;
     mkdirSync(dirname(path), { recursive: true });
-    this.db = new Database(path);
-    this.db.pragma('journal_mode = WAL');
-    this.db.pragma('foreign_keys = ON');
-    this.db.pragma('busy_timeout = 5000');
+    this.db = new DatabaseSync(path);
+    this.db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
     this.migrate();
   }
 
@@ -99,7 +97,13 @@ export class DesktopDatabase {
       );
       CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL);
     `);
-    this.db.pragma('user_version = 1');
+    this.db.exec('PRAGMA user_version = 1;');
+  }
+
+  private transaction(action: () => void) {
+    this.db.exec('BEGIN IMMEDIATE;');
+    try { action(); this.db.exec('COMMIT;'); }
+    catch (error) { this.db.exec('ROLLBACK;'); throw error; }
   }
 
   recoverInterrupted() {
@@ -116,24 +120,24 @@ export class DesktopDatabase {
     const initialStatus: DesktopJobStatus = request.startPaused ? 'paused' : 'queued';
     const settings = request.config.settings;
     const maxRetries = Math.max(0, Number(settings.errorRetryLimit || 0));
-    const copies = Math.max(1, Number(settings.copiesPerScene || 1));
+    const copies = Math.max(1, Number(request.config.tool === 'logo-removal' ? request.config.settings.copiesPerImage : request.config.settings.copiesPerScene || 1));
     const insertJob = this.db.prepare(`INSERT INTO jobs (id,name,tool,status,output_root,global_concurrency,config_json,created_at) VALUES (?,?,?,?,?,?,?,?)`);
     const insertGroup = this.db.prepare(`INSERT INTO job_groups (id,job_id,name,relative_path,payload_json) VALUES (?,?,?,?,?)`);
     const insertItem = this.db.prepare(`INSERT INTO job_items (id,job_id,group_id,source_name,source_path,status,stage,copy_index,retry_count,max_retries,prompt,payload_json,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`);
-    this.db.transaction(() => {
+    this.transaction(() => {
       insertJob.run(id, request.name, request.config.tool, initialStatus, request.outputRoot, Math.max(1, request.globalConcurrency), JSON.stringify({ ...request.config, apiBaseUrl: request.apiBaseUrl || null }), now);
       for (const group of request.groups) {
         const groupId = `${id}:${group.id}`;
         insertGroup.run(groupId, id, group.name, group.relativePath || group.name, JSON.stringify(group));
         for (const scene of group.scenes) for (let copy = 0; copy < copies; copy += 1) {
           const itemId = randomUUID();
-          const prompt = group.prompt || (request.config.tool === 'scene-replace' ? request.config.prompt : '');
-          const initialStage = request.startPaused ? '等待主控开始' : request.config.tool === 'scene-replace' && request.config.settings.perImagePromptEnabled ? '等待逐图分析' : '等待生成';
+          const prompt = group.prompt || (request.config.tool === 'scene-replace' ? request.config.prompt : request.config.tool === 'logo-removal' ? request.config.settings.prompt : '');
+          const initialStage = request.startPaused ? '等待主控开始' : request.config.tool === 'logo-removal' ? '等待目标分析' : request.config.tool === 'scene-replace' && request.config.settings.perImagePromptEnabled ? '等待逐图分析' : '等待生成';
           insertItem.run(itemId, id, groupId, scene.name, scene.path, initialStatus, initialStage, copy, 0, maxRetries, prompt, JSON.stringify({ scene, logos: group.logos || [], oldLogo: group.oldLogo || null }), now);
         }
       }
       this.addEvent(id, undefined, 'info', 'job-created', `已创建后台任务：${request.name}`);
-    })();
+    });
     return id;
   }
 
@@ -205,7 +209,7 @@ export class DesktopDatabase {
     }).slice(0, limit);
     const mark = this.db.prepare(`UPDATE job_items SET status='running', stage='准备请求', error=NULL, updated_at=? WHERE id=? AND status IN ('queued','retry_wait')`);
     const startJob = this.db.prepare(`UPDATE jobs SET status='running', started_at=COALESCE(started_at,?) WHERE id=?`);
-    this.db.transaction(() => selected.forEach((row) => { mark.run(now, row.id); startJob.run(now, row.job_id); }))();
+    this.transaction(() => selected.forEach((row) => { mark.run(now, row.id); startJob.run(now, row.job_id); }));
     return selected.map((row) => ({ ...itemFromRow({ ...row, status: 'running', stage: '准备请求', updated_at: now }), payload: JSON.parse(row.payload_json), tool: row.tool, outputRoot: row.output_root, groupName: row.group_name, groupPath: row.group_path, jobConfig: JSON.parse(row.config_json) }));
   }
 
