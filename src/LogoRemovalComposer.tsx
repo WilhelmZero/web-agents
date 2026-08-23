@@ -4,7 +4,7 @@ import {
 } from '@ant-design/icons';
 import {
   Alert, App, Button, Card, Col, Divider, Empty, Flex, Form, Image, Input, InputNumber, Modal, Popconfirm,
-  Pagination, Progress, Row, Segmented, Select, Space, Statistic, Switch, Tag, Timeline, Typography, Upload,
+  Progress, Row, Segmented, Select, Space, Statistic, Switch, Tag, Timeline, Typography, Upload,
 } from 'antd';
 import JSZip from 'jszip';
 import { createPortal } from 'react-dom';
@@ -123,6 +123,17 @@ function TaskResultImage({ resultKey, original, onOpen }: { resultKey?: string; 
   return src ? <button type="button" className="logo-removal-result-button" onClick={onOpen}><img src={src} alt="去除 Logo 结果" loading="lazy" /><span><EyeOutlined /> 查看与对比</span></button> : <LazyFileImage file={original} className="logo-removal-result-placeholder" />;
 }
 
+function ResultFolderCover({ resultKey, onOpen }: { resultKey?: string; onOpen: () => void }) {
+  const [src, setSrc] = useState('');
+  useEffect(() => {
+    let active = true; let url = '';
+    setSrc('');
+    if (resultKey) void readLogoRemovalResult(resultKey).then((value) => { if (!active || !value) return; url = URL.createObjectURL(value.blob); setSrc(url); });
+    return () => { active = false; if (url) URL.revokeObjectURL(url); };
+  }, [resultKey]);
+  return src ? <button type="button" className="logo-removal-result-button" onClick={onOpen}><img src={src} alt="文件夹首张去除 Logo 结果" loading="lazy" /></button> : <div className="logo-removal-result-folder-empty"><FolderOpenOutlined /><Text type="secondary">等待生成结果</Text></div>;
+}
+
 function ResultPreview({ open, tasks, files, initialIndex, onClose }: { open: boolean; tasks: LogoRemovalTask[]; files: Map<string, File>; initialIndex: number; onClose: () => void }) {
   const [index, setIndex] = useState(initialIndex);
   const [generatedUrl, setGeneratedUrl] = useState('');
@@ -159,18 +170,30 @@ export default function LogoRemovalComposer(props: { apiKey: string; openAiApiKe
   const [previewIndex, setPreviewIndex] = useState(-1);
   const [timelineTaskId, setTimelineTaskId] = useState<string>();
   const [manageGroupId, setManageGroupId] = useState<string>();
-  const [resultsExpanded, setResultsExpanded] = useState(false); const [resultPage, setResultPage] = useState(1);
+  const [activeResultGroupId, setActiveResultGroupId] = useState<string>();
   const runningIds = useRef(new Set<string>()); const controllers = useRef(new Map<string, AbortController>());
   const analysisPromises = useRef(new Map<string, Promise<LogoRemovalAnalysis>>());
   const filesByPath = useMemo(() => new Map(groups.flatMap((group) => group.files.map((file) => [groupFilePath(group, file), file] as const))), [groups]);
   const resultTasks = useMemo(() => tasks.filter((task) => task.resultKey), [tasks]);
   const resultIndexById = useMemo(() => new Map(resultTasks.map((task, index) => [task.id, index])), [resultTasks]);
   const managedGroup = useMemo(() => groups.find((group) => group.id === manageGroupId), [groups, manageGroupId]);
-  const visibleTasks = useMemo(() => resultsExpanded ? tasks.slice((resultPage - 1) * 24, resultPage * 24) : [], [resultPage, resultsExpanded, tasks]);
+  const resultGroups = useMemo(() => {
+    const tasksByGroup = new Map<string, LogoRemovalTask[]>();
+    tasks.forEach((task) => {
+      const groupTasks = tasksByGroup.get(task.groupId);
+      if (groupTasks) groupTasks.push(task);
+      else tasksByGroup.set(task.groupId, [task]);
+    });
+    return groups.flatMap((group) => {
+      const groupTasks = tasksByGroup.get(group.id);
+      return groupTasks?.length ? [{ group, tasks: groupTasks }] : [];
+    });
+  }, [groups, tasks]);
+  const activeResultGroup = useMemo(() => resultGroups.find((item) => item.group.id === activeResultGroupId), [activeResultGroupId, resultGroups]);
 
   useEffect(() => { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }, [settings]);
   useEffect(() => { if (groups.length || tasks.length) void saveLogoRemovalDraft<StoredDraft>(sessionId, { groups, tasks, settings, startedAt, endedAt }); }, [endedAt, groups, sessionId, settings, startedAt, tasks]);
-  useEffect(() => { if (resultPage > Math.max(1, Math.ceil(tasks.length / 24))) setResultPage(1); }, [resultPage, tasks.length]);
+  useEffect(() => { if (activeResultGroupId && !resultGroups.some((item) => item.group.id === activeResultGroupId)) setActiveResultGroupId(undefined); }, [activeResultGroupId, resultGroups]);
   useEffect(() => {
     const completed = tasks.filter((task) => ['success', 'skipped'].includes(task.status)).length;
     const failed = tasks.filter((task) => task.status === 'failed').length;
@@ -330,7 +353,7 @@ export default function LogoRemovalComposer(props: { apiKey: string; openAiApiKe
 
   return <section className="logo-removal-composer">
     <div className="logo-removal-hero"><div><Text className="eyebrow">LOGO REMOVAL QUEUE</Text><Title level={2}>批量去除杯身 Logo</Title><Paragraph>多个文件夹在一个页面统一分析、生成、校验和重试，不创建子标签。</Paragraph></div><div className="logo-removal-hero-stat"><strong>{groups.reduce((sum, group) => sum + group.files.length, 0)}</strong><span>张待处理图片</span></div></div>
-    <Card title={<Space><FolderOpenOutlined /> 导入图片文件夹</Space>} extra={<Space><Button onClick={() => void restore()}>恢复缓存任务</Button>{groups.length > 0 && <Popconfirm title="移除全部文件夹？" onConfirm={() => { stopAll(); setGroups([]); setTasks([]); setSessionId(crypto.randomUUID()); setStartedAt(undefined); setEndedAt(undefined); setResultsExpanded(false); }}><Button danger icon={<DeleteOutlined />}>移除全部</Button></Popconfirm>}</Space>}>
+    <Card title={<Space><FolderOpenOutlined /> 导入图片文件夹</Space>} extra={<Space><Button onClick={() => void restore()}>恢复缓存任务</Button>{groups.length > 0 && <Popconfirm title="移除全部文件夹？" onConfirm={() => { stopAll(); setGroups([]); setTasks([]); setSessionId(crypto.randomUUID()); setStartedAt(undefined); setEndedAt(undefined); setActiveResultGroupId(undefined); }}><Button danger icon={<DeleteOutlined />}>移除全部</Button></Popconfirm>}</Space>}>
       <Upload.Dragger directory multiple disabled={running} showUploadList={false} accept="image/png,image/jpeg,image/webp" beforeUpload={(file, fileList) => { if (file.uid === fileList.at(-1)?.uid) addFiles(fileList as File[]); return Upload.LIST_IGNORE; }}><FolderOpenOutlined style={{ fontSize: 40, color: '#7654dd' }} /><p className="ant-upload-text">拖入或选择一个或多个图片文件夹</p><p className="ant-upload-hint">自动按原目录分组，支持 PNG、JPEG、WebP</p></Upload.Dragger>
       {groups.length > 0 && <div className="logo-removal-folder-grid">{groups.map((group) => { const groupTasks = tasks.filter((task) => task.groupId === group.id); return <Card key={group.id} size="small" className="logo-removal-folder-card" cover={group.files[0] ? <LazyFileImage file={group.files[0]} /> : undefined} actions={[
         <Button type="text" icon={<EyeOutlined />} onClick={() => setManageGroupId(group.id)}>管理图片</Button>,
@@ -345,15 +368,24 @@ export default function LogoRemovalComposer(props: { apiKey: string; openAiApiKe
         <BatchTiming startedAt={startedAt} endedAt={endedAt} />
       </>}
     </Card>
-    {tasks.length ? <Card title={<Space>任务与结果 <Tag>{tasks.length}</Tag><Text type="secondary">默认隐藏图片，展开后每页仅加载 24 张</Text></Space>} extra={<Button icon={<EyeOutlined />} onClick={() => { setResultsExpanded((value) => !value); if (resultsExpanded) { setPreviewIndex(-1); setResultPage(1); } }}>{resultsExpanded ? '收起并释放图片' : '按需打开结果'}</Button>}>
-      {!resultsExpanded ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={<Space orientation="vertical"><Text>结果图片已隐藏，任务仍在后台正常执行</Text><Text type="secondary">进度与时间统计会持续显示在上方</Text></Space>} /> : <><div className="logo-removal-task-grid">{visibleTasks.map((task) => { const file = filesByPath.get(task.sourceRelativePath); const resultIndex = resultIndexById.get(task.id) ?? -1; return <Card key={task.id} size="small" className={`logo-removal-task-card status-${task.status}`} cover={file ? <TaskResultImage resultKey={task.resultKey} original={file} onOpen={() => resultIndex >= 0 && setPreviewIndex(resultIndex)} /> : undefined} actions={[
-          <Button type="text" icon={<ReloadOutlined />} disabled={!['failed', 'stopped'].includes(task.status)} onClick={() => retryTask(task.id)}>重试</Button>,
-          <Button type="text" danger icon={<StopOutlined />} disabled={!['waiting', 'retry_wait', 'analyzing', 'running', 'verifying'].includes(task.status)} onClick={() => stopTask(task.id)}>终止</Button>,
-          <Button type="text" icon={<DownloadOutlined />} disabled={!task.resultKey} onClick={() => void downloadTask(task)}>下载</Button>,
-          <Button type="text" disabled={!task.attempts.length} onClick={() => setTimelineTaskId(task.id)}>时间线</Button>,
-        ]}><Flex justify="space-between"><Text strong ellipsis={{ tooltip: task.sourceName }}>{task.sourceName}</Text><Tag color={task.status === 'success' ? 'green' : task.status === 'skipped' ? 'gold' : task.status === 'failed' ? 'red' : ['running', 'analyzing', 'verifying'].includes(task.status) ? 'processing' : 'default'}>{task.stage}</Tag></Flex>{task.analysis && <Paragraph ellipsis={{ rows: 2, expandable: true }}>{task.analysis.summary || task.analysis.reason}</Paragraph>}{task.error && <Alert type="error" title={task.error} showIcon />}{task.resultKey && <Flex justify="space-between" style={{ marginTop: 8 }}><Button size="small" type={task.markedUsable ? 'primary' : 'default'} icon={<CheckCircleOutlined />} onClick={() => patchTask(task.id, { markedUsable: !task.markedUsable })}>标记可用</Button><Text type="secondary">{task.attempts.length} 次尝试</Text></Flex>}</Card>; })}</div><Pagination current={resultPage} pageSize={24} total={tasks.length} showSizeChanger={false} showQuickJumper hideOnSinglePage onChange={(page) => { setResultPage(page); setPreviewIndex(-1); }} style={{ marginTop: 18, textAlign: 'center' }} /></>}
+    {tasks.length ? <Card title={<Space>任务与结果 <Tag>{tasks.length}</Tag><Text type="secondary">按文件夹展示，点开后按需加载全部生成图</Text></Space>}>
+      <div className="logo-removal-result-folder-grid">{resultGroups.map(({ group, tasks: groupTasks }) => {
+        const firstResult = groupTasks.find((task) => task.resultKey);
+        const completed = groupTasks.filter((task) => task.resultKey).length;
+        return <Card hoverable key={group.id} size="small" className="logo-removal-result-folder-card" onClick={() => setActiveResultGroupId(group.id)} cover={<ResultFolderCover resultKey={firstResult?.resultKey} onOpen={() => setActiveResultGroupId(group.id)} />}>
+          <Card.Meta title={<Space><FolderOpenOutlined /> <Text strong ellipsis={{ tooltip: group.name }}>{group.name}</Text></Space>} description={<Flex justify="space-between" gap={8}><Text type="secondary" ellipsis={{ tooltip: group.path }}>{group.path}</Text><Tag color={completed ? 'blue' : 'default'}>{completed}/{groupTasks.length} 张</Tag></Flex>} />
+        </Card>;
+      })}</div>
     </Card> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="导入文件夹后开始处理" />}
     <FolderImageManager group={managedGroup} running={running} onClose={() => setManageGroupId(undefined)} onAdd={addFilesToGroup} onRemove={removeFileFromGroup} />
+    <Modal width="min(1200px, 96vw)" open={Boolean(activeResultGroup)} onCancel={() => { setActiveResultGroupId(undefined); setPreviewIndex(-1); }} footer={null} title={activeResultGroup ? <Space><FolderOpenOutlined /> {activeResultGroup.group.name}<Tag>{activeResultGroup.tasks.filter((task) => task.resultKey).length} 张生成图</Tag></Space> : '文件夹结果'} destroyOnHidden>
+      {activeResultGroup ? <div className="logo-removal-task-grid">{activeResultGroup.tasks.map((task) => { const file = filesByPath.get(task.sourceRelativePath); const resultIndex = resultIndexById.get(task.id) ?? -1; return <Card key={task.id} size="small" className={`logo-removal-task-card status-${task.status}`} cover={file ? <TaskResultImage resultKey={task.resultKey} original={file} onOpen={() => resultIndex >= 0 && setPreviewIndex(resultIndex)} /> : undefined} actions={[
+        <Button type="text" icon={<ReloadOutlined />} disabled={!['failed', 'stopped'].includes(task.status)} onClick={() => retryTask(task.id)}>重试</Button>,
+        <Button type="text" danger icon={<StopOutlined />} disabled={!['waiting', 'retry_wait', 'analyzing', 'running', 'verifying'].includes(task.status)} onClick={() => stopTask(task.id)}>终止</Button>,
+        <Button type="text" icon={<DownloadOutlined />} disabled={!task.resultKey} onClick={() => void downloadTask(task)}>下载</Button>,
+        <Button type="text" disabled={!task.attempts.length} onClick={() => setTimelineTaskId(task.id)}>时间线</Button>,
+      ]}><Flex justify="space-between"><Text strong ellipsis={{ tooltip: task.sourceName }}>{task.sourceName}</Text><Tag color={task.status === 'success' ? 'green' : task.status === 'skipped' ? 'gold' : task.status === 'failed' ? 'red' : ['running', 'analyzing', 'verifying'].includes(task.status) ? 'processing' : 'default'}>{task.stage}</Tag></Flex>{task.analysis && <Paragraph ellipsis={{ rows: 2, expandable: true }}>{task.analysis.summary || task.analysis.reason}</Paragraph>}{task.error && <Alert type="error" title={task.error} showIcon />}{task.resultKey && <Flex justify="space-between" style={{ marginTop: 8 }}><Button size="small" type={task.markedUsable ? 'primary' : 'default'} icon={<CheckCircleOutlined />} onClick={() => patchTask(task.id, { markedUsable: !task.markedUsable })}>标记可用</Button><Text type="secondary">{task.attempts.length} 次尝试</Text></Flex>}</Card>; })}</div> : null}
+    </Modal>
     <ResultPreview open={previewIndex >= 0} tasks={resultTasks} files={filesByPath} initialIndex={Math.max(0, previewIndex)} onClose={() => setPreviewIndex(-1)} />
     <Modal width="min(860px, 94vw)" open={Boolean(timelineTaskId)} onCancel={() => setTimelineTaskId(undefined)} footer={null} title="生成尝试时间线" destroyOnHidden>
       {(() => {

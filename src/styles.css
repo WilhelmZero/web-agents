@@ -644,6 +644,7 @@ button, input, textarea { font: inherit; }
 .logo-removal-hero-stat span { font-size: 12px; opacity: .78; }
 
 .logo-removal-folder-grid,
+.logo-removal-result-folder-grid,
 .logo-removal-task-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
@@ -652,6 +653,13 @@ button, input, textarea { font: inherit; }
 
 .logo-removal-folder-card .ant-card-body { padding: 12px; }
 .logo-removal-folder-card img { width: 100%; height: 150px; object-fit: cover; border-radius: 10px; background: #f2f4f8; }
+.logo-removal-result-folder-card { overflow: hidden; }
+.logo-removal-result-folder-card .ant-card-body { padding: 12px; }
+.logo-removal-result-folder-card .logo-removal-result-button img,
+.logo-removal-result-folder-card .logo-removal-result-placeholder { height: 180px; object-fit: cover; }
+.logo-removal-result-folder-card .logo-removal-result-button span { display: none; }
+.logo-removal-result-folder-empty { display: flex; height: 180px; align-items: center; justify-content: center; flex-direction: column; gap: 8px; color: #8b82c8; background: linear-gradient(135deg, #f0edff, #f7f9fc); font-size: 38px; }
+.logo-removal-result-folder-empty .ant-typography { font-size: 13px; }
 .logo-removal-control-card { border-radius: 16px; }
 .logo-removal-stage-progress { margin: 8px 0 16px; }
 
@@ -699,6 +707,7 @@ button, input, textarea { font: inherit; }
 @media (max-width: 900px) {
   .logo-removal-hero { align-items: flex-start; flex-direction: column; }
   .logo-removal-folder-grid,
+  .logo-removal-result-folder-grid,
   .logo-removal-task-grid { grid-template-columns: 1fr; }
   .logo-removal-timing-grid { grid-template-columns: 1fr; }
 }
