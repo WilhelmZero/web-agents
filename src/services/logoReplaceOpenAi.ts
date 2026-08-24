@@ -108,6 +108,26 @@ export function generateLogoRemovalOpenAi(options: { apiKey: string; model: 'gpt
   return editImages({ ...options, images: [options.scene], quality: 'high', requestLabel: '去除 Logo' });
 }
 
+export function generateLogoResultInpaintOpenAi(options: {
+  apiKey: string;
+  model: 'gpt-image-2' | 'gpt-image-2-2026-04-21';
+  image: File;
+  maskGuide: Blob;
+  prompt: string;
+  signal?: AbortSignal;
+}) {
+  const guide = new File([options.maskGuide], 'selection-guide.png', { type: options.maskGuide.type || 'image/png' });
+  return editImages({
+    apiKey: options.apiKey,
+    model: options.model,
+    images: [options.image, guide],
+    quality: 'high',
+    requestLabel: 'Logo 结果局部重绘',
+    signal: options.signal,
+    prompt: `第一张图是必须保留的 Logo 替换生成图；第二张图的红色半透明标记是唯一允许修改的区域。只修改红色选区，选区之外的主体、Logo、构图、材质、光影、背景、文字及全部像素对应内容必须保持不变。最终结果不得出现红色遮罩、选区边缘或标记。用户要求：${options.prompt}`,
+  });
+}
+
 const removalVerificationSchema = {
   type: 'object', additionalProperties: false,
   properties: {

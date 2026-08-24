@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isInsufficientImageChange, measureChangedPixels } from './imageChangeDetection';
+import { isInsufficientImageChange, measureChangedPixels, resolveInsufficientImageChangeOutcome } from './imageChangeDetection';
 
 function solid(count: number, value: number) { const data = new Uint8ClampedArray(count * 4); for (let index = 0; index < count; index += 1) data.set([value, value, value, 255], index * 4); return data; }
 
@@ -9,5 +9,10 @@ describe('scene image change detection', () => {
     const original = solid(10, 50); const generated = solid(10, 50); for (let index = 0; index < 2; index += 1) generated.set([150, 150, 150, 255], index * 4);
     expect(measureChangedPixels(original, generated).changedRatio).toBeCloseTo(0.2);
     expect(isInsufficientImageChange(0.2)).toBe(true); expect(isInsufficientImageChange(0.201)).toBe(false);
+  });
+  it('keeps the final low-change image after exhausting retries', () => {
+    expect(resolveInsufficientImageChangeOutcome(0.1, 1, 3)).toBe('retry');
+    expect(resolveInsufficientImageChangeOutcome(0.1, 3, 3)).toBe('keep-last-with-warning');
+    expect(resolveInsufficientImageChangeOutcome(0.25, 3, 3)).toBe('pass');
   });
 });

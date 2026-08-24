@@ -1,5 +1,11 @@
 export interface ImageChangeMetrics { changedRatio: number; meanDifference: number }
 export function isInsufficientImageChange(changedRatio: number, minimumRatio = 0.2) { return changedRatio <= minimumRatio; }
+export type InsufficientImageChangeOutcome = 'pass' | 'retry' | 'keep-last-with-warning';
+
+export function resolveInsufficientImageChangeOutcome(changedRatio: number, retryCount: number, retryLimit: number, minimumRatio = 0.2): InsufficientImageChangeOutcome {
+  if (!isInsufficientImageChange(changedRatio, minimumRatio)) return 'pass';
+  return retryCount < retryLimit ? 'retry' : 'keep-last-with-warning';
+}
 
 export function measureChangedPixels(original: Uint8ClampedArray, generated: Uint8ClampedArray, threshold = 28): ImageChangeMetrics {
   const pixels = Math.min(original.length, generated.length) / 4;

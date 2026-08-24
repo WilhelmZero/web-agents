@@ -151,6 +151,7 @@ export class DesktopJobEngine {
     const provider = config.settings.imageModel.startsWith('gpt-image') ? 'openai' : 'gemini';
     const attempt = this.store.startAttempt(item, 'scene-generation', provider, config.settings.imageModel, prompt);
     let outputPath = '';
+    let insufficientChangeWarning = '';
     try {
       const generated = await generateScene({ sourcePath: item.sourcePath, prompt, settings: config.settings, secrets: this.getSecrets(), apiBaseUrl: config.apiBaseUrl, signal, batchJobName: payload.remoteBatchName, onBatchJobName: (name) => { payload.remoteBatchName = name; this.store.updatePayload(item.id, payload); }, onBatchState: (state) => { this.store.setItemState(item.id, 'running', `Gemini Batch：${state}`); this.onChange(); } });
       outputPath = await uniqueOutputPath(item, 'scene', generated.mimeType);
@@ -158,15 +159,19 @@ export class DesktopJobEngine {
       if (config.settings.detectInsufficientSceneChange) {
         this.store.setItemState(item.id, 'verifying', '检测场景变化', { outputPath }); this.onChange();
         const ratio = await changedRatio(item.sourcePath, outputPath);
-        if (ratio <= 0.2) { await rm(outputPath, { force: true }); throw new Error(`场景变化检测未通过：变化 ${(ratio * 100).toFixed(1)}%，不超过 20%`); }
+        if (ratio <= 0.2) {
+          const detail = `场景变化检测未通过：变化 ${(ratio * 100).toFixed(1)}%，不超过 20%`;
+          if (item.retryCount < item.maxRetries) { await rm(outputPath, { force: true }); throw new Error(detail); }
+          insufficientChangeWarning = `${detail}；已达到 ${item.maxRetries} 次重试上限，已保留最后一张生成图，请人工确认`;
+        }
       }
       const thumbnailPath = await makeThumbnail(outputPath);
       this.store.finishAttempt(attempt, 'success', { outputPath, cost: generated.estimatedCost });
       this.store.addArtifact(item.jobId, item.id, 'scene', outputPath, generated.mimeType);
       this.store.addArtifact(item.jobId, item.id, 'thumbnail', thumbnailPath, 'image/webp');
       if (config.settings.autoOutpaint) await this.executeOutpaint(item, outputPath, config, signal);
-      this.store.setItemState(item.id, 'completed', '已完成', { outputPath, thumbnailPath, error: null, nextRetryAt: null });
-      this.store.addEvent(item.jobId, item.id, 'info', 'item-completed', `${item.sourceName} 已保存到 ${outputPath}`);
+      this.store.setItemState(item.id, 'completed', insufficientChangeWarning ? '低变化结果待确认' : '已完成', { outputPath, thumbnailPath, error: insufficientChangeWarning || null, nextRetryAt: null });
+      this.store.addEvent(item.jobId, item.id, insufficientChangeWarning ? 'warning' : 'info', insufficientChangeWarning ? 'low-change-result-kept' : 'item-completed', insufficientChangeWarning || `${item.sourceName} 已保存到 ${outputPath}`);
     } catch (error) { this.store.finishAttempt(attempt, signal.aborted ? 'interrupted' : 'failed', { outputPath: outputPath || undefined, error: error instanceof Error ? error.message : String(error) }); throw error; }
   }
 

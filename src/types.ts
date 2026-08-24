@@ -393,6 +393,8 @@ export interface SceneReplaceTask {
   outpaintUrl?: string;
   outpaintError?: string;
   outpaintResults?: Array<{ width: number; height: number; blob: Blob; url: string }>;
+  insufficientChangeWarning?: string;
+  changedRatio?: number;
   error?: string;
   retryCount: number;
   nextRetryAt?: number;
@@ -435,6 +437,9 @@ export interface LogoReplaceTask {
   nextRetryAt?: number;
   autoRetryStopped?: boolean;
   skipReason?: string;
+  inpaintStatus?: 'running' | 'success' | 'failed';
+  inpaintError?: string;
+  inpaintRevision?: number;
 }
 
 export interface LogoReplaceProgressSnapshot {

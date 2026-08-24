@@ -52,7 +52,7 @@ const { Dragger } = Upload;
 const { Text, Title, Paragraph } = Typography;
 const ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 
-function MaskCanvas({
+export function MaskCanvas({
   imageUrl,
   onChange,
 }: {
@@ -166,7 +166,6 @@ function MaskCanvas({
     </>
   );
 }
-
 export default function InpaintComposer({
   apiKey,
   apiBaseUrl,

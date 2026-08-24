@@ -4,6 +4,7 @@ import {
   DownloadOutlined,
   EyeOutlined,
   FileImageOutlined,
+  HighlightOutlined,
   PlusOutlined,
   ReloadOutlined,
   RocketOutlined,
@@ -23,6 +24,7 @@ import {
   Image,
   Input,
   InputNumber,
+  Modal,
   Popconfirm,
   Progress,
   Radio,
@@ -42,10 +44,11 @@ import { cloneElement, useCallback, useEffect, useMemo, useRef, useState, type R
 import { createPortal } from 'react-dom';
 import { DEFAULT_LOGO_REPLACE_SETTINGS, MODEL_CAPABILITIES, PRICING, STORAGE_KEYS } from './constants';
 import GeneratingImage from './GeneratingImage';
+import { MaskCanvas } from './InpaintComposer';
 import LogoReplaceDevComposer from './LogoReplaceDevComposer';
 import { reportTaskProgress } from './services/taskProgress';
-import { analyzeSceneLogoStyles, buildLogoReplacementInstruction, generateLogoReplacement, generateMultiLogoReplacement, verifyLogoReplacement } from './services/gemini';
-import { analyzeSceneLogoStylesOpenAi, generateLogoReplacementOpenAi, generateMultiLogoReplacementOpenAi, verifyLogoReplacementOpenAi } from './services/logoReplaceOpenAi';
+import { analyzeSceneLogoStyles, buildLogoReplacementInstruction, generateInpaintImage, generateLogoReplacement, generateMultiLogoReplacement, verifyLogoReplacement } from './services/gemini';
+import { analyzeSceneLogoStylesOpenAi, generateLogoReplacementOpenAi, generateLogoResultInpaintOpenAi, generateMultiLogoReplacementOpenAi, verifyLogoReplacementOpenAi } from './services/logoReplaceOpenAi';
 import { imageDimensions, outputAspectRatio, resizeImageBlob } from './services/logoOutputSizing';
 import { assignReplacementLogos, buildLogoReplaceTasks, shouldAutoRetryLogoError } from './services/logoReplaceUtils';
 import { readLocalStorage } from './storage';
@@ -58,6 +61,7 @@ import { perImagePromptFileKey } from './services/perImagePrompt';
 import { assignMultipleLogos, expandStylesByOccurrence } from './services/logoReplaceDevUtils';
 import type { SceneLogoAnalysis } from './types';
 import { desktopAssetFromFile, isElectronDesktop, submitDesktopJob } from './desktop/runtime';
+import { DEFAULT_LOGO_RESULT_INPAINT_PROMPT, normalizeLogoResultInpaintPrompt } from './services/logoResultInpaint';
 
 const { Text, Title, Paragraph } = Typography;
 const ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
@@ -154,6 +158,9 @@ function LogoReplaceSingleComposer({
   const [previewCompareOriginal, setPreviewCompareOriginal] = useState(false);
   const [selectedResultIds, setSelectedResultIds] = useState<Set<string>>(() => new Set());
   const [tasks, setTasks] = useState<LogoReplaceTask[]>([]);
+  const [inpaintEditorTaskId, setInpaintEditorTaskId] = useState<string>();
+  const [inpaintMask, setInpaintMask] = useState<Blob>();
+  const [inpaintPrompt, setInpaintPrompt] = useState(DEFAULT_LOGO_RESULT_INPAINT_PROMPT);
   const [occurrenceAnalyses, setOccurrenceAnalyses] = useState<Record<string, SceneLogoAnalysis>>({});
   const analyzingOccurrences = useRef(new Set<string>());
   const occurrenceAnalysesRef = useRef(occurrenceAnalyses);
@@ -162,12 +169,14 @@ function LogoReplaceSingleComposer({
   const runningIds = useRef(new Set<string>());
   const aborters = useRef(new Map<string, AbortController>());
   const retryTimers = useRef(new Map<string, number>());
+  const inpaintAborters = useRef(new Map<string, AbortController>());
   const handledAutomationStart = useRef<string | undefined>(undefined);
   const publishedTaskSignatures = useRef(new Map<string, string>());
   const scenesRef = useRef(scenes);
   const oldLogoRef = useRef(oldLogo);
   const newLogosRef = useRef(newLogos);
   const settingsRef = useRef(settings);
+  const tasksRef = useRef(tasks);
   const importedSceneKeys = useRef(new Set<string>());
   const importedNewLogoKeys = useRef(new Set<string>());
   const importedOldLogoKey = useRef<string | undefined>(initialOldLogoFile ? `${initialOldLogoFile.name}:${initialOldLogoFile.size}:${initialOldLogoFile.lastModified}` : undefined);
@@ -176,10 +185,14 @@ function LogoReplaceSingleComposer({
   useEffect(() => { oldLogoRef.current = oldLogo; }, [oldLogo]);
   useEffect(() => { newLogosRef.current = newLogos; }, [newLogos]);
   useEffect(() => { settingsRef.current = settings; }, [settings]);
+  useEffect(() => { tasksRef.current = tasks; }, [tasks]);
   useEffect(() => { occurrenceAnalysesRef.current = occurrenceAnalyses; }, [occurrenceAnalyses]);
   useEffect(() => localStorage.setItem(STORAGE_KEYS.logoReplaceSettings, JSON.stringify(settings)), [settings]);
   useEffect(() => onSessionStateChange?.(Boolean(scenes.length || oldLogo || newLogos.length || tasks.length)), [scenes.length, oldLogo, newLogos.length, tasks.length, onSessionStateChange]);
-  useEffect(() => () => { retryTimers.current.forEach((timer) => window.clearTimeout(timer)); }, []);
+  useEffect(() => () => {
+    retryTimers.current.forEach((timer) => window.clearTimeout(timer));
+    inpaintAborters.current.forEach((controller) => controller.abort());
+  }, []);
 
   const validateFile = (file: File) => {
     if (!ACCEPTED_TYPES.includes(file.type)) return void message.error(`${file.name}：仅支持 PNG、JPEG、WebP`);
@@ -189,9 +202,12 @@ function LogoReplaceSingleComposer({
   const makeAsset = (file: File): LogoAsset => ({ id: createId(), file, name: file.name, mimeType: file.type, previewUrl: URL.createObjectURL(file) });
   const resetTasks = () => {
     aborters.current.forEach((controller) => controller.abort());
+    inpaintAborters.current.forEach((controller) => controller.abort());
+    inpaintAborters.current.clear();
     retryTimers.current.forEach((timer) => window.clearTimeout(timer));
     retryTimers.current.clear();
     publishedTaskSignatures.current.clear();
+    tasksRef.current = [];
     setTasks((current) => {
       current.forEach((task) => task.resultUrl && URL.revokeObjectURL(task.resultUrl));
       return [];
@@ -199,6 +215,9 @@ function LogoReplaceSingleComposer({
     setCompareOriginalIds(new Set());
     setPreviewCompareOriginal(false);
     setSelectedResultIds(new Set());
+    setInpaintEditorTaskId(undefined);
+    setInpaintMask(undefined);
+    setInpaintPrompt(DEFAULT_LOGO_RESULT_INPAINT_PROMPT);
   };
   const addScenes = (files: File[]) => {
     const assets = files.filter((file) => validateFile(file) === true).map(makeAsset);
@@ -350,7 +369,7 @@ function LogoReplaceSingleComposer({
     runningIds.current.add(task.id);
     const controller = new AbortController();
     aborters.current.set(task.id, controller);
-    setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status: 'running', error: undefined, verificationStatus: settingsRef.current.strictTextVerification ? 'pending' : 'skipped', acceptedVerificationRisk: false } : item));
+    setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status: 'running', error: undefined, inpaintStatus: undefined, inpaintError: undefined, inpaintRevision: 0, verificationStatus: settingsRef.current.strictTextVerification ? 'pending' : 'skipped', acceptedVerificationRisk: false } : item));
     try {
       const currentSettings = settingsRef.current;
       const promptAssignment = currentSettings.perImagePromptEnabled ? perImagePrompts.effective(scene.file) : undefined;
@@ -517,13 +536,14 @@ function LogoReplaceSingleComposer({
     setTasks((current) => current.map((item) => item.id === id ? { ...item, status: 'stopped', autoRetryStopped: true, nextRetryAt: undefined, error: '已停止该图片，不再自动重试' } : item));
   };
   const retry = (id: string) => {
+    if (inpaintAborters.current.has(id)) { message.warning('局部重绘处理中，请完成后再重新生成'); return; }
     const task = tasks.find((item) => item.id === id);
     if (!task) return;
     if (task.resultUrl) URL.revokeObjectURL(task.resultUrl);
     const timer = retryTimers.current.get(id);
     if (timer) window.clearTimeout(timer);
     retryTimers.current.delete(id);
-    const next = { ...task, status: 'waiting' as const, error: undefined, resultBlob: undefined, resultUrl: undefined, resultMimeType: undefined, retryCount: 0, nextRetryAt: undefined, autoRetryStopped: false, verificationStatus: settings.strictTextVerification ? 'pending' as const : 'skipped' as const, verificationResult: undefined, verificationAttempts: 0, acceptedVerificationRisk: false };
+    const next = { ...task, status: 'waiting' as const, error: undefined, resultBlob: undefined, resultUrl: undefined, resultMimeType: undefined, retryCount: 0, nextRetryAt: undefined, autoRetryStopped: false, verificationStatus: settings.strictTextVerification ? 'pending' as const : 'skipped' as const, verificationResult: undefined, verificationAttempts: 0, acceptedVerificationRisk: false, inpaintStatus: undefined, inpaintError: undefined, inpaintRevision: 0 };
     setCompareOriginalIds((current) => { const ids = new Set(current); ids.delete(id); return ids; });
     setSelectedResultIds((current) => { const ids = new Set(current); ids.delete(id); return ids; });
     setTasks((current) => current.map((item) => item.id === id ? next : item));
@@ -534,7 +554,51 @@ function LogoReplaceSingleComposer({
   const handledAutomationRetry = useRef<string | undefined>(undefined);
   useEffect(() => { if (!automationRetryFailedToken || handledAutomationRetry.current === automationRetryFailedToken) return; handledAutomationRetry.current = automationRetryFailedToken; retryAllFailed(); }, [automationRetryFailedToken, retryAllFailed]);
   const clearResults = () => resetTasks();
+  const openResultInpaint = (taskId: string) => {
+    setInpaintEditorTaskId(taskId);
+    setInpaintMask(undefined);
+    setInpaintPrompt(DEFAULT_LOGO_RESULT_INPAINT_PROMPT);
+  };
+  const runResultInpaint = async () => {
+    const taskId = inpaintEditorTaskId;
+    const task = tasksRef.current.find((item) => item.id === taskId);
+    if (!taskId || !task?.resultBlob || !task.resultUrl) return;
+    if (!inpaintMask) return void message.warning('请先在图片上框选或涂抹修改区域');
+    const currentSettings = settingsRef.current;
+    if (currentSettings.imageProvider === 'openai' ? !openAiApiKey : !apiKey) return onRequestKey();
+    if (currentSettings.imageProvider === 'gemini' && connectionMode === 'proxy' && !apiBaseUrl) { message.warning('请先配置代理地址'); return onRequestKey(); }
+    if (inpaintAborters.current.has(taskId)) return;
+    const controller = new AbortController();
+    const sourceBlob = task.resultBlob;
+    const sourceUrl = task.resultUrl;
+    const sourceFile = new File([sourceBlob], `logo-result-${taskId}.png`, { type: task.resultMimeType || sourceBlob.type || 'image/png' });
+    const prompt = normalizeLogoResultInpaintPrompt(inpaintPrompt);
+    const maskGuide = inpaintMask;
+    inpaintAborters.current.set(taskId, controller);
+    setTasks((current) => current.map((item) => item.id === taskId ? { ...item, inpaintStatus: 'running', inpaintError: undefined } : item));
+    try {
+      const dimensions = await imageDimensions(sourceFile);
+      const aspectRatio = outputAspectRatio('original', dimensions.width, dimensions.height, currentSettings.aspectRatio, dimensions.width, dimensions.height, MODEL_CAPABILITIES[currentSettings.imageModel].aspectRatios);
+      const generated = currentSettings.imageProvider === 'openai'
+        ? await generateLogoResultInpaintOpenAi({ apiKey: openAiApiKey, model: currentSettings.openAiImageModel, image: sourceFile, maskGuide, prompt, signal: controller.signal })
+        : await generateInpaintImage({ apiKey, apiBaseUrl, model: currentSettings.imageModel, image: sourceFile, maskGuide, prompt, aspectRatio, imageSize: currentSettings.imageSize, signal: controller.signal });
+      const resultBlob = await resizeImageBlob(generated.blob, dimensions.width, dimensions.height);
+      const resultUrl = URL.createObjectURL(resultBlob);
+      const latest = tasksRef.current.find((item) => item.id === taskId);
+      if (!latest || latest.resultBlob !== sourceBlob) { URL.revokeObjectURL(resultUrl); message.warning('原生成图已变化，本次局部重绘结果未覆盖'); return; }
+      setTasks((current) => current.map((item) => item.id === taskId ? { ...item, resultBlob, resultUrl, resultMimeType: resultBlob.type || generated.mimeType || 'image/png', inpaintStatus: 'success', inpaintError: undefined, inpaintRevision: (item.inpaintRevision || 0) + 1, verificationStatus: 'skipped', verificationResult: undefined, verificationAttempts: 0, acceptedVerificationRisk: false } : item));
+      setCompareOriginalIds((current) => { const next = new Set(current); next.delete(taskId); return next; });
+      window.setTimeout(() => URL.revokeObjectURL(sourceUrl), 0);
+      message.success('局部重绘完成，已替换原生成图片');
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      const detail = error instanceof Error ? error.message : '局部重绘失败';
+      setTasks((current) => current.map((item) => item.id === taskId ? { ...item, inpaintStatus: 'failed', inpaintError: detail } : item));
+      message.error(detail);
+    } finally { inpaintAborters.current.delete(taskId); }
+  };
   const successful = tasks.filter((task) => task.status === 'success' && task.resultBlob);
+  const inpaintEditorTask = tasks.find((task) => task.id === inpaintEditorTaskId);
   const downloadable = successful.filter((task) => task.verificationStatus !== 'failed' || task.acceptedVerificationRisk);
   const processing = tasks.some((task) => task.status === 'waiting' || task.status === 'running');
   const completed = tasks.filter((task) => ['success', 'failed', 'stopped'].includes(task.status)).length;
@@ -544,7 +608,7 @@ function LogoReplaceSingleComposer({
   useEffect(() => {
     if (!onTaskDetailChange) return;
     tasks.forEach((task) => {
-      const signature = [task.status, task.retryCount, task.error || '', task.verificationStatus || '', task.skipReason || '', Boolean(task.resultBlob)].join('|');
+      const signature = [task.status, task.retryCount, task.error || '', task.verificationStatus || '', task.skipReason || '', Boolean(task.resultBlob), task.inpaintRevision || 0].join('|');
       if (publishedTaskSignatures.current.get(task.id) === signature) return;
       publishedTaskSignatures.current.set(task.id, signature);
       const scene = scenesRef.current.find((item) => item.id === task.sceneId);
@@ -774,8 +838,13 @@ function LogoReplaceSingleComposer({
       <Card className="action-card"><Flex justify="space-between" align="center" gap={16} wrap><div><Title level={4} style={{ margin: 0 }}>准备替换 {taskCount} 张图片</Title><Text type="secondary">{scenes.length} 张场景图 × 每张 {settings.copiesPerScene} 个结果</Text></div><Space>{tasks.some((task) => task.status === 'failed') && <Button icon={<ReloadOutlined />} onClick={retryAllFailed}>一键重试所有失败</Button>}{processing && <Button danger icon={<StopOutlined />} onClick={stop}>停止任务</Button>}<Button type="primary" size="large" icon={<RocketOutlined />} loading={processing} onClick={() => void start()}>{processing ? '正在替换' : '开始替换'}</Button></Space></Flex>{!!tasks.length && <Progress style={{ marginTop: 18 }} percent={Math.round((completed / tasks.length) * 100)} status={processing ? 'active' : successful.length ? 'success' : 'exception'} />}</Card>
       {processing && <Card size="small" title="单个任务控制"><Flex gap={8} wrap>{tasks.filter((task) => task.status === 'waiting' || task.status === 'running').map((task) => <Button danger size="small" key={task.id} icon={<StopOutlined />} onClick={() => stopTaskRetry(task.id)}>停止 场景 {task.sceneIndex + 1} · 结果 {task.copyIndex + 1}</Button>)}</Flex></Card>}
       <section className="results-section"><Flex justify="space-between" align="center" gap={8} wrap><div><Title level={3}>替换结果</Title><Text type="secondary">每个结果仅改变 Logo</Text></div><Space wrap>{!!downloadable.length && <Checkbox checked={allSuccessfulSelected} indeterminate={selectedSuccessful.length > 0 && !allSuccessfulSelected} onChange={(event) => toggleSelectAllSuccessful(event.target.checked)}>全选成功项</Checkbox>}<Button disabled={!selectedSuccessful.length} icon={<DownloadOutlined />} onClick={() => void downloadSelected()}>下载选中{selectedSuccessful.length ? `（${selectedSuccessful.length}）` : ''}</Button><Popconfirm title="清空全部替换结果？" onConfirm={clearResults}><Button danger disabled={!tasks.length} icon={<ClearOutlined />}>清空结果</Button></Popconfirm><Button disabled={!downloadable.length} icon={<DownloadOutlined />} onClick={() => void downloadAll()}>下载全部 ZIP</Button></Space></Flex>
-        {tasks.length ? <Image.PreviewGroup items={logoResultPreviewItems} preview={logoResultPreviewConfig}><div className="logo-replace-results">{groups.flatMap((group) => group.tasks.map((task) => <Card key={task.id} size="small" style={selectedResultIds.has(task.id) ? { borderColor: '#1677ff', boxShadow: '0 0 0 1px #1677ff' } : undefined} title={`场景 ${task.sceneIndex + 1} · 结果 ${task.copyIndex + 1}`} extra={task.resultBlob && <Space size={4}><Checkbox disabled={task.verificationStatus === 'failed' && !task.acceptedVerificationRisk} aria-label={`选择场景 ${task.sceneIndex + 1} 结果 ${task.copyIndex + 1}`} checked={selectedResultIds.has(task.id)} onChange={(event) => toggleResultSelection(task.id, event.target.checked)} /><Button type="text" disabled={task.verificationStatus === 'failed' && !task.acceptedVerificationRisk} icon={<DownloadOutlined />} onClick={() => downloadTask(task)} />{!task.skipReason && <Button type="text" title="重新生成" icon={<ReloadOutlined />} onClick={() => retry(task.id)} />}</Space>}><div className="replace-result-image">{task.resultUrl ? <Image src={compareOriginalIds.has(task.id) ? group.scene.previewUrl : task.resultUrl} preview={{ src: compareOriginalIds.has(task.id) ? group.scene.previewUrl : task.resultUrl }} alt={compareOriginalIds.has(task.id) ? "原始场景图" : "Logo 替换结果"} /> : task.status === 'running' ? <GeneratingImage progressKey={task.id} status="running" percent={1} /> : <div className={`task-state-card is-${task.status}`}><Text strong type={task.status === 'failed' ? 'danger' : 'secondary'}>{task.nextRetryAt ? '等待自动重试' : statusText(task.status)}</Text><Text type="secondary">{task.error || (task.status === 'waiting' ? '等待可用并发任务' : '')}</Text></div>}</div><Flex justify="space-between" align="center" gap={8} style={{ marginTop: 8 }}><Space size={6} wrap><Tag color={task.status === 'success' ? 'success' : task.status === 'failed' ? 'error' : task.status === 'running' ? 'processing' : 'default'}>{task.nextRetryAt ? '等待重试' : statusText(task.status)}</Tag>{task.skipReason && <Tooltip title={task.skipReason}><Tag color="warning">未执行替换 · 已保留原图</Tag></Tooltip>}{task.retryCount > 0 && <Tag color="orange">错误重试 {task.retryCount}/{settings.errorRetryLimit}</Tag>}{task.resultUrl && !task.skipReason && <Button size="small" icon={<EyeOutlined />} onClick={() => setCompareOriginalIds((current) => { const next = new Set(current); if (next.has(task.id)) next.delete(task.id); else next.add(task.id); return next; })}>{compareOriginalIds.has(task.id) ? '查看生成图' : '原图对比'}</Button>}</Space><Space size={6}>{task.status === 'failed' && <Button size="small" icon={<ReloadOutlined />} onClick={() => retry(task.id)}>重试</Button>}{task.retryCount > 0 && (task.status === 'waiting' || task.status === 'running') && <Button danger size="small" icon={<StopOutlined />} onClick={() => stopTaskRetry(task.id)}>停止重试</Button>}</Space></Flex>{task.skipReason && <Text type="secondary">{task.skipReason}</Text>}{task.verificationStatus && !task.skipReason && <Flex vertical gap={6} style={{ marginTop: 8 }}><Tag color={task.verificationStatus === 'passed' ? 'success' : task.verificationStatus === 'failed' ? 'error' : task.verificationStatus === 'verifying' ? 'processing' : 'default'}>{task.verificationStatus === 'passed' ? '文字校验通过' : task.verificationStatus === 'failed' ? '文字校验未通过' : task.verificationStatus === 'verifying' ? '校验中' : task.verificationStatus === 'skipped' ? '未启用校验' : '等待校验'}</Tag>{task.verificationResult && <Text type={task.verificationStatus === 'failed' ? 'danger' : 'secondary'}>{[task.verificationResult.summary, ...task.verificationResult.differences].filter(Boolean).join('；')}{task.verificationAttempts ? `（校验 ${task.verificationAttempts} 次）` : ''}</Text>}{task.verificationStatus === 'failed' && !task.acceptedVerificationRisk && <Space><Button size="small" icon={<ReloadOutlined />} onClick={() => retry(task.id)}>重新生成</Button><Button size="small" onClick={() => setTasks((current) => current.map((item) => item.id === task.id ? { ...item, acceptedVerificationRisk: true } : item))}>人工确认可用</Button></Space>}{task.acceptedVerificationRisk && <Tag color="warning">已人工接受风险</Tag>}</Flex>}</Card>))}</div></Image.PreviewGroup> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="完成上传并开始替换后，结果会显示在这里" />}
+        {tasks.length ? <Image.PreviewGroup items={logoResultPreviewItems} preview={logoResultPreviewConfig}><div className="logo-replace-results">{groups.flatMap((group) => group.tasks.map((task) => <Card key={task.id} size="small" style={selectedResultIds.has(task.id) ? { borderColor: '#1677ff', boxShadow: '0 0 0 1px #1677ff' } : undefined} title={`场景 ${task.sceneIndex + 1} · 结果 ${task.copyIndex + 1}`} extra={task.resultBlob && <Space size={4}><Checkbox disabled={task.verificationStatus === 'failed' && !task.acceptedVerificationRisk} aria-label={`选择场景 ${task.sceneIndex + 1} 结果 ${task.copyIndex + 1}`} checked={selectedResultIds.has(task.id)} onChange={(event) => toggleResultSelection(task.id, event.target.checked)} /><Button type="text" disabled={task.verificationStatus === 'failed' && !task.acceptedVerificationRisk} icon={<DownloadOutlined />} onClick={() => downloadTask(task)} />{!task.skipReason && <Button type="text" title="重新生成" disabled={task.inpaintStatus === 'running'} icon={<ReloadOutlined />} onClick={() => retry(task.id)} />}</Space>}><div className="replace-result-image">{task.resultUrl ? <Image src={compareOriginalIds.has(task.id) ? group.scene.previewUrl : task.resultUrl} preview={{ src: compareOriginalIds.has(task.id) ? group.scene.previewUrl : task.resultUrl }} alt={compareOriginalIds.has(task.id) ? "原始场景图" : "Logo 替换结果"} /> : task.status === 'running' ? <GeneratingImage progressKey={task.id} status="running" percent={1} /> : <div className={`task-state-card is-${task.status}`}><Text strong type={task.status === 'failed' ? 'danger' : 'secondary'}>{task.nextRetryAt ? '等待自动重试' : statusText(task.status)}</Text><Text type="secondary">{task.error || (task.status === 'waiting' ? '等待可用并发任务' : '')}</Text></div>}</div>{task.resultUrl && !task.skipReason && <Button block style={{ marginTop: 8 }} icon={<HighlightOutlined />} loading={task.inpaintStatus === 'running'} onClick={() => openResultInpaint(task.id)}>{task.inpaintStatus === 'running' ? '局部重绘处理中' : '局部重绘'}</Button>}{task.inpaintError && <Alert style={{ marginTop: 8 }} type="error" showIcon title="局部重绘失败" description={task.inpaintError} />}<Flex justify="space-between" align="center" gap={8} style={{ marginTop: 8 }}><Space size={6} wrap><Tag color={task.status === 'success' ? 'success' : task.status === 'failed' ? 'error' : task.status === 'running' ? 'processing' : 'default'}>{task.nextRetryAt ? '等待重试' : statusText(task.status)}</Tag>{task.skipReason && <Tooltip title={task.skipReason}><Tag color="warning">未执行替换 · 已保留原图</Tag></Tooltip>}{task.retryCount > 0 && <Tag color="orange">错误重试 {task.retryCount}/{settings.errorRetryLimit}</Tag>}{!!task.inpaintRevision && <Tag color="purple">已局部重绘 {task.inpaintRevision} 次</Tag>}{task.resultUrl && !task.skipReason && <Button size="small" icon={<EyeOutlined />} onClick={() => setCompareOriginalIds((current) => { const next = new Set(current); if (next.has(task.id)) next.delete(task.id); else next.add(task.id); return next; })}>{compareOriginalIds.has(task.id) ? '查看生成图' : '原图对比'}</Button>}</Space><Space size={6}>{task.status === 'failed' && <Button size="small" icon={<ReloadOutlined />} onClick={() => retry(task.id)}>重试</Button>}{task.retryCount > 0 && (task.status === 'waiting' || task.status === 'running') && <Button danger size="small" icon={<StopOutlined />} onClick={() => stopTaskRetry(task.id)}>停止重试</Button>}</Space></Flex>{task.skipReason && <Text type="secondary">{task.skipReason}</Text>}{task.verificationStatus && !task.skipReason && <Flex vertical gap={6} style={{ marginTop: 8 }}><Tag color={task.verificationStatus === 'passed' ? 'success' : task.verificationStatus === 'failed' ? 'error' : task.verificationStatus === 'verifying' ? 'processing' : 'default'}>{task.verificationStatus === 'passed' ? '文字校验通过' : task.verificationStatus === 'failed' ? '文字校验未通过' : task.verificationStatus === 'verifying' ? '校验中' : task.verificationStatus === 'skipped' ? task.inpaintRevision ? '局部重绘后未重新校验' : '未启用校验' : '等待校验'}</Tag>{task.verificationResult && <Text type={task.verificationStatus === 'failed' ? 'danger' : 'secondary'}>{[task.verificationResult.summary, ...task.verificationResult.differences].filter(Boolean).join('；')}{task.verificationAttempts ? `（校验 ${task.verificationAttempts} 次）` : ''}</Text>}{task.verificationStatus === 'failed' && !task.acceptedVerificationRisk && <Space><Button size="small" icon={<ReloadOutlined />} onClick={() => retry(task.id)}>重新生成</Button><Button size="small" onClick={() => setTasks((current) => current.map((item) => item.id === task.id ? { ...item, acceptedVerificationRisk: true } : item))}>人工确认可用</Button></Space>}{task.acceptedVerificationRisk && <Tag color="warning">已人工接受风险</Tag>}</Flex>}</Card>))}</div></Image.PreviewGroup> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="完成上传并开始替换后，结果会显示在这里" />}
       </section>
+      <Modal width={1000} open={Boolean(inpaintEditorTaskId && inpaintEditorTask?.resultUrl)} title="生成结果局部重绘" destroyOnHidden onCancel={() => setInpaintEditorTaskId(undefined)} footer={<Space><Button onClick={() => setInpaintEditorTaskId(undefined)}>关闭窗口</Button><Button type="primary" icon={<HighlightOutlined />} loading={inpaintEditorTask?.inpaintStatus === 'running'} disabled={!inpaintMask || inpaintEditorTask?.inpaintStatus === 'running'} onClick={() => void runResultInpaint()}>开始重绘</Button></Space>}>
+        {inpaintEditorTask?.inpaintStatus === 'running' && <Alert style={{ marginBottom: 16 }} type="info" showIcon title="局部重绘正在后台处理" description="可以关闭此窗口，完成后会自动替换原生成图片。" />}
+        {inpaintEditorTask?.resultUrl && <MaskCanvas imageUrl={inpaintEditorTask.resultUrl} onChange={setInpaintMask} />}
+        <Form.Item label="局部重绘提示词" style={{ marginTop: 16 }}><Input.TextArea value={inpaintPrompt} autoSize={{ minRows: 3, maxRows: 6 }} placeholder={DEFAULT_LOGO_RESULT_INPAINT_PROMPT} onChange={(event) => setInpaintPrompt(event.target.value)} /></Form.Item>
+      </Modal>
       <Alert type="warning" showIcon title="生成式替换提示" description="模型会尽量保持其他区域不变，但生成式图片接口不能保证像素级完全一致；旧 Logo 参考图有助于提高识别准确率。" />
       {!settingsHost && <aside className="logo-settings">{settingsPanel}</aside>}
       {settingsHost && createPortal(settingsPanel, settingsHost)}
@@ -783,7 +852,6 @@ function LogoReplaceSingleComposer({
     </div>
   );
 }
-
 export default function LogoReplaceComposer(props: LogoReplaceComposerProps) {
   const initialModes = readLocalStorage<LogoReplaceSettings>(STORAGE_KEYS.logoReplaceSettings, DEFAULT_LOGO_REPLACE_SETTINGS as LogoReplaceSettings);
   const [multiEnabled, setMultiEnabled] = useState(props.initialMultiLogoModeEnabled ?? Boolean(initialModes.multiLogoModeEnabled));
