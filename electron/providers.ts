@@ -2,6 +2,7 @@ import { GoogleGenAI } from '@google/genai';
 import { readFile } from 'node:fs/promises';
 import { basename, extname } from 'node:path';
 import type { LogoRemovalAnalysis, LogoRemovalSettings, LogoRemovalVerification, LogoReplaceSettings, SceneLogoStyle, SceneReplaceSettings } from '../src/types';
+import { describeLogoRemovalScopes } from '../src/services/logoRemovalScope';
 import { buildSceneReplacementPrompt } from '../src/services/sceneReplacementPrompt';
 
 export interface ProviderSecrets { gemini?: string; openAi?: string }
@@ -181,24 +182,18 @@ function removalProvider(settings: LogoRemovalSettings, phase: 'analysis' | 'ver
   return { provider: settings.verificationProvider, model: settings.verificationProvider === 'openai' ? settings.openAiVerificationModel : settings.verificationModel } as const;
 }
 
-function removalScopeText(scope: LogoRemovalSettings['scope']) {
-  if (scope === 'cup-and-bottom') return '只识别杯身表面和杯底的 Logo';
-  if (scope === 'all-product-carriers') return '识别杯、瓶、礼盒及配件等全部产品载体上的 Logo';
-  return '只识别杯身表面的 Logo，杯底、礼盒、背景及其他载体不属于目标';
-}
-
 export async function analyzeLogoRemoval(options: { sourcePath: string; settings: LogoRemovalSettings; secrets: ProviderSecrets; apiBaseUrl?: string | null; signal: AbortSignal }): Promise<LogoRemovalAnalysis> {
   const route = removalProvider(options.settings, 'analysis');
   const apiKey = route.provider === 'openai' ? options.secrets.openAi : options.secrets.gemini;
   if (!apiKey) throw new Error(`未配置 ${route.provider === 'openai' ? 'OpenAI' : 'Gemini'} API Key`);
-  const text = await requestJson({ provider: route.provider, apiKey, apiBaseUrl: options.apiBaseUrl, model: route.model, imagePaths: [options.sourcePath], signal: options.signal, prompt: `分析输入商品图，${removalScopeText(options.settings.scope)}。目标仅限载体表面的印刷、雕刻、蚀刻或贴附 Logo。不要把商品说明、尺寸标注、排版文字、背景装饰、人物、手势或未选中载体上的标识当作目标。输出严格 JSON：{"action":"remove|skip_no_target","summary":"摘要","reason":"原因","targets":[{"id":"target-1","carrier":"载体","markType":"工艺","occlusion":"遮挡关系","left":0,"top":0,"right":1,"bottom":1,"description":"位置说明"}],"preserve":["必须保护的元素"]}。坐标为 0 到 1。没有目标时必须 action=skip_no_target 且 targets=[]。` });
+  const text = await requestJson({ provider: route.provider, apiKey, apiBaseUrl: options.apiBaseUrl, model: route.model, imagePaths: [options.sourcePath], signal: options.signal, prompt: `分析输入商品图。当前勾选范围的并集为：${describeLogoRemovalScopes(options.settings)}。目标仅限这些选定载体或区域表面的印刷、雕刻、蚀刻、烙印或贴附 Logo，未勾选载体不属于目标。不要把商品说明、尺寸标注、排版文字、背景装饰、人物、手势、木纹或未选中载体上的标识当作目标。输出严格 JSON：{"action":"remove|skip_no_target","summary":"摘要","reason":"原因","targets":[{"id":"target-1","carrier":"载体","markType":"工艺","occlusion":"遮挡关系","left":0,"top":0,"right":1,"bottom":1,"description":"位置说明"}],"preserve":["必须保护的元素"]}。坐标为 0 到 1。没有目标时必须 action=skip_no_target 且 targets=[]。` });
   const parsed = extractJson<LogoRemovalAnalysis>(text);
   return { action: parsed.action === 'remove' && parsed.targets?.length ? 'remove' : 'skip_no_target', summary: parsed.summary || '', reason: parsed.reason || '', targets: parsed.targets || [], preserve: parsed.preserve || [] };
 }
 
 function removalGenerationPrompt(settings: LogoRemovalSettings, analysis: LogoRemovalAnalysis, feedback = '') {
   const targets = analysis.targets.map((target, index) => `${index + 1}. ${target.carrier}上的${target.markType} Logo，区域 left=${target.left}, top=${target.top}, right=${target.right}, bottom=${target.bottom}；${target.description}`).join('\n');
-  return `${settings.prompt}\n只编辑以下已分析目标区域：\n${targets}\n必须保护：${analysis.preserve.join('、') || '除目标 Logo 外的全部内容'}。移除后自然重建目标下方原有玻璃透明度、折射、反射、液体颜色、杯体曲率和材质纹理。构图、产品位置、人物、手势、礼盒、商品说明、尺寸标注、排版文字和背景元素保持原样。不得去除选定范围之外的标识，不得新增任何文字或图形。${feedback ? `\n上一轮校验反馈，必须修复：${feedback}` : ''}`;
+  return `${settings.prompt}\n当前去除范围（所有勾选项的并集）：${describeLogoRemovalScopes(settings)}。\n只编辑以下已分析目标区域：\n${targets}\n必须保护：${analysis.preserve.join('、') || '除目标 Logo 外的全部内容'}。移除后自然重建目标下方原有玻璃、木材或其他载体的透明度、折射、反射、颜色、曲率和材质纹理。构图、产品位置、人物、手势、礼盒或木盒结构、商品说明、尺寸标注、排版文字和背景元素保持原样。不得去除选定范围之外的标识，不得新增任何文字或图形。${feedback ? `\n上一轮校验反馈，必须修复：${feedback}` : ''}`;
 }
 
 export async function generateLogoRemovalDesktop(options: { sourcePath: string; analysis: LogoRemovalAnalysis; settings: LogoRemovalSettings; secrets: ProviderSecrets; apiBaseUrl?: string | null; signal: AbortSignal; feedback?: string }): Promise<GeneratedBuffer> {

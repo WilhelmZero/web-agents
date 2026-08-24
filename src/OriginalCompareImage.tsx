@@ -12,7 +12,7 @@ export default function OriginalCompareImage({ originalSrc, originalAlt = '原�
   if (!originalSrc) return <Image {...imageProps} />;
   return <Image {...imageProps} preview={{
     onOpenChange: (open) => { if (!open) setShowOriginal(false); },
-    actionsRender: (originalNode) => <>{originalNode}<Tooltip title={showOriginal ? '查看生成图' : '查看原图'}><button type="button" className={showOriginal ? 'scene-preview-compare-action is-active' : 'scene-preview-compare-action'} onClick={() => setShowOriginal((current) => !current)}><EyeOutlined /></button></Tooltip></>,
+    actionsRender: (originalNode) => <>{originalNode}<Tooltip title={showOriginal ? '查看生成图' : '查看原图'}><button type="button" aria-label={showOriginal ? '查看生成图' : '查看原图'} className={showOriginal ? 'scene-preview-compare-action is-active' : 'scene-preview-compare-action'} onClick={(event) => { event.stopPropagation(); setShowOriginal((current) => !current); }}><EyeOutlined /></button></Tooltip></>,
     imageRender: (originalNode) => showOriginal ? cloneElement(originalNode as ReactElement<{ src?: string; alt?: string }>, { src: originalSrc, alt: originalAlt }) : originalNode,
   }} />;
 }

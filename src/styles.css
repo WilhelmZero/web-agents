@@ -662,6 +662,7 @@ button, input, textarea { font: inherit; }
 .logo-removal-result-folder-empty .ant-typography { font-size: 13px; }
 .logo-removal-control-card { border-radius: 16px; }
 .logo-removal-stage-progress { margin: 8px 0 16px; }
+.logo-removal-scope-grid { display: grid; grid-template-columns: 1fr; gap: 9px; }
 
 .logo-removal-timing-grid {
   display: grid;
@@ -702,7 +703,8 @@ button, input, textarea { font: inherit; }
 .logo-removal-result-button img,
 .logo-removal-result-placeholder { display: block; width: 100%; height: 220px; object-fit: contain; background: #eef0f4; }
 .logo-removal-result-button span { position: absolute; right: 8px; bottom: 8px; padding: 5px 9px; border-radius: 999px; color: #fff; background: rgba(0,0,0,.62); font-size: 12px; }
-.logo-removal-preview-stage { min-height: 360px; border-radius: 12px; overflow: hidden; background: #111827; }
+.logo-removal-result-image .ant-image { display: block; width: 100%; }
+.logo-removal-result-image img { display: block; width: 100%; height: 220px; object-fit: contain; background: #eef0f4; }
 
 @media (max-width: 900px) {
   .logo-removal-hero { align-items: flex-start; flex-direction: column; }

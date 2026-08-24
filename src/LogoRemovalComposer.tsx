@@ -3,7 +3,7 @@ import {
   PlayCircleOutlined, PlusOutlined, ReloadOutlined, StopOutlined,
 } from '@ant-design/icons';
 import {
-  Alert, App, Button, Card, Col, Divider, Empty, Flex, Form, Image, Input, InputNumber, Modal, Popconfirm,
+  Alert, App, Button, Card, Checkbox, Col, Divider, Empty, Flex, Form, Image, Input, InputNumber, Modal, Popconfirm,
   Progress, Row, Segmented, Select, Space, Statistic, Switch, Tag, Timeline, Typography, Upload,
 } from 'antd';
 import JSZip from 'jszip';
@@ -17,6 +17,7 @@ import {
   DEFAULT_LOGO_REMOVAL_PROMPT, analyzeLogoRemovalTarget, buildLogoRemovalGenerationPrompt, generateLogoRemoval,
   verifyLogoRemoval,
 } from './services/logoRemoval';
+import { normalizeLogoRemovalScopeConfig } from './services/logoRemovalScope';
 import {
   putLogoRemovalResult, readLatestLogoRemovalDraft, readLogoRemovalResult,
   saveLogoRemovalDraft,
@@ -32,7 +33,7 @@ interface FolderGroup { id: string; name: string; path: string; files: File[] }
 interface StoredDraft { groups: FolderGroup[]; tasks: LogoRemovalTask[]; settings: LogoRemovalSettings; startedAt?: number; endedAt?: number }
 
 const DEFAULT_SETTINGS: LogoRemovalSettings = {
-  scope: 'cup-body', analysisProvider: 'gemini', analysisModel: 'gemini-3.1-flash-lite', openAiAnalysisModel: 'gpt-5.6-luna',
+  scopes: ['cup-body'], customScope: '', analysisProvider: 'gemini', analysisModel: 'gemini-3.1-flash-lite', openAiAnalysisModel: 'gpt-5.6-luna',
   imageProvider: 'gemini', imageModel: 'gemini-3.1-flash-image', openAiImageModel: 'gpt-image-2', imageSize: '1K',
   verificationEnabled: true, verificationProvider: 'gemini', verificationModel: 'gemini-3.1-flash-lite', openAiVerificationModel: 'gpt-5.6-luna',
   prompt: DEFAULT_LOGO_REMOVAL_PROMPT, concurrency: 2, copiesPerImage: 1, verificationRetries: 2,
@@ -42,7 +43,7 @@ const DEFAULT_SETTINGS: LogoRemovalSettings = {
 function loadSettings() {
   try {
     const stored = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
-    return { ...DEFAULT_SETTINGS, ...stored, imageProvider: 'gemini' } as LogoRemovalSettings;
+    return { ...DEFAULT_SETTINGS, ...stored, ...normalizeLogoRemovalScopeConfig(stored), imageProvider: 'gemini' } as LogoRemovalSettings;
   }
   catch { return DEFAULT_SETTINGS; }
 }
@@ -113,14 +114,17 @@ const FolderImageManager = memo(function FolderImageManager({ group, running, on
   </Modal>;
 });
 
-function TaskResultImage({ resultKey, original, onOpen }: { resultKey?: string; original: File; onOpen: () => void }) {
+function TaskResultImage({ resultKey, original }: { resultKey?: string; original: File }) {
   const [src, setSrc] = useState('');
+  const [originalSrc, setOriginalSrc] = useState('');
   useEffect(() => {
     let active = true; let url = '';
+    const sourceUrl = URL.createObjectURL(original);
+    setOriginalSrc(sourceUrl); setSrc('');
     if (resultKey) void readLogoRemovalResult(resultKey).then((value) => { if (!active || !value) return; url = URL.createObjectURL(value.blob); setSrc(url); });
-    return () => { active = false; if (url) URL.revokeObjectURL(url); };
-  }, [resultKey]);
-  return src ? <button type="button" className="logo-removal-result-button" onClick={onOpen}><img src={src} alt="去除 Logo 结果" loading="lazy" /><span><EyeOutlined /> 查看与对比</span></button> : <LazyFileImage file={original} className="logo-removal-result-placeholder" />;
+    return () => { active = false; URL.revokeObjectURL(sourceUrl); if (url) URL.revokeObjectURL(url); };
+  }, [original, resultKey]);
+  return src ? <div className="logo-removal-result-image"><OriginalCompareImage src={src} originalSrc={originalSrc} originalAlt={`${original.name} 原图`} alt={`${original.name} 去除 Logo 结果`} /></div> : <LazyFileImage file={original} className="logo-removal-result-placeholder" />;
 }
 
 function ResultFolderCover({ resultKey, onOpen }: { resultKey?: string; onOpen: () => void }) {
@@ -134,31 +138,6 @@ function ResultFolderCover({ resultKey, onOpen }: { resultKey?: string; onOpen: 
   return src ? <button type="button" className="logo-removal-result-button" onClick={onOpen}><img src={src} alt="文件夹首张去除 Logo 结果" loading="lazy" /></button> : <div className="logo-removal-result-folder-empty"><FolderOpenOutlined /><Text type="secondary">等待生成结果</Text></div>;
 }
 
-function ResultPreview({ open, tasks, files, initialIndex, onClose }: { open: boolean; tasks: LogoRemovalTask[]; files: Map<string, File>; initialIndex: number; onClose: () => void }) {
-  const [index, setIndex] = useState(initialIndex);
-  const [generatedUrl, setGeneratedUrl] = useState('');
-  const [originalUrl, setOriginalUrl] = useState('');
-  useEffect(() => { if (open) setIndex(initialIndex); }, [initialIndex, open]);
-  const task = tasks[index]; const original = task ? files.get(task.sourceRelativePath) : undefined;
-  useEffect(() => {
-    if (!open || !task || !original) return;
-    const sourceUrl = URL.createObjectURL(original); setOriginalUrl(sourceUrl); let resultUrl = ''; let active = true;
-    if (task.resultKey) void readLogoRemovalResult(task.resultKey).then((value) => { if (!active || !value) return; resultUrl = URL.createObjectURL(value.blob); setGeneratedUrl(resultUrl); });
-    return () => { active = false; URL.revokeObjectURL(sourceUrl); if (resultUrl) URL.revokeObjectURL(resultUrl); setGeneratedUrl(''); setOriginalUrl(''); };
-  }, [open, original, task]);
-  return <Modal width="min(1100px, 94vw)" open={open} onCancel={onClose} footer={null} title={task?.sourceName || '结果预览'} destroyOnHidden>
-    {task && generatedUrl ? <>
-      <Flex justify="space-between" align="center" style={{ marginBottom: 12 }}>
-        <Button disabled={index <= 0} onClick={() => setIndex((value) => value - 1)}>上一张</Button>
-        <Space><Tag>{index + 1}/{tasks.length}</Tag>{task.status === 'skipped' && <Tag color="gold">无需处理</Tag>}{task.markedUsable && <Tag color="green">已标记可用</Tag>}</Space>
-        <Button disabled={index >= tasks.length - 1} onClick={() => setIndex((value) => value + 1)}>下一张</Button>
-      </Flex>
-      <div className="logo-removal-preview-stage"><OriginalCompareImage src={generatedUrl} originalSrc={originalUrl} alt={task.sourceName} /></div>
-      <Row gutter={16} style={{ marginTop: 16 }}><Col span={12}><Text strong>原图</Text><Image src={originalUrl} /></Col><Col span={12}><Text strong>生成图</Text><Image src={generatedUrl} /></Col></Row>
-    </> : <Empty description="正在读取缓存图片" />}
-  </Modal>;
-}
-
 export default function LogoRemovalComposer(props: { apiKey: string; openAiApiKey: string; apiBaseUrl?: string | null; connectionMode: 'direct' | 'proxy'; onRequestKey: () => void; settingsHost?: HTMLElement | null }) {
   const { message } = App.useApp();
   const [settings, setSettings] = useState(loadSettings);
@@ -167,7 +146,6 @@ export default function LogoRemovalComposer(props: { apiKey: string; openAiApiKe
   const [sessionId, setSessionId] = useState<string>(() => crypto.randomUUID());
   const [running, setRunning] = useState(false); const [paused, setPaused] = useState(false);
   const [startedAt, setStartedAt] = useState<number>(); const [endedAt, setEndedAt] = useState<number>();
-  const [previewIndex, setPreviewIndex] = useState(-1);
   const [timelineTaskId, setTimelineTaskId] = useState<string>();
   const [manageGroupId, setManageGroupId] = useState<string>();
   const [activeResultGroupId, setActiveResultGroupId] = useState<string>();
@@ -175,7 +153,6 @@ export default function LogoRemovalComposer(props: { apiKey: string; openAiApiKe
   const analysisPromises = useRef(new Map<string, Promise<LogoRemovalAnalysis>>());
   const filesByPath = useMemo(() => new Map(groups.flatMap((group) => group.files.map((file) => [groupFilePath(group, file), file] as const))), [groups]);
   const resultTasks = useMemo(() => tasks.filter((task) => task.resultKey), [tasks]);
-  const resultIndexById = useMemo(() => new Map(resultTasks.map((task, index) => [task.id, index])), [resultTasks]);
   const managedGroup = useMemo(() => groups.find((group) => group.id === manageGroupId), [groups, manageGroupId]);
   const resultGroups = useMemo(() => {
     const tasksByGroup = new Map<string, LogoRemovalTask[]>();
@@ -300,6 +277,8 @@ export default function LogoRemovalComposer(props: { apiKey: string; openAiApiKe
 
   const start = useCallback(async () => {
     if (!groups.length) return void message.warning('请先选择包含图片的文件夹');
+    if (!settings.scopes.length) return void message.warning('请至少勾选一个去除范围');
+    if (settings.scopes.includes('other') && !settings.customScope.trim()) return void message.warning('请填写其他去除范围');
     const providerNeeds = [settings.analysisProvider, settings.imageProvider, ...(settings.verificationEnabled ? [settings.verificationProvider] : [])];
     if (providerNeeds.includes('gemini') && !props.apiKey || providerNeeds.includes('openai') && !props.openAiApiKey) return props.onRequestKey();
     if (isElectronDesktop()) {
@@ -322,7 +301,7 @@ export default function LogoRemovalComposer(props: { apiKey: string; openAiApiKe
     downloadBlob(await zip.generateAsync({ type: 'blob' }), groupId ? `${sanitizeFileName(groups.find((item) => item.id === groupId)?.name || '本组')}_去除Logo.zip` : '全部去除Logo结果.zip');
   };
 
-  const restore = async () => { const draft = await readLatestLogoRemovalDraft<StoredDraft>(); if (!draft) return void message.info('没有找到可恢复的缓存任务'); setSessionId(draft.sessionId); setGroups(draft.value.groups || []); setTasks(draft.value.tasks || []); setSettings({ ...DEFAULT_SETTINGS, ...draft.value.settings, imageProvider: 'gemini' }); setStartedAt(draft.value.startedAt); setEndedAt(draft.value.endedAt); message.success('已恢复最近一次缓存任务'); };
+  const restore = async () => { const draft = await readLatestLogoRemovalDraft<StoredDraft>(); if (!draft) return void message.info('没有找到可恢复的缓存任务'); setSessionId(draft.sessionId); setGroups(draft.value.groups || []); setTasks(draft.value.tasks || []); setSettings({ ...DEFAULT_SETTINGS, ...draft.value.settings, ...normalizeLogoRemovalScopeConfig(draft.value.settings), imageProvider: 'gemini' }); setStartedAt(draft.value.startedAt); setEndedAt(draft.value.endedAt); message.success('已恢复最近一次缓存任务'); };
 
   const stats = useMemo(() => ({
     total: tasks.length,
@@ -338,7 +317,16 @@ export default function LogoRemovalComposer(props: { apiKey: string; openAiApiKe
   }), [tasks]);
   const settingsPanel = <div className="settings-panel"><Flex justify="space-between" align="center"><Title level={4} style={{ margin: 0 }}>去除设置</Title><Tag color="purple">本地缓存</Tag></Flex><Divider />
     <Form layout="vertical">
-      <Form.Item label="去除范围"><Select value={settings.scope} onChange={(scope) => setSettings((value) => ({ ...value, scope }))} options={[{ value: 'cup-body', label: '仅杯体表面（默认）' }, { value: 'cup-and-bottom', label: '杯体表面和杯底' }, { value: 'all-product-carriers', label: '所有产品载体' }]} /></Form.Item>
+      <Form.Item label={<Space>去除范围 <Tag>可多选</Tag></Space>}>
+        <Checkbox.Group className="logo-removal-scope-grid" value={settings.scopes} onChange={(scopes) => setSettings((value) => ({ ...value, scopes: scopes as LogoRemovalSettings['scopes'] }))} options={[
+          { value: 'cup-body', label: '仅杯体表面（默认）' },
+          { value: 'cup-and-bottom', label: '杯体表面和杯底' },
+          { value: 'all-product-carriers', label: '所有产品载体' },
+          { value: 'wooden-box', label: '木盒 Logo' },
+          { value: 'other', label: '其他' },
+        ]} />
+        {settings.scopes.includes('other') ? <Input.TextArea rows={2} maxLength={200} showCount value={settings.customScope} onChange={(event) => setSettings((value) => ({ ...value, customScope: event.target.value }))} placeholder="填写需要去除 Logo 的载体或区域，例如：皮革收纳盒正面" style={{ marginTop: 10 }} /> : null}
+      </Form.Item>
       <Form.Item label="分析模型"><Space.Compact block><Select style={{ width: 100 }} value={settings.analysisProvider} onChange={(analysisProvider) => setSettings((value) => ({ ...value, analysisProvider }))} options={[{ value: 'gemini', label: 'Gemini' }, { value: 'openai', label: 'GPT' }]} /><Select style={{ width: '100%' }} value={settings.analysisProvider === 'openai' ? settings.openAiAnalysisModel : settings.analysisModel} onChange={(model: string) => setSettings((value) => settings.analysisProvider === 'openai' ? { ...value, openAiAnalysisModel: model as LogoRemovalSettings['openAiAnalysisModel'] } : { ...value, analysisModel: model as OptimizerModel })} options={(settings.analysisProvider === 'openai' ? ['gpt-5.6-luna', 'gpt-5.6-terra', 'gpt-5.6-sol'] : ['gemini-3.1-flash-lite', 'gemini-3.1-flash', 'gemini-2.5-flash']).map((value) => ({ value, label: value }))} /></Space.Compact></Form.Item>
       <Form.Item label="图片模型（Banana）"><Select value={settings.imageModel} onChange={(imageModel: ImageModel) => setSettings((value) => ({ ...value, imageProvider: 'gemini', imageModel, imageSize: MODEL_CAPABILITIES[imageModel].imageSizes.includes(value.imageSize) ? value.imageSize : MODEL_CAPABILITIES[imageModel].imageSizes[0] }))} options={Object.entries(MODEL_CAPABILITIES).map(([value, capability]) => ({ value, label: capability.label }))} /></Form.Item>
       <Form.Item label="输出清晰度"><Segmented block value={settings.imageSize} onChange={(imageSize) => setSettings((value) => ({ ...value, imageSize: imageSize as ImageSize }))} options={MODEL_CAPABILITIES[settings.imageModel].imageSizes} /></Form.Item>
@@ -378,15 +366,14 @@ export default function LogoRemovalComposer(props: { apiKey: string; openAiApiKe
       })}</div>
     </Card> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="导入文件夹后开始处理" />}
     <FolderImageManager group={managedGroup} running={running} onClose={() => setManageGroupId(undefined)} onAdd={addFilesToGroup} onRemove={removeFileFromGroup} />
-    <Modal width="min(1200px, 96vw)" open={Boolean(activeResultGroup)} onCancel={() => { setActiveResultGroupId(undefined); setPreviewIndex(-1); }} footer={null} title={activeResultGroup ? <Space><FolderOpenOutlined /> {activeResultGroup.group.name}<Tag>{activeResultGroup.tasks.filter((task) => task.resultKey).length} 张生成图</Tag></Space> : '文件夹结果'} destroyOnHidden>
-      {activeResultGroup ? <div className="logo-removal-task-grid">{activeResultGroup.tasks.map((task) => { const file = filesByPath.get(task.sourceRelativePath); const resultIndex = resultIndexById.get(task.id) ?? -1; return <Card key={task.id} size="small" className={`logo-removal-task-card status-${task.status}`} cover={file ? <TaskResultImage resultKey={task.resultKey} original={file} onOpen={() => resultIndex >= 0 && setPreviewIndex(resultIndex)} /> : undefined} actions={[
+    <Modal width="min(1200px, 96vw)" open={Boolean(activeResultGroup)} onCancel={() => setActiveResultGroupId(undefined)} footer={null} title={activeResultGroup ? <Space><FolderOpenOutlined /> {activeResultGroup.group.name}<Tag>{activeResultGroup.tasks.filter((task) => task.resultKey).length} 张生成图</Tag></Space> : '文件夹结果'} destroyOnHidden>
+      {activeResultGroup ? <Image.PreviewGroup><div className="logo-removal-task-grid">{activeResultGroup.tasks.map((task) => { const file = filesByPath.get(task.sourceRelativePath); return <Card key={task.id} size="small" className={`logo-removal-task-card status-${task.status}`} cover={file ? <TaskResultImage resultKey={task.resultKey} original={file} /> : undefined} actions={[
         <Button type="text" icon={<ReloadOutlined />} disabled={!['failed', 'stopped'].includes(task.status)} onClick={() => retryTask(task.id)}>重试</Button>,
         <Button type="text" danger icon={<StopOutlined />} disabled={!['waiting', 'retry_wait', 'analyzing', 'running', 'verifying'].includes(task.status)} onClick={() => stopTask(task.id)}>终止</Button>,
         <Button type="text" icon={<DownloadOutlined />} disabled={!task.resultKey} onClick={() => void downloadTask(task)}>下载</Button>,
         <Button type="text" disabled={!task.attempts.length} onClick={() => setTimelineTaskId(task.id)}>时间线</Button>,
-      ]}><Flex justify="space-between"><Text strong ellipsis={{ tooltip: task.sourceName }}>{task.sourceName}</Text><Tag color={task.status === 'success' ? 'green' : task.status === 'skipped' ? 'gold' : task.status === 'failed' ? 'red' : ['running', 'analyzing', 'verifying'].includes(task.status) ? 'processing' : 'default'}>{task.stage}</Tag></Flex>{task.analysis && <Paragraph ellipsis={{ rows: 2, expandable: true }}>{task.analysis.summary || task.analysis.reason}</Paragraph>}{task.error && <Alert type="error" title={task.error} showIcon />}{task.resultKey && <Flex justify="space-between" style={{ marginTop: 8 }}><Button size="small" type={task.markedUsable ? 'primary' : 'default'} icon={<CheckCircleOutlined />} onClick={() => patchTask(task.id, { markedUsable: !task.markedUsable })}>标记可用</Button><Text type="secondary">{task.attempts.length} 次尝试</Text></Flex>}</Card>; })}</div> : null}
+      ]}><Flex justify="space-between"><Text strong ellipsis={{ tooltip: task.sourceName }}>{task.sourceName}</Text><Tag color={task.status === 'success' ? 'green' : task.status === 'skipped' ? 'gold' : task.status === 'failed' ? 'red' : ['running', 'analyzing', 'verifying'].includes(task.status) ? 'processing' : 'default'}>{task.stage}</Tag></Flex>{task.analysis && <Paragraph ellipsis={{ rows: 2, expandable: true }}>{task.analysis.summary || task.analysis.reason}</Paragraph>}{task.error && <Alert type="error" title={task.error} showIcon />}{task.resultKey && <Flex justify="space-between" style={{ marginTop: 8 }}><Button size="small" type={task.markedUsable ? 'primary' : 'default'} icon={<CheckCircleOutlined />} onClick={() => patchTask(task.id, { markedUsable: !task.markedUsable })}>标记可用</Button><Text type="secondary">{task.attempts.length} 次尝试</Text></Flex>}</Card>; })}</div></Image.PreviewGroup> : null}
     </Modal>
-    <ResultPreview open={previewIndex >= 0} tasks={resultTasks} files={filesByPath} initialIndex={Math.max(0, previewIndex)} onClose={() => setPreviewIndex(-1)} />
     <Modal width="min(860px, 94vw)" open={Boolean(timelineTaskId)} onCancel={() => setTimelineTaskId(undefined)} footer={null} title="生成尝试时间线" destroyOnHidden>
       {(() => {
         const task = tasks.find((item) => item.id === timelineTaskId);

@@ -3,7 +3,7 @@ import type { LogoRemovalAnalysis, LogoRemovalSettings } from '../types';
 import { DEFAULT_LOGO_REMOVAL_PROMPT, buildLogoRemovalAnalysisPrompt, buildLogoRemovalGenerationPrompt } from './logoRemoval';
 
 const settings: LogoRemovalSettings = {
-  scope: 'cup-body', analysisProvider: 'gemini', analysisModel: 'gemini-3.1-flash-lite', openAiAnalysisModel: 'gpt-5.6-luna',
+  scopes: ['cup-body'], customScope: '', analysisProvider: 'gemini', analysisModel: 'gemini-3.1-flash-lite', openAiAnalysisModel: 'gpt-5.6-luna',
   imageProvider: 'gemini', imageModel: 'gemini-3.1-flash-image', openAiImageModel: 'gpt-image-2', imageSize: '1K',
   verificationEnabled: true, verificationProvider: 'gemini', verificationModel: 'gemini-3.1-flash-lite', openAiVerificationModel: 'gpt-5.6-luna',
   prompt: DEFAULT_LOGO_REMOVAL_PROMPT, concurrency: 2, copiesPerImage: 1, verificationRetries: 2,
@@ -20,7 +20,7 @@ describe('logo removal prompts', () => {
   it('limits the default analysis to cup body and protects layout text', () => {
     const prompt = buildLogoRemovalAnalysisPrompt('cup-body');
     expect(prompt).toContain('杯身外侧表面');
-    expect(prompt).toContain('杯底、瓶体、礼盒和配件上的标识不属于目标');
+    expect(prompt).toContain('未列入勾选范围的载体不属于目标');
     expect(prompt).toContain('商品说明、尺寸箭头和数字');
     expect(prompt).toContain('skip_no_target');
   });
@@ -38,5 +38,20 @@ describe('logo removal prompts', () => {
     expect(buildLogoRemovalAnalysisPrompt('cup-and-bottom')).toContain('杯底');
     expect(buildLogoRemovalAnalysisPrompt('all-product-carriers')).toContain('礼盒');
     expect(buildLogoRemovalAnalysisPrompt('all-product-carriers')).toContain('不得把商品说明');
+  });
+
+  it('combines multiple checked scopes including wooden boxes and a custom scope', () => {
+    const prompt = buildLogoRemovalAnalysisPrompt(['cup-body', 'wooden-box', 'other'], '皮革收纳盒正面');
+    expect(prompt).toContain('杯身外侧表面');
+    expect(prompt).toContain('木盒表面');
+    expect(prompt).toContain('皮革收纳盒正面');
+    expect(prompt).toContain('木纹或玻璃纹理误判为目标');
+  });
+
+  it('includes all selected scopes in the generation prompt', () => {
+    const prompt = buildLogoRemovalGenerationPrompt({ ...settings, scopes: ['wooden-box', 'other'], customScope: '皮革礼盒' }, analysis);
+    expect(prompt).toContain('所有勾选项的并集');
+    expect(prompt).toContain('木盒表面');
+    expect(prompt).toContain('皮革礼盒');
   });
 });

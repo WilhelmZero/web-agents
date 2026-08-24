@@ -14,11 +14,14 @@ export type TaskStatus = 'waiting' | 'running' | 'success' | 'failed' | 'stopped
 export type ImageSize = '0.5K' | '1K' | '2K' | '4K';
 export type CreationTool = 'workflow' | 'scene' | 'scene-replace' | 'scene-logo-replace' | 'scene-replace-tabs' | 'cup-resize' | 'logo' | 'logo-replace' | 'logo-replace-tabs' | 'logo-removal' | 'logo-export' | 'paper-text' | 'background-removal' | 'outpaint' | 'object-replace' | 'inpaint' | 'product-detail';
 
-export type LogoRemovalScope = 'cup-body' | 'cup-and-bottom' | 'all-product-carriers';
+export type LogoRemovalScope = 'cup-body' | 'cup-and-bottom' | 'all-product-carriers' | 'wooden-box' | 'other';
 export type AiProvider = 'gemini' | 'openai';
 
 export interface LogoRemovalSettings {
-  scope: LogoRemovalScope;
+  scopes: LogoRemovalScope[];
+  customScope: string;
+  /** Legacy persisted setting. Read only for migration. */
+  scope?: LogoRemovalScope;
   analysisProvider: AiProvider;
   analysisModel: OptimizerModel;
   openAiAnalysisModel: 'gpt-5.6-sol' | 'gpt-5.6-terra' | 'gpt-5.6-luna';
