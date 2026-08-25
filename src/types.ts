@@ -97,6 +97,9 @@ export interface LogoRemovalTask {
   resultKey?: string;
   resultMimeType?: string;
   markedUsable?: boolean;
+  inpaintStatus?: 'running' | 'success' | 'failed';
+  inpaintError?: string;
+  inpaintRevision?: number;
   retryCount: number;
   error?: string;
 }

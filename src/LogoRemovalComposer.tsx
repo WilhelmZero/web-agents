@@ -1,5 +1,5 @@
 import {
-  CheckCircleOutlined, DeleteOutlined, DownloadOutlined, EyeOutlined, FolderOpenOutlined, PauseCircleOutlined,
+  CheckCircleOutlined, DeleteOutlined, DownloadOutlined, EyeOutlined, FolderOpenOutlined, HighlightOutlined, PauseCircleOutlined,
   PlayCircleOutlined, PlusOutlined, ReloadOutlined, StopOutlined,
 } from '@ant-design/icons';
 import {
@@ -10,9 +10,14 @@ import JSZip from 'jszip';
 import { createPortal } from 'react-dom';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import OriginalCompareImage from './OriginalCompareImage';
+import { MaskCanvas } from './InpaintComposer';
 import { MODEL_CAPABILITIES } from './constants';
 import { desktopAssetFromFile, isElectronDesktop, submitDesktopJob } from './desktop/runtime';
 import { reportTaskProgress } from './services/taskProgress';
+import { generateInpaintImage } from './services/gemini';
+import { generateLogoResultInpaintOpenAi } from './services/logoReplaceOpenAi';
+import { DEFAULT_LOGO_RESULT_INPAINT_PROMPT, normalizeLogoResultInpaintPrompt } from './services/logoResultInpaint';
+import { imageDimensions, outputAspectRatio, resizeImageBlob } from './services/logoOutputSizing';
 import {
   DEFAULT_LOGO_REMOVAL_PROMPT, analyzeLogoRemovalTarget, buildLogoRemovalGenerationPrompt, generateLogoRemoval,
   verifyLogoRemoval,
@@ -114,27 +119,28 @@ const FolderImageManager = memo(function FolderImageManager({ group, running, on
   </Modal>;
 });
 
-function TaskResultImage({ resultKey, original }: { resultKey?: string; original: File }) {
+function TaskResultImage({ resultKey, original, revision = 0 }: { resultKey?: string; original: File; revision?: number }) {
   const [src, setSrc] = useState('');
   const [originalSrc, setOriginalSrc] = useState('');
+  const [showOriginal, setShowOriginal] = useState(false);
   useEffect(() => {
     let active = true; let url = '';
     const sourceUrl = URL.createObjectURL(original);
-    setOriginalSrc(sourceUrl); setSrc('');
+    setOriginalSrc(sourceUrl); setSrc(''); setShowOriginal(false);
     if (resultKey) void readLogoRemovalResult(resultKey).then((value) => { if (!active || !value) return; url = URL.createObjectURL(value.blob); setSrc(url); });
     return () => { active = false; URL.revokeObjectURL(sourceUrl); if (url) URL.revokeObjectURL(url); };
-  }, [original, resultKey]);
-  return src ? <div className="logo-removal-result-image"><OriginalCompareImage src={src} originalSrc={originalSrc} originalAlt={`${original.name} 原图`} alt={`${original.name} 去除 Logo 结果`} /></div> : <LazyFileImage file={original} className="logo-removal-result-placeholder" />;
+  }, [original, resultKey, revision]);
+  return src ? <div className="logo-removal-result-image">{showOriginal ? <Image src={originalSrc} preview={false} alt={`${original.name} 原图`} /> : <OriginalCompareImage src={src} originalSrc={originalSrc} originalAlt={`${original.name} 原图`} alt={`${original.name} 去除 Logo 结果`} />}<Button block size="small" icon={<EyeOutlined />} onClick={() => setShowOriginal((value) => !value)}>{showOriginal ? '查看生成图' : '原图对比'}</Button></div> : <LazyFileImage file={original} className="logo-removal-result-placeholder" />;
 }
 
-function ResultFolderCover({ resultKey, onOpen }: { resultKey?: string; onOpen: () => void }) {
+function ResultFolderCover({ resultKey, revision = 0, onOpen }: { resultKey?: string; revision?: number; onOpen: () => void }) {
   const [src, setSrc] = useState('');
   useEffect(() => {
     let active = true; let url = '';
     setSrc('');
     if (resultKey) void readLogoRemovalResult(resultKey).then((value) => { if (!active || !value) return; url = URL.createObjectURL(value.blob); setSrc(url); });
     return () => { active = false; if (url) URL.revokeObjectURL(url); };
-  }, [resultKey]);
+  }, [resultKey, revision]);
   return src ? <button type="button" className="logo-removal-result-button" onClick={onOpen}><img src={src} alt="文件夹首张去除 Logo 结果" loading="lazy" /></button> : <div className="logo-removal-result-folder-empty"><FolderOpenOutlined /><Text type="secondary">等待生成结果</Text></div>;
 }
 
@@ -149,7 +155,13 @@ export default function LogoRemovalComposer(props: { apiKey: string; openAiApiKe
   const [timelineTaskId, setTimelineTaskId] = useState<string>();
   const [manageGroupId, setManageGroupId] = useState<string>();
   const [activeResultGroupId, setActiveResultGroupId] = useState<string>();
+  const [inpaintEditorTaskId, setInpaintEditorTaskId] = useState<string>();
+  const [inpaintMask, setInpaintMask] = useState<Blob>();
+  const [inpaintPrompt, setInpaintPrompt] = useState(DEFAULT_LOGO_RESULT_INPAINT_PROMPT);
+  const [inpaintImageUrl, setInpaintImageUrl] = useState('');
   const runningIds = useRef(new Set<string>()); const controllers = useRef(new Map<string, AbortController>());
+  const inpaintControllers = useRef(new Map<string, AbortController>());
+  const tasksRef = useRef(tasks);
   const analysisPromises = useRef(new Map<string, Promise<LogoRemovalAnalysis>>());
   const filesByPath = useMemo(() => new Map(groups.flatMap((group) => group.files.map((file) => [groupFilePath(group, file), file] as const))), [groups]);
   const resultTasks = useMemo(() => tasks.filter((task) => task.resultKey), [tasks]);
@@ -167,8 +179,10 @@ export default function LogoRemovalComposer(props: { apiKey: string; openAiApiKe
     });
   }, [groups, tasks]);
   const activeResultGroup = useMemo(() => resultGroups.find((item) => item.group.id === activeResultGroupId), [activeResultGroupId, resultGroups]);
+  const inpaintEditorTask = tasks.find((task) => task.id === inpaintEditorTaskId);
 
   useEffect(() => { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }, [settings]);
+  useEffect(() => { tasksRef.current = tasks; }, [tasks]);
   useEffect(() => { if (groups.length || tasks.length) void saveLogoRemovalDraft<StoredDraft>(sessionId, { groups, tasks, settings, startedAt, endedAt }); }, [endedAt, groups, sessionId, settings, startedAt, tasks]);
   useEffect(() => { if (activeResultGroupId && !resultGroups.some((item) => item.group.id === activeResultGroupId)) setActiveResultGroupId(undefined); }, [activeResultGroupId, resultGroups]);
   useEffect(() => {
@@ -177,10 +191,53 @@ export default function LogoRemovalComposer(props: { apiKey: string; openAiApiKe
     reportTaskProgress({ id: 'logo-removal', label: '去除 Logo', total: tasks.length, completed, failed, running: runningIds.current.size > 0 });
     return () => reportTaskProgress({ id: 'logo-removal', label: '去除 Logo', total: 0, completed: 0, failed: 0, running: false });
   }, [tasks]);
+  useEffect(() => {
+    let active = true; let url = '';
+    setInpaintImageUrl(''); setInpaintMask(undefined);
+    if (inpaintEditorTask?.resultKey) void readLogoRemovalResult(inpaintEditorTask.resultKey).then((value) => {
+      if (!active || !value) return;
+      url = URL.createObjectURL(value.blob); setInpaintImageUrl(url);
+    });
+    return () => { active = false; if (url) URL.revokeObjectURL(url); };
+  }, [inpaintEditorTask?.inpaintRevision, inpaintEditorTask?.resultKey]);
+  useEffect(() => () => { inpaintControllers.current.forEach((controller) => controller.abort()); }, []);
 
   const patchTask = useCallback((id: string, patch: Partial<LogoRemovalTask> | ((task: LogoRemovalTask) => Partial<LogoRemovalTask>)) => {
     setTasks((current) => current.map((task) => task.id === id ? { ...task, ...(typeof patch === 'function' ? patch(task) : patch) } : task));
   }, []);
+
+  const openResultInpaint = (taskId: string) => {
+    setInpaintEditorTaskId(taskId); setInpaintMask(undefined); setInpaintPrompt(DEFAULT_LOGO_RESULT_INPAINT_PROMPT);
+  };
+  const runResultInpaint = async () => {
+    const taskId = inpaintEditorTaskId; const task = tasksRef.current.find((item) => item.id === taskId);
+    if (!taskId || !task?.resultKey) return;
+    if (!inpaintMask) return void message.warning('请先在图片上框选或涂抹修改区域');
+    if (settings.imageProvider === 'openai' ? !props.openAiApiKey : !props.apiKey) return props.onRequestKey();
+    if (settings.imageProvider === 'gemini' && props.connectionMode === 'proxy' && !props.apiBaseUrl) { message.warning('请先配置代理地址'); return props.onRequestKey(); }
+    if (inpaintControllers.current.has(taskId)) return;
+    const stored = await readLogoRemovalResult(task.resultKey); if (!stored) return void message.error('无法读取当前生成结果');
+    const controller = new AbortController(); const sourceBlob = stored.blob; const maskGuide = inpaintMask;
+    const sourceFile = new File([sourceBlob], `logo-removal-${taskId}.png`, { type: stored.mimeType || sourceBlob.type || 'image/png' });
+    inpaintControllers.current.set(taskId, controller); patchTask(taskId, { inpaintStatus: 'running', inpaintError: undefined });
+    try {
+      const dimensions = await imageDimensions(sourceFile);
+      const aspectRatio = outputAspectRatio('original', dimensions.width, dimensions.height, '1:1', dimensions.width, dimensions.height, MODEL_CAPABILITIES[settings.imageModel].aspectRatios);
+      const prompt = normalizeLogoResultInpaintPrompt(inpaintPrompt);
+      const generated = settings.imageProvider === 'openai'
+        ? await generateLogoResultInpaintOpenAi({ apiKey: props.openAiApiKey, model: settings.openAiImageModel, image: sourceFile, maskGuide, prompt, signal: controller.signal })
+        : await generateInpaintImage({ apiKey: props.apiKey, apiBaseUrl: props.apiBaseUrl, model: settings.imageModel, image: sourceFile, maskGuide, prompt, aspectRatio, imageSize: settings.imageSize, signal: controller.signal });
+      const resultBlob = await resizeImageBlob(generated.blob, dimensions.width, dimensions.height);
+      const latest = tasksRef.current.find((item) => item.id === taskId);
+      if (!latest || latest.resultKey !== task.resultKey) return void message.warning('原生成图已变化，本次局部重绘结果未覆盖');
+      await putLogoRemovalResult({ key: task.resultKey, sessionId, groupId: task.groupId, taskId, kind: 'result', blob: resultBlob, mimeType: resultBlob.type || generated.mimeType || 'image/png' });
+      patchTask(taskId, (current) => ({ inpaintStatus: 'success', inpaintError: undefined, inpaintRevision: (current.inpaintRevision || 0) + 1, resultMimeType: resultBlob.type || generated.mimeType || 'image/png', stage: '局部重绘完成' }));
+      message.success('局部重绘完成，已替换原生成图片');
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      const detail = error instanceof Error ? error.message : '局部重绘失败'; patchTask(taskId, { inpaintStatus: 'failed', inpaintError: detail }); message.error(detail);
+    } finally { inpaintControllers.current.delete(taskId); }
+  };
 
   const addFiles = useCallback((files: File[]) => {
     const incoming = groupLogoRemovalFiles(files);
@@ -291,7 +348,7 @@ export default function LogoRemovalComposer(props: { apiKey: string; openAiApiKe
   }, [createTasks, groups, message, props, settings]);
 
   const stopTask = (id: string) => { controllers.current.get(id)?.abort(); patchTask(id, { status: 'stopped', stage: '已停止' }); };
-  const stopAll = () => { setRunning(false); setEndedAt((value) => value || Date.now()); controllers.current.forEach((controller) => controller.abort()); setTasks((current) => current.map((task) => ['waiting', 'retry_wait', 'analyzing', 'running', 'verifying'].includes(task.status) ? { ...task, status: 'stopped', stage: '已停止' } : task)); };
+  const stopAll = () => { setRunning(false); setEndedAt((value) => value || Date.now()); controllers.current.forEach((controller) => controller.abort()); inpaintControllers.current.forEach((controller) => controller.abort()); inpaintControllers.current.clear(); setTasks((current) => current.map((task) => ({ ...task, ...(['waiting', 'retry_wait', 'analyzing', 'running', 'verifying'].includes(task.status) ? { status: 'stopped' as const, stage: '已停止' } : {}), ...(task.inpaintStatus === 'running' ? { inpaintStatus: 'failed' as const, inpaintError: '已停止局部重绘' } : {}) }))); };
   const retryTask = (id: string) => { patchTask(id, { status: 'waiting', stage: '等待重试', error: undefined }); setStartedAt((value) => value || Date.now()); setEndedAt(undefined); setRunning(true); setPaused(false); };
 
   const downloadTask = async (task: LogoRemovalTask) => { if (!task.resultKey) return; const value = await readLogoRemovalResult(task.resultKey); if (value) downloadBlob(value.blob, `${sanitizeFileName(task.sourceName)}${settings.copiesPerImage > 1 ? `_${task.copyIndex + 1}` : ''}_去除Logo.${mimeExtension(value.mimeType)}`); };
@@ -360,19 +417,24 @@ export default function LogoRemovalComposer(props: { apiKey: string; openAiApiKe
       <div className="logo-removal-result-folder-grid">{resultGroups.map(({ group, tasks: groupTasks }) => {
         const firstResult = groupTasks.find((task) => task.resultKey);
         const completed = groupTasks.filter((task) => task.resultKey).length;
-        return <Card hoverable key={group.id} size="small" className="logo-removal-result-folder-card" onClick={() => setActiveResultGroupId(group.id)} cover={<ResultFolderCover resultKey={firstResult?.resultKey} onOpen={() => setActiveResultGroupId(group.id)} />}>
+        return <Card hoverable key={group.id} size="small" className="logo-removal-result-folder-card" onClick={() => setActiveResultGroupId(group.id)} cover={<ResultFolderCover resultKey={firstResult?.resultKey} revision={firstResult?.inpaintRevision} onOpen={() => setActiveResultGroupId(group.id)} />}>
           <Card.Meta title={<Space><FolderOpenOutlined /> <Text strong ellipsis={{ tooltip: group.name }}>{group.name}</Text></Space>} description={<Flex justify="space-between" gap={8}><Text type="secondary" ellipsis={{ tooltip: group.path }}>{group.path}</Text><Tag color={completed ? 'blue' : 'default'}>{completed}/{groupTasks.length} 张</Tag></Flex>} />
         </Card>;
       })}</div>
     </Card> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="导入文件夹后开始处理" />}
     <FolderImageManager group={managedGroup} running={running} onClose={() => setManageGroupId(undefined)} onAdd={addFilesToGroup} onRemove={removeFileFromGroup} />
     <Modal width="min(1200px, 96vw)" open={Boolean(activeResultGroup)} onCancel={() => setActiveResultGroupId(undefined)} footer={null} title={activeResultGroup ? <Space><FolderOpenOutlined /> {activeResultGroup.group.name}<Tag>{activeResultGroup.tasks.filter((task) => task.resultKey).length} 张生成图</Tag></Space> : '文件夹结果'} destroyOnHidden>
-      {activeResultGroup ? <Image.PreviewGroup><div className="logo-removal-task-grid">{activeResultGroup.tasks.map((task) => { const file = filesByPath.get(task.sourceRelativePath); return <Card key={task.id} size="small" className={`logo-removal-task-card status-${task.status}`} cover={file ? <TaskResultImage resultKey={task.resultKey} original={file} /> : undefined} actions={[
+      {activeResultGroup ? <Image.PreviewGroup><div className="logo-removal-task-grid">{activeResultGroup.tasks.map((task) => { const file = filesByPath.get(task.sourceRelativePath); return <Card key={task.id} size="small" className={`logo-removal-task-card status-${task.status}`} cover={file ? <TaskResultImage resultKey={task.resultKey} original={file} revision={task.inpaintRevision} /> : undefined} actions={[
         <Button type="text" icon={<ReloadOutlined />} disabled={!['failed', 'stopped'].includes(task.status)} onClick={() => retryTask(task.id)}>重试</Button>,
         <Button type="text" danger icon={<StopOutlined />} disabled={!['waiting', 'retry_wait', 'analyzing', 'running', 'verifying'].includes(task.status)} onClick={() => stopTask(task.id)}>终止</Button>,
         <Button type="text" icon={<DownloadOutlined />} disabled={!task.resultKey} onClick={() => void downloadTask(task)}>下载</Button>,
         <Button type="text" disabled={!task.attempts.length} onClick={() => setTimelineTaskId(task.id)}>时间线</Button>,
-      ]}><Flex justify="space-between"><Text strong ellipsis={{ tooltip: task.sourceName }}>{task.sourceName}</Text><Tag color={task.status === 'success' ? 'green' : task.status === 'skipped' ? 'gold' : task.status === 'failed' ? 'red' : ['running', 'analyzing', 'verifying'].includes(task.status) ? 'processing' : 'default'}>{task.stage}</Tag></Flex>{task.analysis && <Paragraph ellipsis={{ rows: 2, expandable: true }}>{task.analysis.summary || task.analysis.reason}</Paragraph>}{task.error && <Alert type="error" title={task.error} showIcon />}{task.resultKey && <Flex justify="space-between" style={{ marginTop: 8 }}><Button size="small" type={task.markedUsable ? 'primary' : 'default'} icon={<CheckCircleOutlined />} onClick={() => patchTask(task.id, { markedUsable: !task.markedUsable })}>标记可用</Button><Text type="secondary">{task.attempts.length} 次尝试</Text></Flex>}</Card>; })}</div></Image.PreviewGroup> : null}
+      ]}><Flex justify="space-between"><Text strong ellipsis={{ tooltip: task.sourceName }}>{task.sourceName}</Text><Tag color={task.status === 'success' ? 'green' : task.status === 'skipped' ? 'gold' : task.status === 'failed' ? 'red' : ['running', 'analyzing', 'verifying'].includes(task.status) ? 'processing' : 'default'}>{task.stage}</Tag></Flex>{task.analysis && <Paragraph ellipsis={{ rows: 2, expandable: true }}>{task.analysis.summary || task.analysis.reason}</Paragraph>}{task.error && <Alert type="error" title={task.error} showIcon />}{task.inpaintError && <Alert type="error" title="局部重绘失败" description={task.inpaintError} showIcon />}{task.resultKey && <Flex justify="space-between" align="center" gap={8} wrap style={{ marginTop: 8 }}><Space wrap><Button size="small" icon={<HighlightOutlined />} loading={task.inpaintStatus === 'running'} onClick={() => openResultInpaint(task.id)}>{task.inpaintStatus === 'running' ? '局部重绘处理中' : '局部重绘'}</Button><Button size="small" type={task.markedUsable ? 'primary' : 'default'} icon={<CheckCircleOutlined />} onClick={() => patchTask(task.id, { markedUsable: !task.markedUsable })}>标记可用</Button></Space><Space size={4}>{!!task.inpaintRevision && <Tag color="purple">已重绘 {task.inpaintRevision} 次</Tag>}<Text type="secondary">{task.attempts.length} 次尝试</Text></Space></Flex>}</Card>; })}</div></Image.PreviewGroup> : null}
+    </Modal>
+    <Modal width="min(1000px, 96vw)" open={Boolean(inpaintEditorTask?.resultKey)} onCancel={() => setInpaintEditorTaskId(undefined)} title="Logo 去除结果局部重绘" destroyOnHidden footer={<Space><Button onClick={() => setInpaintEditorTaskId(undefined)}>关闭窗口</Button><Button type="primary" icon={<HighlightOutlined />} loading={inpaintEditorTask?.inpaintStatus === 'running'} disabled={!inpaintMask || inpaintEditorTask?.inpaintStatus === 'running'} onClick={() => void runResultInpaint()}>开始重绘</Button></Space>}>
+      {inpaintEditorTask?.inpaintStatus === 'running' && <Alert style={{ marginBottom: 16 }} type="info" showIcon title="局部重绘正在后台处理" description="可以关闭此窗口，完成后会自动替换原生成图片。" />}
+      {inpaintImageUrl ? <MaskCanvas imageUrl={inpaintImageUrl} onChange={setInpaintMask} /> : <Empty description="正在读取生成结果" />}
+      <Form.Item label="局部重绘提示词" style={{ marginTop: 16 }}><Input.TextArea value={inpaintPrompt} autoSize={{ minRows: 3, maxRows: 6 }} placeholder={DEFAULT_LOGO_RESULT_INPAINT_PROMPT} onChange={(event) => setInpaintPrompt(event.target.value)} /></Form.Item>
     </Modal>
     <Modal width="min(860px, 94vw)" open={Boolean(timelineTaskId)} onCancel={() => setTimelineTaskId(undefined)} footer={null} title="生成尝试时间线" destroyOnHidden>
       {(() => {
