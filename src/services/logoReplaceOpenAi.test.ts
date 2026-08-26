@@ -20,6 +20,8 @@ describe('OpenAI Logo replacement', () => {
     expect(form.getAll('image[]')).toHaveLength(3);
     expect(form.get('model')).toBe('gpt-image-2');
     expect(form.has('input_fidelity')).toBe(false);
+    expect(form.get('prompt')).toContain('不得新增或加强全局红色、橙色、洋红色偏色');
+    expect(form.get('prompt')).toContain('禁止磨皮、美颜、蜡像或塑料皮肤');
     expect(result.mimeType).toBe('image/png');
   });
 

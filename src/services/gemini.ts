@@ -3,6 +3,7 @@ import { fileToBase64 } from '../utils';
 import { startRequestConsoleEntry, summarizeGeminiRequest, updateRequestConsoleEntry } from './requestConsole';
 import { normalizePaperTextRegions, type PaperTextRegion, type PaperTextVerification } from './paperText';
 import { geminiCapacityWaitMs, getGeminiCapacitySettings, isGeminiCapacityError, registerGeminiCapacityFailure, registerGeminiCapacitySuccess } from './geminiCapacity';
+import { appendImageGenerationGuard } from './imageGenerationGuard';
 
 const GOOGLE_API_ROOT = 'https://generativelanguage.googleapis.com/v1beta';
 
@@ -194,7 +195,7 @@ export async function generateSceneImage(options: {
           role: 'user',
           parts: [
             {
-              text: `基于提供的产品白底图生成一张商业场景图。必须保持产品外观、结构、颜色、Logo 和文字准确，不要复制或增加产品。场景要求：${options.prompt}`,
+              text: appendImageGenerationGuard(`基于提供的产品白底图生成一张商业场景图。必须保持产品外观、结构、颜色、Logo 和文字准确，不要复制或增加产品。场景要求：${options.prompt}`),
             },
             { inlineData: { mimeType: options.image.type, data: base64 } },
           ],
@@ -239,7 +240,7 @@ export async function generateSceneReplacementImage(options: {
   const base64 = await fileToBase64(options.image);
   const data = await postGemini(options.model, options.apiKey, {
     contents: [{ role: 'user', parts: [
-      { text: options.prompt.trim() },
+      { text: appendImageGenerationGuard(options.prompt) },
       { inlineData: { mimeType: options.image.type, data: base64 } },
     ]}],
     generationConfig: { responseModalities: ['IMAGE'], imageConfig: {
@@ -332,7 +333,7 @@ export async function generateLogoComposite(options: {
     : '如果场景中存在多个杯子，必须给每一个杯子都自然添加同一个 Logo，并让每个 Logo 分别贴合对应杯体的曲面、透视、尺寸、光线和材质；不得遗漏任何一个杯子。';
   const parts: GeminiPart[] = [
     {
-      text: `请完成专业的 Logo 场景合成。第一张图片是必须保持构图和内容的原始场景，第二张图片是必须准确保留图形、颜色和文字的原始 Logo。${placementInstruction}${applicationInstruction} 让 Logo 与场景的材质、透视、光线、阴影自然融合，不要在杯子以外的位置添加额外 Logo，不要改变场景中的主体。${options.prompt.trim() ? `用户补充要求：${options.prompt.trim()}` : ''}`,
+      text: appendImageGenerationGuard(`请完成专业的 Logo 场景合成。第一张图片是必须保持构图和内容的原始场景，第二张图片是必须准确保留图形、颜色和文字的原始 Logo。${placementInstruction}${applicationInstruction} 让 Logo 与场景的材质、透视、光线、阴影自然融合，不要在杯子以外的位置添加额外 Logo，不要改变场景中的主体。${options.prompt.trim() ? `用户补充要求：${options.prompt.trim()}` : ''}`),
     },
     { inlineData: { mimeType: options.scene.type, data: sceneData } },
     { inlineData: { mimeType: options.logo.type, data: logoData } },
@@ -502,7 +503,7 @@ export async function generateLogoReplacement(options: {
     normalizedLogoReference(options.newLogo),
   ]);
   const parts: GeminiPart[] = [{
-    text: options.promptOverride?.trim() || buildLogoReplacementInstruction({ hasOldLogo: Boolean(options.oldLogo), logoColorMode: options.logoColorMode, customLogoColor: options.customLogoColor }),
+    text: appendImageGenerationGuard(options.promptOverride?.trim() || buildLogoReplacementInstruction({ hasOldLogo: Boolean(options.oldLogo), logoColorMode: options.logoColorMode, customLogoColor: options.customLogoColor })),
   }, { inlineData: { mimeType: options.scene.type, data: sceneData } }];
   if (oldLogoData && options.oldLogo) parts.push({ inlineData: { mimeType: options.oldLogo.type, data: oldLogoData } });
   parts.push({ inlineData: { mimeType: normalizedNewLogo.mimeType, data: normalizedNewLogo.data } });
@@ -562,7 +563,7 @@ export async function generateMultiLogoReplacement(options: {
   const [sceneData, ...logoData] = await Promise.all([fileToBase64(options.scene), ...options.logos.map(fileToBase64)]);
   const mapping = options.styles.map((style, index) => `原场景${style.label}（特征：${style.description}；载体：${style.carrier}；共 ${style.occurrences} 个位置）必须全部替换为第 ${index + 2} 张图片的新 Logo`).join('；');
   const parts: GeminiPart[] = [
-    { text: `执行多样式 Logo 一对一替换。第一张图是必须保持不变的原场景。后续每张图分别是不同的新 Logo，禁止混用。映射关系：${mapping}。同一样式的所有位置必须使用映射到的同一个新 Logo，不同样式必须使用各自不同的新 Logo；不得遗漏、串换或在无 Logo 处新增。只允许修改每个旧 Logo 原本占据的区域，其他区域逐像素保持原图不变。杯子在盒内的平放、侧放、倾斜、内衬承托、位置和遮挡必须完全不变，严禁杯子立起、悬浮、移动或旋转。旧 Logo 若被手或手指遮挡，新 Logo 必须保持在手后方，严禁贴到手、皮肤或前景遮挡物上。盒子外侧、盒盖、盒内、内衬、锁扣、铰链等原本没有旧 Logo 的位置绝对禁止新增 Logo。必须先清除每处旧 Logo，再按该位置原有载体、曲率、透视、雕刻/印刷工艺、反射、折射、纹理、光线、景深和颗粒自然重建新 Logo，严禁平面贴图、水印或直接覆盖。除 Logo 区域外不得改变场景任何内容。${options.instruction}` },
+    { text: appendImageGenerationGuard(`执行多样式 Logo 一对一替换。第一张图是必须保持不变的原场景。后续每张图分别是不同的新 Logo，禁止混用。映射关系：${mapping}。同一样式的所有位置必须使用映射到的同一个新 Logo，不同样式必须使用各自不同的新 Logo；不得遗漏、串换或在无 Logo 处新增。只允许修改每个旧 Logo 原本占据的区域，其他区域逐像素保持原图不变。杯子在盒内的平放、侧放、倾斜、内衬承托、位置和遮挡必须完全不变，严禁杯子立起、悬浮、移动或旋转。旧 Logo 若被手或手指遮挡，新 Logo 必须保持在手后方，严禁贴到手、皮肤或前景遮挡物上。盒子外侧、盒盖、盒内、内衬、锁扣、铰链等原本没有旧 Logo 的位置绝对禁止新增 Logo。必须先清除每处旧 Logo，再按该位置原有载体、曲率、透视、雕刻/印刷工艺、反射、折射、纹理、光线、景深和颗粒自然重建新 Logo，严禁平面贴图、水印或直接覆盖。除 Logo 区域外不得改变场景任何内容。${options.instruction}`) },
     { inlineData: { mimeType: options.scene.type, data: sceneData } },
     ...options.logos.map((logo, index) => ({ inlineData: { mimeType: logo.type, data: logoData[index] } })),
   ];
@@ -641,7 +642,7 @@ export async function analyzeLogoRemovalGemini(options: { apiKey: string; model:
 export async function generateLogoRemovalGemini(options: { apiKey: string; model: ImageModel; scene: File; prompt: string; imageSize: ImageSize; signal?: AbortSignal; apiBaseUrl?: string | null }): Promise<GeneratedImage> {
   const sceneData = await fileToBase64(options.scene);
   const data = await postGemini(options.model, options.apiKey, {
-    contents: [{ role: 'user', parts: [{ text: options.prompt }, { inlineData: { mimeType: options.scene.type, data: sceneData } }] }],
+    contents: [{ role: 'user', parts: [{ text: appendImageGenerationGuard(options.prompt) }, { inlineData: { mimeType: options.scene.type, data: sceneData } }] }],
     generationConfig: { responseModalities: ['IMAGE'], imageConfig: { imageSize: options.imageSize } },
   }, options.signal, options.apiBaseUrl);
   const imagePart = data.candidates?.flatMap((candidate) => candidate.content?.parts ?? []).find((part) => part.inlineData?.data);
@@ -729,13 +730,13 @@ export async function generateObjectReplacementImage(options: {
     options.sourceReference ? fileToBase64(options.sourceReference) : Promise.resolve(undefined),
     options.targetReference ? fileToBase64(options.targetReference) : Promise.resolve(undefined),
   ]);
-  const parts: GeminiPart[] = [{ text: buildObjectReplacementInstruction({
+  const parts: GeminiPart[] = [{ text: appendImageGenerationGuard(buildObjectReplacementInstruction({
     sourceObjectName: options.sourceObjectName,
     targetObjectName: options.targetObjectName,
     hasSourceReference: Boolean(options.sourceReference),
     hasTargetReference: Boolean(options.targetReference),
     preservation: options.preservation,
-  }) }, { inlineData: { mimeType: options.scene.type, data: sceneData } }];
+  })) }, { inlineData: { mimeType: options.scene.type, data: sceneData } }];
   if (sourceData && options.sourceReference) parts.push({ inlineData: { mimeType: options.sourceReference.type, data: sourceData } });
   if (targetData && options.targetReference) parts.push({ inlineData: { mimeType: options.targetReference.type, data: targetData } });
   const imageConfig: { imageSize: ImageSize; aspectRatio?: string } = { imageSize: options.imageSize };
@@ -773,7 +774,7 @@ export async function generateInpaintImage(options: {
         role: 'user',
         parts: [
           {
-            text: `请执行严格的局部重绘。第一张图片是必须保留的原始图片；第二张图片是区域参考图，其中红色半透明标记是唯一允许修改的区域。只在红色标记区域内根据用户要求生成或修改内容，标记区域外的所有像素对应内容必须保持不变，包括主体、构图、机位、裁切、背景、光线、阴影、颜色、材质、文字和 Logo。不得扩大修改区域，最终结果不得出现红色遮罩、选区边缘或标记。用户要求：${options.prompt}`,
+            text: appendImageGenerationGuard(`请执行严格的局部重绘。第一张图片是必须保留的原始图片；第二张图片是区域参考图，其中红色半透明标记是唯一允许修改的区域。只在红色标记区域内根据用户要求生成或修改内容，标记区域外的所有像素对应内容必须保持不变，包括主体、构图、机位、裁切、背景、光线、阴影、颜色、材质、文字和 Logo。不得扩大修改区域，最终结果不得出现红色遮罩、选区边缘或标记。用户要求：${options.prompt}`),
           },
           { inlineData: { mimeType: options.image.type, data: imageData } },
           { inlineData: { mimeType: options.maskGuide.type || 'image/png', data: maskData } },
@@ -816,7 +817,7 @@ export async function generateCupResizeImage(options: {
   const guideData = await fileToBase64(options.compositeGuide);
   const data = await postGemini(options.model, options.apiKey, {
     contents: [{ role: 'user', parts: [
-      { text: `${options.prompt}${options.supplementalPrompt?.trim() ? `\n用户补充要求：${options.supplementalPrompt.trim()}` : ''}` },
+      { text: appendImageGenerationGuard(`${options.prompt}${options.supplementalPrompt?.trim() ? `\n用户补充要求：${options.supplementalPrompt.trim()}` : ''}`) },
       { inlineData: { mimeType: options.compositeGuide.type || 'image/png', data: guideData } },
     ] }],
     generationConfig: { responseModalities: ['IMAGE'], imageConfig: { imageSize: options.imageSize } },
@@ -841,7 +842,7 @@ export async function recognizePaperTextGemini(options: { apiKey: string; model:
 
 export async function editPaperTextGemini(options: { apiKey: string; model: string; image: File; prompt: string; signal?: AbortSignal; apiBaseUrl?: string | null }): Promise<Blob> {
   const imageData = await fileToBase64(options.image);
-  const data = await postGemini(options.model, options.apiKey, { contents: [{ role: 'user', parts: [{ text: options.prompt }, { inlineData: { mimeType: options.image.type, data: imageData } }] }], generationConfig: { responseModalities: ['IMAGE'] } }, options.signal, options.apiBaseUrl);
+  const data = await postGemini(options.model, options.apiKey, { contents: [{ role: 'user', parts: [{ text: appendImageGenerationGuard(options.prompt) }, { inlineData: { mimeType: options.image.type, data: imageData } }] }], generationConfig: { responseModalities: ['IMAGE'] } }, options.signal, options.apiBaseUrl);
   const part = data.candidates?.flatMap((candidate) => candidate.content?.parts ?? []).find((item) => item.inlineData?.data);
   if (!part?.inlineData?.data) throw new Error('Gemini 未返回编辑后的图片');
   return new Blob([Uint8Array.from(atob(part.inlineData.data), (c) => c.charCodeAt(0))], { type: part.inlineData.mimeType || 'image/png' });
@@ -959,7 +960,7 @@ export async function generateProductDetailImage(options: {
         role: 'user',
         parts: [
           {
-            text: `请基于第一张白底产品图制作一张专业电商商品详情页图片。必须严格保持产品外观、结构、颜色、材质、真实比例、Logo 和已有文字准确，不得重新设计、复制或增加产品。按照下面的详情页提示完成场景、构图、卖点表达和指定上图文字；引号内文字需要清晰准确地显示。详情页要求：${options.prompt}`,
+            text: appendImageGenerationGuard(`请基于第一张白底产品图制作一张专业电商商品详情页图片。必须严格保持产品外观、结构、颜色、材质、真实比例、Logo 和已有文字准确，不得重新设计、复制或增加产品。按照下面的详情页提示完成场景、构图、卖点表达和指定上图文字；引号内文字需要清晰准确地显示。详情页要求：${options.prompt}`),
           },
           { inlineData: { mimeType: options.image.type, data: imageData } },
         ],

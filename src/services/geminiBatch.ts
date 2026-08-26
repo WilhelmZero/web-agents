@@ -2,6 +2,7 @@ import { GoogleGenAI } from '@google/genai';
 import type { GeneratedImage, ImageModel, ImageSize } from '../types';
 import { fileToBase64 } from '../utils';
 import { getGeminiApiRoot } from './gemini';
+import { appendImageGenerationGuard } from './imageGenerationGuard';
 
 export interface GeminiSceneBatchItem { key: string; prompt: string; image: File; aspectRatio?: string }
 
@@ -20,7 +21,7 @@ export async function generateSceneReplacementBatch(options: {
   if (estimatedBytes >= 19 * 1024 * 1024) throw new Error('当前批次内嵌请求预计超过 20MB，请减少单批图片数量后重试');
   const client = new GoogleGenAI({ apiKey: options.apiKey, ...(options.apiBaseUrl ? { httpOptions: { baseUrl: getGeminiApiRoot(options.apiBaseUrl) } } : {}) });
   const requests = await Promise.all(options.items.map(async (item) => ({
-    contents: [{ role: 'user', parts: [{ text: item.prompt }, { inlineData: { mimeType: item.image.type, data: await fileToBase64(item.image) } }] }],
+    contents: [{ role: 'user', parts: [{ text: appendImageGenerationGuard(item.prompt) }, { inlineData: { mimeType: item.image.type, data: await fileToBase64(item.image) } }] }],
     config: { responseModalities: ['IMAGE'], imageConfig: { imageSize: options.imageSize, ...(item.aspectRatio ? { aspectRatio: item.aspectRatio } : {}) } },
   })));
   const job = await client.batches.create({ model: options.model, src: requests, config: { displayName: `scene-studio-${Date.now()}` } });

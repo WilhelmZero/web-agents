@@ -10,6 +10,8 @@ describe('buildActualReplacementPrompt', () => {
     expect(prompt).toContain('对模型判断出的每一个小图逐一、完整地执行');
     expect(prompt).toContain('所有小图都必须处理');
     expect(prompt).toContain('不得根据截图、拼贴、海报或详情页等预设类别');
+    expect(prompt).toContain('防止多轮生成累积失真');
+    expect(prompt).toContain('禁止磨皮、美颜、蜡像或塑料皮肤');
   });
   it('only appends the later smooth-band restriction for beer mugs', () => {
     const basePrompt = buildActualReplacementPrompt(DEFAULT_LOGO_REPLACE_SETTINGS, true);

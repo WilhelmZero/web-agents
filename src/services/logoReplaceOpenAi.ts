@@ -1,6 +1,7 @@
 import type { GeneratedImage, LogoRemovalAnalysis, LogoRemovalVerification, LogoVerificationResult, SceneLogoStyle } from '../types';
 import { fileToBase64 } from '../utils';
 import { startRequestConsoleEntry, updateRequestConsoleEntry } from './requestConsole';
+import { appendImageGenerationGuard } from './imageGenerationGuard';
 
 const OPENAI_ROOT = 'https://api.openai.com/v1';
 
@@ -12,10 +13,11 @@ async function openAiError(response: Response) {
 async function editImages(options: { apiKey: string; model: 'gpt-image-2' | 'gpt-image-2-2026-04-21'; images: File[]; prompt: string; quality?: 'high' | 'medium' | 'low'; requestLabel?: string; signal?: AbortSignal }): Promise<GeneratedImage> {
   const form = new FormData();
   options.images.forEach((image) => form.append('image[]', image, image.name));
-  form.append('prompt', options.prompt); form.append('model', options.model); form.append('n', '1');
+  const guardedPrompt = appendImageGenerationGuard(options.prompt);
+  form.append('prompt', guardedPrompt); form.append('model', options.model); form.append('n', '1');
   form.append('size', 'auto'); form.append('quality', options.quality || 'high'); form.append('output_format', 'png');
   const startedAt = performance.now();
-  const consoleId = startRequestConsoleEntry({ model: options.model, connection: 'direct', requestSummary: `OpenAI Images Edit · ${options.images.length} 张输入图片 · ${options.requestLabel || 'Logo 替换'}`, requestPrompt: options.prompt, inputImages: options.images });
+  const consoleId = startRequestConsoleEntry({ model: options.model, connection: 'direct', requestSummary: `OpenAI Images Edit · ${options.images.length} 张输入图片 · ${options.requestLabel || 'Logo 替换'}`, requestPrompt: guardedPrompt, inputImages: options.images });
   let httpStatus: number | undefined;
   try {
     const response = await fetch(`${OPENAI_ROOT}/images/edits`, { method: 'POST', headers: { Authorization: `Bearer ${options.apiKey}` }, body: form, signal: options.signal });

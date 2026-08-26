@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildGlassLogoEtchInstruction, buildLogoReplacementInstruction, buildObjectReplacementInstruction, getGeminiApiRoot, getProxyHealthUrl, isRetryableGeminiStatus, verifyLogoReplacement } from './gemini';
+import { buildGlassLogoEtchInstruction, buildLogoReplacementInstruction, buildObjectReplacementInstruction, generateSceneReplacementImage, getGeminiApiRoot, getProxyHealthUrl, isRetryableGeminiStatus, verifyLogoReplacement } from './gemini';
 
 describe('Gemini API 地址', () => {
   it('未配置代理时直连 Google', () => {
@@ -26,6 +26,25 @@ describe('Gemini API 地址', () => {
   it('只对临时性服务错误进行自动重试', () => {
     expect([408, 429, 500, 502, 503, 504, 524].every(isRetryableGeminiStatus)).toBe(true);
     expect([400, 401, 403, 404].some(isRetryableGeminiStatus)).toBe(false);
+  });
+});
+
+describe('Gemini 图片编辑真实性保护', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('adds the anti-red-cast and realistic-skin guard to scene replacement requests', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      candidates: [{ content: { parts: [{ inlineData: { data: btoa('result'), mimeType: 'image/png' } }] } }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    await generateSceneReplacementImage({
+      apiKey: 'test-key', model: 'gemini-3.1-flash-image', prompt: '替换背景',
+      image: new File(['scene'], 'scene.png', { type: 'image/png' }), imageSize: '2K', apiBaseUrl: null,
+    });
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const prompt = body.contents[0].parts[0].text;
+    expect(prompt).toContain('替换背景');
+    expect(prompt).toContain('不得新增或加强全局红色、橙色、洋红色偏色');
+    expect(prompt).toContain('禁止磨皮、美颜、蜡像或塑料皮肤');
   });
 });
 

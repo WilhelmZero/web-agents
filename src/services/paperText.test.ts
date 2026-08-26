@@ -64,5 +64,6 @@ describe('paper text helpers', () => {
     const body = fetchMock.mock.calls[0][1].body as FormData;
     expect(body.get('background')).toBe('transparent');
     expect(body.get('output_format')).toBe('png');
+    expect(body.get('prompt')).toContain('不得新增或加强全局红色、橙色、洋红色偏色');
   });
 });

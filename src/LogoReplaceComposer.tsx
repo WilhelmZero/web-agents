@@ -62,6 +62,7 @@ import { assignMultipleLogos, expandStylesByOccurrence } from './services/logoRe
 import type { SceneLogoAnalysis } from './types';
 import { desktopAssetFromFile, isElectronDesktop, submitDesktopJob } from './desktop/runtime';
 import { DEFAULT_LOGO_RESULT_INPAINT_PROMPT, normalizeLogoResultInpaintPrompt } from './services/logoResultInpaint';
+import { appendImageGenerationGuard } from './services/imageGenerationGuard';
 
 const { Text, Title, Paragraph } = Typography;
 const ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
@@ -95,9 +96,9 @@ export function buildActualReplacementPrompt(settings: LogoReplaceSettings, hasO
     beerMugContext: /啤酒杯/.test(customPrompt),
   });
   const collageInstruction = '【多个小图强制规则】请直接查看并判断输入画面中是否存在多个小图；若存在，必须对模型判断出的每一个小图逐一、完整地执行相同的 Logo 替换要求，所有小图都必须处理。不得根据截图、拼贴、海报或详情页等预设类别来决定是否执行，也不得筛选或跳过其中任何小图。同一新 Logo 必须应用到每个小图中所有对应的旧 Logo，严禁只处理第一张、最大一张或其中部分小图；不得合并、删除、移动、裁切任何小图，不得改变原有排版、标题、标签及其他非 Logo 内容。';
-  return customPrompt
+  return appendImageGenerationGuard(customPrompt
     ? customPrompt + '\n\n【以下 Logo 工艺、颜色、小字保护及图中图规则为强制最高优先级，不得被前文覆盖】\n' + mandatoryPrompt + '\n\n' + collageInstruction
-    : mandatoryPrompt + '\n\n' + collageInstruction;
+    : mandatoryPrompt + '\n\n' + collageInstruction);
 }
 interface LogoReplaceComposerProps {
   apiKey: string;
@@ -781,7 +782,7 @@ function LogoReplaceSingleComposer({
             <Text>自定义编辑</Text>
             <Switch checked={settings.customizeReplacementPrompt} onChange={(customizeReplacementPrompt) => patchSettings({ customizeReplacementPrompt, replacementPrompt: customizeReplacementPrompt ? (settings.replacementPrompt.trim() || defaultReplacementPrompt) : settings.replacementPrompt })} />
           </Flex>
-          <Input.TextArea value={settings.customizeReplacementPrompt ? settings.replacementPrompt : defaultReplacementPrompt} readOnly={!settings.customizeReplacementPrompt} autoSize={{ minRows: 6, maxRows: 12 }} onChange={(event) => patchSettings({ replacementPrompt: event.target.value })} />
+          <Input.TextArea value={settings.customizeReplacementPrompt ? settings.replacementPrompt : actualReplacementPrompt} readOnly={!settings.customizeReplacementPrompt} autoSize={{ minRows: 6, maxRows: 12 }} onChange={(event) => patchSettings({ replacementPrompt: event.target.value })} />
           <Flex justify="space-between" align="center" gap={8} style={{ marginTop: 8 }}><Text type="secondary" className="field-help">{settings.customizeReplacementPrompt ? '上方为自定义内容，工艺、颜色和小字保护规则会作为强制后缀追加。' : '这里显示的完整提示词就是实际发送给模型的文本。'}</Text>{settings.customizeReplacementPrompt && <Button size="small" onClick={() => patchSettings({ replacementPrompt: '' })}>清空自定义</Button>}</Flex>
           {settings.customizeReplacementPrompt && <><Text strong style={{ display: 'block', marginTop: 10 }}>最终实际发送提示词</Text><Input.TextArea readOnly value={actualReplacementPrompt} autoSize={{ minRows: 6, maxRows: 12 }} style={{ marginTop: 6 }} /></>}
           <Text type="secondary" className="field-help">图片按“场景图、可选旧 Logo、新 Logo”的顺序作为独立图片内容提交。</Text>
