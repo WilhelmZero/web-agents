@@ -1,13 +1,14 @@
 export type WorkflowNodeKind = 'scene-replace' | 'outpaint' | 'logo-replace';
 export type WorkflowNodeStatus = 'idle' | 'ready' | 'running' | 'paused' | 'success' | 'failed' | 'blocked' | 'stopped';
 export type WorkflowPort = 'images' | 'scene-results' | 'outpaint-results' | 'logo-results';
+export type WorkflowImageSize = '0.5K' | '1K' | '2K' | '4K';
 
 export interface WorkflowNodeConfig {
   concurrency: number;
   copies: number;
   prompt: string;
   imageModel: string;
-  imageSize: '0.5K' | '1K' | '2K' | '4K';
+  imageSize: WorkflowImageSize;
   quality: 'high' | 'medium' | 'low';
   autoOutpaint: boolean;
   dualOutpaint: boolean;
@@ -54,6 +55,16 @@ export const WORKFLOW_PORT_TYPES: Record<string, 'image-batch'> = {
   'outpaint-results': 'image-batch',
   'logo-results': 'image-batch',
 };
+
+export function preferredWorkflowImageSize(supportedSizes?: readonly WorkflowImageSize[]): WorkflowImageSize {
+  if (!supportedSizes?.length) return '2K';
+  if (supportedSizes.includes('2K')) return '2K';
+  return supportedSizes[supportedSizes.length - 1];
+}
+
+export function workflowNodeConcurrency(kind: WorkflowNodeKind, configured: number) {
+  return kind === 'scene-replace' || kind === 'logo-replace' ? 1 : Math.max(1, configured);
+}
 
 export function createsCycle(nodes: WorkflowNodeLike[], edges: WorkflowEdgeLike[], source: string, target: string) {
   if (source === target) return true;

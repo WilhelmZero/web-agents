@@ -11,9 +11,9 @@ describe('per image prompt assignment', () => {
   it('invalidates assignments when the public prompt changes', () => {
     expect(assignmentNeedsAnalysis({ fileKey: 'a', tool: 'scene-replace', summary: 'a', applicableConditions: [], prompt: 'x', sourcePrompt: 'old', status: 'ready', updatedAt: 1 }, 'new')).toBe(true);
   });
-  it('invalidates cached Logo analysis created before the safe-box algorithm', () => {
+  it('invalidates cached Logo analysis created before beer-only routing', () => {
     expect(assignmentNeedsAnalysis({ fileKey: 'a', tool: 'logo-replace', summary: 'a', applicableConditions: [], prompt: 'x', sourcePrompt: 'same', status: 'ready', action: 'replace', updatedAt: 1 }, 'same')).toBe(true);
-    expect(assignmentNeedsAnalysis({ fileKey: 'a', tool: 'logo-replace', summary: 'a', applicableConditions: [], prompt: 'x', sourcePrompt: 'same', status: 'ready', action: 'replace', analysisVersion: 2, updatedAt: 1 }, 'same')).toBe(false);
+    expect(assignmentNeedsAnalysis({ fileKey: 'a', tool: 'logo-replace', summary: 'a', applicableConditions: [], prompt: 'x', sourcePrompt: 'same', status: 'ready', action: 'replace', analysisVersion: 3, updatedAt: 1 }, 'same')).toBe(false);
   });
   it('keeps mandatory rules outside the language model allocation prompt', () => {
     const prompt = buildPerImageAnalysisPrompt('logo-replace', '木盒用深色雕刻，玻璃用白色');
@@ -21,15 +21,10 @@ describe('per image prompt assignment', () => {
     expect(prompt).toContain('skip-no-logo');
     expect(prompt).toContain('skip-gift-scene');
     expect(prompt).toContain('整图保持原样');
-    expect(prompt).toContain('归一化包围框 left/top/right/bottom');
-    expect(prompt).toContain('禁止移到载体中间');
-    expect(prompt).toContain('泡沫/液面分界');
-    expect(prompt).toContain('上部连续光滑、下部竖纹/棱柱/浮雕/切面');
-    expect(prompt).toContain('纹理开始线的归一化 y 坐标');
-    expect(prompt).toContain('宁可明显缩小，也不得向下进入竖纹区');
-    expect(prompt).toContain('最终安全框的 left/top/right/bottom');
-    expect(prompt).toContain('contain 等比装入');
-    expect(prompt).toContain('不得同时撑满宽和高');
+    expect(prompt).toContain('只有明确识别本图主要载体为啤酒杯时');
+    expect(prompt).toContain('非啤酒杯图片严禁加入这段啤酒杯限制');
+    expect(prompt).toContain('只有本图明确为啤酒杯时才加入');
+    expect(prompt).not.toContain('最终安全框的 left/top/right/bottom');
   });
   it('delegates automatic prompt analysis to worker tabs', () => {
     expect(shouldAnalyzePerImagePromptsInController(true, true)).toBe(false);

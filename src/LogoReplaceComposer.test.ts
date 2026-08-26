@@ -11,11 +11,12 @@ describe('buildActualReplacementPrompt', () => {
     expect(prompt).toContain('所有小图都必须处理');
     expect(prompt).toContain('不得根据截图、拼贴、海报或详情页等预设类别');
   });
-  it('freezes Logo negative space and keeps cup-bottom artwork inside a safe area', () => {
-    const prompt = buildActualReplacementPrompt(DEFAULT_LOGO_REPLACE_SETTINGS, true);
-    expect(prompt).toContain('新 Logo 图形拓扑冻结');
-    expect(prompt).toContain('镂空区域必须继续显示下方载体材质');
-    expect(prompt).toContain('杯底 Logo 专项安全区');
-    expect(prompt).toContain('10%–15%');
+  it('only appends the later smooth-band restriction for beer mugs', () => {
+    const basePrompt = buildActualReplacementPrompt(DEFAULT_LOGO_REPLACE_SETTINGS, true);
+    const beerPrompt = buildActualReplacementPrompt(DEFAULT_LOGO_REPLACE_SETTINGS, true, '', '', '本图为啤酒杯，替换杯身 Logo');
+    expect(basePrompt).not.toContain('啤酒杯专项补充');
+    expect(basePrompt).not.toContain('旧 Logo 定位遮罩锁定');
+    expect(beerPrompt).toContain('啤酒杯专项补充');
+    expect(beerPrompt).toContain('此补充不得应用于非啤酒杯载体');
   });
 });

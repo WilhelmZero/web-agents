@@ -76,6 +76,7 @@ function statusText(status: LogoReplaceTask['status']) {
 }
 
 export function buildActualReplacementPrompt(settings: LogoReplaceSettings, hasOldLogo: boolean, expectedText = '', correctionFeedback = '', perImagePrompt?: string) {
+  const customPrompt = perImagePrompt?.trim() || (settings.customizeReplacementPrompt ? settings.replacementPrompt.trim() : '');
   const mandatoryPrompt = buildLogoReplacementInstruction({
     hasOldLogo,
     logoColorMode: settings.logoColorMode,
@@ -91,8 +92,8 @@ export function buildActualReplacementPrompt(settings: LogoReplaceSettings, hasO
     engravingMethod: settings.engravingMethod,
     expectedText,
     correctionFeedback,
+    beerMugContext: /啤酒杯/.test(customPrompt),
   });
-  const customPrompt = perImagePrompt?.trim() || (settings.customizeReplacementPrompt ? settings.replacementPrompt.trim() : '');
   const collageInstruction = '【多个小图强制规则】请直接查看并判断输入画面中是否存在多个小图；若存在，必须对模型判断出的每一个小图逐一、完整地执行相同的 Logo 替换要求，所有小图都必须处理。不得根据截图、拼贴、海报或详情页等预设类别来决定是否执行，也不得筛选或跳过其中任何小图。同一新 Logo 必须应用到每个小图中所有对应的旧 Logo，严禁只处理第一张、最大一张或其中部分小图；不得合并、删除、移动、裁切任何小图，不得改变原有排版、标题、标签及其他非 Logo 内容。';
   return customPrompt
     ? customPrompt + '\n\n【以下 Logo 工艺、颜色、小字保护及图中图规则为强制最高优先级，不得被前文覆盖】\n' + mandatoryPrompt + '\n\n' + collageInstruction
@@ -416,7 +417,7 @@ function LogoReplaceSingleComposer({
         setTasks((current) => current.map((item) => item.id === task.id ? { ...item, verificationStatus: 'verifying', verificationAttempts: verificationAttempt + 1 } : item));
         let verification;
         try {
-          const verifyOptions = { referenceLogo: replacement.file, originalScene: scene.file, generatedImage: result.blob, expectedText, signal: controller.signal };
+          const verifyOptions = { referenceLogo: replacement.file, originalScene: scene.file, generatedImage: result.blob, expectedText, beerMugContext: /啤酒杯/.test(replacementPrompt), signal: controller.signal };
           verification = currentSettings.languageProvider === 'openai'
             ? await verifyLogoReplacementOpenAi({ ...verifyOptions, apiKey: openAiApiKey, model: currentSettings.openAiLanguageModel })
             : await verifyLogoReplacement({ ...verifyOptions, apiKey, apiBaseUrl, model: currentSettings.verificationModel });
@@ -637,9 +638,9 @@ function LogoReplaceSingleComposer({
     .filter((task) => Boolean(task.resultUrl))
     .map((task) => ({ task, scene: group.scene }))), [groups]);
   const logoResultPreviewItems = useMemo(() => previewableResults.map(({ task, scene }) => ({
-    src: compareOriginalIds.has(task.id) ? scene.previewUrl : task.resultUrl!,
-    alt: compareOriginalIds.has(task.id) ? `${scene.name} 原图` : `${scene.name} Logo 替换结果`,
-  })), [compareOriginalIds, previewableResults]);
+    src: task.resultUrl!,
+    alt: `${scene.name} Logo 替换结果`,
+  })), [previewableResults]);
   const logoResultPreviewConfig = {
     onOpenChange: (open: boolean) => { if (!open) setPreviewCompareOriginal(false); },
     onChange: () => setPreviewCompareOriginal(false),
@@ -855,21 +856,21 @@ function LogoReplaceSingleComposer({
 export default function LogoReplaceComposer(props: LogoReplaceComposerProps) {
   const initialModes = readLocalStorage<LogoReplaceSettings>(STORAGE_KEYS.logoReplaceSettings, DEFAULT_LOGO_REPLACE_SETTINGS as LogoReplaceSettings);
   const [multiEnabled, setMultiEnabled] = useState(props.initialMultiLogoModeEnabled ?? Boolean(initialModes.multiLogoModeEnabled));
-  const [distinctLogoPerOccurrence, setDistinctLogoPerOccurrence] = useState(props.initialDistinctLogoPerOccurrence ?? Boolean(initialModes.distinctLogoPerOccurrence));
+  const distinctLogoPerOccurrence = false;
   const [singleHasSession, setSingleHasSession] = useState(false);
   const [multiHasSession, setMultiHasSession] = useState(false);
   useEffect(() => props.onSessionStateChange?.(singleHasSession || multiHasSession), [singleHasSession, multiHasSession, props.onSessionStateChange]);
   useEffect(() => {
     const stored = readLocalStorage<LogoReplaceSettings>(STORAGE_KEYS.logoReplaceSettings, DEFAULT_LOGO_REPLACE_SETTINGS as LogoReplaceSettings);
-    localStorage.setItem(STORAGE_KEYS.logoReplaceSettings, JSON.stringify({ ...stored, multiLogoModeEnabled: multiEnabled, distinctLogoPerOccurrence }));
-  }, [multiEnabled, distinctLogoPerOccurrence]);
+    localStorage.setItem(STORAGE_KEYS.logoReplaceSettings, JSON.stringify({ ...stored, multiLogoModeEnabled: multiEnabled, distinctLogoPerOccurrence: false }));
+  }, [multiEnabled]);
 
   return (
     <div className="logo-replace-integrated">
       <Card className="logo-replace-mode-card" size="small">
         <Flex justify="space-between" align="center" gap={16} wrap>
           <div><Text strong>单图匹配多 Logo</Text><br /><Text type="secondary">开启后先解析每张场景中的 Logo 样式和实际位置数量，再按场景独立分配。</Text></div>
-          <Space wrap><Tooltip title="这是原 Logo 替换流程内的独立功能，不会进入多样式模式"><Checkbox checked={distinctLogoPerOccurrence} onChange={(event) => { setDistinctLogoPerOccurrence(event.target.checked); if (event.target.checked) setMultiEnabled(false); }}>相同 Logo 多位置随机不同 Logo</Checkbox></Tooltip><Switch checked={multiEnabled} onChange={(checked) => { setMultiEnabled(checked); if (checked) setDistinctLogoPerOccurrence(false); }} /></Space>
+          <Switch checked={multiEnabled} onChange={setMultiEnabled} />
         </Flex>
       </Card>
       <div hidden={multiEnabled}>

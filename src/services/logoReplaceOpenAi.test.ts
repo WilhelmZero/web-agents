@@ -33,10 +33,11 @@ describe('OpenAI Logo replacement', () => {
       referenceLogo: new File(['logo'], 'logo.png', { type: 'image/png' }),
       originalScene: new File(['scene'], 'scene.png', { type: 'image/png' }),
       generatedImage: new Blob(['generated'], { type: 'image/png' }),
+      beerMugContext: true,
     });
     const body = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body));
-    expect(body.input[0].content[0].text).toContain('必须从旧 Logo 框计算最终安全框');
-    expect(body.input[0].content[0].text).toContain('contain 等比缩放');
+    expect(body.input[0].content[0].text).toContain('本图已识别为啤酒杯');
+    expect(body.input[0].content[0].text).toContain('此规则只用于本张啤酒杯图片');
     expect(result).toMatchObject({ passed: false, placementConsistent: false });
   });
 });

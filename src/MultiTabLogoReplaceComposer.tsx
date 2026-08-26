@@ -33,7 +33,7 @@ import {
   SyncOutlined,
 } from "@ant-design/icons";
 import { useEffect, useRef, useState } from "react";
-import type * as React from "react";
+import * as React from "react";
 import JSZip from "jszip";
 import LogoReplaceComposer, {
   buildActualReplacementPrompt,
@@ -288,6 +288,7 @@ function TaskResultGallery({
   const [showOriginalIds, setShowOriginalIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const [previewCompareOriginal, setPreviewCompareOriginal] = useState(false);
   useEffect(() => {
     const next = Object.fromEntries(
       details.map((detail) => [
@@ -310,22 +311,27 @@ function TaskResultGallery({
         if (original) URL.revokeObjectURL(original);
       });
   }, [details]);
-  const previewItems = details.flatMap((detail) => {
+  const previewEntries = details.flatMap((detail) => {
     const urls = urlsById[detail.id];
     if (!urls?.result) return [];
-    const showOriginal =
-      showOriginalIds.has(detail.id) && Boolean(urls.original);
     return [
       {
-        src: showOriginal ? urls.original : urls.result,
-        alt: showOriginal
-          ? `场景 ${detail.sceneIndex + 1} 原图`
-          : `场景 ${detail.sceneIndex + 1} 结果 ${detail.copyIndex + 1}`,
+        result: urls.result,
+        original: urls.original,
+        alt: `场景 ${detail.sceneIndex + 1} 结果 ${detail.copyIndex + 1}`,
       },
     ];
   });
+  const previewItems = previewEntries.map(({ result, alt }) => ({ src: result, alt }));
   return (
-    <Image.PreviewGroup items={previewItems}>
+    <Image.PreviewGroup items={previewItems} preview={{
+      onOpenChange: (open) => { if (!open) setPreviewCompareOriginal(false); },
+      onChange: () => setPreviewCompareOriginal(false),
+      actionsRender: (originalNode) => <>{originalNode}<button type="button" className={`scene-preview-compare-action${previewCompareOriginal ? " is-active" : ""}`} title={previewCompareOriginal ? "查看生成图" : "查看原图"} onClick={(event) => { event.stopPropagation(); setPreviewCompareOriginal((current) => !current); }}><EyeOutlined /></button></>,
+      imageRender: (originalNode, info) => previewCompareOriginal && previewEntries[info.current]?.original
+        ? React.cloneElement(originalNode as React.ReactElement<{ src?: string; alt?: string }>, { src: previewEntries[info.current].original, alt: `场景 ${info.current + 1} 原图` })
+        : originalNode,
+    }}>
       <div className="batch-result-grid">
         {details.map((detail) => (
           <TaskResultThumbnail
@@ -549,9 +555,7 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
   );
   const [autoGenerateAfterPromptAnalysis, setAutoGenerateAfterPromptAnalysis] =
     useState(storedLogoSettings.autoGenerateAfterPromptAnalysis);
-  const [distinctLogoPerOccurrence, setDistinctLogoPerOccurrence] = useState(
-    Boolean(storedLogoSettings.distinctLogoPerOccurrence),
-  );
+  const distinctLogoPerOccurrence = false;
   const [logoPreviewBackground, setLogoPreviewBackground] = useState<
     LogoReplaceSettings['logoPreviewBackground']
   >(storedLogoSettings.logoPreviewBackground || 'transparent');
@@ -683,7 +687,6 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
       setLogos(batch.logos);
       setOldLogo(batch.oldLogo);
       setGlobalConcurrency(batch.globalConcurrency || 6);
-      setDistinctLogoPerOccurrence(Boolean(batch.distinctLogoPerOccurrence));
       setAutoDownloadOnComplete(Boolean(batch.autoDownloadOnComplete));
       setActiveBatchId(batch.id);
       setWorkerProgress(Object.fromEntries(entries));
@@ -1737,9 +1740,7 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
             initialNewLogoFiles={workerBatch.logos}
             initialOldLogoFile={workerBatch.oldLogo ?? null}
             initialMultiLogoModeEnabled={workerBatch.multiLogoModeEnabled}
-            initialDistinctLogoPerOccurrence={
-              workerBatch.distinctLogoPerOccurrence
-            }
+            initialDistinctLogoPerOccurrence={false}
             initialPerImagePrompts={workerBatch.perImagePrompts}
             onPerImagePromptsChange={(items) => {
               void readBatch(workerBatch.id).then((latest) =>
@@ -2080,22 +2081,6 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
             同步新 Logo 与旧 Logo 参考到已打开标签
           </Button>
         )}
-      </Card>
-      <Card className="workflow-card" title="Logo 分配模式">
-        <Flex justify="space-between" align="center" gap={16} wrap>
-          <div>
-            <Text strong>原图多个相同 Logo，随机匹配不同 Logo</Text>
-            <br />
-            <Text type="secondary">
-              每张场景独立识别实际 Logo 位置数；先用完尽可能多的不同
-              Logo，不足时再随机重复，多余 Logo 不使用。
-            </Text>
-          </div>
-          <Switch
-            checked={distinctLogoPerOccurrence}
-            onChange={setDistinctLogoPerOccurrence}
-          />
-        </Flex>
       </Card>
       <Card className="action-card">
         <Flex justify="space-between" align="center" wrap gap={12}>

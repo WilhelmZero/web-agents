@@ -18,6 +18,7 @@ import { generateInpaintImage } from './services/gemini';
 import { generateLogoResultInpaintOpenAi } from './services/logoReplaceOpenAi';
 import { DEFAULT_LOGO_RESULT_INPAINT_PROMPT, normalizeLogoResultInpaintPrompt } from './services/logoResultInpaint';
 import { imageDimensions, outputAspectRatio, resizeImageBlob } from './services/logoOutputSizing';
+import { firstLogoRemovalResultPerSource, logoRemovalExportPath } from './services/logoRemovalExport';
 import {
   DEFAULT_LOGO_REMOVAL_PROMPT, analyzeLogoRemovalTarget, buildLogoRemovalGenerationPrompt, generateLogoRemoval,
   verifyLogoRemoval,
@@ -28,7 +29,7 @@ import {
   saveLogoRemovalDraft,
 } from './services/logoRemovalStore';
 import type { ImageModel, ImageSize, LogoRemovalAnalysis, LogoRemovalSettings, LogoRemovalTask, LogoRemovalVerification, OptimizerModel } from './types';
-import { downloadBlob, mimeExtension, sanitizeFileName } from './utils';
+import { downloadBlob, sanitizeFileName } from './utils';
 
 const { Title, Text, Paragraph } = Typography;
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
@@ -351,10 +352,11 @@ export default function LogoRemovalComposer(props: { apiKey: string; openAiApiKe
   const stopAll = () => { setRunning(false); setEndedAt((value) => value || Date.now()); controllers.current.forEach((controller) => controller.abort()); inpaintControllers.current.forEach((controller) => controller.abort()); inpaintControllers.current.clear(); setTasks((current) => current.map((task) => ({ ...task, ...(['waiting', 'retry_wait', 'analyzing', 'running', 'verifying'].includes(task.status) ? { status: 'stopped' as const, stage: '已停止' } : {}), ...(task.inpaintStatus === 'running' ? { inpaintStatus: 'failed' as const, inpaintError: '已停止局部重绘' } : {}) }))); };
   const retryTask = (id: string) => { patchTask(id, { status: 'waiting', stage: '等待重试', error: undefined }); setStartedAt((value) => value || Date.now()); setEndedAt(undefined); setRunning(true); setPaused(false); };
 
-  const downloadTask = async (task: LogoRemovalTask) => { if (!task.resultKey) return; const value = await readLogoRemovalResult(task.resultKey); if (value) downloadBlob(value.blob, `${sanitizeFileName(task.sourceName)}${settings.copiesPerImage > 1 ? `_${task.copyIndex + 1}` : ''}_去除Logo.${mimeExtension(value.mimeType)}`); };
+  const downloadTask = async (task: LogoRemovalTask) => { if (!task.resultKey) return; const value = await readLogoRemovalResult(task.resultKey); if (value) downloadBlob(value.blob, task.sourceName); };
   const downloadZip = async (groupId?: string) => {
-    const zip = new JSZip(); const selected = resultTasks.filter((task) => !groupId || task.groupId === groupId);
-    for (const task of selected) { const value = task.resultKey ? await readLogoRemovalResult(task.resultKey) : undefined; const group = groups.find((item) => item.id === task.groupId); if (!value || !group) continue; zip.folder(group.path)?.folder(sanitizeFileName(task.sourceName))?.file(`${sanitizeFileName(task.sourceName)}_${task.copyIndex + 1}_去除Logo.${mimeExtension(value.mimeType)}`, value.blob); }
+    const zip = new JSZip(); const selected = firstLogoRemovalResultPerSource(resultTasks.filter((task) => !groupId || task.groupId === groupId));
+    const entries = await Promise.all(selected.map(async (task) => ({ task, value: task.resultKey ? await readLogoRemovalResult(task.resultKey) : undefined, group: groups.find((item) => item.id === task.groupId) })));
+    entries.forEach(({ task, value, group }) => { if (value && group) zip.file(logoRemovalExportPath(task.sourceRelativePath, task.sourceName, group.path), value.blob); });
     downloadBlob(await zip.generateAsync({ type: 'blob' }), groupId ? `${sanitizeFileName(groups.find((item) => item.id === groupId)?.name || '本组')}_去除Logo.zip` : '全部去除Logo结果.zip');
   };
 

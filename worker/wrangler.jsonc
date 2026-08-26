@@ -1,12 +1,21 @@
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "scene-studio-gemini-proxy",
-  "main": "src/index.ts",
-  "compatibility_date": "2026-07-30",
-  "vars": {
-    "ALLOWED_ORIGINS": "https://wilhelmzero.github.io"
-  },
-  "observability": {
-    "enabled": true
-  }
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "scene-studio-gemini-proxy",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-07-30",
+	"vars": {
+		"ALLOWED_ORIGINS": "https://wilhelmzero.github.io"
+	},
+	"observability": {
+		"enabled": true
+	},
+	"routes": [
+		{
+			"pattern": "api.lighten-life.com",
+			"zone_name": "lighten-life.com",
+			"custom_domain": true,
+			"enabled": true,
+			"previews_enabled": false
+		}
+	]
 }
