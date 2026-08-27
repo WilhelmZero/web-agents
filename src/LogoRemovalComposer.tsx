@@ -34,6 +34,11 @@ import { downloadBlob, sanitizeFileName } from './utils';
 const { Title, Text, Paragraph } = Typography;
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 const SETTINGS_KEY = 'scene-studio.logo-removal.settings.v1';
+const GPT_IMAGE_MODELS: LogoRemovalSettings['openAiImageModel'][] = ['gpt-image-2', 'gpt-image-2-2026-04-21'];
+const GPT_IMAGE_MODEL_OPTIONS = [
+  { value: 'gpt-image-2', label: 'GPT Image 2（推荐）' },
+  { value: 'gpt-image-2-2026-04-21', label: 'GPT Image 2（2026-04-21）' },
+];
 
 interface FolderGroup { id: string; name: string; path: string; files: File[] }
 interface StoredDraft { groups: FolderGroup[]; tasks: LogoRemovalTask[]; settings: LogoRemovalSettings; startedAt?: number; endedAt?: number }
@@ -46,10 +51,21 @@ const DEFAULT_SETTINGS: LogoRemovalSettings = {
   autoRetryErrors: true, errorRetryLimit: 2, errorRetryDelaySeconds: 30,
 };
 
+export function normalizeLogoRemovalSettings(stored?: Partial<LogoRemovalSettings> | null): LogoRemovalSettings {
+  const source = stored || {};
+  return {
+    ...DEFAULT_SETTINGS,
+    ...source,
+    ...normalizeLogoRemovalScopeConfig(source),
+    imageProvider: source.imageProvider === 'openai' ? 'openai' : 'gemini',
+    openAiImageModel: GPT_IMAGE_MODELS.includes(source.openAiImageModel as LogoRemovalSettings['openAiImageModel']) ? source.openAiImageModel! : DEFAULT_SETTINGS.openAiImageModel,
+  };
+}
+
 function loadSettings() {
   try {
     const stored = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
-    return { ...DEFAULT_SETTINGS, ...stored, ...normalizeLogoRemovalScopeConfig(stored), imageProvider: 'gemini' } as LogoRemovalSettings;
+    return normalizeLogoRemovalSettings(stored);
   }
   catch { return DEFAULT_SETTINGS; }
 }
@@ -360,7 +376,7 @@ export default function LogoRemovalComposer(props: { apiKey: string; openAiApiKe
     downloadBlob(await zip.generateAsync({ type: 'blob' }), groupId ? `${sanitizeFileName(groups.find((item) => item.id === groupId)?.name || '本组')}_去除Logo.zip` : '全部去除Logo结果.zip');
   };
 
-  const restore = async () => { const draft = await readLatestLogoRemovalDraft<StoredDraft>(); if (!draft) return void message.info('没有找到可恢复的缓存任务'); setSessionId(draft.sessionId); setGroups(draft.value.groups || []); setTasks(draft.value.tasks || []); setSettings({ ...DEFAULT_SETTINGS, ...draft.value.settings, ...normalizeLogoRemovalScopeConfig(draft.value.settings), imageProvider: 'gemini' }); setStartedAt(draft.value.startedAt); setEndedAt(draft.value.endedAt); message.success('已恢复最近一次缓存任务'); };
+  const restore = async () => { const draft = await readLatestLogoRemovalDraft<StoredDraft>(); if (!draft) return void message.info('没有找到可恢复的缓存任务'); setSessionId(draft.sessionId); setGroups(draft.value.groups || []); setTasks(draft.value.tasks || []); setSettings(normalizeLogoRemovalSettings(draft.value.settings)); setStartedAt(draft.value.startedAt); setEndedAt(draft.value.endedAt); message.success('已恢复最近一次缓存任务'); };
 
   const stats = useMemo(() => ({
     total: tasks.length,
@@ -387,8 +403,13 @@ export default function LogoRemovalComposer(props: { apiKey: string; openAiApiKe
         {settings.scopes.includes('other') ? <Input.TextArea rows={2} maxLength={200} showCount value={settings.customScope} onChange={(event) => setSettings((value) => ({ ...value, customScope: event.target.value }))} placeholder="填写需要去除 Logo 的载体或区域，例如：皮革收纳盒正面" style={{ marginTop: 10 }} /> : null}
       </Form.Item>
       <Form.Item label="分析模型"><Space.Compact block><Select style={{ width: 100 }} value={settings.analysisProvider} onChange={(analysisProvider) => setSettings((value) => ({ ...value, analysisProvider }))} options={[{ value: 'gemini', label: 'Gemini' }, { value: 'openai', label: 'GPT' }]} /><Select style={{ width: '100%' }} value={settings.analysisProvider === 'openai' ? settings.openAiAnalysisModel : settings.analysisModel} onChange={(model: string) => setSettings((value) => settings.analysisProvider === 'openai' ? { ...value, openAiAnalysisModel: model as LogoRemovalSettings['openAiAnalysisModel'] } : { ...value, analysisModel: model as OptimizerModel })} options={(settings.analysisProvider === 'openai' ? ['gpt-5.6-luna', 'gpt-5.6-terra', 'gpt-5.6-sol'] : ['gemini-3.1-flash-lite', 'gemini-3.1-flash', 'gemini-2.5-flash']).map((value) => ({ value, label: value }))} /></Space.Compact></Form.Item>
-      <Form.Item label="图片模型（Banana）"><Select value={settings.imageModel} onChange={(imageModel: ImageModel) => setSettings((value) => ({ ...value, imageProvider: 'gemini', imageModel, imageSize: MODEL_CAPABILITIES[imageModel].imageSizes.includes(value.imageSize) ? value.imageSize : MODEL_CAPABILITIES[imageModel].imageSizes[0] }))} options={Object.entries(MODEL_CAPABILITIES).map(([value, capability]) => ({ value, label: capability.label }))} /></Form.Item>
-      <Form.Item label="输出清晰度"><Segmented block value={settings.imageSize} onChange={(imageSize) => setSettings((value) => ({ ...value, imageSize: imageSize as ImageSize }))} options={MODEL_CAPABILITIES[settings.imageModel].imageSizes} /></Form.Item>
+      <Form.Item label="图片服务"><Segmented block value={settings.imageProvider} onChange={(imageProvider) => setSettings((value) => ({ ...value, imageProvider: imageProvider as LogoRemovalSettings['imageProvider'] }))} options={[{ value: 'gemini', label: 'Gemini' }, { value: 'openai', label: 'GPT' }]} /></Form.Item>
+      <Form.Item label={settings.imageProvider === 'openai' ? 'GPT 图片模型' : '图片模型（Banana）'}>{settings.imageProvider === 'openai'
+        ? <Select value={settings.openAiImageModel} onChange={(openAiImageModel) => setSettings((value) => ({ ...value, openAiImageModel }))} options={GPT_IMAGE_MODEL_OPTIONS} />
+        : <Select value={settings.imageModel} onChange={(imageModel: ImageModel) => setSettings((value) => ({ ...value, imageModel, imageSize: MODEL_CAPABILITIES[imageModel].imageSizes.includes(value.imageSize) ? value.imageSize : MODEL_CAPABILITIES[imageModel].imageSizes[0] }))} options={Object.entries(MODEL_CAPABILITIES).map(([value, capability]) => ({ value, label: capability.label }))} />}</Form.Item>
+      {settings.imageProvider === 'gemini'
+        ? <Form.Item label="输出清晰度"><Segmented block value={settings.imageSize} onChange={(imageSize) => setSettings((value) => ({ ...value, imageSize: imageSize as ImageSize }))} options={MODEL_CAPABILITIES[settings.imageModel].imageSizes} /></Form.Item>
+        : <Alert type="info" showIcon title="GPT Image 使用 high 质量和自动尺寸" description="通过 OpenAI Images Edit 直接去除 Logo；需要在右上角配置 OpenAI API Key。" style={{ marginBottom: 18 }} />}
       <Form.Item label="每张生成份数"><InputNumber min={1} max={4} value={settings.copiesPerImage} onChange={(copiesPerImage) => setSettings((value) => ({ ...value, copiesPerImage: copiesPerImage || 1 }))} style={{ width: '100%' }} /></Form.Item>
       <Form.Item label="全局并发"><InputNumber min={1} max={8} value={settings.concurrency} onChange={(concurrency) => setSettings((value) => ({ ...value, concurrency: concurrency || 1 }))} style={{ width: '100%' }} /></Form.Item>
       <Form.Item label="完整提示词"><Input.TextArea rows={9} value={settings.prompt} onChange={(event) => setSettings((value) => ({ ...value, prompt: event.target.value }))} /></Form.Item>

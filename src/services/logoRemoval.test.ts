@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { LogoRemovalAnalysis, LogoRemovalSettings } from '../types';
-import { DEFAULT_LOGO_REMOVAL_PROMPT, buildLogoRemovalAnalysisPrompt, buildLogoRemovalGenerationPrompt } from './logoRemoval';
+import { DEFAULT_LOGO_REMOVAL_PROMPT, buildLogoRemovalAnalysisPrompt, buildLogoRemovalGenerationPrompt, generateLogoRemoval } from './logoRemoval';
 
 const settings: LogoRemovalSettings = {
   scopes: ['cup-body'], customScope: '', analysisProvider: 'gemini', analysisModel: 'gemini-3.1-flash-lite', openAiAnalysisModel: 'gpt-5.6-luna',
@@ -17,6 +17,7 @@ const analysis: LogoRemovalAnalysis = {
 };
 
 describe('logo removal prompts', () => {
+  afterEach(() => vi.unstubAllGlobals());
   it('limits the default analysis to cup body and protects layout text', () => {
     const prompt = buildLogoRemovalAnalysisPrompt('cup-body');
     expect(prompt).toContain('杯身外侧表面');
@@ -53,5 +54,22 @@ describe('logo removal prompts', () => {
     expect(prompt).toContain('所有勾选项的并集');
     expect(prompt).toContain('木盒表面');
     expect(prompt).toContain('皮革礼盒');
+  });
+
+  it('uses the selected GPT image model for Logo removal generation', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [{ b64_json: btoa('result') }] }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    const result = await generateLogoRemoval({
+      settings: { ...settings, imageProvider: 'openai', openAiImageModel: 'gpt-image-2-2026-04-21' },
+      apiKey: '', openAiApiKey: 'openai-key', scene: new File(['scene'], 'scene.png', { type: 'image/png' }), analysis,
+    });
+    const request = fetchMock.mock.calls[0][1] as RequestInit;
+    const form = request.body as FormData;
+    expect(fetchMock.mock.calls[0][0]).toBe('https://api.openai.com/v1/images/edits');
+    expect(form.get('model')).toBe('gpt-image-2-2026-04-21');
+    expect(form.get('quality')).toBe('high');
+    expect(form.get('size')).toBe('auto');
+    expect(form.get('prompt')).toContain('只处理以下已确认目标');
+    expect(result.mimeType).toBe('image/png');
   });
 });
