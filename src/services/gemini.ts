@@ -514,6 +514,33 @@ export async function optimizeSceneReplacePrompt(options: {
   return text;
 }
 
+export async function optimizeLogoReplacePrompt(options: {
+  apiKey: string;
+  model: OptimizerModel;
+  prompt: string;
+  signal?: AbortSignal;
+  apiBaseUrl?: string | null;
+}) {
+  const instruction = `你是商业产品图片编辑与 Logo 替换提示词专家。请把下面的 Logo 替换要求优化为一段可直接用于图片编辑模型的中文完整提示词。清楚描述应替换的旧 Logo、目标载体、材质融合、曲率、透视、反射、折射、遮挡关系，以及必须保持不变的主体、构图、人物、背景和非目标区域。必须逐项保留原文中的所有硬性约束，不得删除、放宽、反转或添加用户未要求的替换目标。只输出优化后的提示词，不要解释、标题、引号或 Markdown。\n\n原提示词：${options.prompt}`;
+  const data = await postGemini(
+    options.model,
+    options.apiKey,
+    {
+      contents: [{ role: "user", parts: [{ text: instruction }] }],
+      generationConfig: { temperature: 0.6 },
+    },
+    options.signal,
+    options.apiBaseUrl,
+  );
+  const text = data.candidates
+    ?.flatMap((candidate) => candidate.content?.parts ?? [])
+    .map((part) => part.text ?? "")
+    .join("")
+    .trim();
+  if (!text) throw new Error("模型未返回提示词优化结果");
+  return text;
+}
+
 export function buildGlassLogoEtchInstruction(
   options: GlassLogoEtchOptions,
 ): string {

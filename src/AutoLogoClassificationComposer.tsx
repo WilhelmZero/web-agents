@@ -24,6 +24,7 @@ import {
   Upload,
 } from "antd";
 import {
+  BulbOutlined,
   DeleteOutlined,
   DownloadOutlined,
   EditOutlined,
@@ -87,8 +88,10 @@ import {
   normalizeLogoClassificationPresetGroups,
   updateLogoClassificationPresetGroupCategories,
 } from "./services/logoClassificationPresetGroups";
+import { createDefaultLogoClassificationPresetGroup } from "./services/defaultClassificationPresetGroups";
 import {
   generateExactLogoReplacement,
+  optimizeLogoReplacePrompt,
   verifyLogoReplacement,
 } from "./services/gemini";
 import {
@@ -103,6 +106,14 @@ import {
 import { formatBatchDuration } from "./services/batchTiming";
 import { sanitizeRelativeFolderPath } from "./services/batchFolderPath";
 import { reportTaskProgress } from "./services/taskProgress";
+import { optimizeLogoPromptOpenAi } from "./services/promptOptimizer";
+import { imageDimensions, resizeImageBlob } from "./services/logoOutputSizing";
+import {
+  automaticAspectRatio,
+  automaticOpenAiSize,
+  OPENAI_IMAGE_OUTPUT_SIZES,
+  shouldRestoreOriginalDimensions,
+} from "./services/automaticOutputSizing";
 
 const { Title, Text, Paragraph } = Typography;
 type Group = ReturnType<typeof groupFolderFiles>[number];
@@ -178,14 +189,18 @@ function PresetEditor({
   initial,
   onCancel,
   onSave,
+  onOptimize,
 }: {
   open: boolean;
   initial?: LogoClassificationPreset;
   onCancel: () => void;
   onSave: (value: { name: string; prompt: string }) => void;
+  onOptimize: (prompt: string) => Promise<string>;
 }) {
+  const { message } = App.useApp();
   const [name, setName] = useState("");
   const [prompt, setPrompt] = useState("");
+  const [optimizing, setOptimizing] = useState(false);
   useEffect(() => {
     if (open) {
       setName(initial?.name || "");
@@ -216,6 +231,28 @@ function PresetEditor({
             autoSize={{ minRows: 7, maxRows: 14 }}
             placeholder="该内容会逐字提交给图片模型"
           />
+          <Flex justify="flex-end" style={{ marginTop: 8 }}>
+            <Button
+              icon={<BulbOutlined />}
+              loading={optimizing}
+              disabled={!prompt.trim()}
+              onClick={async () => {
+                setOptimizing(true);
+                try {
+                  setPrompt(await onOptimize(prompt));
+                  message.success("提示词已优化，可继续修改后保存");
+                } catch (error) {
+                  message.error(
+                    error instanceof Error ? error.message : "提示词优化失败",
+                  );
+                } finally {
+                  setOptimizing(false);
+                }
+              }}
+            >
+              AI 优化
+            </Button>
+          </Flex>
         </Form.Item>
         <Alert
           type="warning"
@@ -298,11 +335,18 @@ export default function AutoLogoClassificationComposer({
     const hasGroupedPresets =
       localStorage.getItem(STORAGE_KEYS.logoClassificationPresetGroups) !==
       null;
+    const legacyPresets = hasGroupedPresets
+      ? []
+      : readLocalStorage(STORAGE_KEYS.logoClassificationPresets, []);
+    if (!hasGroupedPresets && !Array.isArray(legacyPresets)) {
+      return [createDefaultLogoClassificationPresetGroup()];
+    }
+    if (!hasGroupedPresets && legacyPresets.length === 0) {
+      return [createDefaultLogoClassificationPresetGroup()];
+    }
     return normalizeLogoClassificationPresetGroups(
       readLocalStorage(STORAGE_KEYS.logoClassificationPresetGroups, []),
-      hasGroupedPresets
-        ? []
-        : readLocalStorage(STORAGE_KEYS.logoClassificationPresets, []),
+      legacyPresets,
     );
   });
   const [activePresetGroupId, setActivePresetGroupId] = useState(() =>
@@ -317,16 +361,18 @@ export default function AutoLogoClassificationComposer({
         }) as LogoClassificationSettings,
     );
   const [generationSettings, setGenerationSettings] =
-    useState<AutoLogoGenerationSettings>(
-      () =>
-        ({
-          ...DEFAULT_AUTO_LOGO_GENERATION_SETTINGS,
-          ...readLocalStorage(
-            STORAGE_KEYS.logoClassificationGenerationSettings,
-            {},
-          ),
-        }) as AutoLogoGenerationSettings,
-    );
+    useState<AutoLogoGenerationSettings>(() => {
+      const stored = readLocalStorage<Partial<AutoLogoGenerationSettings>>(
+        STORAGE_KEYS.logoClassificationGenerationSettings,
+        {},
+      );
+      return {
+        ...DEFAULT_AUTO_LOGO_GENERATION_SETTINGS,
+        ...stored,
+        ratioMode: stored.ratioMode || "auto",
+        openAiOutputSize: stored.openAiOutputSize || "1024x1024",
+      } as AutoLogoGenerationSettings;
+    });
   const [tasks, setTasks] = useState<AutoLogoClassificationTask[]>([]);
   const [presetEditor, setPresetEditor] = useState<{
     open: boolean;
@@ -592,6 +638,34 @@ export default function AutoLogoClassificationComposer({
     );
     setPresetEditor({ open: false });
   };
+
+  const optimizePresetPrompt = useCallback(
+    async (prompt: string) => {
+      const config = analysisSettingsRef.current;
+      if (config.provider === "openai") {
+        if (!openAiApiKey) {
+          onRequestKey();
+          throw new Error("请先填写 OpenAI API Key");
+        }
+        return optimizeLogoPromptOpenAi({
+          apiKey: openAiApiKey,
+          model: config.openAiModel,
+          prompt,
+        });
+      }
+      if (!apiKey) {
+        onRequestKey();
+        throw new Error("请先填写 Gemini API Key");
+      }
+      return optimizeLogoReplacePrompt({
+        apiKey,
+        apiBaseUrl,
+        model: config.geminiModel,
+        prompt,
+      });
+    },
+    [apiBaseUrl, apiKey, onRequestKey, openAiApiKey],
+  );
   const deletePreset = (id: string) =>
     setPresets((current) => {
       const target = current.find((item) => item.id === id);
@@ -637,10 +711,29 @@ export default function AutoLogoClassificationComposer({
       let verificationRetry = 0;
       try {
         const config = generationSettingsRef.current;
+        const dimensions =
+          config.ratioMode === "auto" || config.ratioMode === "original"
+            ? await imageDimensions(task.file)
+            : undefined;
+        const sourceWidth = dimensions?.width || 1;
+        const sourceHeight = dimensions?.height || 1;
+        const aspectRatio = automaticAspectRatio({
+          mode: config.ratioMode,
+          sourceWidth,
+          sourceHeight,
+          fixedRatio: config.aspectRatio,
+          supportedRatios: MODEL_CAPABILITIES[config.imageModel].aspectRatios,
+        });
+        const openAiSize = automaticOpenAiSize({
+          mode: config.ratioMode,
+          sourceWidth,
+          sourceHeight,
+          fixedSize: config.openAiOutputSize,
+        });
         while (true) {
           try {
             setGenerationRequests((value) => value + 1);
-            const result =
+            let result =
               config.imageProvider === "openai"
                 ? await generateExactLogoReplacementOpenAi({
                     apiKey: openAiApiKey,
@@ -649,6 +742,7 @@ export default function AutoLogoClassificationComposer({
                     oldLogo: frozenOldLogo.current?.file,
                     logos: selected.map((item) => item.file),
                     prompt: task.categoryPrompt,
+                    size: openAiSize || "omit",
                     signal: controller.signal,
                   })
                 : await generateExactLogoReplacement({
@@ -660,12 +754,20 @@ export default function AutoLogoClassificationComposer({
                     logos: selected.map((item) => item.file),
                     prompt: task.categoryPrompt,
                     imageSize: config.imageSize,
-                    aspectRatio:
-                      config.ratioMode === "fixed"
-                        ? config.aspectRatio
-                        : undefined,
+                    aspectRatio,
                     signal: controller.signal,
                   });
+            if (
+              dimensions &&
+              shouldRestoreOriginalDimensions(config.ratioMode)
+            ) {
+              const blob = await resizeImageBlob(
+                result.blob,
+                dimensions.width,
+                dimensions.height,
+              );
+              result = { ...result, blob, mimeType: blob.type || "image/png" };
+            }
             let verificationSummary: string | undefined;
             if (config.strictVerification) {
               setVerificationRequests((value) => value + 1);
@@ -1484,6 +1586,53 @@ export default function AutoLogoClassificationComposer({
             style={{ marginBottom: 16 }}
           />
         )}
+        <Form.Item label="输出图片比例">
+          <Select
+            value={generationSettings.ratioMode}
+            onChange={(ratioMode) => patchGeneration({ ratioMode })}
+            options={[
+              { value: "auto", label: "Auto（脚本自动选择）" },
+              { value: "unspecified", label: "不传比例（由模型判断）" },
+              { value: "original", label: "跟随场景原图" },
+              { value: "fixed", label: "固定输出尺寸" },
+            ]}
+          />
+          <Text type="secondary">
+            {generationSettings.ratioMode === "auto"
+              ? "脚本按原图宽高，从当前模型支持的固定尺寸中选择最合适的一档。"
+              : generationSettings.ratioMode === "unspecified"
+                ? "请求中不发送比例或尺寸参数，由图片模型结合提示词判断。"
+                : generationSettings.ratioMode === "original"
+                  ? "先匹配最接近的模型比例，生成后再还原为场景原图像素尺寸。"
+                  : "始终使用下方指定的固定输出尺寸。"}
+          </Text>
+          {generationSettings.ratioMode === "fixed" ? (
+            generationSettings.imageProvider === "openai" ? (
+              <Select
+                aria-label="GPT 固定输出尺寸"
+                style={{ marginTop: 10 }}
+                value={generationSettings.openAiOutputSize}
+                options={OPENAI_IMAGE_OUTPUT_SIZES.map((value) => ({
+                  value,
+                  label: value.replace("x", " × "),
+                }))}
+                onChange={(openAiOutputSize) =>
+                  patchGeneration({ openAiOutputSize })
+                }
+              />
+            ) : (
+              <Select
+                aria-label="Gemini 固定输出比例"
+                style={{ marginTop: 10 }}
+                value={generationSettings.aspectRatio}
+                options={MODEL_CAPABILITIES[
+                  generationSettings.imageModel
+                ].aspectRatios.map((value) => ({ value, label: value }))}
+                onChange={(aspectRatio) => patchGeneration({ aspectRatio })}
+              />
+            )
+          ) : null}
+        </Form.Item>
         <Form.Item label="生图并发">
           <InputNumber
             min={1}
@@ -2402,6 +2551,7 @@ export default function AutoLogoClassificationComposer({
         initial={presetEditor.preset}
         onCancel={() => setPresetEditor({ open: false })}
         onSave={savePreset}
+        onOptimize={optimizePresetPrompt}
       />
       <PresetGroupEditor
         open={presetGroupEditor.open}

@@ -377,8 +377,9 @@ export interface SceneReplaceSettings {
   openAiPromptOptimizerModel: "gpt-5.6-sol" | "gpt-5.6-terra" | "gpt-5.6-luna";
   imageModel: ImageModel | "gpt-image-2" | "gpt-image-2-2026-04-21";
   imageQuality: "high" | "medium" | "low";
-  ratioMode: "original" | "fixed";
+  ratioMode: "original" | "fixed" | "auto" | "unspecified";
   aspectRatio: string;
+  openAiOutputSize?: OpenAiImageOutputSize;
   imageSize: ImageSize;
   concurrency: number;
   copiesPerScene: number;
@@ -420,6 +421,7 @@ export interface SceneReplaceTask {
   id: string;
   sceneId: string;
   sceneIndex: number;
+  sourceFileKey?: string;
   copyIndex: number;
   status: TaskStatus;
   prompt: string;
@@ -452,6 +454,13 @@ export interface SceneClassificationPreset {
   updatedAt: number;
 }
 
+export interface SceneClassificationPresetGroup {
+  id: string;
+  name: string;
+  categories: SceneClassificationPreset[];
+  updatedAt: number;
+}
+
 export interface SceneClassificationSettings {
   provider: AiProvider;
   geminiModel: OptimizerModel;
@@ -461,6 +470,11 @@ export interface SceneClassificationSettings {
   errorRetryLimit: number;
   errorRetryDelaySeconds: number;
 }
+
+export type AutomaticOutputRatioMode =
+  "auto" | "unspecified" | "original" | "fixed";
+
+export type OpenAiImageOutputSize = "1024x1024" | "1536x1024" | "1024x1536";
 
 export type AutoSceneTaskStatus =
   | "waiting-analysis"
@@ -531,8 +545,9 @@ export interface AutoLogoGenerationSettings {
   imageProvider: AiProvider;
   imageModel: ImageModel;
   openAiImageModel: "gpt-image-2";
-  ratioMode: "original" | "fixed";
+  ratioMode: AutomaticOutputRatioMode;
   aspectRatio: string;
+  openAiOutputSize: OpenAiImageOutputSize;
   imageSize: ImageSize;
   concurrency: number;
   copiesPerScene: number;

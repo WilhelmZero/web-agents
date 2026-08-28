@@ -44,3 +44,25 @@ export function createAutoSceneTasks(
     })),
   );
 }
+
+export function appendAutoSceneGroupFile(
+  groups: AutoSceneFolderGroup[],
+  groupId: string,
+  file: File,
+) {
+  return groups.map((group) =>
+    group.id === groupId ? { ...group, files: [...group.files, file] } : group,
+  );
+}
+
+export function removeAutoSceneGroupFile(
+  groups: AutoSceneFolderGroup[],
+  groupId: string,
+  target: File,
+) {
+  return groups.flatMap((group) => {
+    if (group.id !== groupId) return [group];
+    const files = group.files.filter((file) => file !== target);
+    return files.length ? [{ ...group, files }] : [];
+  });
+}

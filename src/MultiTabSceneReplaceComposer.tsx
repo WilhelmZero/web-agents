@@ -205,7 +205,7 @@ interface SceneOutputItem {
   original?: File;
   label: string;
 }
-function collectSceneOutputItems(
+export function collectSceneOutputItems(
   groups: Group[],
   results: Record<string, SceneReplaceTask[]>,
 ) {
@@ -220,7 +220,12 @@ function collectSceneOutputItems(
               groupName: group?.name || "分组",
               task,
               blob: task.resultBlob,
-              original: group?.files[task.sceneIndex],
+              original:
+                group?.files.find(
+                  (file) =>
+                    task.sourceFileKey &&
+                    perImagePromptFileKey(file) === task.sourceFileKey,
+                ) || group?.files[task.sceneIndex],
               label: `场景结果 ${task.copyIndex + 1}`,
             },
           ]
@@ -231,7 +236,12 @@ function collectSceneOutputItems(
         groupName: group?.name || "分组",
         task,
         blob: item.blob,
-        original: group?.files[task.sceneIndex],
+        original:
+          group?.files.find(
+            (file) =>
+              task.sourceFileKey &&
+              perImagePromptFileKey(file) === task.sourceFileKey,
+          ) || group?.files[task.sceneIndex],
         label: `扩图 ${item.width}×${item.height}`,
       }));
       return [...base, ...expanded];
@@ -283,17 +293,37 @@ function SceneOutputGallery({
               size="small"
               className="batch-result-card"
               title={`${item.groupName} · 图片 ${item.task.sceneIndex + 1}`}
-              extra={<Tag color="success">{item.label}</Tag>}
+              extra={
+                <Tag
+                  color={
+                    item.task.insufficientChangeWarning ? "orange" : "success"
+                  }
+                >
+                  {item.task.insufficientChangeWarning
+                    ? "低变化结果待确认"
+                    : item.label}
+                </Tag>
+              }
             >
               <div className="batch-result-image">
                 {shown && (
                   <Image
+                    key={`${item.id}-${showOriginal ? "original" : "output"}`}
                     src={shown}
                     alt={showOriginal ? "原图" : item.label}
                     preview={{ src: shown }}
                   />
                 )}
               </div>
+              {item.task.insufficientChangeWarning && (
+                <Alert
+                  type="warning"
+                  showIcon
+                  style={{ marginTop: 8 }}
+                  title="变化不足 20%，已保留最后结果"
+                  description={item.task.insufficientChangeWarning}
+                />
+              )}
               <Flex
                 justify="space-between"
                 align="center"
@@ -804,11 +834,20 @@ export default function MultiTabSceneReplaceComposer(
   };
   const open = async (only?: Group) => {
     if (isElectronDesktop()) {
-      if (!groups.length || !prompt.trim()) return void message.warning("请选择场景文件夹并填写公共提示词");
+      if (!groups.length || !prompt.trim())
+        return void message.warning("请选择场景文件夹并填写公共提示词");
       const selected = (only ? [only] : groups)
-        .map((group) => ({ ...group, files: autoSkipWhiteBackground ? group.files.filter((file) => !whiteBackgroundFileKeys.includes(fileKey(file))) : group.files }))
+        .map((group) => ({
+          ...group,
+          files: autoSkipWhiteBackground
+            ? group.files.filter(
+                (file) => !whiteBackgroundFileKeys.includes(fileKey(file)),
+              )
+            : group.files,
+        }))
         .filter((group) => group.files.length);
-      if (!selected.length) return void message.warning("所选分组全部是白底图，没有可执行的任务");
+      if (!selected.length)
+        return void message.warning("所选分组全部是白底图，没有可执行的任务");
       const outputRoot = await window.desktop?.pickOutputDirectory();
       if (!outputRoot) return;
       try {
@@ -834,11 +873,19 @@ export default function MultiTabSceneReplaceComposer(
             tool: "scene-replace",
             settings: {
               ...storedSceneSettings,
-              autoRecommendScene: exactPromptControl ? false : folderSuggestionMode ? false : autoRecommendScene,
+              autoRecommendScene: exactPromptControl
+                ? false
+                : folderSuggestionMode
+                  ? false
+                  : autoRecommendScene,
               autoSkipWhiteBackground,
-              perImagePromptEnabled: exactPromptControl ? false : perImagePromptEnabled || autoRecommendScene,
+              perImagePromptEnabled: exactPromptControl
+                ? false
+                : perImagePromptEnabled || autoRecommendScene,
               autoGenerateAfterPromptAnalysis: true,
-              simplifyPromptConstraints: exactPromptControl ? false : simplifyPromptConstraints,
+              simplifyPromptConstraints: exactPromptControl
+                ? false
+                : simplifyPromptConstraints,
               detectInsufficientSceneChange,
             },
             prompt: exactPromptControl ? prompt : prompt.trim(),
@@ -849,7 +896,9 @@ export default function MultiTabSceneReplaceComposer(
         window.dispatchEvent(new Event("desktop-task-created"));
         message.success("全部文件夹已加入桌面后台队列，不再创建子标签");
       } catch (error) {
-        message.error(error instanceof Error ? error.message : "创建桌面批次失败");
+        message.error(
+          error instanceof Error ? error.message : "创建桌面批次失败",
+        );
       }
       return;
     }
@@ -884,7 +933,8 @@ export default function MultiTabSceneReplaceComposer(
       return void message.warning("所选分组全部是白底图，没有可打开的任务");
     let promptAssignments = perImagePrompts.assignments;
     if (
-      !exactPromptControl && shouldAnalyzePerImagePromptsInController(
+      !exactPromptControl &&
+      shouldAnalyzePerImagePromptsInController(
         perImagePromptEnabled,
         autoGenerateAfterPromptAnalysis,
       )
@@ -1006,7 +1056,10 @@ export default function MultiTabSceneReplaceComposer(
   };
   const downloadableCount = Object.values(results)
     .flatMap((tasks) => tasks)
-    .filter((task) => task.status === "success").length;
+    .filter(
+      (task) =>
+        task.status === "success" || Boolean(task.insufficientChangeWarning),
+    ).length;
   const reportWorkerProgress = useCallback(
     (value: ProgressState) =>
       channel.current?.postMessage({
@@ -1363,7 +1416,8 @@ export default function MultiTabSceneReplaceComposer(
           }
           exactPromptControl={workerBatch?.exactPromptControl}
           perImagePromptPrefix={
-            !workerBatch?.exactPromptControl && workerBatch?.folderSuggestionMode
+            !workerBatch?.exactPromptControl &&
+            workerBatch?.folderSuggestionMode
               ? folderTheme
               : undefined
           }
@@ -1585,7 +1639,9 @@ export default function MultiTabSceneReplaceComposer(
             <Button
               icon={<BulbOutlined />}
               loading={suggestingGroupIds.length > 0}
-              disabled={exactPromptControl || !folderSuggestionMode || !groups.length}
+              disabled={
+                exactPromptControl || !folderSuggestionMode || !groups.length
+              }
               onClick={() => void suggestGroups()}
             >
               自动场景建议
@@ -1850,60 +1906,66 @@ export default function MultiTabSceneReplaceComposer(
           placeholder="输入发送给所有工作标签的完整场景替换提示词"
         />
       </Card>
-      {!exactPromptControl && perImagePromptEnabled && autoGenerateAfterPromptAnalysis && (
-        <Alert
-          type="info"
-          showIcon
-          title="主控页不再分析或显示审核列表"
-          description="打开工作标签后，点击一键开始所有替换；每个子标签只分析自己的图片，分析成功后自动进入生成，不占用主控页的分析资源。"
-        />
-      )}
-      {!exactPromptControl && perImagePromptEnabled && !autoGenerateAfterPromptAnalysis && (
-        <Card
-          title="3. 逐图提示词审核"
-          extra={
-            <Button
-              icon={<ReloadOutlined />}
-              disabled={!promptReviewFiles.length}
-              onClick={() => void perImagePrompts.analyze()}
-            >
-              分析全部 / 重试失败
-            </Button>
-          }
-        >
-          {autoSkipWhiteBackground && whiteBackgroundFileKeys.length > 0 && (
-            <Alert
-              type="info"
-              showIcon
-              style={{ marginBottom: 12 }}
-              title={`${whiteBackgroundFileKeys.length} 张白底图无需生成，已从逐图提示词审核中排除`}
-            />
-          )}
-          <div className="per-image-prompt-grid">
-            {groups.flatMap((group) =>
-              group.files
-                .filter((file) => promptReviewFiles.includes(file))
-                .map((file) => (
-                  <Card
-                    size="small"
-                    key={`${group.id}-${perImagePromptFileKey(file)}`}
-                    title={`${group.name} · ${file.name}`}
-                  >
-                    <PerImagePromptEditor
-                      file={file}
-                      assignment={
-                        perImagePrompts.assignments[perImagePromptFileKey(file)]
-                      }
-                      sourcePrompt={prompt}
-                      onEdit={(value) => perImagePrompts.edit(file, value)}
-                      onAnalyze={() => void perImagePrompts.analyze([file])}
-                    />
-                  </Card>
-                )),
+      {!exactPromptControl &&
+        perImagePromptEnabled &&
+        autoGenerateAfterPromptAnalysis && (
+          <Alert
+            type="info"
+            showIcon
+            title="主控页不再分析或显示审核列表"
+            description="打开工作标签后，点击一键开始所有替换；每个子标签只分析自己的图片，分析成功后自动进入生成，不占用主控页的分析资源。"
+          />
+        )}
+      {!exactPromptControl &&
+        perImagePromptEnabled &&
+        !autoGenerateAfterPromptAnalysis && (
+          <Card
+            title="3. 逐图提示词审核"
+            extra={
+              <Button
+                icon={<ReloadOutlined />}
+                disabled={!promptReviewFiles.length}
+                onClick={() => void perImagePrompts.analyze()}
+              >
+                分析全部 / 重试失败
+              </Button>
+            }
+          >
+            {autoSkipWhiteBackground && whiteBackgroundFileKeys.length > 0 && (
+              <Alert
+                type="info"
+                showIcon
+                style={{ marginBottom: 12 }}
+                title={`${whiteBackgroundFileKeys.length} 张白底图无需生成，已从逐图提示词审核中排除`}
+              />
             )}
-          </div>
-        </Card>
-      )}
+            <div className="per-image-prompt-grid">
+              {groups.flatMap((group) =>
+                group.files
+                  .filter((file) => promptReviewFiles.includes(file))
+                  .map((file) => (
+                    <Card
+                      size="small"
+                      key={`${group.id}-${perImagePromptFileKey(file)}`}
+                      title={`${group.name} · ${file.name}`}
+                    >
+                      <PerImagePromptEditor
+                        file={file}
+                        assignment={
+                          perImagePrompts.assignments[
+                            perImagePromptFileKey(file)
+                          ]
+                        }
+                        sourcePrompt={prompt}
+                        onEdit={(value) => perImagePrompts.edit(file, value)}
+                        onAnalyze={() => void perImagePrompts.analyze([file])}
+                      />
+                    </Card>
+                  )),
+              )}
+            </div>
+          </Card>
+        )}
       <Card className="action-card">
         <Flex justify="space-between" wrap gap={12}>
           <div>
@@ -2067,7 +2129,13 @@ export default function MultiTabSceneReplaceComposer(
                   <br />
                   <Text type="secondary">
                     生成成功{" "}
-                    {outputs.filter((task) => task.status === "success").length}{" "}
+                    {
+                      outputs.filter(
+                        (task) =>
+                          task.status === "success" ||
+                          Boolean(task.insufficientChangeWarning),
+                      ).length
+                    }{" "}
                     张
                   </Text>
                   <Button

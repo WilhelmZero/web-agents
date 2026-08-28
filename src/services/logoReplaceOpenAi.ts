@@ -3,6 +3,7 @@ import type {
   LogoRemovalAnalysis,
   LogoRemovalVerification,
   LogoVerificationResult,
+  OpenAiImageOutputSize,
   SceneLogoStyle,
 } from "../types";
 import { fileToBase64 } from "../utils";
@@ -32,6 +33,7 @@ async function editImages(options: {
   requestLabel?: string;
   signal?: AbortSignal;
   exactPrompt?: boolean;
+  size?: OpenAiImageOutputSize | "omit";
 }): Promise<GeneratedImage> {
   const form = new FormData();
   options.images.forEach((image) => form.append("image[]", image, image.name));
@@ -41,7 +43,7 @@ async function editImages(options: {
   form.append("prompt", guardedPrompt);
   form.append("model", options.model);
   form.append("n", "1");
-  form.append("size", "auto");
+  if (options.size !== "omit") form.append("size", options.size || "auto");
   form.append("quality", options.quality || "high");
   form.append("output_format", "png");
   const startedAt = performance.now();
@@ -254,6 +256,7 @@ export function generateExactLogoReplacementOpenAi(options: {
   oldLogo?: File;
   logos: File[];
   prompt: string;
+  size?: OpenAiImageOutputSize | "omit";
   signal?: AbortSignal;
 }) {
   return editImages({

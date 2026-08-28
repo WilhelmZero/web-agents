@@ -25,6 +25,7 @@ import {
   Upload,
 } from "antd";
 import {
+  BulbOutlined,
   DeleteOutlined,
   DownloadOutlined,
   EditOutlined,
@@ -54,12 +55,13 @@ import {
   STORAGE_KEYS,
 } from "./constants";
 import { buildPickerFolderTree } from "./MultiTabSceneReplaceComposer";
-import { groupFolderFiles } from "./MultiTabLogoReplaceComposer";
+import { FileThumbnail, groupFolderFiles } from "./MultiTabLogoReplaceComposer";
 import { readLocalStorage } from "./storage";
 import type {
   AutoSceneClassificationTask,
   ImageModel,
   SceneClassificationPreset,
+  SceneClassificationPresetGroup,
   SceneClassificationSettings,
   SceneReplaceSettings,
 } from "./types";
@@ -76,8 +78,17 @@ import {
   normalizeSceneClassificationPresets,
   withSceneClassificationFallback,
 } from "./services/sceneClassification";
-import { generateSceneReplacementImage } from "./services/gemini";
+import {
+  normalizeSceneClassificationPresetGroups,
+  updateSceneClassificationPresetGroupCategories,
+} from "./services/sceneClassificationPresetGroups";
+import { createDefaultSceneClassificationPresetGroup } from "./services/defaultClassificationPresetGroups";
+import {
+  generateSceneReplacementImage,
+  optimizeSceneReplacePrompt,
+} from "./services/gemini";
 import { editPaperTextOpenAi } from "./services/paperText";
+import { optimizeScenePromptOpenAi } from "./services/promptOptimizer";
 import { detectWhiteBackground } from "./services/whiteBackgroundDetection";
 import {
   detectImageChange,
@@ -95,7 +106,19 @@ import {
   prepareOutpaintInput,
 } from "./services/outpaint";
 import { sanitizeRelativeFolderPath } from "./services/batchFolderPath";
-import { autoSceneStatusLabel, createAutoSceneTasks } from "./services/autoScenePipeline";
+import {
+  appendAutoSceneGroupFile,
+  autoSceneStatusLabel,
+  createAutoSceneTasks,
+  removeAutoSceneGroupFile,
+} from "./services/autoScenePipeline";
+import { imageDimensions, resizeImageBlob } from "./services/logoOutputSizing";
+import {
+  automaticAspectRatio,
+  automaticOpenAiSize,
+  OPENAI_IMAGE_OUTPUT_SIZES,
+  shouldRestoreOriginalDimensions,
+} from "./services/automaticOutputSizing";
 
 const { Title, Text, Paragraph } = Typography;
 type Group = ReturnType<typeof groupFolderFiles>[number];
@@ -182,14 +205,18 @@ function PresetEditor({
   initial,
   onCancel,
   onSave,
+  onOptimize,
 }: {
   open: boolean;
   initial?: SceneClassificationPreset;
   onCancel: () => void;
   onSave: (value: { name: string; prompt: string }) => void;
+  onOptimize: (prompt: string) => Promise<string>;
 }) {
+  const { message } = App.useApp();
   const [name, setName] = useState("");
   const [prompt, setPrompt] = useState("");
+  const [optimizing, setOptimizing] = useState(false);
   useEffect(() => {
     if (open) {
       setName(initial?.name || "");
@@ -220,12 +247,77 @@ function PresetEditor({
             autoSize={{ minRows: 7, maxRows: 14 }}
             placeholder="该内容会原样提交给图片模型"
           />
+          <Flex justify="flex-end" style={{ marginTop: 8 }}>
+            <Button
+              icon={<BulbOutlined />}
+              loading={optimizing}
+              disabled={!prompt.trim()}
+              onClick={async () => {
+                setOptimizing(true);
+                try {
+                  setPrompt(await onOptimize(prompt));
+                  message.success("提示词已优化，可继续修改后保存");
+                } catch (error) {
+                  message.error(
+                    error instanceof Error ? error.message : "提示词优化失败",
+                  );
+                } finally {
+                  setOptimizing(false);
+                }
+              }}
+            >
+              AI 优化
+            </Button>
+          </Flex>
         </Form.Item>
         <Alert
           type="warning"
           showIcon
           title="生成时完全使用这段提示词"
           description="不会追加公共提示词、保护模板、自动推荐或逐图限制。"
+        />
+      </Form>
+    </Modal>
+  );
+}
+
+function PresetGroupEditor({
+  open,
+  initial,
+  onCancel,
+  onSave,
+}: {
+  open: boolean;
+  initial?: SceneClassificationPresetGroup;
+  onCancel: () => void;
+  onSave: (name: string) => void;
+}) {
+  const [name, setName] = useState("");
+  useEffect(() => {
+    if (open) setName(initial?.name || "");
+  }, [open, initial]);
+  return (
+    <Modal
+      title={initial ? "重命名场景分类预设" : "新增场景分类预设"}
+      open={open}
+      okText="保存"
+      onCancel={onCancel}
+      onOk={() => onSave(name)}
+      okButtonProps={{ disabled: !name.trim() }}
+    >
+      <Form layout="vertical">
+        <Form.Item label="预设名称" required>
+          <Input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="例如：杯具室内外场景"
+          />
+        </Form.Item>
+        <Alert
+          type="info"
+          showIcon
+          title="一个预设可包含多个分类场景提示词"
+          description="运行时 AI 只在当前选中预设包含的分类中进行判断。"
         />
       </Form>
     </Modal>
@@ -251,10 +343,28 @@ export default function AutoSceneClassificationComposer({
   const [groups, setGroups] = useState<Group[]>([]);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [checkedFolders, setCheckedFolders] = useState<string[]>([]);
-  const [presets, setPresets] = useState<SceneClassificationPreset[]>(() =>
-    normalizeSceneClassificationPresets(
-      readLocalStorage(STORAGE_KEYS.sceneClassificationPresets, []),
-    ),
+  const [presetGroups, setPresetGroups] = useState<
+    SceneClassificationPresetGroup[]
+  >(() => {
+    const hasGroupedPresets =
+      localStorage.getItem(STORAGE_KEYS.sceneClassificationPresetGroups) !==
+      null;
+    const legacyPresets = hasGroupedPresets
+      ? []
+      : readLocalStorage(STORAGE_KEYS.sceneClassificationPresets, []);
+    if (!hasGroupedPresets && !Array.isArray(legacyPresets)) {
+      return [createDefaultSceneClassificationPresetGroup()];
+    }
+    if (!hasGroupedPresets && legacyPresets.length === 0) {
+      return [createDefaultSceneClassificationPresetGroup()];
+    }
+    return normalizeSceneClassificationPresetGroups(
+      readLocalStorage(STORAGE_KEYS.sceneClassificationPresetGroups, []),
+      legacyPresets,
+    );
+  });
+  const [activePresetGroupId, setActivePresetGroupId] = useState(() =>
+    readLocalStorage(STORAGE_KEYS.activeSceneClassificationPresetGroup, ""),
   );
   const [analysisSettings, setAnalysisSettings] =
     useState<SceneClassificationSettings>(
@@ -265,21 +375,31 @@ export default function AutoSceneClassificationComposer({
         }) as SceneClassificationSettings,
     );
   const [generationSettings, setGenerationSettings] =
-    useState<SceneReplaceSettings>(
-      () =>
-        ({
-          ...DEFAULT_SCENE_REPLACE_SETTINGS,
-          ...readLocalStorage(STORAGE_KEYS.sceneClassificationGenerationSettings, {}),
-          executionMode: "realtime",
-          perImagePromptEnabled: false,
-          autoRecommendScene: false,
-        }) as SceneReplaceSettings,
-    );
+    useState<SceneReplaceSettings>(() => {
+      const stored = readLocalStorage<Partial<SceneReplaceSettings>>(
+        STORAGE_KEYS.sceneClassificationGenerationSettings,
+        {},
+      );
+      return {
+        ...DEFAULT_SCENE_REPLACE_SETTINGS,
+        ...stored,
+        ratioMode: stored.ratioMode || "auto",
+        openAiOutputSize: stored.openAiOutputSize || "1024x1024",
+        executionMode: "realtime",
+        perImagePromptEnabled: false,
+        autoRecommendScene: false,
+      } as SceneReplaceSettings;
+    });
   const [tasks, setTasks] = useState<AutoSceneClassificationTask[]>([]);
   const [presetEditor, setPresetEditor] = useState<{
     open: boolean;
     preset?: SceneClassificationPreset;
   }>({ open: false });
+  const [presetGroupEditor, setPresetGroupEditor] = useState<{
+    open: boolean;
+    group?: SceneClassificationPresetGroup;
+  }>({ open: false });
+  const [managedGroupId, setManagedGroupId] = useState<string>();
   const [selectedGroupId, setSelectedGroupId] = useState<string>();
   const [previewOriginal, setPreviewOriginal] = useState(false);
   const [runStartedAt, setRunStartedAt] = useState<number>();
@@ -294,6 +414,11 @@ export default function AutoSceneClassificationComposer({
   const tasksRef = useRef(tasks);
   const generationSettingsRef = useRef(generationSettings);
   const analysisSettingsRef = useRef(analysisSettings);
+  const activePresetGroup =
+    presetGroups.find((item) => item.id === activePresetGroupId) ||
+    presetGroups[0];
+  const selectedPresetGroupId = activePresetGroup?.id || "";
+  const presets = activePresetGroup?.categories || [];
   useEffect(() => {
     tasksRef.current = tasks;
   }, [tasks]);
@@ -313,10 +438,18 @@ export default function AutoSceneClassificationComposer({
   }, [analysisSettings]);
   useEffect(() => {
     localStorage.setItem(
-      STORAGE_KEYS.sceneClassificationPresets,
-      JSON.stringify(presets),
+      STORAGE_KEYS.sceneClassificationPresetGroups,
+      JSON.stringify(presetGroups),
     );
-  }, [presets]);
+  }, [presetGroups]);
+  useEffect(() => {
+    if (selectedPresetGroupId !== activePresetGroupId)
+      setActivePresetGroupId(selectedPresetGroupId);
+    localStorage.setItem(
+      STORAGE_KEYS.activeSceneClassificationPresetGroup,
+      JSON.stringify(selectedPresetGroupId),
+    );
+  }, [activePresetGroupId, selectedPresetGroupId]);
   useEffect(
     () => () => {
       tasksRef.current.forEach((task) => {
@@ -347,6 +480,21 @@ export default function AutoSceneClassificationComposer({
           }
         : next;
     });
+  const setPresets = useCallback(
+    (
+      updater: (
+        current: SceneClassificationPreset[],
+      ) => SceneClassificationPreset[],
+    ) =>
+      setPresetGroups((current) =>
+        updateSceneClassificationPresetGroupCategories(
+          current,
+          selectedPresetGroupId,
+          updater,
+        ),
+      ),
+    [selectedPresetGroupId],
+  );
   const clearRun = useCallback(() => {
     analysisControllers.current.forEach((item) => item.abort());
     generationControllers.current.forEach((item) => item.abort());
@@ -391,6 +539,71 @@ export default function AutoSceneClassificationComposer({
     setCheckedFolders([]);
     clearRun();
   };
+  const managedGroup = groups.find((group) => group.id === managedGroupId);
+  const removeGroup = (group: Group) => {
+    clearRun();
+    setGroups((current) => current.filter((item) => item.id !== group.id));
+    setManagedGroupId((current) =>
+      current === group.id ? undefined : current,
+    );
+    message.success(`已移除文件夹 ${group.name}`);
+  };
+  const removeAllGroups = () => {
+    clearRun();
+    setGroups([]);
+    setManagedGroupId(undefined);
+    setPendingFiles([]);
+    setCheckedFolders([]);
+    message.success("已移除全部文件夹");
+  };
+  const removeGroupFile = (groupId: string, target: File) => {
+    const group = groups.find((item) => item.id === groupId);
+    clearRun();
+    if (group?.files.length === 1) {
+      setManagedGroupId(undefined);
+      message.info(`已移除空文件夹 ${group.name}`);
+    }
+    setGroups((current) => removeAutoSceneGroupFile(current, groupId, target));
+  };
+  const addGroupFile = (groupId: string, file: File) => {
+    if (
+      !IMAGE_TYPES.includes(file.type) ||
+      file.size <= 0 ||
+      file.size > 20 * 1024 * 1024
+    ) {
+      message.error(`${file.name} 不是支持的图片，或文件超过 20MB`);
+      return Upload.LIST_IGNORE;
+    }
+    clearRun();
+    setGroups((current) => appendAutoSceneGroupFile(current, groupId, file));
+    return Upload.LIST_IGNORE;
+  };
+  const savePresetGroup = (name: string) => {
+    const trimmedName = name.trim();
+    if (!trimmedName) return;
+    if (presetGroupEditor.group) {
+      setPresetGroups((current) =>
+        current.map((item) =>
+          item.id === presetGroupEditor.group?.id
+            ? { ...item, name: trimmedName, updatedAt: Date.now() }
+            : item,
+        ),
+      );
+    } else {
+      const id = createId();
+      setPresetGroups((current) => [
+        ...current,
+        { id, name: trimmedName, categories: [], updatedAt: Date.now() },
+      ]);
+      setActivePresetGroupId(id);
+    }
+    setPresetGroupEditor({ open: false });
+  };
+  const deletePresetGroup = (id: string) => {
+    setPresetGroups((current) => current.filter((item) => item.id !== id));
+    setActivePresetGroupId((current) => (current === id ? "" : current));
+    setPresetEditor({ open: false });
+  };
   const savePreset = ({ name, prompt }: { name: string; prompt: string }) => {
     setPresets((current) => {
       if (presetEditor.preset)
@@ -412,6 +625,34 @@ export default function AutoSceneClassificationComposer({
     });
     setPresetEditor({ open: false });
   };
+
+  const optimizePresetPrompt = useCallback(
+    async (prompt: string) => {
+      const config = analysisSettingsRef.current;
+      if (config.provider === "openai") {
+        if (!openAiApiKey) {
+          onRequestKey();
+          throw new Error("请先填写 OpenAI API Key");
+        }
+        return optimizeScenePromptOpenAi({
+          apiKey: openAiApiKey,
+          model: config.openAiModel,
+          prompt,
+        });
+      }
+      if (!apiKey) {
+        onRequestKey();
+        throw new Error("请先填写 Gemini API Key");
+      }
+      return optimizeSceneReplacePrompt({
+        apiKey,
+        apiBaseUrl,
+        model: config.geminiModel,
+        prompt,
+      });
+    },
+    [apiBaseUrl, apiKey, onRequestKey, openAiApiKey],
+  );
   const deletePreset = (id: string) => {
     setPresets((current) => {
       const target = current.find((item) => item.id === id);
@@ -536,6 +777,29 @@ export default function AutoSceneClassificationComposer({
       let retry = task.generationRetryCount;
       try {
         const config = generationSettingsRef.current;
+        const dimensions =
+          config.ratioMode === "auto" || config.ratioMode === "original"
+            ? await imageDimensions(task.file)
+            : undefined;
+        const sourceWidth = dimensions?.width || 1;
+        const sourceHeight = dimensions?.height || 1;
+        const aspectRatio = isOpenAiModel(config.imageModel)
+          ? undefined
+          : automaticAspectRatio({
+              mode: config.ratioMode,
+              sourceWidth,
+              sourceHeight,
+              fixedRatio: config.aspectRatio,
+              supportedRatios:
+                MODEL_CAPABILITIES[config.imageModel as ImageModel]
+                  .aspectRatios,
+            });
+        const openAiSize = automaticOpenAiSize({
+          mode: config.ratioMode,
+          sourceWidth,
+          sourceHeight,
+          fixedSize: config.openAiOutputSize || "1024x1024",
+        });
         while (true) {
           setGenerationRequests((value) => value + 1);
           try {
@@ -546,6 +810,7 @@ export default function AutoSceneClassificationComposer({
                   image: task.file,
                   prompt: task.categoryPrompt,
                   quality: config.imageQuality,
+                  size: openAiSize || "omit",
                   signal: controller.signal,
                   exactPrompt: true,
                 })
@@ -557,14 +822,22 @@ export default function AutoSceneClassificationComposer({
                     image: task.file,
                     prompt: task.categoryPrompt,
                     imageSize: config.imageSize,
-                    aspectRatio:
-                      config.ratioMode === "fixed"
-                        ? config.aspectRatio
-                        : undefined,
+                    aspectRatio,
                     signal: controller.signal,
                     exactPrompt: true,
                   })
                 ).blob;
+            if (
+              lastBlob &&
+              dimensions &&
+              shouldRestoreOriginalDimensions(config.ratioMode)
+            ) {
+              lastBlob = await resizeImageBlob(
+                lastBlob,
+                dimensions.width,
+                dimensions.height,
+              );
+            }
             let changedRatio: number | undefined;
             let warning: string | undefined;
             if (config.detectInsufficientSceneChange) {
@@ -858,21 +1131,24 @@ export default function AutoSceneClassificationComposer({
     if (!groups.length)
       return void message.warning("请先导入至少一个图片文件夹");
     if (!normalized.length || !fallback)
-      return void message.warning("请先创建分类并指定兜底分类");
+      return void message.warning("请在当前预设中创建分类并指定兜底分类");
     const analysisKey =
       analysisSettings.provider === "openai" ? openAiApiKey : apiKey;
     const generationKey = isOpenAiModel(generationSettings.imageModel)
       ? openAiApiKey
       : apiKey;
     const outpaintKey = generationSettings.autoOutpaint
-      ? isOpenAiModel(generationSettings.outpaintImageModel) ? openAiApiKey : apiKey
+      ? isOpenAiModel(generationSettings.outpaintImageModel)
+        ? openAiApiKey
+        : apiKey
       : "not-required";
     if (!analysisKey || !generationKey || !outpaintKey) return onRequestKey();
     if (
       connectionMode === "proxy" &&
       (analysisSettings.provider === "gemini" ||
         !isOpenAiModel(generationSettings.imageModel) ||
-        (generationSettings.autoOutpaint && !isOpenAiModel(generationSettings.outpaintImageModel))) &&
+        (generationSettings.autoOutpaint &&
+          !isOpenAiModel(generationSettings.outpaintImageModel))) &&
       !apiBaseUrl
     )
       return void message.warning("请先配置 Gemini 代理地址");
@@ -1024,20 +1300,54 @@ export default function AutoSceneClassificationComposer({
     [selectedTasks],
   );
   const selectedGroup = groups.find((item) => item.id === selectedGroupId);
-  const [selectedOriginalUrls, setSelectedOriginalUrls] = useState<Record<string, string>>({});
+  const [selectedOriginalUrls, setSelectedOriginalUrls] = useState<
+    Record<string, string>
+  >({});
   useEffect(() => {
     const next = Object.fromEntries(
-      selectedPreviewTasks.map((task) => [task.id, URL.createObjectURL(task.file)]),
+      selectedPreviewTasks.map((task) => [
+        task.id,
+        URL.createObjectURL(task.file),
+      ]),
     );
     setSelectedOriginalUrls(next);
     return () => Object.values(next).forEach((url) => URL.revokeObjectURL(url));
   }, [selectedPreviewTasks]);
-  const analysisStarted = tasks.reduce<number | undefined>((value, task) => task.analysisStartedAt && (!value || task.analysisStartedAt < value) ? task.analysisStartedAt : value, undefined);
-  const analysisEnded = tasks.reduce<number | undefined>((value, task) => task.analysisEndedAt && (!value || task.analysisEndedAt > value) ? task.analysisEndedAt : value, undefined);
-  const generationStarted = tasks.reduce<number | undefined>((value, task) => task.generationStartedAt && (!value || task.generationStartedAt < value) ? task.generationStartedAt : value, undefined);
-  const generationEnded = tasks.reduce<number | undefined>((value, task) => task.generationEndedAt && (!value || task.generationEndedAt > value) ? task.generationEndedAt : value, undefined);
-  const analysisRetries = tasks.filter((task) => task.copyIndex === 0).reduce((sum, task) => sum + task.analysisRetryCount, 0);
-  const generationRetries = tasks.reduce((sum, task) => sum + task.generationRetryCount, 0);
+  const analysisStarted = tasks.reduce<number | undefined>(
+    (value, task) =>
+      task.analysisStartedAt && (!value || task.analysisStartedAt < value)
+        ? task.analysisStartedAt
+        : value,
+    undefined,
+  );
+  const analysisEnded = tasks.reduce<number | undefined>(
+    (value, task) =>
+      task.analysisEndedAt && (!value || task.analysisEndedAt > value)
+        ? task.analysisEndedAt
+        : value,
+    undefined,
+  );
+  const generationStarted = tasks.reduce<number | undefined>(
+    (value, task) =>
+      task.generationStartedAt && (!value || task.generationStartedAt < value)
+        ? task.generationStartedAt
+        : value,
+    undefined,
+  );
+  const generationEnded = tasks.reduce<number | undefined>(
+    (value, task) =>
+      task.generationEndedAt && (!value || task.generationEndedAt > value)
+        ? task.generationEndedAt
+        : value,
+    undefined,
+  );
+  const analysisRetries = tasks
+    .filter((task) => task.copyIndex === 0)
+    .reduce((sum, task) => sum + task.analysisRetryCount, 0);
+  const generationRetries = tasks.reduce(
+    (sum, task) => sum + task.generationRetryCount,
+    0,
+  );
   const downloadOne = (task: AutoSceneClassificationTask) => {
     if (task.resultBlob)
       downloadBlob(
@@ -1111,8 +1421,16 @@ export default function AutoSceneClassificationComposer({
               onChange={(value) =>
                 setAnalysisSettings((current) =>
                   current.provider === "openai"
-                    ? { ...current, openAiModel: value as SceneClassificationSettings["openAiModel"] }
-                    : { ...current, geminiModel: value as SceneClassificationSettings["geminiModel"] },
+                    ? {
+                        ...current,
+                        openAiModel:
+                          value as SceneClassificationSettings["openAiModel"],
+                      }
+                    : {
+                        ...current,
+                        geminiModel:
+                          value as SceneClassificationSettings["geminiModel"],
+                      },
                 )
               }
             />
@@ -1210,6 +1528,53 @@ export default function AutoSceneClassificationComposer({
               />
             </Form.Item>
           )}
+          <Form.Item label="输出图片比例">
+            <Select
+              value={generationSettings.ratioMode}
+              onChange={(ratioMode) => patchGeneration({ ratioMode })}
+              options={[
+                { value: "auto", label: "Auto（脚本自动选择）" },
+                { value: "unspecified", label: "不传比例（由模型判断）" },
+                { value: "original", label: "跟随场景原图" },
+                { value: "fixed", label: "固定输出尺寸" },
+              ]}
+            />
+            <Text type="secondary">
+              {generationSettings.ratioMode === "auto"
+                ? "脚本按原图宽高，从当前模型支持的固定尺寸中选择最合适的一档。"
+                : generationSettings.ratioMode === "unspecified"
+                  ? "请求中不发送比例或尺寸参数，由图片模型结合提示词判断。"
+                  : generationSettings.ratioMode === "original"
+                    ? "先匹配最接近的模型比例，生成后再还原为场景原图像素尺寸。"
+                    : "始终使用下方指定的固定输出尺寸。"}
+            </Text>
+            {generationSettings.ratioMode === "fixed" ? (
+              isOpenAiModel(generationSettings.imageModel) ? (
+                <Select
+                  aria-label="GPT 固定输出尺寸"
+                  style={{ marginTop: 10 }}
+                  value={generationSettings.openAiOutputSize || "1024x1024"}
+                  options={OPENAI_IMAGE_OUTPUT_SIZES.map((value) => ({
+                    value,
+                    label: value.replace("x", " × "),
+                  }))}
+                  onChange={(openAiOutputSize) =>
+                    patchGeneration({ openAiOutputSize })
+                  }
+                />
+              ) : (
+                <Select
+                  aria-label="Gemini 固定输出比例"
+                  style={{ marginTop: 10 }}
+                  value={generationSettings.aspectRatio}
+                  options={MODEL_CAPABILITIES[
+                    generationSettings.imageModel as ImageModel
+                  ].aspectRatios.map((value) => ({ value, label: value }))}
+                  onChange={(aspectRatio) => patchGeneration({ aspectRatio })}
+                />
+              )
+            ) : null}
+          </Form.Item>
           <Form.Item label="生图并发">
             <InputNumber
               min={1}
@@ -1259,10 +1624,61 @@ export default function AutoSceneClassificationComposer({
           </Flex>
           <Flex justify="space-between" style={{ marginTop: 12 }}>
             <Text>生图错误自动重试</Text>
-            <Switch checked={generationSettings.autoRetryErrors} onChange={(autoRetryErrors) => patchGeneration({ autoRetryErrors })} />
+            <Switch
+              checked={generationSettings.autoRetryErrors}
+              onChange={(autoRetryErrors) =>
+                patchGeneration({ autoRetryErrors })
+              }
+            />
           </Flex>
-          {generationSettings.autoRetryErrors ? <Flex gap={8} style={{ marginTop: 12 }}><Form.Item label="重试次数" style={{ flex: 1 }}><InputNumber min={0} max={20} value={generationSettings.errorRetryLimit} onChange={(errorRetryLimit) => patchGeneration({ errorRetryLimit: errorRetryLimit || 0 })} /></Form.Item><Form.Item label="等待秒数" style={{ flex: 1 }}><InputNumber min={1} max={3600} value={generationSettings.errorRetryDelaySeconds} onChange={(errorRetryDelaySeconds) => patchGeneration({ errorRetryDelaySeconds: errorRetryDelaySeconds || 1 })} /></Form.Item></Flex> : null}
-          {generationSettings.autoOutpaint ? <><Form.Item label="扩图模型" style={{ marginTop: 12 }}><Select value={generationSettings.outpaintImageModel} options={MODEL_OPTIONS} onChange={(outpaintImageModel) => patchGeneration({ outpaintImageModel })} /></Form.Item><Flex justify="space-between"><Text>同时输出 3200×1310 和 1800×1350</Text><Switch checked={generationSettings.outpaintBothSizes} onChange={(outpaintBothSizes) => patchGeneration({ outpaintBothSizes })} /></Flex></> : null}
+          {generationSettings.autoRetryErrors ? (
+            <Flex gap={8} style={{ marginTop: 12 }}>
+              <Form.Item label="重试次数" style={{ flex: 1 }}>
+                <InputNumber
+                  min={0}
+                  max={20}
+                  value={generationSettings.errorRetryLimit}
+                  onChange={(errorRetryLimit) =>
+                    patchGeneration({ errorRetryLimit: errorRetryLimit || 0 })
+                  }
+                />
+              </Form.Item>
+              <Form.Item label="等待秒数" style={{ flex: 1 }}>
+                <InputNumber
+                  min={1}
+                  max={3600}
+                  value={generationSettings.errorRetryDelaySeconds}
+                  onChange={(errorRetryDelaySeconds) =>
+                    patchGeneration({
+                      errorRetryDelaySeconds: errorRetryDelaySeconds || 1,
+                    })
+                  }
+                />
+              </Form.Item>
+            </Flex>
+          ) : null}
+          {generationSettings.autoOutpaint ? (
+            <>
+              <Form.Item label="扩图模型" style={{ marginTop: 12 }}>
+                <Select
+                  value={generationSettings.outpaintImageModel}
+                  options={MODEL_OPTIONS}
+                  onChange={(outpaintImageModel) =>
+                    patchGeneration({ outpaintImageModel })
+                  }
+                />
+              </Form.Item>
+              <Flex justify="space-between">
+                <Text>同时输出 3200×1310 和 1800×1350</Text>
+                <Switch
+                  checked={generationSettings.outpaintBothSizes}
+                  onChange={(outpaintBothSizes) =>
+                    patchGeneration({ outpaintBothSizes })
+                  }
+                />
+              </Flex>
+            </>
+          ) : null}
         </Card>
       </Form>
       <Alert
@@ -1328,19 +1744,16 @@ export default function AutoSceneClassificationComposer({
       <Card
         title="1. 导入多个图片文件夹"
         extra={
-          groups.length ? (
-            <Popconfirm
-              title="移除所有文件夹？"
-              onConfirm={() => {
-                setGroups([]);
-                clearRun();
-              }}
-            >
-              <Button danger icon={<DeleteOutlined />}>
-                清空
-              </Button>
-            </Popconfirm>
-          ) : null
+          <Popconfirm
+            title="移除全部文件夹？"
+            description="只清空当前网页批次，不会删除电脑中的原文件。"
+            disabled={!groups.length}
+            onConfirm={removeAllGroups}
+          >
+            <Button danger icon={<DeleteOutlined />} disabled={!groups.length}>
+              移除全部文件夹
+            </Button>
+          </Popconfirm>
         }
       >
         <Upload.Dragger
@@ -1362,35 +1775,126 @@ export default function AutoSceneClassificationComposer({
         {groups.length ? (
           <div className="folder-group-grid" style={{ marginTop: 16 }}>
             {groups.map((group) => (
-              <Card key={group.id} size="small" title={group.name}>
+              <Card
+                key={group.id}
+                size="small"
+                hoverable
+                className="folder-manage-card"
+                title={group.name}
+                onClick={() => setManagedGroupId(group.id)}
+              >
                 <FolderCover file={group.files[0]} />
                 <Text type="secondary">
                   {group.path} · {group.files.length} 张
                 </Text>
+                <Flex gap={6} wrap>
+                  <Button
+                    type="link"
+                    size="small"
+                    style={{ paddingInline: 0 }}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setManagedGroupId(group.id);
+                    }}
+                  >
+                    查看和管理图片
+                  </Button>
+                  <Popconfirm
+                    title={`移除文件夹 ${group.name}？`}
+                    description="只从当前网页批次移除，不会删除电脑中的原文件。"
+                    onConfirm={() => removeGroup(group)}
+                  >
+                    <Button
+                      danger
+                      type="link"
+                      size="small"
+                      icon={<DeleteOutlined />}
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      移除文件夹
+                    </Button>
+                  </Popconfirm>
+                </Flex>
               </Card>
             ))}
           </div>
         ) : null}
       </Card>
-      <Card
-        title="2. 自定义分类与原样提示词"
-        extra={
+      <Card title="2. 分类场景提示词预设">
+        <Flex gap={12} wrap align="end" style={{ marginBottom: 14 }}>
+          <div style={{ flex: "1 1 280px" }}>
+            <Text strong>当前预设</Text>
+            <Select
+              aria-label="当前场景分类提示词预设"
+              value={selectedPresetGroupId || undefined}
+              placeholder="请先新增预设"
+              style={{ width: "100%", marginTop: 6 }}
+              options={presetGroups.map((group) => ({
+                value: group.id,
+                label: `${group.name}（${group.categories.length} 个分类）`,
+              }))}
+              onChange={setActivePresetGroupId}
+            />
+          </div>
+          <Space wrap>
+            <Button
+              icon={<PlusOutlined />}
+              onClick={() => setPresetGroupEditor({ open: true })}
+            >
+              新增预设
+            </Button>
+            <Button
+              icon={<EditOutlined />}
+              disabled={!activePresetGroup}
+              onClick={() =>
+                setPresetGroupEditor({
+                  open: true,
+                  group: activePresetGroup,
+                })
+              }
+            >
+              重命名
+            </Button>
+            <Popconfirm
+              title={`删除预设“${activePresetGroup?.name || ""}”？`}
+              description="该预设包含的全部分类场景提示词也会被删除。"
+              disabled={!activePresetGroup}
+              onConfirm={() =>
+                activePresetGroup && deletePresetGroup(activePresetGroup.id)
+              }
+            >
+              <Button danger disabled={!activePresetGroup}>
+                删除预设
+              </Button>
+            </Popconfirm>
+          </Space>
+        </Flex>
+        <Alert
+          type="info"
+          showIcon
+          title="一个预设可保存多个分类场景提示词"
+          description="AI 只在当前预设的分类中选择，选中后直接把该分类提示词原样交给图片模型；批次启动后冻结当前预设。"
+          style={{ marginBottom: 14 }}
+        />
+        <Flex
+          justify="space-between"
+          align="center"
+          style={{ marginBottom: 12 }}
+        >
+          <Text strong>
+            {activePresetGroup
+              ? `${activePresetGroup.name} · ${presets.length} 个分类`
+              : "尚未选择预设"}
+          </Text>
           <Button
             type="primary"
             icon={<PlusOutlined />}
+            disabled={!activePresetGroup}
             onClick={() => setPresetEditor({ open: true })}
           >
             新增分类
           </Button>
-        }
-      >
-        <Alert
-          type="info"
-          showIcon
-          title="一个分类对应一段最终提示词"
-          description="AI 只负责选择分类；选中后直接把该分类提示词原样交给图片模型。首个分类自动成为兜底分类。"
-          style={{ marginBottom: 14 }}
-        />
+        </Flex>
         {presets.length ? (
           <div className="auto-category-grid">
             {presets.map((preset) => (
@@ -1449,7 +1953,13 @@ export default function AutoSceneClassificationComposer({
             ))}
           </div>
         ) : (
-          <Empty description="尚未创建分类，添加至少一个分类后才能运行" />
+          <Empty
+            description={
+              activePresetGroup
+                ? "当前预设尚无分类，请添加至少一个分类"
+                : "请先新增一个分类场景提示词预设"
+            }
+          />
         )}
       </Card>
       <Card className="action-card">
@@ -1531,8 +2041,24 @@ export default function AutoSceneClassificationComposer({
               <Statistic title="生图/扩图请求" value={generationRequests} />
               <Statistic title="分析重试" value={analysisRetries} />
               <Statistic title="生图重试" value={generationRetries} />
-              <Statistic title="分析耗时" value={analysisStarted && analysisEnded ? formatBatchDuration(analysisEnded - analysisStarted) : "—"} />
-              <Statistic title="生图耗时" value={generationStarted ? formatBatchDuration((generationEnded || Date.now()) - generationStarted) : "—"} />
+              <Statistic
+                title="分析耗时"
+                value={
+                  analysisStarted && analysisEnded
+                    ? formatBatchDuration(analysisEnded - analysisStarted)
+                    : "—"
+                }
+              />
+              <Statistic
+                title="生图耗时"
+                value={
+                  generationStarted
+                    ? formatBatchDuration(
+                        (generationEnded || Date.now()) - generationStarted,
+                      )
+                    : "—"
+                }
+              />
               <Statistic
                 title="总耗时"
                 value={
@@ -1887,11 +2413,67 @@ export default function AutoSceneClassificationComposer({
         />
         {renderTree(pickerTree)}
       </Modal>
+      <Modal
+        title={managedGroup ? `${managedGroup.name} · 图片管理` : "图片管理"}
+        open={Boolean(managedGroup)}
+        width={900}
+        footer={
+          <Button onClick={() => setManagedGroupId(undefined)}>完成</Button>
+        }
+        onCancel={() => setManagedGroupId(undefined)}
+      >
+        {managedGroup ? (
+          <>
+            <Flex
+              justify="space-between"
+              align="center"
+              gap={12}
+              wrap
+              style={{ marginBottom: 14 }}
+            >
+              <Text type="secondary">
+                {managedGroup.path} · 当前 {managedGroup.files.length}
+                张；增删只影响当前网页批次。
+              </Text>
+              <Upload
+                multiple
+                showUploadList={false}
+                accept={IMAGE_TYPES.join(",")}
+                beforeUpload={(file) =>
+                  addGroupFile(managedGroup.id, file as File)
+                }
+              >
+                <Button type="primary" icon={<PlusOutlined />}>
+                  添加图片到该文件夹
+                </Button>
+              </Upload>
+            </Flex>
+            <Image.PreviewGroup>
+              <div className="batch-asset-grid">
+                {managedGroup.files.map((file, index) => (
+                  <FileThumbnail
+                    key={`${file.name}-${file.size}-${file.lastModified}-${index}`}
+                    file={file}
+                    onRemove={() => removeGroupFile(managedGroup.id, file)}
+                  />
+                ))}
+              </div>
+            </Image.PreviewGroup>
+          </>
+        ) : null}
+      </Modal>
       <PresetEditor
         open={presetEditor.open}
         initial={presetEditor.preset}
         onCancel={() => setPresetEditor({ open: false })}
         onSave={savePreset}
+        onOptimize={optimizePresetPrompt}
+      />
+      <PresetGroupEditor
+        open={presetGroupEditor.open}
+        initial={presetGroupEditor.group}
+        onCancel={() => setPresetGroupEditor({ open: false })}
+        onSave={savePresetGroup}
       />
       {settingsHost ? createPortal(settingsPanel, settingsHost) : null}
     </div>

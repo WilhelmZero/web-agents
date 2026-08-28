@@ -36,6 +36,33 @@ describe("OpenAI Logo replacement", () => {
       "a.png",
       "a.png",
     ]);
+    expect(body.get("size")).toBe("auto");
+  });
+
+  it("supports a fixed output size and truly omits the size field", async () => {
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response(JSON.stringify({ data: [{ b64_json: btoa("result") }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const base = {
+      apiKey: "key",
+      model: "gpt-image-2" as const,
+      scene: new File(["scene"], "scene.png", { type: "image/png" }),
+      logos: [new File(["logo"], "logo.png", { type: "image/png" })],
+      prompt: "用户预设原文",
+    };
+    await generateExactLogoReplacementOpenAi({ ...base, size: "1536x1024" });
+    expect((fetchMock.mock.calls[0][1]?.body as FormData).get("size")).toBe(
+      "1536x1024",
+    );
+    await generateExactLogoReplacementOpenAi({ ...base, size: "omit" });
+    expect((fetchMock.mock.calls[1][1]?.body as FormData).has("size")).toBe(
+      false,
+    );
   });
 
   it("sends the scene and Logo references as multiple image edit inputs", async () => {

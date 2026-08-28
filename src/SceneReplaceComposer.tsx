@@ -19,6 +19,7 @@ import { recommendSceneTheme, SCENE_COMMON_CONSTRAINT, SCENE_MANUAL_DEFAULT_PROM
 import { detectWhiteBackground } from './services/whiteBackgroundDetection';
 import { buildSceneReplacementPrompt } from './services/sceneReplacementPrompt';
 import { detectImageChange, resolveInsufficientImageChangeOutcome } from './services/imageChangeDetection';
+import { stopSceneTaskPreservingLastResult } from './services/sceneResultState';
 import { PerImagePromptEditor, usePerImagePrompts } from './usePerImagePrompts';
 import { perImagePromptFileKey } from './services/perImagePrompt';
 import { generateSceneReplacementBatch } from './services/geminiBatch';
@@ -68,6 +69,7 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
   const [selectedResultId, setSelectedResultId] = useState<string>();
   const [previewCompareOriginal, setPreviewCompareOriginal] = useState(false);
   const [directPreviewOriginal, setDirectPreviewOriginal] = useState(false);
+  const [directPreviewTaskId, setDirectPreviewTaskId] = useState<string>();
   const [compareOriginalTaskIds, setCompareOriginalTaskIds] = useState<Set<string>>(() => new Set());
   const running = useRef(new Set<string>());
   const aborters = useRef(new Map<string, AbortController>());
@@ -156,11 +158,23 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
         changedRatio = change.changedRatio;
         const detail = `场景变化检测未通过：仅 ${(change.changedRatio * 100).toFixed(1)}% 像素发生明显变化，不超过 20%`;
         const outcome = resolveInsufficientImageChangeOutcome(change.changedRatio, task.retryCount, config.errorRetryLimit);
-        if (outcome === 'retry') throw new Error(detail);
+        if (outcome === 'retry') {
+          const resultUrl = URL.createObjectURL(resultBlob);
+          setTasks((current) => current.map((item) => {
+            if (item.id !== task.id) return item;
+            if (item.resultUrl) URL.revokeObjectURL(item.resultUrl);
+            return { ...item, resultBlob, resultUrl, resultMimeType: resultBlob.type || 'image/png', changedRatio, insufficientChangeWarning: `${detail}；正在自动重新生成，若手动停止将保留当前最后结果` };
+          }));
+          throw new Error(detail);
+        }
         if (outcome === 'keep-last-with-warning') insufficientChangeWarning = `${detail}；已达到 ${config.errorRetryLimit} 次重试上限，保留最后一张生成图，请人工确认`;
       }
       const resultUrl = URL.createObjectURL(resultBlob);
-      setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status: 'success', resultBlob, resultUrl, resultMimeType: resultBlob.type || 'image/png', outpaintStatus: 'idle', insufficientChangeWarning, changedRatio } : item));
+      setTasks((current) => current.map((item) => {
+        if (item.id !== task.id) return item;
+        if (item.resultUrl && item.resultUrl !== resultUrl) URL.revokeObjectURL(item.resultUrl);
+        return { ...item, status: 'success', resultBlob, resultUrl, resultMimeType: resultBlob.type || 'image/png', outpaintStatus: 'idle', insufficientChangeWarning, changedRatio };
+      }));
       if (config.autoOutpaint) await outpaintTask(task.id, resultBlob, controller.signal);
     } catch (error) {
       const stopped = controller.signal.aborted; const config = settingsRef.current; const detail = error instanceof Error ? error.message : '场景替换失败';
@@ -170,7 +184,7 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
         setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status: 'waiting', error: `${detail}；将在 ${config.errorRetryDelaySeconds} 秒后自动重试`, retryCount: item.retryCount + 1, nextRetryAt } : item));
         const timer = window.setTimeout(() => { retryTimers.current.delete(task.id); setTasks((current) => current.map((item) => item.id === task.id && !item.autoRetryStopped ? { ...item, nextRetryAt: undefined, error: undefined } : item)); }, delayMs);
         retryTimers.current.set(task.id, timer);
-      } else setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status: stopped ? 'stopped' : 'failed', error: stopped ? '任务已停止' : detail, nextRetryAt: undefined } : item));
+      } else setTasks((current) => current.map((item) => item.id === task.id ? stopped ? stopSceneTaskPreservingLastResult(item) : { ...item, status: 'failed', error: detail, nextRetryAt: undefined } : item));
     }
     finally { running.current.delete(task.id); aborters.current.delete(task.id); }
   }, [apiKey, openAiApiKey, apiBaseUrl, outpaintTask]);
@@ -181,11 +195,11 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
     const assignedWithRequiredTheme = [perImagePromptPrefix?.trim(), assigned].filter(Boolean).join('；');
     const targetPrompt = exactPromptControl ? submittedPrompt : config.perImagePromptEnabled ? assignedWithRequiredTheme : config.autoRecommendScene ? `${sceneThemes[scene.id]}，${prompt.trim()}` : prompt.trim();
     const relevantConstraints = !exactPromptControl && config.simplifyPromptConstraints && config.perImagePromptEnabled ? assignments[perImagePromptFileKey(scene.file)]?.constraints : undefined;
-    return Array.from({ length: config.copiesPerScene }, (_, copyIndex) => ({ id: createId(), sceneId: scene.id, sceneIndex, copyIndex, status: 'waiting' as const, prompt: buildSceneReplacementPrompt(targetPrompt, relevantConstraints, exactPromptControl), retryCount: 0 }));
+    return Array.from({ length: config.copiesPerScene }, (_, copyIndex) => ({ id: createId(), sceneId: scene.id, sceneIndex, sourceFileKey: perImagePromptFileKey(scene.file), copyIndex, status: 'waiting' as const, prompt: buildSceneReplacementPrompt(targetPrompt, relevantConstraints, exactPromptControl), retryCount: 0 }));
   });
   const createPromptAnalysisFailureTasks = (items: LogoAsset[], config: SceneReplaceSettings, error: string): SceneReplaceTask[] => items.flatMap((scene) => {
     const sceneIndex = scenes.findIndex((item) => item.id === scene.id);
-    return Array.from({ length: config.copiesPerScene }, (_, copyIndex) => ({ id: createId(), sceneId: scene.id, sceneIndex, copyIndex, status: 'failed' as const, prompt: '', error, retryCount: 0 }));
+    return Array.from({ length: config.copiesPerScene }, (_, copyIndex) => ({ id: createId(), sceneId: scene.id, sceneIndex, sourceFileKey: perImagePromptFileKey(scene.file), copyIndex, status: 'failed' as const, prompt: '', error, retryCount: 0 }));
   });
   const executeBatch = async (batchTasks: SceneReplaceTask[], config: SceneReplaceSettings) => {
     const controller = new AbortController();
@@ -213,6 +227,12 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
             const outcome = resolveInsufficientImageChangeOutcome(change.changedRatio, retryCount, config.errorRetryLimit);
             if (outcome === 'pass') break;
             if (outcome === 'keep-last-with-warning') { insufficientChangeWarning = `${detail}；已达到 ${config.errorRetryLimit} 次重试上限，保留最后一张生成图，请人工确认`; break; }
+            const candidateUrl = URL.createObjectURL(finalResult.blob);
+            setTasks((current) => current.map((item) => {
+              if (item.id !== task.id) return item;
+              if (item.resultUrl) URL.revokeObjectURL(item.resultUrl);
+              return { ...item, resultBlob: finalResult.blob, resultUrl: candidateUrl, resultMimeType: finalResult.mimeType, changedRatio, insufficientChangeWarning: `${detail}；正在自动重新生成，若手动停止将保留当前最后结果` };
+            }));
             retryCount += 1;
             setTasks((current) => current.map((item) => item.id === task.id ? { ...item, retryCount, error: `${detail}；正在通过 Gemini Batch 重新生成` } : item));
             const retried = await generateSceneReplacementBatch({ apiKey, apiBaseUrl, signal: controller.signal, model: config.imageModel as ImageModel, imageSize: config.imageSize, items: [{ key: task.id, prompt: task.prompt, image: scene.file, aspectRatio: config.ratioMode === 'fixed' ? config.aspectRatio : undefined }], onState: (state) => setTasks((current) => current.map((item) => item.id === task.id ? { ...item, error: `Gemini Batch 重试：${state}` } : item)) });
@@ -222,12 +242,16 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
           }
         }
         const resultUrl = URL.createObjectURL(finalResult.blob);
-        setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status: 'success', error: undefined, retryCount, resultBlob: finalResult.blob, resultUrl, resultMimeType: finalResult.mimeType, outpaintStatus: 'idle', insufficientChangeWarning, changedRatio } : item));
+        setTasks((current) => current.map((item) => {
+          if (item.id !== task.id) return item;
+          if (item.resultUrl && item.resultUrl !== resultUrl) URL.revokeObjectURL(item.resultUrl);
+          return { ...item, status: 'success', error: undefined, retryCount, resultBlob: finalResult.blob, resultUrl, resultMimeType: finalResult.mimeType, outpaintStatus: 'idle', insufficientChangeWarning, changedRatio };
+        }));
         if (config.autoOutpaint) await outpaintTask(task.id, finalResult.blob, controller.signal);
       }
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Gemini Batch 失败';
-      setTasks((current) => current.map((task) => batchTasks.some((candidate) => candidate.id === task.id) && task.status === 'running' ? { ...task, status: controller.signal.aborted ? 'stopped' : 'failed', error: detail } : task));
+      setTasks((current) => current.map((task) => batchTasks.some((candidate) => candidate.id === task.id) && task.status === 'running' ? controller.signal.aborted ? stopSceneTaskPreservingLastResult(task) : { ...task, status: 'failed', error: detail } : task));
     } finally {
       batchTasks.forEach((task) => { running.current.delete(task.id); aborters.current.delete(task.id); });
     }
@@ -288,10 +312,10 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
   };
   const lastAutomationStart = useRef<string | undefined>(undefined);
   useEffect(() => { if (!automationStartToken || lastAutomationStart.current === automationStartToken || !scenes.length || !prompt.trim()) return; lastAutomationStart.current = automationStartToken; void start(); }, [automationStartToken, scenes.length, prompt]);
-  const stop = () => { promptAnalysisRun.current += 1; setStreamingPromptAnalysis(false); setPlannedTaskCount(0); aborters.current.forEach((item) => item.abort()); retryTimers.current.forEach((timer) => window.clearTimeout(timer)); retryTimers.current.clear(); setTasks((current) => current.map((item) => item.status === 'waiting' ? { ...item, status: 'stopped', nextRetryAt: undefined } : item)); };
+  const stop = () => { promptAnalysisRun.current += 1; setStreamingPromptAnalysis(false); setPlannedTaskCount(0); aborters.current.forEach((item) => item.abort()); retryTimers.current.forEach((timer) => window.clearTimeout(timer)); retryTimers.current.clear(); setTasks((current) => current.map((item) => item.status === 'waiting' ? stopSceneTaskPreservingLastResult(item) : item)); };
   const lastAutomationStop = useRef<string | undefined>(undefined);
   useEffect(() => { if (!automationStopToken || lastAutomationStop.current === automationStopToken) return; lastAutomationStop.current = automationStopToken; stop(); }, [automationStopToken]);
-  const stopTask = (id: string) => { const timer = retryTimers.current.get(id); if (timer) window.clearTimeout(timer); retryTimers.current.delete(id); aborters.current.get(id)?.abort(); setTasks((current) => current.map((item) => item.id === id ? { ...item, status: 'stopped', autoRetryStopped: true, nextRetryAt: undefined, error: '已停止该任务' } : item)); };
+  const stopTask = (id: string) => { const timer = retryTimers.current.get(id); if (timer) window.clearTimeout(timer); retryTimers.current.delete(id); aborters.current.get(id)?.abort(); setTasks((current) => current.map((item) => item.id === id ? stopSceneTaskPreservingLastResult(item) : item)); };
   const resetForRetry = useCallback((task: SceneReplaceTask) => { if (task.resultUrl) URL.revokeObjectURL(task.resultUrl); if (task.outpaintUrl) URL.revokeObjectURL(task.outpaintUrl); task.outpaintResults?.forEach((result) => URL.revokeObjectURL(result.url)); const timer = retryTimers.current.get(task.id); if (timer) window.clearTimeout(timer); retryTimers.current.delete(task.id); return { ...task, status: 'waiting' as const, error: undefined, resultBlob: undefined, resultUrl: undefined, outpaintStatus: 'idle' as const, outpaintBlob: undefined, outpaintUrl: undefined, outpaintResults: undefined, outpaintError: undefined, retryCount: 0, nextRetryAt: undefined, autoRetryStopped: false, insufficientChangeWarning: undefined, changedRatio: undefined }; }, []);
   const retry = (task: SceneReplaceTask) => { const next = resetForRetry(task); setTasks((current) => current.map((item) => item.id === task.id ? next : item)); setSelectedResultId(undefined); };
   const retryAllFailed = useCallback(() => { setTasks((current) => current.map((item) => item.status === 'failed' ? resetForRetry(item) : item)); setSelectedResultId(undefined); }, [resetForRetry]);
@@ -393,10 +417,10 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
     <Card className="action-card"><Flex justify="space-between" align="center" gap={16} wrap><div><Title level={4} style={{ margin: 0 }}>准备替换 {eligibleSceneCount * settings.copiesPerScene} 张图片</Title><Text type="secondary">{eligibleSceneCount} 张参与生成{settings.autoSkipWhiteBackground && whiteBackgroundSceneIds.length > 0 ? ` · ${whiteBackgroundSceneIds.length} 张白底图已跳过` : ''} × 每张 {settings.copiesPerScene} 个结果</Text></div><Space>{tasks.some((item) => item.status === 'failed') && <Button icon={<ReloadOutlined />} onClick={retryAllFailed}>一键重试所有失败</Button>}{busy && <Button danger icon={<StopOutlined />} onClick={stop}>停止任务</Button>}<Button type="primary" size="large" icon={<RocketOutlined />} loading={busy} onClick={() => void start()}>{busy ? '正在替换' : '开始场景替换'}</Button></Space></Flex>{!!tasks.length && <Progress style={{ marginTop: 18 }} percent={Math.round((done / tasks.length) * 100)} status={busy ? 'active' : success.length ? 'success' : 'exception'} />}</Card>
     <section className="results-section">
       <Flex justify="space-between" align="center" gap={8} wrap><div><Title level={3}>场景替换结果</Title><Text type="secondary">点击生成图片可查看大图，并在弹窗中扩图或重新扩图</Text></div><Space><Button icon={<ExpandOutlined />} disabled={!success.length || success.some((item) => item.outpaintStatus === 'running')} onClick={() => void manualOutpaint(success)}>一键扩图全部</Button><Popconfirm title="清空全部结果？" onConfirm={clearResults}><Button danger disabled={!tasks.length} icon={<ClearOutlined />}>清空结果</Button></Popconfirm><Button disabled={!success.length} icon={<DownloadOutlined />} onClick={() => void downloadAll()}>下载全部 ZIP</Button></Space></Flex>
-      {tasks.length ? <Image.PreviewGroup preview={{ onOpenChange: (open) => { if (!open) setDirectPreviewOriginal(false); }, onChange: () => setDirectPreviewOriginal(false), actionsRender: (originalNode) => <>{originalNode}<Tooltip title={directPreviewOriginal ? '查看生成图' : '查看当前生成图对应的上传原图'}><button type="button" className={directPreviewOriginal ? 'scene-preview-compare-action is-active' : 'scene-preview-compare-action'} onClick={(event) => { event.stopPropagation(); setDirectPreviewOriginal((current) => !current); }}><EyeOutlined /></button></Tooltip></>, imageRender: (originalNode, info) => { const current = directPreviewItems[info.current]; return directPreviewOriginal && current ? cloneElement(originalNode as ReactElement<{ src?: string; alt?: string }>, { src: current.originalUrl, alt: '当前生成图对应的上传原图' }) : originalNode; } }}><div className="logo-replace-results scene-replace-results-grid">{resultItems.map(({ task, scene }) => {
+      {tasks.length ? <Image.PreviewGroup preview={{ onOpenChange: (open) => { if (!open) { setDirectPreviewOriginal(false); setDirectPreviewTaskId(undefined); } }, onChange: (current) => { setDirectPreviewOriginal(false); setDirectPreviewTaskId(directPreviewItems[current]?.taskId); }, actionsRender: (originalNode) => <>{originalNode}<Tooltip title={directPreviewOriginal ? '查看生成图' : '查看当前生成图对应的上传原图'}><button type="button" className={directPreviewOriginal ? 'scene-preview-compare-action is-active' : 'scene-preview-compare-action'} onClick={(event) => { event.stopPropagation(); setDirectPreviewOriginal((current) => !current); }}><EyeOutlined /></button></Tooltip></>, imageRender: (originalNode, info) => { const current = directPreviewItems.find((item) => item.taskId === directPreviewTaskId) || directPreviewItems[info.current]; return directPreviewOriginal && current ? cloneElement(originalNode as ReactElement<{ src?: string; alt?: string }>, { src: current.originalUrl, alt: '当前生成图对应的上传原图' }) : originalNode; } }}><div className="logo-replace-results scene-replace-results-grid">{resultItems.map(({ task, scene }) => {
         const primaryOutpaint = task.outpaintResults?.[0]; const shownUrl = primaryOutpaint?.url || task.outpaintUrl || task.resultUrl;
         const compareOriginal = compareOriginalTaskIds.has(task.id);
-        return <Card key={task.id} size="small" title={<Text ellipsis={{ tooltip: scene.name }}>{sanitizeFileName(scene.name)} · 结果 {task.copyIndex + 1}</Text>} extra={task.resultBlob && <Button type="text" title="下载该组全部图片" icon={<DownloadOutlined />} onClick={() => void downloadTaskGroup(task, scene)} />}>{shownUrl ? <ImageInfoTooltip src={compareOriginal ? scene.previewUrl : shownUrl}><div className="scene-result-preview-trigger" onClick={() => setDirectPreviewOriginal(false)}><Image src={compareOriginal ? scene.previewUrl : shownUrl} alt={compareOriginal ? '上传的原始场景图' : '点击放大场景替换结果'} preview={{ src: shownUrl, mask: <EyeOutlined /> }} /></div></ImageInfoTooltip> : task.status === 'running' ? <GeneratingImage progressKey={task.id} status="running" percent={1} /> : <div className={`task-state-card is-${task.status}`}><Text strong type={task.status === 'failed' ? 'danger' : 'secondary'}>{task.nextRetryAt ? '等待自动重试' : statusLabel(task.status)}</Text><Text type="secondary">{task.error}</Text></div>}{task.insufficientChangeWarning && <Alert type="warning" showIcon style={{ marginTop: 8 }} title="变化不足 20%，已保留最后结果" description={task.insufficientChangeWarning} />}{task.copyIndex === 0 && task.resultUrl && <Button block size="small" style={{ marginTop: 8 }} icon={<EyeOutlined />} onClick={() => setCompareOriginalTaskIds((current) => { const next = new Set(current); if (next.has(task.id)) next.delete(task.id); else next.add(task.id); return next; })}>{compareOriginal ? '查看生成图' : '查看原图对比'}</Button>}<Button block style={{ marginTop: 8 }} icon={<ExpandOutlined />} disabled={!task.resultUrl} onClick={() => { setSelectedResultId(task.id); setPreviewCompareOriginal(false); }}>查看生成与扩图结果</Button><Flex justify="space-between" align="center" style={{ marginTop: 8 }}><Tag color={task.insufficientChangeWarning ? 'orange' : task.outpaintStatus === 'failed' || task.status === 'failed' ? 'error' : task.outpaintStatus === 'running' || task.status === 'running' ? 'processing' : task.status === 'success' ? 'success' : 'default'}>{task.insufficientChangeWarning ? '低变化结果待确认' : task.nextRetryAt ? '等待重试' : task.outpaintStatus === 'running' ? '扩图中' : task.outpaintStatus === 'success' ? settings.outpaintBothSizes ? '双尺寸已扩图' : '已扩图' : task.outpaintStatus === 'failed' ? '扩图失败' : statusLabel(task.status)}</Tag><Space size={6}><Button size="small" icon={<ReloadOutlined />} disabled={task.status === 'running' || task.status === 'waiting' || task.outpaintStatus === 'running'} onClick={() => retry(task)}>重新生成</Button>{(task.status === 'running' || task.status === 'waiting') && <Button danger size="small" icon={<StopOutlined />} onClick={() => stopTask(task.id)}>停止</Button>}</Space></Flex></Card>;
+        return <Card key={task.id} size="small" title={<Text ellipsis={{ tooltip: scene.name }}>{sanitizeFileName(scene.name)} · 结果 {task.copyIndex + 1}</Text>} extra={task.resultBlob && <Button type="text" title="下载该组全部图片" icon={<DownloadOutlined />} onClick={() => void downloadTaskGroup(task, scene)} />}>{shownUrl ? <ImageInfoTooltip src={compareOriginal ? scene.previewUrl : shownUrl}><div className="scene-result-preview-trigger" onClick={() => { setDirectPreviewTaskId(task.id); setDirectPreviewOriginal(compareOriginal); }}><Image src={compareOriginal ? scene.previewUrl : shownUrl} alt={compareOriginal ? '上传的原始场景图' : '点击放大场景替换结果'} preview={{ src: shownUrl, mask: <EyeOutlined /> }} /></div></ImageInfoTooltip> : task.status === 'running' ? <GeneratingImage progressKey={task.id} status="running" percent={1} /> : <div className={`task-state-card is-${task.status}`}><Text strong type={task.status === 'failed' ? 'danger' : 'secondary'}>{task.nextRetryAt ? '等待自动重试' : statusLabel(task.status)}</Text><Text type="secondary">{task.error}</Text></div>}{task.insufficientChangeWarning && <Alert type="warning" showIcon style={{ marginTop: 8 }} title="变化不足 20%，已保留最后结果" description={task.insufficientChangeWarning} />}{task.copyIndex === 0 && task.resultUrl && <Button block size="small" style={{ marginTop: 8 }} icon={<EyeOutlined />} onClick={() => setCompareOriginalTaskIds((current) => { const next = new Set(current); if (next.has(task.id)) next.delete(task.id); else next.add(task.id); return next; })}>{compareOriginal ? '查看生成图' : '查看原图对比'}</Button>}<Button block style={{ marginTop: 8 }} icon={<ExpandOutlined />} disabled={!task.resultUrl} onClick={() => { setSelectedResultId(task.id); setPreviewCompareOriginal(false); }}>查看生成与扩图结果</Button><Flex justify="space-between" align="center" style={{ marginTop: 8 }}><Tag color={task.insufficientChangeWarning ? 'orange' : task.outpaintStatus === 'failed' || task.status === 'failed' ? 'error' : task.outpaintStatus === 'running' || task.status === 'running' ? 'processing' : task.status === 'success' ? 'success' : 'default'}>{task.insufficientChangeWarning ? '低变化结果待确认' : task.nextRetryAt ? '等待重试' : task.outpaintStatus === 'running' ? '扩图中' : task.outpaintStatus === 'success' ? settings.outpaintBothSizes ? '双尺寸已扩图' : '已扩图' : task.outpaintStatus === 'failed' ? '扩图失败' : statusLabel(task.status)}</Tag><Space size={6}><Button size="small" icon={<ReloadOutlined />} disabled={task.status === 'running' || task.status === 'waiting' || task.outpaintStatus === 'running'} onClick={() => retry(task)}>重新生成</Button>{(task.status === 'running' || task.status === 'waiting') && <Button danger size="small" icon={<StopOutlined />} onClick={() => stopTask(task.id)}>停止</Button>}</Space></Flex></Card>;
       })}</div></Image.PreviewGroup> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="上传图片并开始替换后，结果会显示在这里" />}
     </section>
     <Modal className="scene-result-modal" width={960} title={selectedResult ? `${sanitizeFileName(selectedResult.scene.name)} · ${selectedResultGroup.length} 个生成结果` : '生成结果'} open={Boolean(selectedResult)} footer={<Button onClick={() => setSelectedResultId(undefined)}>关闭</Button>} onCancel={() => setSelectedResultId(undefined)} destroyOnHidden>

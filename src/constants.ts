@@ -18,6 +18,10 @@ export const STORAGE_KEYS = {
   sceneReplaceSettings: "scene-studio.scene-replace-settings.v1",
   sceneReplacePresets: "scene-studio.scene-replace-presets.v1",
   sceneClassificationPresets: "scene-studio.scene-classification-presets.v2",
+  sceneClassificationPresetGroups:
+    "scene-studio.scene-classification-preset-groups.v3",
+  activeSceneClassificationPresetGroup:
+    "scene-studio.active-scene-classification-preset-group.v1",
   sceneClassificationSettings: "scene-studio.scene-classification-settings.v2",
   sceneClassificationGenerationSettings:
     "scene-studio.scene-classification-generation-settings.v1",
@@ -118,8 +122,9 @@ export const DEFAULT_AUTO_LOGO_GENERATION_SETTINGS = {
   imageProvider: "gemini",
   imageModel: "gemini-3.1-flash-image",
   openAiImageModel: "gpt-image-2",
-  ratioMode: "original",
+  ratioMode: "auto",
   aspectRatio: "1:1",
+  openAiOutputSize: "1024x1024",
   imageSize: "2K",
   concurrency: 3,
   copiesPerScene: 1,
