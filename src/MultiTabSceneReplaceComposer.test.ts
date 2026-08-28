@@ -22,4 +22,9 @@ describe('buildPickerFolderTree', () => {
   it('combines the folder theme with the common prompt used by every worker image', () => {
     expect(buildFolderScenePrompt('保持杯子不变', { cupType: '啤酒杯', theme: '替换为后院 BBQ 主题', source: 'matched', firstFileKey: 'one', status: 'ready' })).toBe('替换为后院 BBQ 主题；保持杯子不变');
   });
+
+  it('ignores the folder theme when exact prompt control is enabled', () => {
+    const input = '  只提交这一段提示词  ';
+    expect(buildFolderScenePrompt(input, { cupType: '啤酒杯', theme: '不得拼接的主题', source: 'matched', firstFileKey: 'one', status: 'ready' }, true)).toBe(input);
+  });
 });

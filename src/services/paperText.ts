@@ -88,11 +88,11 @@ export async function recognizePaperTextOpenAi(options: { apiKey: string; model:
   return normalizePaperTextRegions(value);
 }
 
-export async function editPaperTextOpenAi(options: { apiKey: string; model: string; image: File; mask?: File; prompt: string; quality: string; background?: 'transparent' | 'opaque' | 'auto'; signal?: AbortSignal }): Promise<Blob> {
+export async function editPaperTextOpenAi(options: { apiKey: string; model: string; image: File; mask?: File; prompt: string; quality: string; background?: 'transparent' | 'opaque' | 'auto'; signal?: AbortSignal; exactPrompt?: boolean }): Promise<Blob> {
   const form = new FormData();
   form.append('image[]', options.image, options.image.name);
   if (options.mask) form.append('mask', options.mask, options.mask.name);
-  const guardedPrompt = appendImageGenerationGuard(options.prompt);
+  const guardedPrompt = options.exactPrompt ? options.prompt : appendImageGenerationGuard(options.prompt);
   form.append('prompt', guardedPrompt); form.append('model', options.model); form.append('n', '1');
   form.append('size', 'auto'); form.append('quality', options.quality); form.append('output_format', 'png');
   if (options.background) form.append('background', options.background);

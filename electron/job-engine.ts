@@ -113,7 +113,7 @@ export class DesktopJobEngine {
   }
 
   private async execute(item: ClaimedItem, controller: AbortController) {
-    const config = item.jobConfig as { tool: string; settings: SceneReplaceSettings | LogoReplaceSettings | LogoRemovalSettings; prompt?: string; perImagePromptPrefix?: string; apiBaseUrl?: string | null };
+    const config = item.jobConfig as { tool: string; settings: SceneReplaceSettings | LogoReplaceSettings | LogoRemovalSettings; prompt?: string; perImagePromptPrefix?: string; exactPromptControl?: boolean; apiBaseUrl?: string | null };
     const payload = item.payload as { scene: DesktopAssetInput; logos: DesktopAssetInput[]; oldLogo?: DesktopAssetInput | null; analysis?: Record<string, unknown>; remoteBatchName?: string };
     try {
       if (!(await exists(item.sourcePath))) throw new Error(`源文件不存在：${item.sourcePath}`);
@@ -137,23 +137,23 @@ export class DesktopJobEngine {
     }
   }
 
-  private async executeScene(item: ClaimedItem, payload: { scene: DesktopAssetInput; analysis?: Record<string, unknown>; remoteBatchName?: string }, config: { settings: SceneReplaceSettings; prompt?: string; perImagePromptPrefix?: string; apiBaseUrl?: string | null }, signal: AbortSignal) {
+  private async executeScene(item: ClaimedItem, payload: { scene: DesktopAssetInput; analysis?: Record<string, unknown>; remoteBatchName?: string }, config: { settings: SceneReplaceSettings; prompt?: string; perImagePromptPrefix?: string; exactPromptControl?: boolean; apiBaseUrl?: string | null }, signal: AbortSignal) {
     let prompt = item.prompt || config.prompt || '';
-    if ((config.settings.perImagePromptEnabled || config.settings.autoRecommendScene) && !payload.analysis) {
+    if (!config.exactPromptControl && (config.settings.perImagePromptEnabled || config.settings.autoRecommendScene) && !payload.analysis) {
       this.store.setItemState(item.id, 'analyzing', '逐图提示词分析'); this.onChange();
       const attempt = this.store.startAttempt(item, 'prompt-analysis', config.settings.sceneRecommendationProvider, config.settings.sceneRecommendationProvider === 'openai' ? config.settings.openAiSceneRecommendationModel : config.settings.sceneRecommendationModel, prompt);
       try {
         const analysis = await analyzeScenePrompt({ sourcePath: item.sourcePath, sourcePrompt: [config.perImagePromptPrefix, prompt].filter(Boolean).join('；'), settings: config.settings, secrets: this.getSecrets(), apiBaseUrl: config.apiBaseUrl, signal });
         payload.analysis = analysis; prompt = [analysis.prompt, analysis.constraints].filter(Boolean).join('\n'); this.store.updatePayload(item.id, payload); this.store.finishAttempt(attempt, 'success');
       } catch (error) { this.store.finishAttempt(attempt, 'failed', { error: error instanceof Error ? error.message : String(error) }); throw error; }
-    } else if (payload.analysis?.prompt) prompt = [payload.analysis.prompt, payload.analysis.constraints].filter(Boolean).map(String).join('\n');
+    } else if (!config.exactPromptControl && payload.analysis?.prompt) prompt = [payload.analysis.prompt, payload.analysis.constraints].filter(Boolean).map(String).join('\n');
     this.store.setItemState(item.id, 'running', '场景生成', { prompt }); this.onChange();
     const provider = config.settings.imageModel.startsWith('gpt-image') ? 'openai' : 'gemini';
     const attempt = this.store.startAttempt(item, 'scene-generation', provider, config.settings.imageModel, prompt);
     let outputPath = '';
     let insufficientChangeWarning = '';
     try {
-      const generated = await generateScene({ sourcePath: item.sourcePath, prompt, settings: config.settings, secrets: this.getSecrets(), apiBaseUrl: config.apiBaseUrl, signal, batchJobName: payload.remoteBatchName, onBatchJobName: (name) => { payload.remoteBatchName = name; this.store.updatePayload(item.id, payload); }, onBatchState: (state) => { this.store.setItemState(item.id, 'running', `Gemini Batch：${state}`); this.onChange(); } });
+      const generated = await generateScene({ sourcePath: item.sourcePath, prompt, exactPromptControl: config.exactPromptControl, settings: config.settings, secrets: this.getSecrets(), apiBaseUrl: config.apiBaseUrl, signal, batchJobName: payload.remoteBatchName, onBatchJobName: (name) => { payload.remoteBatchName = name; this.store.updatePayload(item.id, payload); }, onBatchState: (state) => { this.store.setItemState(item.id, 'running', `Gemini Batch：${state}`); this.onChange(); } });
       outputPath = await uniqueOutputPath(item, 'scene', generated.mimeType);
       await atomicWrite(outputPath, generated.buffer);
       if (config.settings.detectInsufficientSceneChange) {

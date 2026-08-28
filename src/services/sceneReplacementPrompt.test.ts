@@ -65,4 +65,8 @@ describe('buildSceneReplacementPrompt', () => {
     expect(prompt).toContain('改为海滨主题'); expect(prompt).toContain('保持杯子位置和杯身 Logo');
     expect(prompt).not.toContain('多小图必须逐格'); expect(prompt).not.toContain('木盒位置最高优先级锁定');
   });
+  it('returns the input verbatim when exact prompt control is enabled', () => {
+    const input = '  仅执行我输入的要求。\n不要追加其他内容。  ';
+    expect(buildSceneReplacementPrompt(input, '不得使用的逐图限制', true)).toBe(input);
+  });
 });

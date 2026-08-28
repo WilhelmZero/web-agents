@@ -132,8 +132,8 @@ async function generateOpenAi(options: { apiKey: string; model: string; imagePat
   throw new Error('OpenAI 未返回图片');
 }
 
-export async function generateScene(options: { sourcePath: string; prompt: string; settings: SceneReplaceSettings; secrets: ProviderSecrets; apiBaseUrl?: string | null; signal: AbortSignal; batchJobName?: string; onBatchJobName?: (name?: string) => void; onBatchState?: (state: string) => void }): Promise<GeneratedBuffer> {
-  const prompt = buildSceneReplacementPrompt(options.prompt);
+export async function generateScene(options: { sourcePath: string; prompt: string; exactPromptControl?: boolean; settings: SceneReplaceSettings; secrets: ProviderSecrets; apiBaseUrl?: string | null; signal: AbortSignal; batchJobName?: string; onBatchJobName?: (name?: string) => void; onBatchState?: (state: string) => void }): Promise<GeneratedBuffer> {
+  const prompt = buildSceneReplacementPrompt(options.prompt, undefined, options.exactPromptControl);
   if (options.settings.imageModel.startsWith('gpt-image')) {
     if (!options.secrets.openAi) throw new Error('未配置 OpenAI API Key');
     const result = await generateOpenAi({ apiKey: options.secrets.openAi, model: options.settings.imageModel, imagePaths: [options.sourcePath], prompt, quality: options.settings.imageQuality, signal: options.signal });

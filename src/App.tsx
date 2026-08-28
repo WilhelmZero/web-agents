@@ -34,8 +34,8 @@ import {
   StopOutlined,
   SwapOutlined,
   VideoCameraOutlined,
-} from '@ant-design/icons';
-import { Attachments } from '@ant-design/x';
+} from "@ant-design/icons";
+import { Attachments } from "@ant-design/x";
 import {
   Alert,
   App as AntApp,
@@ -67,42 +67,72 @@ import {
   Tooltip,
   Typography,
   Upload,
-} from 'antd';
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { DEFAULT_SETTINGS, localizeBuiltInScenePresets, MODEL_CAPABILITIES, PRICING, STORAGE_KEYS } from './constants';
-import LogoComposer from './LogoComposer';
-import LogoReplaceComposer from './LogoReplaceComposer';
-import LogoRemovalComposer from './LogoRemovalComposer';
-import MultiTabLogoReplaceComposer from './MultiTabLogoReplaceComposer';
-import MultiTabSceneReplaceComposer from './MultiTabSceneReplaceComposer';
-import ObjectReplaceComposer from './ObjectReplaceComposer';
-import SceneReplaceComposer from './SceneReplaceComposer';
-import InpaintComposer from './InpaintComposer';
-import ProductDetailComposer from './ProductDetailComposer';
-import PaperTextComposer from './PaperTextComposer';
-import PsdLogoExportComposer from './PsdLogoExportComposer';
-import BackgroundRemovalComposer from './BackgroundRemovalComposer';
-import OutpaintComposer from './OutpaintComposer';
-import CupResizeComposer from './CupResizeComposer';
-import WorkflowComposer from './WorkflowComposer';
-import CombinedReplaceComposer from './CombinedReplaceComposer';
-import RequestConsoleDrawer from './RequestConsoleDrawer';
-import GeneratingImage from './GeneratingImage';
-import DesktopTaskCenter from './DesktopTaskCenter';
-import OriginalCompareImage from './OriginalCompareImage';
-import { useLanguage } from './i18n';
-import { readLocalStorage } from './storage';
+} from "antd";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
+import {
+  DEFAULT_SETTINGS,
+  localizeBuiltInScenePresets,
+  MODEL_CAPABILITIES,
+  PRICING,
+  STORAGE_KEYS,
+} from "./constants";
+import LogoComposer from "./LogoComposer";
+import LogoReplaceComposer from "./LogoReplaceComposer";
+import LogoRemovalComposer from "./LogoRemovalComposer";
+import MultiTabLogoReplaceComposer from "./MultiTabLogoReplaceComposer";
+import MultiTabSceneReplaceComposer from "./MultiTabSceneReplaceComposer";
+import AutoSceneClassificationComposer from "./AutoSceneClassificationComposer";
+import AutoLogoClassificationComposer from "./AutoLogoClassificationComposer";
+import ObjectReplaceComposer from "./ObjectReplaceComposer";
+import SceneReplaceComposer from "./SceneReplaceComposer";
+import InpaintComposer from "./InpaintComposer";
+import ProductDetailComposer from "./ProductDetailComposer";
+import PaperTextComposer from "./PaperTextComposer";
+import PsdLogoExportComposer from "./PsdLogoExportComposer";
+import BackgroundRemovalComposer from "./BackgroundRemovalComposer";
+import OutpaintComposer from "./OutpaintComposer";
+import CupResizeComposer from "./CupResizeComposer";
+import WorkflowComposer from "./WorkflowComposer";
+import CombinedReplaceComposer from "./CombinedReplaceComposer";
+import RequestConsoleDrawer from "./RequestConsoleDrawer";
+import GeneratingImage from "./GeneratingImage";
+import DesktopTaskCenter from "./DesktopTaskCenter";
+import OriginalCompareImage from "./OriginalCompareImage";
+import { useLanguage } from "./i18n";
+import { readLocalStorage } from "./storage";
 import {
   downloadAllZip,
   downloadGroupZip,
   downloadTask,
   makeResultGroups,
   taskFileName,
-} from './services/downloads';
-import { generateSceneImage, optimizePrompt, testProxyConnection } from './services/gemini';
-import { buildTaskPageTitle, reportTaskProgress, requestTaskNotifications, subscribeTaskProgress, type TaskProgress } from './services/taskProgress';
-import { isCreationTool, readCreationTool, setCreationToolInUrl } from './services/creationToolUrl';
-import { installFolderDropUploadSupport } from './services/folderDropUpload';
+} from "./services/downloads";
+import {
+  generateSceneImage,
+  optimizePrompt,
+  testProxyConnection,
+} from "./services/gemini";
+import {
+  buildTaskPageTitle,
+  reportTaskProgress,
+  requestTaskNotifications,
+  subscribeTaskProgress,
+  type TaskProgress,
+} from "./services/taskProgress";
+import {
+  isCreationTool,
+  readCreationTool,
+  setCreationToolInUrl,
+} from "./services/creationToolUrl";
+import { installFolderDropUploadSupport } from "./services/folderDropUpload";
 import type {
   AppSettings,
   CreationTool,
@@ -113,7 +143,7 @@ import type {
   PromptItem,
   PromptPreset,
   ResultGroup,
-} from './types';
+} from "./types";
 import {
   buildTasks,
   createId,
@@ -121,31 +151,134 @@ import {
   normalizeSettingsForModel,
   sanitizeFileName,
   splitPrompts,
-} from './utils';
+} from "./utils";
 
 const { Header, Sider, Content } = Layout;
 const { Text, Title, Paragraph } = Typography;
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
-const ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+const ACCEPTED_TYPES = ["image/png", "image/jpeg", "image/webp"];
 
-const CREATION_TOOL_ITEMS: Array<{ key: CreationTool; label: string; description: string; icon: ReactNode; disabled?: boolean }> = [
-  { key: 'scene-logo-replace', icon: <SwapOutlined />, label: '场景 + Logo 一次替换', description: '一次请求同步替换场景、氛围和多个 Logo' },
-  { key: 'workflow', icon: <ApartmentOutlined />, label: '工作流', description: '连接创作工具节点，批量预测并自动执行' },
-  { key: 'scene', icon: <FileImageOutlined />, label: '场景图生成', description: '批量生成风格统一的商业场景图' },
-  { key: 'scene-replace', icon: <PictureOutlined />, label: '场景替换', description: '保留主体姿态并替换主题与环境' },
-  { key: 'cup-resize', icon: <ExpandOutlined />, label: '杯子大小精确调整', description: '精确控制杯子的位置、尺寸与融合' },
-  { key: 'logo', icon: <ExperimentOutlined />, label: 'Logo 合成', description: '将品牌标识自然合成到产品图片' },
-  { key: 'logo-replace', icon: <SwapOutlined />, label: 'Logo 替换', description: '批量识别、替换并校验场景 Logo' },
-  { key: 'logo-removal', icon: <DeleteOutlined />, label: '去除 Logo', description: '批量识别并自然去除产品表面的 Logo' },
-  { key: 'logo-replace-tabs', icon: <AppstoreOutlined />, label: '多标签 Logo 替换', description: '跨标签并行执行多组 Logo 替换任务' },
-  { key: 'scene-replace-tabs', icon: <AppstoreOutlined />, label: '多标签场景替换', description: '跨标签并行执行多组场景替换与扩图任务' },
-  { key: 'logo-export', icon: <DownloadOutlined />, label: '批量导出 Logo', description: '从图片或 PSD 图层批量整理 Logo' },
-  { key: 'paper-text', icon: <EditOutlined />, label: '花纸文字修改', description: '识别并批量修改花纸中的文字内容' },
-  { key: 'background-removal', icon: <HighlightOutlined />, label: '去除背景', description: '智能抠图、透明化并支持矢量输出' },
-  { key: 'outpaint', icon: <ExpandOutlined />, label: '扩图', description: '按目标比例自然补全图片边界' },
-  { key: 'object-replace', icon: <ReloadOutlined />, label: '物体批量替换', description: '批量替换画面中的指定物体' },
-  { key: 'inpaint', icon: <HighlightOutlined />, label: '局部重绘', description: '框选局部区域并进行精细重绘' },
-  { key: 'product-detail', icon: <FolderOpenOutlined />, label: '详情长图生成', description: '组合素材生成商品详情长图' },
+const CREATION_TOOL_ITEMS: Array<{
+  key: CreationTool;
+  label: string;
+  description: string;
+  icon: ReactNode;
+  disabled?: boolean;
+}> = [
+  {
+    key: "scene-logo-replace",
+    icon: <SwapOutlined />,
+    label: "场景 + Logo 一次替换",
+    description: "一次请求同步替换场景、氛围和多个 Logo",
+  },
+  {
+    key: "workflow",
+    icon: <ApartmentOutlined />,
+    label: "工作流",
+    description: "连接创作工具节点，批量预测并自动执行",
+  },
+  {
+    key: "scene",
+    icon: <FileImageOutlined />,
+    label: "场景图生成",
+    description: "批量生成风格统一的商业场景图",
+  },
+  {
+    key: "scene-replace",
+    icon: <PictureOutlined />,
+    label: "场景替换",
+    description: "保留主体姿态并替换主题与环境",
+  },
+  {
+    key: "cup-resize",
+    icon: <ExpandOutlined />,
+    label: "杯子大小精确调整",
+    description: "精确控制杯子的位置、尺寸与融合",
+  },
+  {
+    key: "logo",
+    icon: <ExperimentOutlined />,
+    label: "Logo 合成",
+    description: "将品牌标识自然合成到产品图片",
+  },
+  {
+    key: "logo-replace",
+    icon: <SwapOutlined />,
+    label: "Logo 替换",
+    description: "批量识别、替换并校验场景 Logo",
+  },
+  {
+    key: "logo-removal",
+    icon: <DeleteOutlined />,
+    label: "去除 Logo",
+    description: "批量识别并自然去除产品表面的 Logo",
+  },
+  {
+    key: "logo-replace-tabs",
+    icon: <AppstoreOutlined />,
+    label: "多标签 Logo 替换",
+    description: "跨标签并行执行多组 Logo 替换任务",
+  },
+  {
+    key: "scene-replace-tabs",
+    icon: <AppstoreOutlined />,
+    label: "多标签场景替换",
+    description: "跨标签并行执行多组场景替换与扩图任务",
+  },
+  {
+    key: "auto-scene-classify",
+    icon: <ApartmentOutlined />,
+    label: "自动分类场景替换",
+    description: "AI 分类图片并流水线执行对应场景替换",
+  },
+  {
+    key: "auto-logo-classify",
+    icon: <ApartmentOutlined />,
+    label: "自动分类 Logo 替换",
+    description: "AI 选择预设并按识别数量携带 Logo 替换",
+  },
+  {
+    key: "logo-export",
+    icon: <DownloadOutlined />,
+    label: "批量导出 Logo",
+    description: "从图片或 PSD 图层批量整理 Logo",
+  },
+  {
+    key: "paper-text",
+    icon: <EditOutlined />,
+    label: "花纸文字修改",
+    description: "识别并批量修改花纸中的文字内容",
+  },
+  {
+    key: "background-removal",
+    icon: <HighlightOutlined />,
+    label: "去除背景",
+    description: "智能抠图、透明化并支持矢量输出",
+  },
+  {
+    key: "outpaint",
+    icon: <ExpandOutlined />,
+    label: "扩图",
+    description: "按目标比例自然补全图片边界",
+  },
+  {
+    key: "object-replace",
+    icon: <ReloadOutlined />,
+    label: "物体批量替换",
+    description: "批量替换画面中的指定物体",
+  },
+  {
+    key: "inpaint",
+    icon: <HighlightOutlined />,
+    label: "局部重绘",
+    description: "框选局部区域并进行精细重绘",
+  },
+  {
+    key: "product-detail",
+    icon: <FolderOpenOutlined />,
+    label: "详情长图生成",
+    description: "组合素材生成商品详情长图",
+  },
 ];
 
 function SettingsPanel({
@@ -164,12 +297,18 @@ function SettingsPanel({
   optimizingAll: boolean;
 }) {
   const capability = MODEL_CAPABILITIES[settings.imageModel];
-  const cost = estimateImageCost(settings.imageModel, settings.imageSize, taskCount);
+  const cost = estimateImageCost(
+    settings.imageModel,
+    settings.imageSize,
+    taskCount,
+  );
 
   return (
     <div className="settings-panel">
       <Flex align="center" justify="space-between">
-        <Title level={4} style={{ margin: 0 }}>生成设置</Title>
+        <Title level={4} style={{ margin: 0 }}>
+          生成设置
+        </Title>
         <Tag color="purple">本地配置</Tag>
       </Flex>
       <Divider />
@@ -178,32 +317,43 @@ function SettingsPanel({
           <Select
             value={settings.imageModel}
             onChange={(imageModel: ImageModel) => onChange({ imageModel })}
-            options={Object.entries(MODEL_CAPABILITIES).map(([value, item]) => ({
-              value,
-              label: item.label,
-            }))}
+            options={Object.entries(MODEL_CAPABILITIES).map(
+              ([value, item]) => ({
+                value,
+                label: item.label,
+              }),
+            )}
           />
-          <Text type="secondary" className="field-help">{capability.description}</Text>
+          <Text type="secondary" className="field-help">
+            {capability.description}
+          </Text>
         </Form.Item>
         <Form.Item label="画面比例">
           <Select
             value={settings.aspectRatio}
             onChange={(aspectRatio) => onChange({ aspectRatio })}
-            options={capability.aspectRatios.map((value) => ({ value, label: value }))}
+            options={capability.aspectRatios.map((value) => ({
+              value,
+              label: value,
+            }))}
           />
         </Form.Item>
         <Form.Item label="输出分辨率">
           <Segmented
             block
             value={settings.imageSize}
-            onChange={(imageSize) => onChange({ imageSize: imageSize as AppSettings['imageSize'] })}
+            onChange={(imageSize) =>
+              onChange({ imageSize: imageSize as AppSettings["imageSize"] })
+            }
             options={capability.imageSizes}
           />
         </Form.Item>
         <Form.Item label="任务组合">
           <Radio.Group
             value={settings.combinationMode}
-            onChange={(event) => onChange({ combinationMode: event.target.value })}
+            onChange={(event) =>
+              onChange({ combinationMode: event.target.value })
+            }
           >
             <Space orientation="vertical">
               <Radio value="cartesian">全量组合</Radio>
@@ -216,8 +366,10 @@ function SettingsPanel({
             min={1}
             max={6}
             value={settings.concurrency}
-            onChange={(concurrency) => onChange({ concurrency: concurrency || 1 })}
-            style={{ width: '100%' }}
+            onChange={(concurrency) =>
+              onChange({ concurrency: concurrency || 1 })
+            }
+            style={{ width: "100%" }}
           />
         </Form.Item>
       </Form>
@@ -229,9 +381,12 @@ function SettingsPanel({
             value={settings.optimizerModel}
             onChange={(optimizerModel) => onChange({ optimizerModel })}
             options={[
-              { value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite' },
-              { value: 'gemini-3.1-flash', label: 'Gemini 3.1 Flash' },
-              { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+              {
+                value: "gemini-3.1-flash-lite",
+                label: "Gemini 3.1 Flash Lite",
+              },
+              { value: "gemini-3.1-flash", label: "Gemini 3.1 Flash" },
+              { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
             ]}
           />
         </Form.Item>
@@ -248,12 +403,21 @@ function SettingsPanel({
 
       <Card className="price-card" variant="borderless">
         <Flex justify="space-between" align="end">
-          <Statistic title="预计价格" value={cost} precision={Math.max(cost < 0.01 ? 4 : 3, 3)} prefix="$" />
+          <Statistic
+            title="预计价格"
+            value={cost}
+            precision={Math.max(cost < 0.01 ? 4 : 3, 3)}
+            prefix="$"
+          />
           <Tag>{taskCount} 个任务</Tag>
         </Flex>
         <Paragraph type="secondary" className="price-note">
-          按标准层输出与单张输入图估算，不含无法预知的文本、思考及提示词优化 token。
-          <a href={PRICING.source} target="_blank" rel="noreferrer"> 官方定价</a>
+          按标准层输出与单张输入图估算，不含无法预知的文本、思考及提示词优化
+          token。
+          <a href={PRICING.source} target="_blank" rel="noreferrer">
+            {" "}
+            官方定价
+          </a>
           （{PRICING.updatedAt}）
         </Paragraph>
       </Card>
@@ -270,49 +434,82 @@ function ResultGroupCard({
   onOpen: () => void;
   onDownload: () => void;
 }) {
-  const successImages = group.tasks.filter((task) => task.resultUrl).slice(0, 3);
-  const queueStatus = group.tasks.some((task) => task.status === 'running')
-    ? 'running'
-    : group.tasks.some((task) => task.status === 'waiting')
-      ? 'waiting'
+  const successImages = group.tasks
+    .filter((task) => task.resultUrl)
+    .slice(0, 3);
+  const queueStatus = group.tasks.some((task) => task.status === "running")
+    ? "running"
+    : group.tasks.some((task) => task.status === "waiting")
+      ? "waiting"
       : undefined;
-  const activeTask = group.tasks.find((task) => task.status === 'running')
-    || group.tasks.find((task) => task.status === 'waiting');
+  const activeTask =
+    group.tasks.find((task) => task.status === "running") ||
+    group.tasks.find((task) => task.status === "waiting");
   return (
     <Card
       hoverable
       className="result-group-card"
       onClick={onOpen}
       actions={[
-        <Tooltip title="展开全部" key="open"><EyeOutlined /></Tooltip>,
+        <Tooltip title="展开全部" key="open">
+          <EyeOutlined />
+        </Tooltip>,
         <Tooltip title="下载该组" key="download">
-          <DownloadOutlined onClick={(event) => { event.stopPropagation(); onDownload(); }} />
+          <DownloadOutlined
+            onClick={(event) => {
+              event.stopPropagation();
+              onDownload();
+            }}
+          />
         </Tooltip>,
       ]}
     >
       <div className="result-stack">
-        {successImages.length ? successImages.map((task, index) => (
-          <img
-            key={task.id}
-            src={task.resultUrl}
-            alt=""
-            style={{ '--stack-index': index } as React.CSSProperties}
+        {successImages.length ? (
+          successImages.map((task, index) => (
+            <img
+              key={task.id}
+              src={task.resultUrl}
+              alt=""
+              style={{ "--stack-index": index } as React.CSSProperties}
+            />
+          ))
+        ) : queueStatus ? (
+          <GeneratingImage
+            progressKey={activeTask?.id}
+            status={queueStatus}
+            percent={queueStatus === "running" ? 1 : 0}
           />
-        )) : (
-          queueStatus
-            ? <GeneratingImage progressKey={activeTask?.id} status={queueStatus} percent={queueStatus === 'running' ? 1 : 0} />
-            : group.failedCount
-              ? <div className="task-state-card is-failed"><Text strong type="danger">生成失败</Text><Text type="secondary">{group.failedCount} 个任务失败</Text></div>
-              : <div className="task-state-card is-stopped"><Text strong type="secondary">已停止</Text></div>
+        ) : group.failedCount ? (
+          <div className="task-state-card is-failed">
+            <Text strong type="danger">
+              生成失败
+            </Text>
+            <Text type="secondary">{group.failedCount} 个任务失败</Text>
+          </div>
+        ) : (
+          <div className="task-state-card is-stopped">
+            <Text strong type="secondary">
+              已停止
+            </Text>
+          </div>
         )}
       </div>
       <Flex gap={10} align="center" className="group-meta">
-        <img src={group.product.previewUrl} alt={group.product.name} className="source-thumb" />
+        <img
+          src={group.product.previewUrl}
+          alt={group.product.name}
+          className="source-thumb"
+        />
         <div className="group-copy">
-          <Text strong ellipsis={{ tooltip: group.product.name }}>{sanitizeFileName(group.product.name)}</Text>
+          <Text strong ellipsis={{ tooltip: group.product.name }}>
+            {sanitizeFileName(group.product.name)}
+          </Text>
           <Space size={4} wrap>
             <Tag color="success">{group.successCount} 成功</Tag>
-            {group.failedCount > 0 && <Tag color="error">{group.failedCount} 失败</Tag>}
+            {group.failedCount > 0 && (
+              <Tag color="error">{group.failedCount} 失败</Tag>
+            )}
             <Tag>{group.tasks.length} 张</Tag>
           </Space>
         </div>
@@ -321,12 +518,12 @@ function ResultGroupCard({
   );
 }
 
-function taskStatusText(status: GenerationTask['status']): string {
-  if (status === 'waiting') return '排队中';
-  if (status === 'running') return '生成中';
-  if (status === 'success') return '生成成功';
-  if (status === 'failed') return '生成失败';
-  return '已停止';
+function taskStatusText(status: GenerationTask["status"]): string {
+  if (status === "waiting") return "排队中";
+  if (status === "running") return "生成中";
+  if (status === "success") return "生成成功";
+  if (status === "failed") return "生成失败";
+  return "已停止";
 }
 
 function AppContent() {
@@ -339,56 +536,127 @@ function AppContent() {
     readLocalStorage(STORAGE_KEYS.settings, DEFAULT_SETTINGS),
   );
   const [products, setProducts] = useState<ProductImage[]>([]);
-  const [prompts, setPrompts] = useState<PromptItem[]>([{ id: createId(), content: '' }]);
+  const [prompts, setPrompts] = useState<PromptItem[]>([
+    { id: createId(), content: "" },
+  ]);
   const [presets, setPresets] = useState<PromptPreset[]>(() =>
-    readLocalStorage<Array<PromptPreset & { prompts?: string[] }>>(STORAGE_KEYS.presets, [])
-      .map((preset) => ({ ...preset, content: preset.content || preset.prompts?.find((item) => item.trim()) || '' }))
+    readLocalStorage<Array<PromptPreset & { prompts?: string[] }>>(
+      STORAGE_KEYS.presets,
+      [],
+    )
+      .map((preset) => ({
+        ...preset,
+        content:
+          preset.content || preset.prompts?.find((item) => item.trim()) || "",
+      }))
       .filter((preset) => preset.content.trim()),
   );
-  const [individualPromptPresets, setIndividualPromptPresets] = useState<IndividualPromptPreset[]>(() => {
-    const fallback = [{
-      id: 'product-dimensions',
-      name: '杯子尺寸',
-      content: '高  CM，顶部杯口  CM直径，杯肚  CM',
-    }];
+  const [individualPromptPresets, setIndividualPromptPresets] = useState<
+    IndividualPromptPreset[]
+  >(() => {
+    const fallback = [
+      {
+        id: "product-dimensions",
+        name: "杯子尺寸",
+        content: "高  CM，顶部杯口  CM直径，杯肚  CM",
+      },
+    ];
     return readLocalStorage(STORAGE_KEYS.individualPromptPresets, fallback);
   });
-  const [individualPromptProductId, setIndividualPromptProductId] = useState<string | null>(null);
-  const [individualPromptDraft, setIndividualPromptDraft] = useState('');
+  const [individualPromptProductId, setIndividualPromptProductId] = useState<
+    string | null
+  >(null);
+  const [individualPromptDraft, setIndividualPromptDraft] = useState("");
   const allScenePresets: PromptPreset[] = [
     ...localizeBuiltInScenePresets(language),
     ...presets,
   ];
   const [tasks, setTasks] = useState<GenerationTask[]>([]);
   const [activePromptId, setActivePromptId] = useState(prompts[0].id);
-  const [creationTool, setCreationTool] = useState<CreationTool>(() => readCreationTool(window.location.search));
-  const [showPinnedHome, setShowPinnedHome] = useState(() => !isCreationTool(new URLSearchParams(window.location.search).get('tool')));
-  const [pinnedCreationTools, setPinnedCreationTools] = useState<CreationTool[]>(() =>
-    readLocalStorage<CreationTool[]>(STORAGE_KEYS.pinnedCreationTools, []).filter((tool) => isCreationTool(tool) && CREATION_TOOL_ITEMS.some((item) => item.key === tool && !item.disabled)),
+  const [creationTool, setCreationTool] = useState<CreationTool>(() =>
+    readCreationTool(window.location.search),
+  );
+  const [showPinnedHome, setShowPinnedHome] = useState(
+    () =>
+      !isCreationTool(new URLSearchParams(window.location.search).get("tool")),
+  );
+  const [pinnedCreationTools, setPinnedCreationTools] = useState<
+    CreationTool[]
+  >(() =>
+    readLocalStorage<CreationTool[]>(
+      STORAGE_KEYS.pinnedCreationTools,
+      [],
+    ).filter(
+      (tool) =>
+        isCreationTool(tool) &&
+        CREATION_TOOL_ITEMS.some((item) => item.key === tool && !item.disabled),
+    ),
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [keyOpen, setKeyOpen] = useState(false);
   const [desktopTaskCenterOpen, setDesktopTaskCenterOpen] = useState(false);
   const [requestConsoleOpen, setRequestConsoleOpen] = useState(false);
   const [globalProgress, setGlobalProgress] = useState<TaskProgress[]>([]);
-  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | 'unsupported'>(() => typeof Notification === 'undefined' ? 'unsupported' : Notification.permission);
-  const [logoSettingsHost, setLogoSettingsHost] = useState<HTMLElement | null>(null);
-  const [inpaintSettingsHost, setInpaintSettingsHost] = useState<HTMLElement | null>(null);
-  const [productDetailSettingsHost, setProductDetailSettingsHost] = useState<HTMLElement | null>(null);
-  const [logoReplaceSettingsHost, setLogoReplaceSettingsHost] = useState<HTMLElement | null>(null);
-  const [logoRemovalSettingsHost, setLogoRemovalSettingsHost] = useState<HTMLElement | null>(null);
-  const [multiTabLogoSettingsHost, setMultiTabLogoSettingsHost] = useState<HTMLElement | null>(null);
-  const [multiTabSceneSettingsHost, setMultiTabSceneSettingsHost] = useState<HTMLElement | null>(null);
-  const [objectReplaceSettingsHost, setObjectReplaceSettingsHost] = useState<HTMLElement | null>(null);
-  const [sceneReplaceSettingsHost, setSceneReplaceSettingsHost] = useState<HTMLElement | null>(null);
-  const [combinedReplaceSettingsHost, setCombinedReplaceSettingsHost] = useState<HTMLElement | null>(null);
+  const [notificationPermission, setNotificationPermission] = useState<
+    NotificationPermission | "unsupported"
+  >(() =>
+    typeof Notification === "undefined"
+      ? "unsupported"
+      : Notification.permission,
+  );
+  const [logoSettingsHost, setLogoSettingsHost] = useState<HTMLElement | null>(
+    null,
+  );
+  const [inpaintSettingsHost, setInpaintSettingsHost] =
+    useState<HTMLElement | null>(null);
+  const [productDetailSettingsHost, setProductDetailSettingsHost] =
+    useState<HTMLElement | null>(null);
+  const [logoReplaceSettingsHost, setLogoReplaceSettingsHost] =
+    useState<HTMLElement | null>(null);
+  const [logoRemovalSettingsHost, setLogoRemovalSettingsHost] =
+    useState<HTMLElement | null>(null);
+  const [multiTabLogoSettingsHost, setMultiTabLogoSettingsHost] =
+    useState<HTMLElement | null>(null);
+  const [multiTabSceneSettingsHost, setMultiTabSceneSettingsHost] =
+    useState<HTMLElement | null>(null);
+  const [autoSceneSettingsHost, setAutoSceneSettingsHost] =
+    useState<HTMLElement | null>(null);
+  const [autoLogoSettingsHost, setAutoLogoSettingsHost] =
+    useState<HTMLElement | null>(null);
+  const [objectReplaceSettingsHost, setObjectReplaceSettingsHost] =
+    useState<HTMLElement | null>(null);
+  const [sceneReplaceSettingsHost, setSceneReplaceSettingsHost] =
+    useState<HTMLElement | null>(null);
+  const [combinedReplaceSettingsHost, setCombinedReplaceSettingsHost] =
+    useState<HTMLElement | null>(null);
   const [unloadWarningDisabled, setUnloadWarningDisabled] = useState(false);
-  useEffect(() => { if (new URLSearchParams(window.location.search).get('worker') !== '1' || typeof BroadcastChannel === 'undefined') return; const channels = [new BroadcastChannel('scene-studio-logo-tabs'), new BroadcastChannel('scene-studio-scene-tabs')]; const receive = (event: MessageEvent) => { if (event.data?.type === 'disable-close-warning') setUnloadWarningDisabled(true); }; channels.forEach((channel) => channel.addEventListener('message', receive)); return () => channels.forEach((channel) => channel.close()); }, []);
-  const [paperTextSettingsHost, setPaperTextSettingsHost] = useState<HTMLElement | null>(null);
-  const [logoExportSettingsHost, setLogoExportSettingsHost] = useState<HTMLElement | null>(null);
-  const [backgroundRemovalSettingsHost, setBackgroundRemovalSettingsHost] = useState<HTMLElement | null>(null);
-  const [outpaintSettingsHost, setOutpaintSettingsHost] = useState<HTMLElement | null>(null);
-  const [cupResizeSettingsHost, setCupResizeSettingsHost] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    if (
+      new URLSearchParams(window.location.search).get("worker") !== "1" ||
+      typeof BroadcastChannel === "undefined"
+    )
+      return;
+    const channels = [
+      new BroadcastChannel("scene-studio-logo-tabs"),
+      new BroadcastChannel("scene-studio-scene-tabs"),
+    ];
+    const receive = (event: MessageEvent) => {
+      if (event.data?.type === "disable-close-warning")
+        setUnloadWarningDisabled(true);
+    };
+    channels.forEach((channel) => channel.addEventListener("message", receive));
+    return () => channels.forEach((channel) => channel.close());
+  }, []);
+  const [paperTextSettingsHost, setPaperTextSettingsHost] =
+    useState<HTMLElement | null>(null);
+  const [logoExportSettingsHost, setLogoExportSettingsHost] =
+    useState<HTMLElement | null>(null);
+  const [backgroundRemovalSettingsHost, setBackgroundRemovalSettingsHost] =
+    useState<HTMLElement | null>(null);
+  const [outpaintSettingsHost, setOutpaintSettingsHost] =
+    useState<HTMLElement | null>(null);
+  const [cupResizeSettingsHost, setCupResizeSettingsHost] =
+    useState<HTMLElement | null>(null);
   const [logoHasSession, setLogoHasSession] = useState(false);
   const [inpaintHasSession, setInpaintHasSession] = useState(false);
   const [productDetailHasSession, setProductDetailHasSession] = useState(false);
@@ -397,178 +665,362 @@ function AppContent() {
   const [sceneReplaceHasSession, setSceneReplaceHasSession] = useState(false);
   const [paperTextHasSession, setPaperTextHasSession] = useState(false);
   const [logoExportHasSession, setLogoExportHasSession] = useState(false);
-  const [backgroundRemovalHasSession, setBackgroundRemovalHasSession] = useState(false);
+  const [backgroundRemovalHasSession, setBackgroundRemovalHasSession] =
+    useState(false);
   const [outpaintHasSession, setOutpaintHasSession] = useState(false);
   const [cupResizeHasSession, setCupResizeHasSession] = useState(false);
   const [workflowHasSession, setWorkflowHasSession] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
-  const [bulkText, setBulkText] = useState('');
-  const [splitMode, setSplitMode] = useState<'delimiter' | 'newline'>('delimiter');
-  const [delimiter, setDelimiter] = useState('---');
+  const [bulkText, setBulkText] = useState("");
+  const [splitMode, setSplitMode] = useState<"delimiter" | "newline">(
+    "delimiter",
+  );
+  const [delimiter, setDelimiter] = useState("---");
   const [activeGroup, setActiveGroup] = useState<ResultGroup | null>(null);
-  const [optimizationPreview, setOptimizationPreview] = useState<Array<{ id: string; original: string; optimized: string }> | null>(null);
+  const [optimizationPreview, setOptimizationPreview] = useState<Array<{
+    id: string;
+    original: string;
+    optimized: string;
+  }> | null>(null);
   const [optimizingAll, setOptimizingAll] = useState(false);
   const [testingProxy, setTestingProxy] = useState(false);
   const runningIds = useRef(new Set<string>());
   useEffect(() => {
     const openDesktopCenter = () => setDesktopTaskCenterOpen(true);
-    window.addEventListener('desktop-task-created', openDesktopCenter);
-    return () => window.removeEventListener('desktop-task-created', openDesktopCenter);
+    window.addEventListener("desktop-task-created", openDesktopCenter);
+    return () =>
+      window.removeEventListener("desktop-task-created", openDesktopCenter);
   }, []);
 
   const navigateToHome = useCallback(() => {
     if (showPinnedHome) return;
     const url = new URL(window.location.href);
-    url.searchParams.delete('tool');
+    url.searchParams.delete("tool");
     setShowPinnedHome(true);
-    window.history.pushState({ ...window.history.state, creationTool: undefined }, '', `${url.pathname}${url.search}${url.hash}`);
+    window.history.pushState(
+      { ...window.history.state, creationTool: undefined },
+      "",
+      `${url.pathname}${url.search}${url.hash}`,
+    );
   }, [showPinnedHome]);
 
-  const navigateToCreationTool = useCallback((tool: CreationTool) => {
-    if (tool === creationTool && !showPinnedHome) return;
-    setShowPinnedHome(false);
-    setCreationTool(tool);
-    window.history.pushState({ ...window.history.state, creationTool: tool }, '', setCreationToolInUrl(window.location.href, tool));
-  }, [creationTool, showPinnedHome]);
+  const navigateToCreationTool = useCallback(
+    (tool: CreationTool) => {
+      if (tool === creationTool && !showPinnedHome) return;
+      setShowPinnedHome(false);
+      setCreationTool(tool);
+      window.history.pushState(
+        { ...window.history.state, creationTool: tool },
+        "",
+        setCreationToolInUrl(window.location.href, tool),
+      );
+    },
+    [creationTool, showPinnedHome],
+  );
 
   const togglePinnedCreationTool = useCallback((tool: CreationTool) => {
-    setPinnedCreationTools((current) => current.includes(tool) ? current.filter((item) => item !== tool) : [...current, tool]);
+    setPinnedCreationTools((current) =>
+      current.includes(tool)
+        ? current.filter((item) => item !== tool)
+        : [...current, tool],
+    );
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.pinnedCreationTools, JSON.stringify(pinnedCreationTools));
+    localStorage.setItem(
+      STORAGE_KEYS.pinnedCreationTools,
+      JSON.stringify(pinnedCreationTools),
+    );
   }, [pinnedCreationTools]);
 
-  const creationToolMenuItems = useMemo(() => CREATION_TOOL_ITEMS.map((item) => ({
-    ...item,
-    label: <span className="creation-tool-menu-label"><Tooltip title={item.label} placement="right"><span className="creation-tool-menu-title">{item.label}</span></Tooltip>{!item.disabled && <Tooltip title={pinnedCreationTools.includes(item.key) ? '取消置顶' : '置顶常用功能'}><button type="button" className={pinnedCreationTools.includes(item.key) ? 'tool-pin-button is-pinned' : 'tool-pin-button'} aria-label={`${pinnedCreationTools.includes(item.key) ? '取消置顶' : '置顶'}${item.label}`} onClick={(event) => { event.preventDefault(); event.stopPropagation(); togglePinnedCreationTool(item.key); }}>{pinnedCreationTools.includes(item.key) ? <PushpinFilled /> : <PushpinOutlined />}</button></Tooltip>}</span>,
-  })), [pinnedCreationTools, togglePinnedCreationTool]);
+  const creationToolMenuItems = useMemo(
+    () =>
+      CREATION_TOOL_ITEMS.map((item) => ({
+        ...item,
+        label: (
+          <span className="creation-tool-menu-label">
+            <Tooltip title={item.label} placement="right">
+              <span className="creation-tool-menu-title">{item.label}</span>
+            </Tooltip>
+            {!item.disabled && (
+              <Tooltip
+                title={
+                  pinnedCreationTools.includes(item.key)
+                    ? "取消置顶"
+                    : "置顶常用功能"
+                }
+              >
+                <button
+                  type="button"
+                  className={
+                    pinnedCreationTools.includes(item.key)
+                      ? "tool-pin-button is-pinned"
+                      : "tool-pin-button"
+                  }
+                  aria-label={`${pinnedCreationTools.includes(item.key) ? "取消置顶" : "置顶"}${item.label}`}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    togglePinnedCreationTool(item.key);
+                  }}
+                >
+                  {pinnedCreationTools.includes(item.key) ? (
+                    <PushpinFilled />
+                  ) : (
+                    <PushpinOutlined />
+                  )}
+                </button>
+              </Tooltip>
+            )}
+          </span>
+        ),
+      })),
+    [pinnedCreationTools, togglePinnedCreationTool],
+  );
 
   useEffect(() => {
     const handlePopState = () => {
-      const tool = new URLSearchParams(window.location.search).get('tool');
+      const tool = new URLSearchParams(window.location.search).get("tool");
       setShowPinnedHome(!isCreationTool(tool));
       setCreationTool(readCreationTool(window.location.search));
     };
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
   }, []);
   const aborters = useRef(new Map<string, AbortController>());
   const productsRef = useRef(products);
   const settingsRef = useRef(settings);
 
-  useEffect(() => { productsRef.current = products; }, [products]);
-  useEffect(() => { settingsRef.current = settings; }, [settings]);
-  useEffect(() => localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(settings)), [settings]);
-  useEffect(() => localStorage.setItem(STORAGE_KEYS.presets, JSON.stringify(presets)), [presets]);
-  useEffect(() => localStorage.setItem(STORAGE_KEYS.individualPromptPresets, JSON.stringify(individualPromptPresets)), [individualPromptPresets]);
-  useEffect(() => () => {
-    products.forEach((product) => URL.revokeObjectURL(product.previewUrl));
-    tasks.forEach((task) => task.resultUrl && URL.revokeObjectURL(task.resultUrl));
-  }, []);
+  useEffect(() => {
+    productsRef.current = products;
+  }, [products]);
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
+  useEffect(
+    () => localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(settings)),
+    [settings],
+  );
+  useEffect(
+    () => localStorage.setItem(STORAGE_KEYS.presets, JSON.stringify(presets)),
+    [presets],
+  );
+  useEffect(
+    () =>
+      localStorage.setItem(
+        STORAGE_KEYS.individualPromptPresets,
+        JSON.stringify(individualPromptPresets),
+      ),
+    [individualPromptPresets],
+  );
+  useEffect(
+    () => () => {
+      products.forEach((product) => URL.revokeObjectURL(product.previewUrl));
+      tasks.forEach(
+        (task) => task.resultUrl && URL.revokeObjectURL(task.resultUrl),
+      );
+    },
+    [],
+  );
 
-  const validPromptCount = prompts.filter((prompt) => prompt.content.trim()).length;
-  const estimatedTaskCount = settings.combinationMode === 'paired'
-    ? Math.min(products.length, validPromptCount)
-    : products.length * validPromptCount;
-  const groups = useMemo(() => makeResultGroups(products, tasks), [products, tasks]);
-  const completedCount = tasks.filter((task) => ['success', 'failed', 'stopped'].includes(task.status)).length;
-  const successCount = tasks.filter((task) => task.status === 'success').length;
-  const isProcessing = tasks.some((task) => ['waiting', 'running'].includes(task.status));
-  const runningProgress = globalProgress.filter((item) => item.running && item.total > 0);
-  const globalCompleted = runningProgress.reduce((sum, item) => sum + item.completed, 0);
-  const globalTotal = runningProgress.reduce((sum, item) => sum + item.total, 0);
-  const globalFailed = globalProgress.reduce((sum, item) => sum + item.failed, 0);
-  const titleStatus = globalFailed > 0 ? 'failed' : globalTotal > 0 ? 'running' : 'ready';
+  const validPromptCount = prompts.filter((prompt) =>
+    prompt.content.trim(),
+  ).length;
+  const estimatedTaskCount =
+    settings.combinationMode === "paired"
+      ? Math.min(products.length, validPromptCount)
+      : products.length * validPromptCount;
+  const groups = useMemo(
+    () => makeResultGroups(products, tasks),
+    [products, tasks],
+  );
+  const completedCount = tasks.filter((task) =>
+    ["success", "failed", "stopped"].includes(task.status),
+  ).length;
+  const successCount = tasks.filter((task) => task.status === "success").length;
+  const isProcessing = tasks.some((task) =>
+    ["waiting", "running"].includes(task.status),
+  );
+  const runningProgress = globalProgress.filter(
+    (item) => item.running && item.total > 0,
+  );
+  const globalCompleted = runningProgress.reduce(
+    (sum, item) => sum + item.completed,
+    0,
+  );
+  const globalTotal = runningProgress.reduce(
+    (sum, item) => sum + item.total,
+    0,
+  );
+  const globalFailed = globalProgress.reduce(
+    (sum, item) => sum + item.failed,
+    0,
+  );
+  const titleStatus =
+    globalFailed > 0 ? "failed" : globalTotal > 0 ? "running" : "ready";
   const workerFolderTitle = useMemo(() => {
-    if (creationTool !== 'logo-replace-tabs' && creationTool !== 'scene-replace-tabs') return undefined;
+    if (
+      creationTool !== "logo-replace-tabs" &&
+      creationTool !== "scene-replace-tabs"
+    )
+      return undefined;
     const params = new URLSearchParams(window.location.search);
-    if (params.get('worker') !== '1') return undefined;
-    const explicitName = params.get('folder')?.trim();
+    if (params.get("worker") !== "1") return undefined;
+    const explicitName = params.get("folder")?.trim();
     if (explicitName) return explicitName;
-    const groupId = params.get('group');
+    const groupId = params.get("group");
     if (!groupId) return undefined;
     try {
-      return decodeURIComponent(groupId).split('/').filter(Boolean).at(-1);
+      return decodeURIComponent(groupId).split("/").filter(Boolean).at(-1);
     } catch {
-      return groupId.split('/').filter(Boolean).at(-1);
+      return groupId.split("/").filter(Boolean).at(-1);
     }
   }, [creationTool]);
-  const activeDelimiter = splitMode === 'newline' ? '\n' : delimiter;
+  const activeDelimiter = splitMode === "newline" ? "\n" : delimiter;
   const splitPreview = useMemo(
     () => splitPrompts(bulkText, activeDelimiter),
     [bulkText, activeDelimiter],
   );
-  const apiBaseUrl = settings.connectionMode === 'proxy'
-    ? settings.proxyUrl.trim().replace(/\/+$/, '')
-    : null;
-  const sceneHasSession = Boolean(products.length || tasks.length || prompts.some((item) => item.content.trim()));
+  const apiBaseUrl =
+    settings.connectionMode === "proxy"
+      ? settings.proxyUrl.trim().replace(/\/+$/, "")
+      : null;
+  const sceneHasSession = Boolean(
+    products.length ||
+    tasks.length ||
+    prompts.some((item) => item.content.trim()),
+  );
 
   useEffect(() => subscribeTaskProgress(setGlobalProgress), []);
-  useEffect(() => { reportTaskProgress({ id: 'scene', label: '场景图生成', completed: completedCount, total: tasks.length, failed: tasks.filter((task) => task.status === 'failed').length, running: isProcessing }); }, [completedCount, tasks, isProcessing]);
-  useEffect(() => { document.title = buildTaskPageTitle(globalCompleted, globalTotal, globalFailed, workerFolderTitle); return () => { document.title = 'Scene Studio'; }; }, [globalCompleted, globalTotal, globalFailed, workerFolderTitle]);
+  useEffect(() => {
+    reportTaskProgress({
+      id: "scene",
+      label: "场景图生成",
+      completed: completedCount,
+      total: tasks.length,
+      failed: tasks.filter((task) => task.status === "failed").length,
+      running: isProcessing,
+    });
+  }, [completedCount, tasks, isProcessing]);
+  useEffect(() => {
+    document.title = buildTaskPageTitle(
+      globalCompleted,
+      globalTotal,
+      globalFailed,
+      workerFolderTitle,
+    );
+    return () => {
+      document.title = "Scene Studio";
+    };
+  }, [globalCompleted, globalTotal, globalFailed, workerFolderTitle]);
 
   const handleTestProxy = async () => {
     if (!settings.proxyUrl.trim()) {
-      message.warning('请先填写代理地址');
+      message.warning("请先填写代理地址");
       return;
     }
     setTestingProxy(true);
     try {
       await testProxyConnection(settings.proxyUrl);
-      message.success('代理连接成功');
+      message.success("代理连接成功");
     } catch (error) {
-      const detail = error instanceof Error ? error.message : '未知错误';
-      message.error(`代理连接失败：${detail}。请检查地址、Worker 部署状态和 ALLOWED_ORIGINS`);
+      const detail = error instanceof Error ? error.message : "未知错误";
+      message.error(
+        `代理连接失败：${detail}。请检查地址、Worker 部署状态和 ALLOWED_ORIGINS`,
+      );
     } finally {
       setTestingProxy(false);
     }
   };
 
   useEffect(() => {
-    if (unloadWarningDisabled || (!workflowHasSession && !sceneHasSession && !sceneReplaceHasSession && !cupResizeHasSession && !logoHasSession && !logoReplaceHasSession && !logoExportHasSession && !paperTextHasSession && !backgroundRemovalHasSession && !outpaintHasSession && !objectReplaceHasSession && !inpaintHasSession && !productDetailHasSession)) return;
+    if (
+      unloadWarningDisabled ||
+      (!workflowHasSession &&
+        !sceneHasSession &&
+        !sceneReplaceHasSession &&
+        !cupResizeHasSession &&
+        !logoHasSession &&
+        !logoReplaceHasSession &&
+        !logoExportHasSession &&
+        !paperTextHasSession &&
+        !backgroundRemovalHasSession &&
+        !outpaintHasSession &&
+        !objectReplaceHasSession &&
+        !inpaintHasSession &&
+        !productDetailHasSession)
+    )
+      return;
     const warnBeforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
-      event.returnValue = '';
+      event.returnValue = "";
     };
-    window.addEventListener('beforeunload', warnBeforeUnload);
-    return () => window.removeEventListener('beforeunload', warnBeforeUnload);
-  }, [unloadWarningDisabled, workflowHasSession, sceneHasSession, sceneReplaceHasSession, cupResizeHasSession, logoHasSession, logoReplaceHasSession, logoExportHasSession, paperTextHasSession, backgroundRemovalHasSession, outpaintHasSession, objectReplaceHasSession, inpaintHasSession, productDetailHasSession]);
+    window.addEventListener("beforeunload", warnBeforeUnload);
+    return () => window.removeEventListener("beforeunload", warnBeforeUnload);
+  }, [
+    unloadWarningDisabled,
+    workflowHasSession,
+    sceneHasSession,
+    sceneReplaceHasSession,
+    cupResizeHasSession,
+    logoHasSession,
+    logoReplaceHasSession,
+    logoExportHasSession,
+    paperTextHasSession,
+    backgroundRemovalHasSession,
+    outpaintHasSession,
+    objectReplaceHasSession,
+    inpaintHasSession,
+    productDetailHasSession,
+  ]);
 
-  const patchSettings = useCallback((patch: Partial<AppSettings>) => {
-    setSettings((current) => {
-      const next = { ...current, ...patch };
-      if (patch.imageModel) {
-        const normalized = normalizeSettingsForModel(patch.imageModel, next.aspectRatio, next.imageSize);
-        if (normalized.imageSize !== next.imageSize || normalized.aspectRatio !== next.aspectRatio) {
-          message.info('已按模型能力调整比例或分辨率');
+  const patchSettings = useCallback(
+    (patch: Partial<AppSettings>) => {
+      setSettings((current) => {
+        const next = { ...current, ...patch };
+        if (patch.imageModel) {
+          const normalized = normalizeSettingsForModel(
+            patch.imageModel,
+            next.aspectRatio,
+            next.imageSize,
+          );
+          if (
+            normalized.imageSize !== next.imageSize ||
+            normalized.aspectRatio !== next.aspectRatio
+          ) {
+            message.info("已按模型能力调整比例或分辨率");
+          }
+          return { ...next, ...normalized };
         }
-        return { ...next, ...normalized };
-      }
-      return next;
-    });
-  }, [message]);
+        return next;
+      });
+    },
+    [message],
+  );
 
-  const addFiles = useCallback((files: File[]) => {
-    const accepted: ProductImage[] = [];
-    files.forEach((file) => {
-      if (!ACCEPTED_TYPES.includes(file.type)) {
-        message.error(`${file.name}：仅支持 PNG、JPEG、WebP`);
-      } else if (!file.size || file.size > MAX_IMAGE_SIZE) {
-        message.error(`${file.name}：文件需小于 20MB 且不能为空`);
-      } else {
-        accepted.push({
-          id: createId(),
-          file,
-          name: file.name,
-          mimeType: file.type,
-          previewUrl: URL.createObjectURL(file),
-        });
-      }
-    });
-    if (accepted.length) setProducts((current) => [...current, ...accepted]);
-    return false;
-  }, [message]);
+  const addFiles = useCallback(
+    (files: File[]) => {
+      const accepted: ProductImage[] = [];
+      files.forEach((file) => {
+        if (!ACCEPTED_TYPES.includes(file.type)) {
+          message.error(`${file.name}：仅支持 PNG、JPEG、WebP`);
+        } else if (!file.size || file.size > MAX_IMAGE_SIZE) {
+          message.error(`${file.name}：文件需小于 20MB 且不能为空`);
+        } else {
+          accepted.push({
+            id: createId(),
+            file,
+            name: file.name,
+            mimeType: file.type,
+            previewUrl: URL.createObjectURL(file),
+          });
+        }
+      });
+      if (accepted.length) setProducts((current) => [...current, ...accepted]);
+      return false;
+    },
+    [message],
+  );
 
   const removeProduct = (uid: string) => {
     setProducts((current) => {
@@ -580,40 +1032,64 @@ function AppContent() {
 
   const openIndividualPrompt = (product: ProductImage) => {
     setIndividualPromptProductId(product.id);
-    setIndividualPromptDraft(product.individualPrompt || '');
+    setIndividualPromptDraft(product.individualPrompt || "");
   };
 
   const insertIndividualPromptPreset = (content: string) => {
-    setIndividualPromptDraft((current) => current.trim()
-      ? `${current.trim()}\n${content}`
-      : content);
+    setIndividualPromptDraft((current) =>
+      current.trim() ? `${current.trim()}\n${content}` : content,
+    );
   };
 
   const saveIndividualPromptPreset = (preset?: IndividualPromptPreset) => {
-    let name = preset?.name || '';
-    let content = preset?.content || '';
+    let name = preset?.name || "";
+    let content = preset?.content || "";
     Modal.confirm({
-      title: preset ? '编辑专属提示词预设' : '新增专属提示词预设',
+      title: preset ? "编辑专属提示词预设" : "新增专属提示词预设",
       content: (
-        <Space orientation="vertical" style={{ width: '100%' }}>
-          <Input defaultValue={name} placeholder="预设名称" onChange={(event) => { name = event.target.value; }} />
-          <Input.TextArea defaultValue={content} placeholder="预设关键词" autoSize={{ minRows: 2, maxRows: 5 }} onChange={(event) => { content = event.target.value; }} />
+        <Space orientation="vertical" style={{ width: "100%" }}>
+          <Input
+            defaultValue={name}
+            placeholder="预设名称"
+            onChange={(event) => {
+              name = event.target.value;
+            }}
+          />
+          <Input.TextArea
+            defaultValue={content}
+            placeholder="预设关键词"
+            autoSize={{ minRows: 2, maxRows: 5 }}
+            onChange={(event) => {
+              content = event.target.value;
+            }}
+          />
         </Space>
       ),
       onOk: () => {
         if (!name.trim() || !content.trim()) {
-          message.warning('请填写预设名称和关键词');
+          message.warning("请填写预设名称和关键词");
           return Promise.reject();
         }
-        setIndividualPromptPresets((current) => preset
-          ? current.map((item) => item.id === preset.id ? { ...item, name: name.trim(), content: content.trim() } : item)
-          : [...current, { id: createId(), name: name.trim(), content: content.trim() }]);
+        setIndividualPromptPresets((current) =>
+          preset
+            ? current.map((item) =>
+                item.id === preset.id
+                  ? { ...item, name: name.trim(), content: content.trim() }
+                  : item,
+              )
+            : [
+                ...current,
+                { id: createId(), name: name.trim(), content: content.trim() },
+              ],
+        );
       },
     });
   };
 
   const updatePrompt = (id: string, content: string) =>
-    setPrompts((current) => current.map((item) => item.id === id ? { ...item, content } : item));
+    setPrompts((current) =>
+      current.map((item) => (item.id === id ? { ...item, content } : item)),
+    );
 
   const movePrompt = (index: number, direction: -1 | 1) => {
     setPrompts((current) => {
@@ -627,7 +1103,7 @@ function AppContent() {
 
   const removePrompt = (id: string) =>
     setPrompts((current) => {
-      if (current.length === 1) return [{ ...current[0], content: '' }];
+      if (current.length === 1) return [{ ...current[0], content: "" }];
       const next = current.filter((item) => item.id !== id);
       if (activePromptId === id) setActivePromptId(next[0].id);
       return next;
@@ -636,19 +1112,23 @@ function AppContent() {
   const runOptimization = async (items: PromptItem[]) => {
     if (!settings.apiKey) {
       setKeyOpen(true);
-      message.warning('请先配置 API Key');
+      message.warning("请先配置 API Key");
       return;
     }
-    if (settings.connectionMode === 'proxy' && !apiBaseUrl) {
+    if (settings.connectionMode === "proxy" && !apiBaseUrl) {
       setKeyOpen(true);
-      message.warning('请先配置代理地址');
+      message.warning("请先配置代理地址");
       return;
     }
     const valid = items.filter((item) => item.content.trim());
     if (!valid.length) return;
     setOptimizingAll(true);
     try {
-      const results: Array<{ id: string; original: string; optimized: string }> = [];
+      const results: Array<{
+        id: string;
+        original: string;
+        optimized: string;
+      }> = [];
       for (const item of valid) {
         const optimized = await optimizePrompt({
           apiKey: settings.apiKey,
@@ -660,7 +1140,7 @@ function AppContent() {
       }
       setOptimizationPreview(results);
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '提示词优化失败');
+      message.error(error instanceof Error ? error.message : "提示词优化失败");
     } finally {
       setOptimizingAll(false);
     }
@@ -668,12 +1148,20 @@ function AppContent() {
 
   const executeTask = useCallback(async (task: GenerationTask) => {
     if (runningIds.current.has(task.id)) return;
-    const product = productsRef.current.find((item) => item.id === task.productId);
+    const product = productsRef.current.find(
+      (item) => item.id === task.productId,
+    );
     if (!product) return;
     runningIds.current.add(task.id);
     const controller = new AbortController();
     aborters.current.set(task.id, controller);
-    setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status: 'running', error: undefined } : item));
+    setTasks((current) =>
+      current.map((item) =>
+        item.id === task.id
+          ? { ...item, status: "running", error: undefined }
+          : item,
+      ),
+    );
     try {
       const currentSettings = settingsRef.current;
       const result = await generateSceneImage({
@@ -684,19 +1172,42 @@ function AppContent() {
         aspectRatio: currentSettings.aspectRatio,
         imageSize: currentSettings.imageSize,
         signal: controller.signal,
-        apiBaseUrl: currentSettings.connectionMode === 'proxy'
-          ? currentSettings.proxyUrl.trim().replace(/\/+$/, '')
-          : null,
+        apiBaseUrl:
+          currentSettings.connectionMode === "proxy"
+            ? currentSettings.proxyUrl.trim().replace(/\/+$/, "")
+            : null,
       });
       const resultUrl = URL.createObjectURL(result.blob);
-      setTasks((current) => current.map((item) => item.id === task.id
-        ? { ...item, status: 'success', resultBlob: result.blob, resultUrl, resultMimeType: result.mimeType }
-        : item));
+      setTasks((current) =>
+        current.map((item) =>
+          item.id === task.id
+            ? {
+                ...item,
+                status: "success",
+                resultBlob: result.blob,
+                resultUrl,
+                resultMimeType: result.mimeType,
+              }
+            : item,
+        ),
+      );
     } catch (error) {
       const stopped = controller.signal.aborted;
-      setTasks((current) => current.map((item) => item.id === task.id
-        ? { ...item, status: stopped ? 'stopped' : 'failed', error: stopped ? '任务已停止' : error instanceof Error ? error.message : '生成失败' }
-        : item));
+      setTasks((current) =>
+        current.map((item) =>
+          item.id === task.id
+            ? {
+                ...item,
+                status: stopped ? "stopped" : "failed",
+                error: stopped
+                  ? "任务已停止"
+                  : error instanceof Error
+                    ? error.message
+                    : "生成失败",
+              }
+            : item,
+        ),
+      );
     } finally {
       runningIds.current.delete(task.id);
       aborters.current.delete(task.id);
@@ -704,10 +1215,15 @@ function AppContent() {
   }, []);
 
   useEffect(() => {
-    const available = Math.max(0, settings.concurrency - runningIds.current.size);
+    const available = Math.max(
+      0,
+      settings.concurrency - runningIds.current.size,
+    );
     if (!available) return;
     tasks
-      .filter((task) => task.status === 'waiting' && !runningIds.current.has(task.id))
+      .filter(
+        (task) => task.status === "waiting" && !runningIds.current.has(task.id),
+      )
       .slice(0, available)
       .forEach((task) => void executeTask(task));
   }, [tasks, settings.concurrency, executeTask]);
@@ -715,56 +1231,91 @@ function AppContent() {
   const startGeneration = () => {
     if (!settings.apiKey) {
       setKeyOpen(true);
-      message.warning('请先配置 API Key');
+      message.warning("请先配置 API Key");
       return;
     }
-    if (settings.connectionMode === 'proxy' && !apiBaseUrl) {
+    if (settings.connectionMode === "proxy" && !apiBaseUrl) {
       setKeyOpen(true);
-      message.warning('请先配置代理地址');
+      message.warning("请先配置代理地址");
       return;
     }
-    if (!products.length) return void message.warning('请至少上传一张产品图');
-    if (!validPromptCount) return void message.warning('请至少填写一条提示词');
+    if (!products.length) return void message.warning("请至少上传一张产品图");
+    if (!validPromptCount) return void message.warning("请至少填写一条提示词");
     try {
-      tasks.forEach((task) => task.resultUrl && URL.revokeObjectURL(task.resultUrl));
+      tasks.forEach(
+        (task) => task.resultUrl && URL.revokeObjectURL(task.resultUrl),
+      );
       setTasks(buildTasks(products, prompts, settings.combinationMode));
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '无法创建任务');
+      message.error(error instanceof Error ? error.message : "无法创建任务");
     }
   };
 
   const stopTasks = () => {
     aborters.current.forEach((controller) => controller.abort());
-    setTasks((current) => current.map((task) =>
-      task.status === 'waiting' ? { ...task, status: 'stopped', error: '任务已停止' } : task,
-    ));
+    setTasks((current) =>
+      current.map((task) =>
+        task.status === "waiting"
+          ? { ...task, status: "stopped", error: "任务已停止" }
+          : task,
+      ),
+    );
   };
 
   const retryTask = (id: string) => {
     const task = tasks.find((item) => item.id === id);
     if (!task) return;
-    const retry = { ...task, status: 'running' as const, error: undefined, retryCount: task.retryCount + 1 };
-    setTasks((current) => current.map((item) => item.id === id ? retry : item));
+    const retry = {
+      ...task,
+      status: "running" as const,
+      error: undefined,
+      retryCount: task.retryCount + 1,
+    };
+    setTasks((current) =>
+      current.map((item) => (item.id === id ? retry : item)),
+    );
     void executeTask(retry);
   };
 
   const savePreset = () => {
-    const content = prompts.find((item) => item.id === activePromptId)?.content.trim()
-      || prompts.find((item) => item.content.trim())?.content.trim();
-    if (!content) return void message.warning('当前输入框没有可保存的提示词');
+    const content =
+      prompts.find((item) => item.id === activePromptId)?.content.trim() ||
+      prompts.find((item) => item.content.trim())?.content.trim();
+    if (!content) return void message.warning("当前输入框没有可保存的提示词");
     modal.confirm({
-      title: '保存提示词预设',
-      content: <Input id="preset-name-input" placeholder="例如：极简摄影棚" autoFocus />,
+      title: "保存提示词预设",
+      content: (
+        <Input
+          id="preset-name-input"
+          placeholder="例如：极简摄影棚"
+          autoFocus
+        />
+      ),
       onOk: () => {
-        const input = document.getElementById('preset-name-input') as HTMLInputElement | null;
+        const input = document.getElementById(
+          "preset-name-input",
+        ) as HTMLInputElement | null;
         const name = input?.value.trim();
-        if (!name) throw new Error('请输入预设名称');
+        if (!name) throw new Error("请输入预设名称");
         setPresets((current) => {
           const existing = current.find((preset) => preset.name === name);
-          if (existing) return current.map((preset) => preset.id === existing.id ? { ...preset, content, prompts: undefined, updatedAt: Date.now() } : preset);
-          return [...current, { id: createId(), name, content, updatedAt: Date.now() }];
+          if (existing)
+            return current.map((preset) =>
+              preset.id === existing.id
+                ? {
+                    ...preset,
+                    content,
+                    prompts: undefined,
+                    updatedAt: Date.now(),
+                  }
+                : preset,
+            );
+          return [
+            ...current,
+            { id: createId(), name, content, updatedAt: Date.now() },
+          ];
         });
-        message.success('预设已保存');
+        message.success("预设已保存");
       },
     });
   };
@@ -772,22 +1323,41 @@ function AppContent() {
   const renamePreset = (preset: PromptPreset) => {
     let nextName = preset.name;
     modal.confirm({
-      title: '重命名预设',
-      content: <Input defaultValue={preset.name} onChange={(event) => { nextName = event.target.value; }} />,
-      onOk: () => setPresets((current) => current.map((item) => item.id === preset.id ? { ...item, name: nextName.trim() || item.name } : item)),
+      title: "重命名预设",
+      content: (
+        <Input
+          defaultValue={preset.name}
+          onChange={(event) => {
+            nextName = event.target.value;
+          }}
+        />
+      ),
+      onOk: () =>
+        setPresets((current) =>
+          current.map((item) =>
+            item.id === preset.id
+              ? { ...item, name: nextName.trim() || item.name }
+              : item,
+          ),
+        ),
     });
   };
 
   const applyScenePreset = (preset: PromptPreset) => {
-    const targetId = prompts.some((item) => item.id === activePromptId) ? activePromptId : prompts[0].id;
+    const targetId = prompts.some((item) => item.id === activePromptId)
+      ? activePromptId
+      : prompts[0].id;
     updatePrompt(targetId, preset.content);
     setActivePromptId(targetId);
   };
 
   const downloadAll = async () => {
-    const failed = tasks.filter((task) => task.status !== 'success').length;
-    if (!successCount) return void message.warning('暂无可下载的成功结果');
-    if (failed) message.warning(`ZIP 仅包含 ${successCount} 个成功结果，已跳过 ${failed} 个未成功任务`);
+    const failed = tasks.filter((task) => task.status !== "success").length;
+    if (!successCount) return void message.warning("暂无可下载的成功结果");
+    if (failed)
+      message.warning(
+        `ZIP 仅包含 ${successCount} 个成功结果，已跳过 ${failed} 个未成功任务`,
+      );
     await downloadAllZip(groups, settings.imageModel);
   };
 
@@ -807,56 +1377,232 @@ function AppContent() {
       <Header className="topbar">
         <Flex align="center" justify="space-between" gap={16}>
           <Flex align="center" gap={12}>
-            <button type="button" className="brand-home-link" aria-label="返回常用创作工具首页" onClick={navigateToHome}>
-              <span className="brand-mark"><ExperimentOutlined /></span>
+            <button
+              type="button"
+              className="brand-home-link"
+              aria-label="返回常用创作工具首页"
+              onClick={navigateToHome}
+            >
+              <span className="brand-mark">
+                <ExperimentOutlined />
+              </span>
               <span className="brand-copy">
-                <span className="brand-title-row" title={titleStatus === 'running' ? `任务执行中 ${globalCompleted}/${globalTotal}` : titleStatus === 'failed' ? `${globalFailed} 个任务失败` : '系统就绪'}>
-                  <span className={`brand-status-light is-${titleStatus}`} aria-label={titleStatus === 'running' ? '任务执行中' : titleStatus === 'failed' ? '存在失败任务' : '系统就绪'} />
-                  <Title level={3} className="brand-title">Scene Studio</Title>
+                <span
+                  className="brand-title-row"
+                  title={
+                    titleStatus === "running"
+                      ? `任务执行中 ${globalCompleted}/${globalTotal}`
+                      : titleStatus === "failed"
+                        ? `${globalFailed} 个任务失败`
+                        : "系统就绪"
+                  }
+                >
+                  <span
+                    className={`brand-status-light is-${titleStatus}`}
+                    aria-label={
+                      titleStatus === "running"
+                        ? "任务执行中"
+                        : titleStatus === "failed"
+                          ? "存在失败任务"
+                          : "系统就绪"
+                    }
+                  />
+                  <Title level={3} className="brand-title">
+                    Scene Studio
+                  </Title>
                 </span>
-                <Text type="secondary" className="brand-subtitle">AI 商业场景图工作台</Text>
+                <Text type="secondary" className="brand-subtitle">
+                  AI 商业场景图工作台
+                </Text>
               </span>
             </button>
             <Divider orientation="vertical" className="header-divider" />
-            <Tag icon={<AppstoreOutlined />} color="purple">{showPinnedHome ? '常用创作工具' : CREATION_TOOL_ITEMS.find((item) => item.key === creationTool)?.label || '创作工具'}</Tag>
+            <Tag icon={<AppstoreOutlined />} color="purple">
+              {showPinnedHome
+                ? "常用创作工具"
+                : CREATION_TOOL_ITEMS.find((item) => item.key === creationTool)
+                    ?.label || "创作工具"}
+            </Tag>
           </Flex>
           <Space>
             <Segmented
               size="small"
               value={language}
-              onChange={(value) => setLanguage(value as 'zh-CN' | 'en-US')}
+              onChange={(value) => setLanguage(value as "zh-CN" | "en-US")}
               options={[
-                { label: '中文', value: 'zh-CN', icon: <GlobalOutlined /> },
-                { label: 'EN', value: 'en-US' },
+                { label: "中文", value: "zh-CN", icon: <GlobalOutlined /> },
+                { label: "EN", value: "en-US" },
               ]}
             />
-            {creationTool === 'scene' && tasks.length > 0 && (
-              <Badge status={isProcessing ? 'processing' : 'success'} text={`${completedCount}/${tasks.length}`} />
+            {creationTool === "scene" && tasks.length > 0 && (
+              <Badge
+                status={isProcessing ? "processing" : "success"}
+                text={`${completedCount}/${tasks.length}`}
+              />
             )}
-            <Button icon={<CodeOutlined />} onClick={() => setRequestConsoleOpen(true)}>控制台</Button>
-            {window.desktop && <Button type="primary" ghost icon={<DesktopOutlined />} onClick={() => setDesktopTaskCenterOpen(true)}>后台任务</Button>}
-            {globalTotal > 0 && <Tooltip title={runningProgress.map((item) => `${item.label} ${item.completed}/${item.total}`).join(' · ')}><Tag color="processing"><Progress type="circle" size={18} percent={Math.round(globalCompleted / globalTotal * 100)} showInfo={false} /> {globalCompleted}/{globalTotal}</Tag></Tooltip>}
-            {notificationPermission !== 'granted' && notificationPermission !== 'unsupported' && <Tooltip title="任务完成后发送浏览器系统通知"><Button icon={<BellOutlined />} onClick={async () => setNotificationPermission(await requestTaskNotifications())}>开启通知</Button></Tooltip>}
-            {notificationPermission === 'granted' && <Tooltip title="系统通知已开启"><Button icon={<BellOutlined />} type="text" aria-label="系统通知已开启" /></Tooltip>}
-            {compact && !showPinnedHome && <Button icon={<SettingOutlined />} onClick={() => setSettingsOpen(true)}>设置</Button>}
             <Button
-              type={window.desktop ? 'default' : settings.apiKey || settings.openAiApiKey ? 'default' : 'primary'}
-              icon={window.desktop ? <KeyOutlined /> : settings.apiKey || settings.openAiApiKey ? <CheckCircleFilled /> : <KeyOutlined />}
-              onClick={() => window.desktop ? setDesktopTaskCenterOpen(true) : setKeyOpen(true)}
+              icon={<CodeOutlined />}
+              onClick={() => setRequestConsoleOpen(true)}
             >
-              {window.desktop ? '桌面 Key 设置' : settings.apiKey || settings.openAiApiKey ? 'Key 已配置' : '配置 API Key'}
+              控制台
+            </Button>
+            {window.desktop && (
+              <Button
+                type="primary"
+                ghost
+                icon={<DesktopOutlined />}
+                onClick={() => setDesktopTaskCenterOpen(true)}
+              >
+                后台任务
+              </Button>
+            )}
+            {globalTotal > 0 && (
+              <Tooltip
+                title={runningProgress
+                  .map(
+                    (item) => `${item.label} ${item.completed}/${item.total}`,
+                  )
+                  .join(" · ")}
+              >
+                <Tag color="processing">
+                  <Progress
+                    type="circle"
+                    size={18}
+                    percent={Math.round((globalCompleted / globalTotal) * 100)}
+                    showInfo={false}
+                  />{" "}
+                  {globalCompleted}/{globalTotal}
+                </Tag>
+              </Tooltip>
+            )}
+            {notificationPermission !== "granted" &&
+              notificationPermission !== "unsupported" && (
+                <Tooltip title="任务完成后发送浏览器系统通知">
+                  <Button
+                    icon={<BellOutlined />}
+                    onClick={async () =>
+                      setNotificationPermission(
+                        await requestTaskNotifications(),
+                      )
+                    }
+                  >
+                    开启通知
+                  </Button>
+                </Tooltip>
+              )}
+            {notificationPermission === "granted" && (
+              <Tooltip title="系统通知已开启">
+                <Button
+                  icon={<BellOutlined />}
+                  type="text"
+                  aria-label="系统通知已开启"
+                />
+              </Tooltip>
+            )}
+            {compact && !showPinnedHome && (
+              <Button
+                icon={<SettingOutlined />}
+                onClick={() => setSettingsOpen(true)}
+              >
+                设置
+              </Button>
+            )}
+            <Button
+              type={
+                window.desktop
+                  ? "default"
+                  : settings.apiKey || settings.openAiApiKey
+                    ? "default"
+                    : "primary"
+              }
+              icon={
+                window.desktop ? (
+                  <KeyOutlined />
+                ) : settings.apiKey || settings.openAiApiKey ? (
+                  <CheckCircleFilled />
+                ) : (
+                  <KeyOutlined />
+                )
+              }
+              onClick={() =>
+                window.desktop
+                  ? setDesktopTaskCenterOpen(true)
+                  : setKeyOpen(true)
+              }
+            >
+              {window.desktop
+                ? "桌面 Key 设置"
+                : settings.apiKey || settings.openAiApiKey
+                  ? "Key 已配置"
+                  : "配置 API Key"}
             </Button>
           </Space>
         </Flex>
       </Header>
-      {window.desktop && <DesktopTaskCenter open={desktopTaskCenterOpen} onClose={() => setDesktopTaskCenterOpen(false)} />}
+      {window.desktop && (
+        <DesktopTaskCenter
+          open={desktopTaskCenterOpen}
+          onClose={() => setDesktopTaskCenterOpen(false)}
+        />
+      )}
 
-      <Layout className={`workspace-layout${showPinnedHome ? ' is-tool-home' : ''}${creationTool === 'workflow' && !showPinnedHome ? ' is-workflow' : ''}`}>
-        <Sider width={214} className="nav-sider" breakpoint="lg" collapsedWidth={64}>
-          {pinnedCreationTools.length > 0 && <div className="pinned-tools"><Text className="pinned-tools-title"><PushpinFilled /> 已置顶</Text><div className="pinned-tools-list">{pinnedCreationTools.map((tool) => {
-            const item = CREATION_TOOL_ITEMS.find((candidate) => candidate.key === tool); if (!item) return null;
-            return <div key={tool} className={creationTool === tool ? 'pinned-tool-row is-active' : 'pinned-tool-row'}><Tooltip title={item.label} placement="right"><button type="button" className="pinned-tool-button" onClick={() => navigateToCreationTool(tool)}><span className="pinned-tool-icon">{item.icon}</span><span className="pinned-tool-label">{item.label}</span></button></Tooltip><Tooltip title="取消置顶"><button type="button" className="pinned-tool-remove" aria-label={`取消置顶${item.label}`} onClick={() => togglePinnedCreationTool(tool)}><PushpinFilled /></button></Tooltip></div>;
-          })}</div></div>}
+      <Layout
+        className={`workspace-layout${showPinnedHome ? " is-tool-home" : ""}${creationTool === "workflow" && !showPinnedHome ? " is-workflow" : ""}`}
+      >
+        <Sider
+          width={214}
+          className="nav-sider"
+          breakpoint="lg"
+          collapsedWidth={64}
+        >
+          {pinnedCreationTools.length > 0 && (
+            <div className="pinned-tools">
+              <Text className="pinned-tools-title">
+                <PushpinFilled /> 已置顶
+              </Text>
+              <div className="pinned-tools-list">
+                {pinnedCreationTools.map((tool) => {
+                  const item = CREATION_TOOL_ITEMS.find(
+                    (candidate) => candidate.key === tool,
+                  );
+                  if (!item) return null;
+                  return (
+                    <div
+                      key={tool}
+                      className={
+                        creationTool === tool
+                          ? "pinned-tool-row is-active"
+                          : "pinned-tool-row"
+                      }
+                    >
+                      <Tooltip title={item.label} placement="right">
+                        <button
+                          type="button"
+                          className="pinned-tool-button"
+                          onClick={() => navigateToCreationTool(tool)}
+                        >
+                          <span className="pinned-tool-icon">{item.icon}</span>
+                          <span className="pinned-tool-label">
+                            {item.label}
+                          </span>
+                        </button>
+                      </Tooltip>
+                      <Tooltip title="取消置顶">
+                        <button
+                          type="button"
+                          className="pinned-tool-remove"
+                          aria-label={`取消置顶${item.label}`}
+                          onClick={() => togglePinnedCreationTool(tool)}
+                        >
+                          <PushpinFilled />
+                        </button>
+                      </Tooltip>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <Menu
             mode="inline"
             selectedKeys={showPinnedHome ? [] : [creationTool]}
@@ -864,437 +1610,906 @@ function AppContent() {
               if (isCreationTool(key)) navigateToCreationTool(key);
             }}
             items={[
-              { key: 'create', type: 'group', label: '创作工具', children: [...creationToolMenuItems, { key: 'video', icon: <VideoCameraOutlined />, label: '视频生成', disabled: true }] },
-              { key: 'manage', type: 'group', label: '管理', children: [
-                { key: 'history', icon: <MenuFoldOutlined />, label: '历史记录', disabled: true },
-              ] },
+              {
+                key: "create",
+                type: "group",
+                label: "创作工具",
+                children: [
+                  ...creationToolMenuItems,
+                  {
+                    key: "video",
+                    icon: <VideoCameraOutlined />,
+                    label: "视频生成",
+                    disabled: true,
+                  },
+                ],
+              },
+              {
+                key: "manage",
+                type: "group",
+                label: "管理",
+                children: [
+                  {
+                    key: "history",
+                    icon: <MenuFoldOutlined />,
+                    label: "历史记录",
+                    disabled: true,
+                  },
+                ],
+              },
             ]}
           />
           <div className="sider-foot">
             <ApiOutlined />
-            <Text type="secondary">{settings.connectionMode === 'proxy' ? 'Cloudflare 代理' : 'Gemini 直连'}</Text>
+            <Text type="secondary">
+              {settings.connectionMode === "proxy"
+                ? "Cloudflare 代理"
+                : "Gemini 直连"}
+            </Text>
           </div>
         </Sider>
 
         <Content className="main-content">
           <div className="content-inner">
-            {showPinnedHome && <section className="tool-home">
-              <div className="tool-home-hero">
-                <div><Text className="eyebrow">PINNED CREATION TOOLS</Text><Title level={1}>从常用工具开始创作</Title><Paragraph>已置顶的创作工具集中显示在这里，选择一项即可立即开始。</Paragraph></div>
-                <div className="tool-home-count"><PushpinFilled /><strong>{pinnedCreationTools.length}</strong><span>个常用工具</span></div>
-              </div>
-              {pinnedCreationTools.length ? <div className="tool-home-grid">{pinnedCreationTools.map((tool, index) => {
-                const item = CREATION_TOOL_ITEMS.find((candidate) => candidate.key === tool); if (!item) return null;
-                return <button type="button" className="tool-home-card" key={tool} onClick={() => navigateToCreationTool(tool)} style={{ '--tool-index': index } as CSSProperties}>
-                  <span className="tool-home-card-icon">{item.icon}</span><span className="tool-home-card-copy"><strong>{item.label}</strong><span>{item.description}</span></span><span className="tool-home-card-open">打开 <ArrowUpOutlined /></span>
-                </button>;
-              })}</div> : <div className="tool-home-empty"><PushpinOutlined /><Title level={3}>还没有置顶工具</Title><Paragraph>在左侧工具名称旁点击置顶图标，常用工具就会显示在这里。</Paragraph></div>}
-            </section>}
-            <div hidden={showPinnedHome}>
-            <div hidden={creationTool !== 'workflow'}>
-              <WorkflowComposer apiKey={settings.apiKey} openAiApiKey={settings.openAiApiKey} apiBaseUrl={apiBaseUrl} connectionMode={settings.connectionMode} onRequestKey={() => setKeyOpen(true)} onSessionStateChange={setWorkflowHasSession} />
-            </div>
-            <div hidden={creationTool !== 'logo'}>
-              <LogoComposer
-                apiKey={settings.apiKey}
-                apiBaseUrl={apiBaseUrl}
-                connectionMode={settings.connectionMode}
-                onRequestKey={() => setKeyOpen(true)}
-                onSessionStateChange={setLogoHasSession}
-                settingsHost={logoSettingsHost}
-              />
-            </div>
-            <div hidden={creationTool !== 'logo-replace'}>
-              <LogoReplaceComposer
-                apiKey={settings.apiKey}
-                openAiApiKey={settings.openAiApiKey}
-                apiBaseUrl={apiBaseUrl}
-                connectionMode={settings.connectionMode}
-                onRequestKey={() => setKeyOpen(true)}
-                onSessionStateChange={setLogoReplaceHasSession}
-                settingsHost={logoReplaceSettingsHost}
-              />
-            </div>
-            <div hidden={creationTool !== 'logo-removal'}>
-              <LogoRemovalComposer
-                apiKey={settings.apiKey}
-                openAiApiKey={settings.openAiApiKey}
-                apiBaseUrl={apiBaseUrl}
-                connectionMode={settings.connectionMode}
-                onRequestKey={() => setKeyOpen(true)}
-                settingsHost={logoRemovalSettingsHost}
-              />
-            </div>
-            <div hidden={creationTool !== 'logo-replace-tabs'}>
-              <MultiTabLogoReplaceComposer apiKey={settings.apiKey} openAiApiKey={settings.openAiApiKey} apiBaseUrl={apiBaseUrl} connectionMode={settings.connectionMode} onRequestKey={() => setKeyOpen(true)} settingsHost={multiTabLogoSettingsHost} />
-            </div>
-            <div hidden={creationTool !== 'scene-replace-tabs'}>
-              <MultiTabSceneReplaceComposer apiKey={settings.apiKey} openAiApiKey={settings.openAiApiKey} apiBaseUrl={apiBaseUrl} connectionMode={settings.connectionMode} onRequestKey={() => setKeyOpen(true)} settingsHost={multiTabSceneSettingsHost} />
-            </div>
-            <div hidden={creationTool !== 'paper-text'}>
-              <PaperTextComposer apiKey={settings.apiKey} openAiApiKey={settings.openAiApiKey} apiBaseUrl={apiBaseUrl} onRequestKey={() => setKeyOpen(true)} onSessionStateChange={setPaperTextHasSession} settingsHost={paperTextSettingsHost} />
-            </div>
-            <div hidden={creationTool !== 'logo-export'}>
-              <PsdLogoExportComposer onSessionStateChange={setLogoExportHasSession} settingsHost={logoExportSettingsHost} />
-            </div>
-            <div hidden={creationTool !== 'background-removal'}>
-              <BackgroundRemovalComposer apiKey={settings.apiKey} openAiApiKey={settings.openAiApiKey} apiBaseUrl={apiBaseUrl} connectionMode={settings.connectionMode} onRequestKey={() => setKeyOpen(true)} onSessionStateChange={setBackgroundRemovalHasSession} settingsHost={backgroundRemovalSettingsHost} />
-            </div>
-            <div hidden={creationTool !== 'outpaint'}>
-              <OutpaintComposer apiKey={settings.apiKey} openAiApiKey={settings.openAiApiKey} apiBaseUrl={apiBaseUrl} connectionMode={settings.connectionMode} onRequestKey={() => setKeyOpen(true)} onSessionStateChange={setOutpaintHasSession} settingsHost={outpaintSettingsHost} />
-            </div>
-            <div hidden={creationTool !== 'object-replace'}>
-              <ObjectReplaceComposer
-                apiKey={settings.apiKey}
-                apiBaseUrl={apiBaseUrl}
-                connectionMode={settings.connectionMode}
-                onRequestKey={() => setKeyOpen(true)}
-                onSessionStateChange={setObjectReplaceHasSession}
-                settingsHost={objectReplaceSettingsHost}
-              />
-            </div>
-            <div hidden={creationTool !== 'scene-replace'}>
-              <SceneReplaceComposer
-                apiKey={settings.apiKey}
-                openAiApiKey={settings.openAiApiKey}
-                apiBaseUrl={apiBaseUrl}
-                connectionMode={settings.connectionMode}
-                onRequestKey={() => setKeyOpen(true)}
-                onSessionStateChange={setSceneReplaceHasSession}
-                settingsHost={sceneReplaceSettingsHost}
-              />
-            </div>
-            <div hidden={creationTool !== 'scene-logo-replace'}>
-              <CombinedReplaceComposer apiKey={settings.apiKey} openAiApiKey={settings.openAiApiKey} apiBaseUrl={apiBaseUrl} connectionMode={settings.connectionMode} onRequestKey={() => setKeyOpen(true)} settingsHost={combinedReplaceSettingsHost} />
-            </div>
-            <div hidden={creationTool !== 'cup-resize'}>
-              <CupResizeComposer
-                apiKey={settings.apiKey}
-                openAiApiKey={settings.openAiApiKey}
-                apiBaseUrl={apiBaseUrl}
-                connectionMode={settings.connectionMode}
-                onRequestKey={() => setKeyOpen(true)}
-                onSessionStateChange={setCupResizeHasSession}
-                settingsHost={cupResizeSettingsHost}
-              />
-            </div>
-            <div hidden={creationTool !== 'inpaint'}>
-              <InpaintComposer
-                apiKey={settings.apiKey}
-                apiBaseUrl={apiBaseUrl}
-                connectionMode={settings.connectionMode}
-                onRequestKey={() => setKeyOpen(true)}
-                onSessionStateChange={setInpaintHasSession}
-                settingsHost={inpaintSettingsHost}
-              />
-            </div>
-            <div hidden={creationTool !== 'product-detail'}>
-              <ProductDetailComposer
-                apiKey={settings.apiKey}
-                apiBaseUrl={apiBaseUrl}
-                connectionMode={settings.connectionMode}
-                onRequestKey={() => setKeyOpen(true)}
-                onSessionStateChange={setProductDetailHasSession}
-                settingsHost={productDetailSettingsHost}
-              />
-            </div>
-            <div hidden={creationTool !== 'scene'}>
-            <section className="hero-strip">
-              <div>
-                <Text className="eyebrow">SCENE GENERATOR</Text>
-                <Title level={2}>把白底产品图放进真实世界</Title>
-                <Paragraph className="hero-description">上传产品、组合提示词，批量生成风格一致的商业场景图。</Paragraph>
-              </div>
-              <div className="hero-orb" />
-            </section>
-
-            <Card className="workflow-card" title={<Space><span className="step-badge">1</span><span>上传产品白底图</span></Space>} extra={<Text type="secondary">{products.length} 张</Text>}>
-              {products.length === 0 ? (
-                <Attachments
-                  items={[]}
-                  overflow="wrap"
-                  accept={ACCEPTED_TYPES.join(',')}
-                  multiple
-                  beforeUpload={(file) => addFiles([file as File])}
-                  placeholder={{
-                    icon: <FileImageOutlined />,
-                    title: '拖拽、点击或粘贴产品图',
-                    description: 'PNG / JPEG / WebP，单张不超过 20MB',
-                  }}
-                />
-              ) : (
-                <div className="scene-product-grid">
-                  {products.map((product) => (
-                    <div className="scene-product-card" key={product.id}>
-                      <Image src={product.previewUrl} alt={product.name} />
-                      <Button
-                        type={product.individualPrompt?.trim() ? 'primary' : 'default'}
-                        ghost={Boolean(product.individualPrompt?.trim())}
-                        block
-                        icon={<EditOutlined />}
-                        onClick={() => openIndividualPrompt(product)}
-                      >
-                        {product.individualPrompt?.trim() ? '编辑提示词' : '新增提示词'}
-                      </Button>
-                      {product.individualPrompt?.trim() && (
-                        <Text type="secondary" ellipsis={{ tooltip: product.individualPrompt }} className="individual-prompt-summary">
-                          {product.individualPrompt}
-                        </Text>
-                      )}
-                      <Button type="text" danger block icon={<DeleteOutlined />} onClick={() => removeProduct(product.id)}>删除图片</Button>
-                    </div>
-                  ))}
-                  <Upload
-                    showUploadList={false}
-                    accept={ACCEPTED_TYPES.join(',')}
-                    multiple
-                    beforeUpload={(file) => addFiles([file as File])}
-                  >
-                    <button type="button" className="scene-product-add">
-                      <PlusOutlined />
-                      <span>继续添加图片</span>
-                    </button>
-                  </Upload>
-                </div>
-              )}
-            </Card>
-
-            <Modal
-              title="产品图专属提示词"
-              open={Boolean(individualPromptProductId)}
-              width={680}
-              okText="保存"
-              cancelText="取消"
-              onCancel={() => setIndividualPromptProductId(null)}
-              onOk={() => {
-                setProducts((current) => current.map((product) => product.id === individualPromptProductId
-                  ? { ...product, individualPrompt: individualPromptDraft.trim() }
-                  : product));
-                setIndividualPromptProductId(null);
-              }}
-            >
-              <Typography.Paragraph type="secondary">
-                这里的内容仅应用于当前产品图。发送请求时会追加到每条场景提示词后面。
-              </Typography.Paragraph>
-              <Input.TextArea
-                value={individualPromptDraft}
-                onChange={(event) => setIndividualPromptDraft(event.target.value)}
-                placeholder="例如：杯子高 22.6 CM，顶部杯口 7 CM直径，杯肚 9 CM；场景比例需符合真实物体尺寸。"
-                autoSize={{ minRows: 4, maxRows: 8 }}
-                showCount
-                maxLength={1000}
-              />
-              <Flex justify="space-between" align="center" style={{ marginTop: 16 }}>
-                <Text strong>快捷关键词（点击插入）</Text>
-                <Button type="link" icon={<PlusOutlined />} onClick={() => saveIndividualPromptPreset()}>新增预设</Button>
-              </Flex>
-              <Flex gap={8} wrap style={{ marginTop: 8 }}>
-                {individualPromptPresets.map((preset) => (
-                  <Dropdown
-                    key={preset.id}
-                    trigger={['contextMenu']}
-                    menu={{
-                      items: [
-                        { key: 'edit', label: '编辑' },
-                        { key: 'delete', label: '删除', danger: true },
-                      ],
-                      onClick: ({ key }) => {
-                        if (key === 'edit') saveIndividualPromptPreset(preset);
-                        if (key === 'delete') setIndividualPromptPresets((current) => current.filter((item) => item.id !== preset.id));
-                      },
-                    }}
-                  >
-                    <Tag className="prompt-preset-tag" onClick={() => insertIndividualPromptPreset(preset.content)}>
-                      {preset.name}
-                    </Tag>
-                  </Dropdown>
-                ))}
-              </Flex>
-              <Text type="secondary" className="scene-preset-help">点击预设会插入而非覆盖；右键预设可编辑或删除。</Text>
-            </Modal>
-
-            <Card
-              className="workflow-card"
-              title={<Space><span className="step-badge">2</span><span>编写场景提示词</span></Space>}
-              extra={<Space><Button onClick={() => setBulkOpen(true)}>批量粘贴</Button><Button type="primary" ghost icon={<PlusOutlined />} onClick={() => setPrompts((current) => [...current, { id: createId(), content: '' }])}>新增一行</Button></Space>}
-            >
-              <div className="prompt-list">
-                {prompts.map((prompt, index) => (
-                  <div className={prompt.id === activePromptId ? 'prompt-row is-active' : 'prompt-row'} key={prompt.id}>
-                    <div className="prompt-index">{String(index + 1).padStart(2, '0')}</div>
-                    <Input.TextArea
-                      value={prompt.content}
-                      onFocus={() => setActivePromptId(prompt.id)}
-                      onChange={(event) => updatePrompt(prompt.id, event.target.value)}
-                      placeholder="例如：产品放置在浅色洞石台面上，晨光从左侧窗户照入，背景为柔焦现代客厅……"
-                      autoSize={{ minRows: 2, maxRows: 5 }}
-                      showCount
-                      maxLength={2000}
-                    />
-                    <Space orientation="vertical" size={1}>
-                      <Tooltip title="优化此条"><Button type="text" icon={<BulbOutlined />} onClick={() => void runOptimization([prompt])} /></Tooltip>
-                      <Tooltip title="复制"><Button type="text" icon={<CopyOutlined />} onClick={() => setPrompts((current) => [...current.slice(0, index + 1), { id: createId(), content: prompt.content }, ...current.slice(index + 1)])} /></Tooltip>
-                      <Space size={0}>
-                        <Button type="text" size="small" disabled={index === 0} icon={<ArrowUpOutlined />} onClick={() => movePrompt(index, -1)} />
-                        <Button type="text" size="small" disabled={index === prompts.length - 1} icon={<ArrowDownOutlined />} onClick={() => movePrompt(index, 1)} />
-                      </Space>
-                      <Tooltip title="删除"><Button type="text" danger icon={<DeleteOutlined />} onClick={() => removePrompt(prompt.id)} /></Tooltip>
-                    </Space>
+            {showPinnedHome && (
+              <section className="tool-home">
+                <div className="tool-home-hero">
+                  <div>
+                    <Text className="eyebrow">PINNED CREATION TOOLS</Text>
+                    <Title level={1}>从常用工具开始创作</Title>
+                    <Paragraph>
+                      已置顶的创作工具集中显示在这里，选择一项即可立即开始。
+                    </Paragraph>
                   </div>
-                ))}
+                  <div className="tool-home-count">
+                    <PushpinFilled />
+                    <strong>{pinnedCreationTools.length}</strong>
+                    <span>个常用工具</span>
+                  </div>
+                </div>
+                {pinnedCreationTools.length ? (
+                  <div className="tool-home-grid">
+                    {pinnedCreationTools.map((tool, index) => {
+                      const item = CREATION_TOOL_ITEMS.find(
+                        (candidate) => candidate.key === tool,
+                      );
+                      if (!item) return null;
+                      return (
+                        <button
+                          type="button"
+                          className="tool-home-card"
+                          key={tool}
+                          onClick={() => navigateToCreationTool(tool)}
+                          style={{ "--tool-index": index } as CSSProperties}
+                        >
+                          <span className="tool-home-card-icon">
+                            {item.icon}
+                          </span>
+                          <span className="tool-home-card-copy">
+                            <strong>{item.label}</strong>
+                            <span>{item.description}</span>
+                          </span>
+                          <span className="tool-home-card-open">
+                            打开 <ArrowUpOutlined />
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="tool-home-empty">
+                    <PushpinOutlined />
+                    <Title level={3}>还没有置顶工具</Title>
+                    <Paragraph>
+                      在左侧工具名称旁点击置顶图标，常用工具就会显示在这里。
+                    </Paragraph>
+                  </div>
+                )}
+              </section>
+            )}
+            <div hidden={showPinnedHome}>
+              <div hidden={creationTool !== "workflow"}>
+                <WorkflowComposer
+                  apiKey={settings.apiKey}
+                  openAiApiKey={settings.openAiApiKey}
+                  apiBaseUrl={apiBaseUrl}
+                  connectionMode={settings.connectionMode}
+                  onRequestKey={() => setKeyOpen(true)}
+                  onSessionStateChange={setWorkflowHasSession}
+                />
               </div>
-              <Flex justify="space-between" align="center" gap={10} wrap className="scene-preset-bar">
-                <Space wrap>
-                  {allScenePresets.map((preset) => preset.builtIn ? (
-                    <Tag key={preset.id} className="prompt-preset-tag" onClick={() => applyScenePreset(preset)}>{preset.name}</Tag>
-                  ) : (
-                    <Dropdown
-                      key={preset.id}
-                      trigger={['contextMenu']}
-                      menu={{
-                        items: [
-                          { key: 'rename', label: '重命名预设' },
-                          { key: 'delete', danger: true, label: '删除预设' },
-                        ],
-                        onClick: ({ key }) => {
-                          if (key === 'rename') renamePreset(preset);
-                          if (key === 'delete') setPresets((current) => current.filter((item) => item.id !== preset.id));
-                        },
+              <div hidden={creationTool !== "logo"}>
+                <LogoComposer
+                  apiKey={settings.apiKey}
+                  apiBaseUrl={apiBaseUrl}
+                  connectionMode={settings.connectionMode}
+                  onRequestKey={() => setKeyOpen(true)}
+                  onSessionStateChange={setLogoHasSession}
+                  settingsHost={logoSettingsHost}
+                />
+              </div>
+              <div hidden={creationTool !== "logo-replace"}>
+                <LogoReplaceComposer
+                  apiKey={settings.apiKey}
+                  openAiApiKey={settings.openAiApiKey}
+                  apiBaseUrl={apiBaseUrl}
+                  connectionMode={settings.connectionMode}
+                  onRequestKey={() => setKeyOpen(true)}
+                  onSessionStateChange={setLogoReplaceHasSession}
+                  settingsHost={logoReplaceSettingsHost}
+                />
+              </div>
+              <div hidden={creationTool !== "logo-removal"}>
+                <LogoRemovalComposer
+                  apiKey={settings.apiKey}
+                  openAiApiKey={settings.openAiApiKey}
+                  apiBaseUrl={apiBaseUrl}
+                  connectionMode={settings.connectionMode}
+                  onRequestKey={() => setKeyOpen(true)}
+                  settingsHost={logoRemovalSettingsHost}
+                />
+              </div>
+              <div hidden={creationTool !== "logo-replace-tabs"}>
+                <MultiTabLogoReplaceComposer
+                  apiKey={settings.apiKey}
+                  openAiApiKey={settings.openAiApiKey}
+                  apiBaseUrl={apiBaseUrl}
+                  connectionMode={settings.connectionMode}
+                  onRequestKey={() => setKeyOpen(true)}
+                  settingsHost={multiTabLogoSettingsHost}
+                />
+              </div>
+              <div hidden={creationTool !== "scene-replace-tabs"}>
+                <MultiTabSceneReplaceComposer
+                  apiKey={settings.apiKey}
+                  openAiApiKey={settings.openAiApiKey}
+                  apiBaseUrl={apiBaseUrl}
+                  connectionMode={settings.connectionMode}
+                  onRequestKey={() => setKeyOpen(true)}
+                  settingsHost={multiTabSceneSettingsHost}
+                />
+              </div>
+              <div hidden={creationTool !== "auto-scene-classify"}>
+                <AutoSceneClassificationComposer
+                  apiKey={settings.apiKey}
+                  openAiApiKey={settings.openAiApiKey}
+                  apiBaseUrl={apiBaseUrl}
+                  connectionMode={settings.connectionMode}
+                  onRequestKey={() => setKeyOpen(true)}
+                  settingsHost={autoSceneSettingsHost}
+                />
+              </div>
+              <div hidden={creationTool !== "auto-logo-classify"}>
+                <AutoLogoClassificationComposer
+                  apiKey={settings.apiKey}
+                  openAiApiKey={settings.openAiApiKey}
+                  apiBaseUrl={apiBaseUrl}
+                  connectionMode={settings.connectionMode}
+                  onRequestKey={() => setKeyOpen(true)}
+                  settingsHost={autoLogoSettingsHost}
+                />
+              </div>
+              <div hidden={creationTool !== "paper-text"}>
+                <PaperTextComposer
+                  apiKey={settings.apiKey}
+                  openAiApiKey={settings.openAiApiKey}
+                  apiBaseUrl={apiBaseUrl}
+                  onRequestKey={() => setKeyOpen(true)}
+                  onSessionStateChange={setPaperTextHasSession}
+                  settingsHost={paperTextSettingsHost}
+                />
+              </div>
+              <div hidden={creationTool !== "logo-export"}>
+                <PsdLogoExportComposer
+                  onSessionStateChange={setLogoExportHasSession}
+                  settingsHost={logoExportSettingsHost}
+                />
+              </div>
+              <div hidden={creationTool !== "background-removal"}>
+                <BackgroundRemovalComposer
+                  apiKey={settings.apiKey}
+                  openAiApiKey={settings.openAiApiKey}
+                  apiBaseUrl={apiBaseUrl}
+                  connectionMode={settings.connectionMode}
+                  onRequestKey={() => setKeyOpen(true)}
+                  onSessionStateChange={setBackgroundRemovalHasSession}
+                  settingsHost={backgroundRemovalSettingsHost}
+                />
+              </div>
+              <div hidden={creationTool !== "outpaint"}>
+                <OutpaintComposer
+                  apiKey={settings.apiKey}
+                  openAiApiKey={settings.openAiApiKey}
+                  apiBaseUrl={apiBaseUrl}
+                  connectionMode={settings.connectionMode}
+                  onRequestKey={() => setKeyOpen(true)}
+                  onSessionStateChange={setOutpaintHasSession}
+                  settingsHost={outpaintSettingsHost}
+                />
+              </div>
+              <div hidden={creationTool !== "object-replace"}>
+                <ObjectReplaceComposer
+                  apiKey={settings.apiKey}
+                  apiBaseUrl={apiBaseUrl}
+                  connectionMode={settings.connectionMode}
+                  onRequestKey={() => setKeyOpen(true)}
+                  onSessionStateChange={setObjectReplaceHasSession}
+                  settingsHost={objectReplaceSettingsHost}
+                />
+              </div>
+              <div hidden={creationTool !== "scene-replace"}>
+                <SceneReplaceComposer
+                  apiKey={settings.apiKey}
+                  openAiApiKey={settings.openAiApiKey}
+                  apiBaseUrl={apiBaseUrl}
+                  connectionMode={settings.connectionMode}
+                  onRequestKey={() => setKeyOpen(true)}
+                  onSessionStateChange={setSceneReplaceHasSession}
+                  settingsHost={sceneReplaceSettingsHost}
+                />
+              </div>
+              <div hidden={creationTool !== "scene-logo-replace"}>
+                <CombinedReplaceComposer
+                  apiKey={settings.apiKey}
+                  openAiApiKey={settings.openAiApiKey}
+                  apiBaseUrl={apiBaseUrl}
+                  connectionMode={settings.connectionMode}
+                  onRequestKey={() => setKeyOpen(true)}
+                  settingsHost={combinedReplaceSettingsHost}
+                />
+              </div>
+              <div hidden={creationTool !== "cup-resize"}>
+                <CupResizeComposer
+                  apiKey={settings.apiKey}
+                  openAiApiKey={settings.openAiApiKey}
+                  apiBaseUrl={apiBaseUrl}
+                  connectionMode={settings.connectionMode}
+                  onRequestKey={() => setKeyOpen(true)}
+                  onSessionStateChange={setCupResizeHasSession}
+                  settingsHost={cupResizeSettingsHost}
+                />
+              </div>
+              <div hidden={creationTool !== "inpaint"}>
+                <InpaintComposer
+                  apiKey={settings.apiKey}
+                  apiBaseUrl={apiBaseUrl}
+                  connectionMode={settings.connectionMode}
+                  onRequestKey={() => setKeyOpen(true)}
+                  onSessionStateChange={setInpaintHasSession}
+                  settingsHost={inpaintSettingsHost}
+                />
+              </div>
+              <div hidden={creationTool !== "product-detail"}>
+                <ProductDetailComposer
+                  apiKey={settings.apiKey}
+                  apiBaseUrl={apiBaseUrl}
+                  connectionMode={settings.connectionMode}
+                  onRequestKey={() => setKeyOpen(true)}
+                  onSessionStateChange={setProductDetailHasSession}
+                  settingsHost={productDetailSettingsHost}
+                />
+              </div>
+              <div hidden={creationTool !== "scene"}>
+                <section className="hero-strip">
+                  <div>
+                    <Text className="eyebrow">SCENE GENERATOR</Text>
+                    <Title level={2}>把白底产品图放进真实世界</Title>
+                    <Paragraph className="hero-description">
+                      上传产品、组合提示词，批量生成风格一致的商业场景图。
+                    </Paragraph>
+                  </div>
+                  <div className="hero-orb" />
+                </section>
+
+                <Card
+                  className="workflow-card"
+                  title={
+                    <Space>
+                      <span className="step-badge">1</span>
+                      <span>上传产品白底图</span>
+                    </Space>
+                  }
+                  extra={<Text type="secondary">{products.length} 张</Text>}
+                >
+                  {products.length === 0 ? (
+                    <Attachments
+                      items={[]}
+                      overflow="wrap"
+                      accept={ACCEPTED_TYPES.join(",")}
+                      multiple
+                      beforeUpload={(file) => addFiles([file as File])}
+                      placeholder={{
+                        icon: <FileImageOutlined />,
+                        title: "拖拽、点击或粘贴产品图",
+                        description: "PNG / JPEG / WebP，单张不超过 20MB",
                       }}
-                    >
-                      <Tag className="prompt-preset-tag" onClick={() => applyScenePreset(preset)}>{preset.name}</Tag>
-                    </Dropdown>
-                  ))}
-                </Space>
-                <Button size="small" icon={<SaveOutlined />} onClick={savePreset}>保存当前输入框为预设</Button>
-              </Flex>
-              <Text type="secondary" className="scene-preset-help">点击预设会写入当前选中的提示词输入框；右键自定义预设可重命名或删除。</Text>
-            </Card>
-
-            <Card className="action-card">
-              <Flex justify="space-between" align="center" gap={16} wrap>
-                <div>
-                  <Title level={4} style={{ margin: 0 }}>准备生成 {estimatedTaskCount} 张场景图</Title>
-                  <Text type="secondary">
-                    {settings.combinationMode === 'cartesian'
-                      ? `${products.length} 张产品图 × ${validPromptCount} 条提示词`
-                      : `按顺序一一对应 · ${products.length} 张产品图 / ${validPromptCount} 条提示词`}
-                  </Text>
-                </div>
-                <Space>
-                  {isProcessing && <Button danger icon={<StopOutlined />} onClick={stopTasks}>停止任务</Button>}
-                  <Button size="large" type="primary" icon={<RocketOutlined />} loading={isProcessing} onClick={startGeneration}>
-                    {isProcessing ? '正在生成' : '开始生成'}
-                  </Button>
-                </Space>
-              </Flex>
-              {tasks.length > 0 && (
-                <div className="overall-progress">
-                  <Progress percent={Math.round((completedCount / tasks.length) * 100)} status={isProcessing ? 'active' : successCount ? 'success' : 'exception'} />
-                  <Space wrap>
-                    <Tag color="processing">{tasks.filter((task) => task.status === 'running').length} 生成中</Tag>
-                    <Tag color="success">{successCount} 成功</Tag>
-                    <Tag color="error">{tasks.filter((task) => task.status === 'failed').length} 失败</Tag>
-                  </Space>
-                </div>
-              )}
-            </Card>
-
-            <section className="results-section">
-              <Flex justify="space-between" align="center">
-                <div>
-                  <Title level={3}>生成结果</Title>
-                  <Text type="secondary">按产品图自动分组，点击卡片查看全部结果</Text>
-                </div>
-                <Button icon={<DownloadOutlined />} disabled={!successCount} onClick={() => void downloadAll()}>下载全部</Button>
-              </Flex>
-              {groups.length ? (
-                <div className="results-grid">
-                  {groups.map((group) => (
-                    <ResultGroupCard
-                      key={group.product.id}
-                      group={group}
-                      onOpen={() => setActiveGroup(group)}
-                      onDownload={() => void downloadGroupZip(group, settings.imageModel)}
                     />
-                  ))}
-                </div>
-              ) : (
-                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="完成上方设置后，结果会按产品显示在这里" />
-              )}
-            </section>
+                  ) : (
+                    <div className="scene-product-grid">
+                      {products.map((product) => (
+                        <div className="scene-product-card" key={product.id}>
+                          <Image src={product.previewUrl} alt={product.name} />
+                          <Button
+                            type={
+                              product.individualPrompt?.trim()
+                                ? "primary"
+                                : "default"
+                            }
+                            ghost={Boolean(product.individualPrompt?.trim())}
+                            block
+                            icon={<EditOutlined />}
+                            onClick={() => openIndividualPrompt(product)}
+                          >
+                            {product.individualPrompt?.trim()
+                              ? "编辑提示词"
+                              : "新增提示词"}
+                          </Button>
+                          {product.individualPrompt?.trim() && (
+                            <Text
+                              type="secondary"
+                              ellipsis={{ tooltip: product.individualPrompt }}
+                              className="individual-prompt-summary"
+                            >
+                              {product.individualPrompt}
+                            </Text>
+                          )}
+                          <Button
+                            type="text"
+                            danger
+                            block
+                            icon={<DeleteOutlined />}
+                            onClick={() => removeProduct(product.id)}
+                          >
+                            删除图片
+                          </Button>
+                        </div>
+                      ))}
+                      <Upload
+                        showUploadList={false}
+                        accept={ACCEPTED_TYPES.join(",")}
+                        multiple
+                        beforeUpload={(file) => addFiles([file as File])}
+                      >
+                        <button type="button" className="scene-product-add">
+                          <PlusOutlined />
+                          <span>继续添加图片</span>
+                        </button>
+                      </Upload>
+                    </div>
+                  )}
+                </Card>
 
-            <Alert
-              type="info"
-              showIcon
-              title="关于生成内容"
-              description="所有 Nano Banana 生成图片均包含 SynthID 水印。请确保你拥有上传图片的必要权利，并遵守 Gemini API 使用政策。"
-            />
-            </div>
+                <Modal
+                  title="产品图专属提示词"
+                  open={Boolean(individualPromptProductId)}
+                  width={680}
+                  okText="保存"
+                  cancelText="取消"
+                  onCancel={() => setIndividualPromptProductId(null)}
+                  onOk={() => {
+                    setProducts((current) =>
+                      current.map((product) =>
+                        product.id === individualPromptProductId
+                          ? {
+                              ...product,
+                              individualPrompt: individualPromptDraft.trim(),
+                            }
+                          : product,
+                      ),
+                    );
+                    setIndividualPromptProductId(null);
+                  }}
+                >
+                  <Typography.Paragraph type="secondary">
+                    这里的内容仅应用于当前产品图。发送请求时会追加到每条场景提示词后面。
+                  </Typography.Paragraph>
+                  <Input.TextArea
+                    value={individualPromptDraft}
+                    onChange={(event) =>
+                      setIndividualPromptDraft(event.target.value)
+                    }
+                    placeholder="例如：杯子高 22.6 CM，顶部杯口 7 CM直径，杯肚 9 CM；场景比例需符合真实物体尺寸。"
+                    autoSize={{ minRows: 4, maxRows: 8 }}
+                    showCount
+                    maxLength={1000}
+                  />
+                  <Flex
+                    justify="space-between"
+                    align="center"
+                    style={{ marginTop: 16 }}
+                  >
+                    <Text strong>快捷关键词（点击插入）</Text>
+                    <Button
+                      type="link"
+                      icon={<PlusOutlined />}
+                      onClick={() => saveIndividualPromptPreset()}
+                    >
+                      新增预设
+                    </Button>
+                  </Flex>
+                  <Flex gap={8} wrap style={{ marginTop: 8 }}>
+                    {individualPromptPresets.map((preset) => (
+                      <Dropdown
+                        key={preset.id}
+                        trigger={["contextMenu"]}
+                        menu={{
+                          items: [
+                            { key: "edit", label: "编辑" },
+                            { key: "delete", label: "删除", danger: true },
+                          ],
+                          onClick: ({ key }) => {
+                            if (key === "edit")
+                              saveIndividualPromptPreset(preset);
+                            if (key === "delete")
+                              setIndividualPromptPresets((current) =>
+                                current.filter((item) => item.id !== preset.id),
+                              );
+                          },
+                        }}
+                      >
+                        <Tag
+                          className="prompt-preset-tag"
+                          onClick={() =>
+                            insertIndividualPromptPreset(preset.content)
+                          }
+                        >
+                          {preset.name}
+                        </Tag>
+                      </Dropdown>
+                    ))}
+                  </Flex>
+                  <Text type="secondary" className="scene-preset-help">
+                    点击预设会插入而非覆盖；右键预设可编辑或删除。
+                  </Text>
+                </Modal>
+
+                <Card
+                  className="workflow-card"
+                  title={
+                    <Space>
+                      <span className="step-badge">2</span>
+                      <span>编写场景提示词</span>
+                    </Space>
+                  }
+                  extra={
+                    <Space>
+                      <Button onClick={() => setBulkOpen(true)}>
+                        批量粘贴
+                      </Button>
+                      <Button
+                        type="primary"
+                        ghost
+                        icon={<PlusOutlined />}
+                        onClick={() =>
+                          setPrompts((current) => [
+                            ...current,
+                            { id: createId(), content: "" },
+                          ])
+                        }
+                      >
+                        新增一行
+                      </Button>
+                    </Space>
+                  }
+                >
+                  <div className="prompt-list">
+                    {prompts.map((prompt, index) => (
+                      <div
+                        className={
+                          prompt.id === activePromptId
+                            ? "prompt-row is-active"
+                            : "prompt-row"
+                        }
+                        key={prompt.id}
+                      >
+                        <div className="prompt-index">
+                          {String(index + 1).padStart(2, "0")}
+                        </div>
+                        <Input.TextArea
+                          value={prompt.content}
+                          onFocus={() => setActivePromptId(prompt.id)}
+                          onChange={(event) =>
+                            updatePrompt(prompt.id, event.target.value)
+                          }
+                          placeholder="例如：产品放置在浅色洞石台面上，晨光从左侧窗户照入，背景为柔焦现代客厅……"
+                          autoSize={{ minRows: 2, maxRows: 5 }}
+                          showCount
+                          maxLength={2000}
+                        />
+                        <Space orientation="vertical" size={1}>
+                          <Tooltip title="优化此条">
+                            <Button
+                              type="text"
+                              icon={<BulbOutlined />}
+                              onClick={() => void runOptimization([prompt])}
+                            />
+                          </Tooltip>
+                          <Tooltip title="复制">
+                            <Button
+                              type="text"
+                              icon={<CopyOutlined />}
+                              onClick={() =>
+                                setPrompts((current) => [
+                                  ...current.slice(0, index + 1),
+                                  { id: createId(), content: prompt.content },
+                                  ...current.slice(index + 1),
+                                ])
+                              }
+                            />
+                          </Tooltip>
+                          <Space size={0}>
+                            <Button
+                              type="text"
+                              size="small"
+                              disabled={index === 0}
+                              icon={<ArrowUpOutlined />}
+                              onClick={() => movePrompt(index, -1)}
+                            />
+                            <Button
+                              type="text"
+                              size="small"
+                              disabled={index === prompts.length - 1}
+                              icon={<ArrowDownOutlined />}
+                              onClick={() => movePrompt(index, 1)}
+                            />
+                          </Space>
+                          <Tooltip title="删除">
+                            <Button
+                              type="text"
+                              danger
+                              icon={<DeleteOutlined />}
+                              onClick={() => removePrompt(prompt.id)}
+                            />
+                          </Tooltip>
+                        </Space>
+                      </div>
+                    ))}
+                  </div>
+                  <Flex
+                    justify="space-between"
+                    align="center"
+                    gap={10}
+                    wrap
+                    className="scene-preset-bar"
+                  >
+                    <Space wrap>
+                      {allScenePresets.map((preset) =>
+                        preset.builtIn ? (
+                          <Tag
+                            key={preset.id}
+                            className="prompt-preset-tag"
+                            onClick={() => applyScenePreset(preset)}
+                          >
+                            {preset.name}
+                          </Tag>
+                        ) : (
+                          <Dropdown
+                            key={preset.id}
+                            trigger={["contextMenu"]}
+                            menu={{
+                              items: [
+                                { key: "rename", label: "重命名预设" },
+                                {
+                                  key: "delete",
+                                  danger: true,
+                                  label: "删除预设",
+                                },
+                              ],
+                              onClick: ({ key }) => {
+                                if (key === "rename") renamePreset(preset);
+                                if (key === "delete")
+                                  setPresets((current) =>
+                                    current.filter(
+                                      (item) => item.id !== preset.id,
+                                    ),
+                                  );
+                              },
+                            }}
+                          >
+                            <Tag
+                              className="prompt-preset-tag"
+                              onClick={() => applyScenePreset(preset)}
+                            >
+                              {preset.name}
+                            </Tag>
+                          </Dropdown>
+                        ),
+                      )}
+                    </Space>
+                    <Button
+                      size="small"
+                      icon={<SaveOutlined />}
+                      onClick={savePreset}
+                    >
+                      保存当前输入框为预设
+                    </Button>
+                  </Flex>
+                  <Text type="secondary" className="scene-preset-help">
+                    点击预设会写入当前选中的提示词输入框；右键自定义预设可重命名或删除。
+                  </Text>
+                </Card>
+
+                <Card className="action-card">
+                  <Flex justify="space-between" align="center" gap={16} wrap>
+                    <div>
+                      <Title level={4} style={{ margin: 0 }}>
+                        准备生成 {estimatedTaskCount} 张场景图
+                      </Title>
+                      <Text type="secondary">
+                        {settings.combinationMode === "cartesian"
+                          ? `${products.length} 张产品图 × ${validPromptCount} 条提示词`
+                          : `按顺序一一对应 · ${products.length} 张产品图 / ${validPromptCount} 条提示词`}
+                      </Text>
+                    </div>
+                    <Space>
+                      {isProcessing && (
+                        <Button
+                          danger
+                          icon={<StopOutlined />}
+                          onClick={stopTasks}
+                        >
+                          停止任务
+                        </Button>
+                      )}
+                      <Button
+                        size="large"
+                        type="primary"
+                        icon={<RocketOutlined />}
+                        loading={isProcessing}
+                        onClick={startGeneration}
+                      >
+                        {isProcessing ? "正在生成" : "开始生成"}
+                      </Button>
+                    </Space>
+                  </Flex>
+                  {tasks.length > 0 && (
+                    <div className="overall-progress">
+                      <Progress
+                        percent={Math.round(
+                          (completedCount / tasks.length) * 100,
+                        )}
+                        status={
+                          isProcessing
+                            ? "active"
+                            : successCount
+                              ? "success"
+                              : "exception"
+                        }
+                      />
+                      <Space wrap>
+                        <Tag color="processing">
+                          {
+                            tasks.filter((task) => task.status === "running")
+                              .length
+                          }{" "}
+                          生成中
+                        </Tag>
+                        <Tag color="success">{successCount} 成功</Tag>
+                        <Tag color="error">
+                          {
+                            tasks.filter((task) => task.status === "failed")
+                              .length
+                          }{" "}
+                          失败
+                        </Tag>
+                      </Space>
+                    </div>
+                  )}
+                </Card>
+
+                <section className="results-section">
+                  <Flex justify="space-between" align="center">
+                    <div>
+                      <Title level={3}>生成结果</Title>
+                      <Text type="secondary">
+                        按产品图自动分组，点击卡片查看全部结果
+                      </Text>
+                    </div>
+                    <Button
+                      icon={<DownloadOutlined />}
+                      disabled={!successCount}
+                      onClick={() => void downloadAll()}
+                    >
+                      下载全部
+                    </Button>
+                  </Flex>
+                  {groups.length ? (
+                    <div className="results-grid">
+                      {groups.map((group) => (
+                        <ResultGroupCard
+                          key={group.product.id}
+                          group={group}
+                          onOpen={() => setActiveGroup(group)}
+                          onDownload={() =>
+                            void downloadGroupZip(group, settings.imageModel)
+                          }
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <Empty
+                      image={Empty.PRESENTED_IMAGE_SIMPLE}
+                      description="完成上方设置后，结果会按产品显示在这里"
+                    />
+                  )}
+                </section>
+
+                <Alert
+                  type="info"
+                  showIcon
+                  title="关于生成内容"
+                  description="所有 Nano Banana 生成图片均包含 SynthID 水印。请确保你拥有上传图片的必要权利，并遵守 Gemini API 使用政策。"
+                />
+              </div>
             </div>
           </div>
         </Content>
 
-        {!compact && creationTool === 'scene' && <Sider width={330} theme="light" className="settings-sider">{settingsPanel}</Sider>}
-        {!compact && creationTool === 'logo' && (
+        {!compact && creationTool === "scene" && (
+          <Sider width={330} theme="light" className="settings-sider">
+            {settingsPanel}
+          </Sider>
+        )}
+        {!compact && creationTool === "logo" && (
           <Sider width={330} theme="light" className="settings-sider">
             <div ref={setLogoSettingsHost} />
           </Sider>
         )}
-        {!compact && creationTool === 'logo-replace' && (
+        {!compact && creationTool === "logo-replace" && (
           <Sider width={330} theme="light" className="settings-sider">
             <div ref={setLogoReplaceSettingsHost} />
           </Sider>
         )}
-        {!compact && creationTool === 'logo-removal' && <Sider width={330} theme="light" className="settings-sider"><div ref={setLogoRemovalSettingsHost} /></Sider>}
-        {!compact && creationTool === 'logo-replace-tabs' && new URLSearchParams(window.location.search).get('worker') === '1' && <Sider width={330} theme="light" className="settings-sider"><div ref={setMultiTabLogoSettingsHost} /></Sider>}
-        {!compact && creationTool === 'scene-replace-tabs' && new URLSearchParams(window.location.search).get('worker') === '1' && <Sider width={330} theme="light" className="settings-sider"><div ref={setMultiTabSceneSettingsHost} /></Sider>}
-        {!compact && creationTool === 'paper-text' && <Sider width={330} theme="light" className="settings-sider"><div ref={setPaperTextSettingsHost} /></Sider>}
-        {!compact && creationTool === 'logo-export' && <Sider width={330} theme="light" className="settings-sider"><div ref={setLogoExportSettingsHost} /></Sider>}
-        {!compact && creationTool === 'background-removal' && <Sider width={330} theme="light" className="settings-sider"><div ref={setBackgroundRemovalSettingsHost} /></Sider>}
-        {!compact && creationTool === 'outpaint' && <Sider width={330} theme="light" className="settings-sider"><div ref={setOutpaintSettingsHost} /></Sider>}
-        {!compact && creationTool === 'object-replace' && (
+        {!compact && creationTool === "logo-removal" && (
+          <Sider width={330} theme="light" className="settings-sider">
+            <div ref={setLogoRemovalSettingsHost} />
+          </Sider>
+        )}
+        {!compact &&
+          creationTool === "logo-replace-tabs" &&
+          new URLSearchParams(window.location.search).get("worker") === "1" && (
+            <Sider width={330} theme="light" className="settings-sider">
+              <div ref={setMultiTabLogoSettingsHost} />
+            </Sider>
+          )}
+        {!compact &&
+          creationTool === "scene-replace-tabs" &&
+          new URLSearchParams(window.location.search).get("worker") === "1" && (
+            <Sider width={330} theme="light" className="settings-sider">
+              <div ref={setMultiTabSceneSettingsHost} />
+            </Sider>
+          )}
+        {!compact && creationTool === "auto-scene-classify" && (
+          <Sider width={330} theme="light" className="settings-sider">
+            <div ref={setAutoSceneSettingsHost} />
+          </Sider>
+        )}
+        {!compact && creationTool === "auto-logo-classify" && (
+          <Sider width={330} theme="light" className="settings-sider">
+            <div ref={setAutoLogoSettingsHost} />
+          </Sider>
+        )}
+        {!compact && creationTool === "paper-text" && (
+          <Sider width={330} theme="light" className="settings-sider">
+            <div ref={setPaperTextSettingsHost} />
+          </Sider>
+        )}
+        {!compact && creationTool === "logo-export" && (
+          <Sider width={330} theme="light" className="settings-sider">
+            <div ref={setLogoExportSettingsHost} />
+          </Sider>
+        )}
+        {!compact && creationTool === "background-removal" && (
+          <Sider width={330} theme="light" className="settings-sider">
+            <div ref={setBackgroundRemovalSettingsHost} />
+          </Sider>
+        )}
+        {!compact && creationTool === "outpaint" && (
+          <Sider width={330} theme="light" className="settings-sider">
+            <div ref={setOutpaintSettingsHost} />
+          </Sider>
+        )}
+        {!compact && creationTool === "object-replace" && (
           <Sider width={330} theme="light" className="settings-sider">
             <div ref={setObjectReplaceSettingsHost} />
           </Sider>
         )}
-        {!compact && creationTool === 'scene-replace' && (
+        {!compact && creationTool === "scene-replace" && (
           <Sider width={330} theme="light" className="settings-sider">
             <div ref={setSceneReplaceSettingsHost} />
           </Sider>
         )}
-        {!compact && creationTool === 'scene-logo-replace' && <Sider width={330} theme="light" className="settings-sider"><div ref={setCombinedReplaceSettingsHost} /></Sider>}
-        {!compact && creationTool === 'cup-resize' && <Sider width={330} theme="light" className="settings-sider"><div ref={setCupResizeSettingsHost} /></Sider>}
-        {!compact && creationTool === 'inpaint' && (
+        {!compact && creationTool === "scene-logo-replace" && (
+          <Sider width={330} theme="light" className="settings-sider">
+            <div ref={setCombinedReplaceSettingsHost} />
+          </Sider>
+        )}
+        {!compact && creationTool === "cup-resize" && (
+          <Sider width={330} theme="light" className="settings-sider">
+            <div ref={setCupResizeSettingsHost} />
+          </Sider>
+        )}
+        {!compact && creationTool === "inpaint" && (
           <Sider width={330} theme="light" className="settings-sider">
             <div ref={setInpaintSettingsHost} />
           </Sider>
         )}
-        {!compact && creationTool === 'product-detail' && (
+        {!compact && creationTool === "product-detail" && (
           <Sider width={330} theme="light" className="settings-sider">
             <div ref={setProductDetailSettingsHost} />
           </Sider>
         )}
       </Layout>
 
-      <RequestConsoleDrawer open={requestConsoleOpen} onClose={() => setRequestConsoleOpen(false)} />
+      <RequestConsoleDrawer
+        open={requestConsoleOpen}
+        onClose={() => setRequestConsoleOpen(false)}
+      />
 
-      <Drawer title="生成设置" size={360} open={settingsOpen} onClose={() => setSettingsOpen(false)} destroyOnHidden>
-        {creationTool === 'scene'
-          ? settingsPanel
-          : compact
-            ? <div ref={creationTool === 'logo' ? setLogoSettingsHost : creationTool === 'logo-replace' ? setLogoReplaceSettingsHost : creationTool === 'logo-removal' ? setLogoRemovalSettingsHost : creationTool === 'logo-replace-tabs' ? setMultiTabLogoSettingsHost : creationTool === 'logo-export' ? setLogoExportSettingsHost : creationTool === 'paper-text' ? setPaperTextSettingsHost : creationTool === 'background-removal' ? setBackgroundRemovalSettingsHost : creationTool === 'outpaint' ? setOutpaintSettingsHost : creationTool === 'object-replace' ? setObjectReplaceSettingsHost : creationTool === 'scene-replace' ? setSceneReplaceSettingsHost : creationTool === 'scene-logo-replace' ? setCombinedReplaceSettingsHost : creationTool === 'cup-resize' ? setCupResizeSettingsHost : creationTool === 'inpaint' ? setInpaintSettingsHost : setProductDetailSettingsHost} />
-            : null}
+      <Drawer
+        title="生成设置"
+        size={360}
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        destroyOnHidden
+      >
+        {creationTool === "scene" ? (
+          settingsPanel
+        ) : compact ? (
+          <div
+            ref={
+              creationTool === "logo"
+                ? setLogoSettingsHost
+                : creationTool === "logo-replace"
+                  ? setLogoReplaceSettingsHost
+                  : creationTool === "logo-removal"
+                    ? setLogoRemovalSettingsHost
+                    : creationTool === "logo-replace-tabs"
+                      ? setMultiTabLogoSettingsHost
+                      : creationTool === "auto-scene-classify"
+                        ? setAutoSceneSettingsHost
+                        : creationTool === "auto-logo-classify"
+                          ? setAutoLogoSettingsHost
+                          : creationTool === "logo-export"
+                            ? setLogoExportSettingsHost
+                            : creationTool === "paper-text"
+                              ? setPaperTextSettingsHost
+                              : creationTool === "background-removal"
+                                ? setBackgroundRemovalSettingsHost
+                                : creationTool === "outpaint"
+                                  ? setOutpaintSettingsHost
+                                  : creationTool === "object-replace"
+                                    ? setObjectReplaceSettingsHost
+                                    : creationTool === "scene-replace"
+                                      ? setSceneReplaceSettingsHost
+                                      : creationTool === "scene-logo-replace"
+                                        ? setCombinedReplaceSettingsHost
+                                        : creationTool === "cup-resize"
+                                          ? setCupResizeSettingsHost
+                                          : creationTool === "inpaint"
+                                            ? setInpaintSettingsHost
+                                            : setProductDetailSettingsHost
+            }
+          />
+        ) : null}
       </Drawer>
 
-      <Modal title="配置 API Keys" open={keyOpen} onCancel={() => setKeyOpen(false)} onOk={() => setKeyOpen(false)} okText="保存到本地">
+      <Modal
+        title="配置 API Keys"
+        open={keyOpen}
+        onCancel={() => setKeyOpen(false)}
+        onOk={() => setKeyOpen(false)}
+        okText="保存到本地"
+      >
         <Alert
           type="warning"
           showIcon
           title="Keys 会保存在当前浏览器"
-          description={settings.connectionMode === 'proxy'
-            ? 'Key 与代理地址保存在当前浏览器，请求将通过你配置的代理转发到 Gemini。'
-            : 'Key 保存在当前浏览器，并由浏览器直接请求 Gemini。请勿在不受信任的设备上配置。'}
+          description={
+            settings.connectionMode === "proxy"
+              ? "Key 与代理地址保存在当前浏览器，请求将通过你配置的代理转发到 Gemini。"
+              : "Key 保存在当前浏览器，并由浏览器直接请求 Gemini。请勿在不受信任的设备上配置。"
+          }
           style={{ marginBottom: 16 }}
         />
         <Form layout="vertical">
@@ -1302,54 +2517,95 @@ function AppContent() {
             <Segmented
               block
               value={settings.connectionMode}
-              onChange={(connectionMode) => patchSettings({ connectionMode: connectionMode as AppSettings['connectionMode'] })}
+              onChange={(connectionMode) =>
+                patchSettings({
+                  connectionMode:
+                    connectionMode as AppSettings["connectionMode"],
+                })
+              }
               options={[
-                { label: 'Gemini 官方直连', value: 'direct' },
-                { label: 'Cloudflare 代理', value: 'proxy' },
+                { label: "Gemini 官方直连", value: "direct" },
+                { label: "Cloudflare 代理", value: "proxy" },
               ]}
             />
           </Form.Item>
-          {settings.connectionMode === 'proxy' && (
-            <Form.Item label="代理地址" extra="可填写 Worker 根地址或以 /v1beta 结尾的地址">
+          {settings.connectionMode === "proxy" && (
+            <Form.Item
+              label="代理地址"
+              extra="可填写 Worker 根地址或以 /v1beta 结尾的地址"
+            >
               <Space.Compact block>
                 <Input
                   value={settings.proxyUrl}
-                  onChange={(event) => patchSettings({ proxyUrl: event.target.value })}
+                  onChange={(event) =>
+                    patchSettings({ proxyUrl: event.target.value })
+                  }
                   placeholder="https://scene-studio-gemini-proxy.example.workers.dev"
                   allowClear
                 />
-                <Button icon={<ApiOutlined />} loading={testingProxy} onClick={handleTestProxy}>
+                <Button
+                  icon={<ApiOutlined />}
+                  loading={testingProxy}
+                  onClick={handleTestProxy}
+                >
                   测试连通性
                 </Button>
               </Space.Compact>
             </Form.Item>
           )}
           <Form.Item label="Gemini API Key" style={{ marginBottom: 0 }}>
-        <Input.Password
-          value={settings.apiKey}
-          onChange={(event) => patchSettings({ apiKey: event.target.value.trim() })}
-          prefix={<KeyOutlined />}
-          placeholder="AIza..."
-          autoComplete="off"
-        />
-            <Button type="link" icon={<ExportOutlined />} href="https://me.developers.google.com/benefits" target="_blank" rel="noopener noreferrer" style={{ paddingInline: 0 }}>
+            <Input.Password
+              value={settings.apiKey}
+              onChange={(event) =>
+                patchSettings({ apiKey: event.target.value.trim() })
+              }
+              prefix={<KeyOutlined />}
+              placeholder="AIza..."
+              autoComplete="off"
+            />
+            <Button
+              type="link"
+              icon={<ExportOutlined />}
+              href="https://me.developers.google.com/benefits"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ paddingInline: 0 }}
+            >
               查看 Gemini 免费余额
             </Button>
           </Form.Item>
           <Divider titlePlacement="start">OpenAI</Divider>
-          <Form.Item label="OpenAI API Key" extra="请求地址：https://api.openai.com/v1，不经过中转站" style={{ marginBottom: 0 }}>
+          <Form.Item
+            label="OpenAI API Key"
+            extra="请求地址：https://api.openai.com/v1，不经过中转站"
+            style={{ marginBottom: 0 }}
+          >
             <Input.Password
               value={settings.openAiApiKey}
-              onChange={(event) => patchSettings({ openAiApiKey: event.target.value.trim() })}
+              onChange={(event) =>
+                patchSettings({ openAiApiKey: event.target.value.trim() })
+              }
               prefix={<KeyOutlined />}
               placeholder="sk-..."
               autoComplete="off"
             />
-            <Button type="link" icon={<ExportOutlined />} href="https://platform.openai.com/settings/organization/billing/overview" target="_blank" rel="noopener noreferrer" style={{ paddingInline: 0 }}>
+            <Button
+              type="link"
+              icon={<ExportOutlined />}
+              href="https://platform.openai.com/settings/organization/billing/overview"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ paddingInline: 0 }}
+            >
               查看 OpenAI 账单与额度
             </Button>
           </Form.Item>
-          <Alert type="info" showIcon title="将在新标签页打开官方账户页面" description="浏览器已登录对应账号时可直接查看；出于官方页面的安全限制，余额无法嵌入或由普通 API Key 自动读取。" />
+          <Alert
+            type="info"
+            showIcon
+            title="将在新标签页打开官方账户页面"
+            description="浏览器已登录对应账号时可直接查看；出于官方页面的安全限制，余额无法嵌入或由普通 API Key 自动读取。"
+          />
         </Form>
       </Modal>
 
@@ -1358,12 +2614,13 @@ function AppContent() {
         open={bulkOpen}
         onCancel={() => setBulkOpen(false)}
         onOk={() => {
-          if (!splitPreview.length) return void message.warning('没有切割出有效提示词');
+          if (!splitPreview.length)
+            return void message.warning("没有切割出有效提示词");
           setPrompts((current) => [
             ...current.filter((item) => item.content.trim()),
             ...splitPreview.map((content) => ({ id: createId(), content })),
           ]);
-          setBulkText('');
+          setBulkText("");
           setBulkOpen(false);
         }}
         okText={`新增 ${splitPreview.length} 条`}
@@ -1373,16 +2630,21 @@ function AppContent() {
             <Segmented
               block
               value={splitMode}
-              onChange={(value) => setSplitMode(value as 'delimiter' | 'newline')}
+              onChange={(value) =>
+                setSplitMode(value as "delimiter" | "newline")
+              }
               options={[
-                { label: '自定义符号', value: 'delimiter' },
-                { label: '按回车分割', value: 'newline' },
+                { label: "自定义符号", value: "delimiter" },
+                { label: "按回车分割", value: "newline" },
               ]}
             />
           </Form.Item>
-          {splitMode === 'delimiter' && (
+          {splitMode === "delimiter" && (
             <Form.Item label="分隔符">
-              <Input value={delimiter} onChange={(event) => setDelimiter(event.target.value)} />
+              <Input
+                value={delimiter}
+                onChange={(event) => setDelimiter(event.target.value)}
+              />
             </Form.Item>
           )}
           <Form.Item label="粘贴内容">
@@ -1390,13 +2652,17 @@ function AppContent() {
               value={bulkText}
               onChange={(event) => setBulkText(event.target.value)}
               rows={8}
-              placeholder={splitMode === 'newline'
-                ? '第一条提示词\n第二条提示词\n第三条提示词'
-                : `第一条提示词\n${delimiter}\n第二条提示词`}
+              placeholder={
+                splitMode === "newline"
+                  ? "第一条提示词\n第二条提示词\n第三条提示词"
+                  : `第一条提示词\n${delimiter}\n第二条提示词`
+              }
             />
           </Form.Item>
         </Form>
-        <Text type="secondary">预览：将新增 {splitPreview.length} 条，空白段会被忽略。</Text>
+        <Text type="secondary">
+          预览：将新增 {splitPreview.length} 条，空白段会被忽略。
+        </Text>
       </Modal>
 
       <Modal
@@ -1406,12 +2672,22 @@ function AppContent() {
         onCancel={() => setOptimizationPreview(null)}
         onOk={() => {
           if (!optimizationPreview) return;
-          setPrompts((current) => current.map((item) => {
-            const match = optimizationPreview.find((preview) => preview.id === item.id);
-            return match ? { ...item, originalContent: match.original, content: match.optimized } : item;
-          }));
+          setPrompts((current) =>
+            current.map((item) => {
+              const match = optimizationPreview.find(
+                (preview) => preview.id === item.id,
+              );
+              return match
+                ? {
+                    ...item,
+                    originalContent: match.original,
+                    content: match.optimized,
+                  }
+                : item;
+            }),
+          );
           setOptimizationPreview(null);
-          message.success('已应用优化结果');
+          message.success("已应用优化结果");
         }}
         okText="确认替换"
       >
@@ -1432,14 +2708,34 @@ function AppContent() {
       </Modal>
 
       <Modal
-        title={activeGroup ? `${sanitizeFileName(activeGroup.product.name)} · ${activeGroup.successCount}/${activeGroup.tasks.length}` : '结果详情'}
+        title={
+          activeGroup
+            ? `${sanitizeFileName(activeGroup.product.name)} · ${activeGroup.successCount}/${activeGroup.tasks.length}`
+            : "结果详情"
+        }
         width={980}
         open={Boolean(activeGroup)}
         onCancel={() => setActiveGroup(null)}
-        footer={activeGroup ? [
-          <Button key="close" onClick={() => setActiveGroup(null)}>关闭</Button>,
-          <Button key="download" type="primary" icon={<DownloadOutlined />} disabled={!activeGroup.successCount} onClick={() => void downloadGroupZip(activeGroup, settings.imageModel)}>下载该组 ZIP</Button>,
-        ] : null}
+        footer={
+          activeGroup
+            ? [
+                <Button key="close" onClick={() => setActiveGroup(null)}>
+                  关闭
+                </Button>,
+                <Button
+                  key="download"
+                  type="primary"
+                  icon={<DownloadOutlined />}
+                  disabled={!activeGroup.successCount}
+                  onClick={() =>
+                    void downloadGroupZip(activeGroup, settings.imageModel)
+                  }
+                >
+                  下载该组 ZIP
+                </Button>,
+              ]
+            : null
+        }
       >
         {activeGroup && (
           <>
@@ -1447,20 +2743,66 @@ function AppContent() {
               <div className="detail-image-grid">
                 {activeGroup.tasks.map((task) => (
                   <div className="detail-image-item" key={task.id}>
-                    {task.resultUrl
-                      ? <OriginalCompareImage src={task.resultUrl} originalSrc={activeGroup.product.previewUrl} alt={task.prompt} />
-                      : task.status === 'running'
-                        ? <GeneratingImage progressKey={task.id} status="running" percent={1} />
-                        : task.status === 'waiting'
-                          ? <div className="task-state-card is-waiting"><Text strong>排队中…</Text><Text type="secondary">等待可用并发任务</Text></div>
-                          : <div className={`task-state-card is-${task.status}`}>
-                              <Text strong type={task.status === 'failed' ? 'danger' : 'secondary'}>{taskStatusText(task.status)}</Text>
-                              <Text type="secondary" ellipsis={{ tooltip: task.error }}>{task.error || (task.status === 'stopped' ? '任务已停止' : '尚未生成图片')}</Text>
-                            </div>}
+                    {task.resultUrl ? (
+                      <OriginalCompareImage
+                        src={task.resultUrl}
+                        originalSrc={activeGroup.product.previewUrl}
+                        alt={task.prompt}
+                      />
+                    ) : task.status === "running" ? (
+                      <GeneratingImage
+                        progressKey={task.id}
+                        status="running"
+                        percent={1}
+                      />
+                    ) : task.status === "waiting" ? (
+                      <div className="task-state-card is-waiting">
+                        <Text strong>排队中…</Text>
+                        <Text type="secondary">等待可用并发任务</Text>
+                      </div>
+                    ) : (
+                      <div className={`task-state-card is-${task.status}`}>
+                        <Text
+                          strong
+                          type={
+                            task.status === "failed" ? "danger" : "secondary"
+                          }
+                        >
+                          {taskStatusText(task.status)}
+                        </Text>
+                        <Text
+                          type="secondary"
+                          ellipsis={{ tooltip: task.error }}
+                        >
+                          {task.error ||
+                            (task.status === "stopped"
+                              ? "任务已停止"
+                              : "尚未生成图片")}
+                        </Text>
+                      </div>
+                    )}
                     <Flex justify="space-between" align="center">
-                      <Text ellipsis={{ tooltip: task.prompt }}>提示词 {task.promptIndex + 1}</Text>
-                      {task.resultUrl && <Button type="text" icon={<DownloadOutlined />} onClick={() => downloadTask(task, settings.imageModel)} />}
-                      {task.status === 'failed' && <Button type="text" icon={<ReloadOutlined />} onClick={() => retryTask(task.id)}>重试</Button>}
+                      <Text ellipsis={{ tooltip: task.prompt }}>
+                        提示词 {task.promptIndex + 1}
+                      </Text>
+                      {task.resultUrl && (
+                        <Button
+                          type="text"
+                          icon={<DownloadOutlined />}
+                          onClick={() =>
+                            downloadTask(task, settings.imageModel)
+                          }
+                        />
+                      )}
+                      {task.status === "failed" && (
+                        <Button
+                          type="text"
+                          icon={<ReloadOutlined />}
+                          onClick={() => retryTask(task.id)}
+                        >
+                          重试
+                        </Button>
+                      )}
                     </Flex>
                   </div>
                 ))}
@@ -1472,13 +2814,51 @@ function AppContent() {
               dataSource={activeGroup.tasks}
               renderItem={(task) => (
                 <List.Item
-                  actions={task.status === 'failed'
-                    ? [<Button key="retry" icon={<ReloadOutlined />} onClick={() => retryTask(task.id)}>重试</Button>]
-                    : undefined}
+                  actions={
+                    task.status === "failed"
+                      ? [
+                          <Button
+                            key="retry"
+                            icon={<ReloadOutlined />}
+                            onClick={() => retryTask(task.id)}
+                          >
+                            重试
+                          </Button>,
+                        ]
+                      : undefined
+                  }
                 >
                   <List.Item.Meta
-                    title={task.resultBlob ? taskFileName(task, settings.imageModel) : `提示词 ${task.promptIndex + 1}`}
-                    description={<Space wrap><Tag color={task.status === 'success' ? 'success' : task.status === 'failed' ? 'error' : task.status === 'running' ? 'processing' : 'default'}>{taskStatusText(task.status)}</Tag>{task.resultBlob?.size ? <Text type="secondary">{Math.ceil(task.resultBlob.size / 1024)} KB</Text> : null}{task.error ? <Text type="danger">{task.error}</Text> : null}</Space>}
+                    title={
+                      task.resultBlob
+                        ? taskFileName(task, settings.imageModel)
+                        : `提示词 ${task.promptIndex + 1}`
+                    }
+                    description={
+                      <Space wrap>
+                        <Tag
+                          color={
+                            task.status === "success"
+                              ? "success"
+                              : task.status === "failed"
+                                ? "error"
+                                : task.status === "running"
+                                  ? "processing"
+                                  : "default"
+                          }
+                        >
+                          {taskStatusText(task.status)}
+                        </Tag>
+                        {task.resultBlob?.size ? (
+                          <Text type="secondary">
+                            {Math.ceil(task.resultBlob.size / 1024)} KB
+                          </Text>
+                        ) : null}
+                        {task.error ? (
+                          <Text type="danger">{task.error}</Text>
+                        ) : null}
+                      </Space>
+                    }
                   />
                 </List.Item>
               )}
@@ -1491,5 +2871,9 @@ function AppContent() {
 }
 
 export default function App() {
-  return <AntApp><AppContent /></AntApp>;
+  return (
+    <AntApp>
+      <AppContent />
+    </AntApp>
+  );
 }

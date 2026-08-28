@@ -25,6 +25,7 @@ export interface DesktopSceneJobConfig {
   settings: SceneReplaceSettings;
   prompt: string;
   perImagePromptPrefix?: string;
+  exactPromptControl?: boolean;
 }
 
 export interface DesktopLogoJobConfig {

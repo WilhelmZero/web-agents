@@ -1,21 +1,44 @@
 export type ImageModel =
-  | 'gemini-3.1-flash-lite-image'
-  | 'gemini-3.1-flash-image'
-  | 'gemini-3-pro-image'
-  | 'gemini-2.5-flash-image';
+  | "gemini-3.1-flash-lite-image"
+  | "gemini-3.1-flash-image"
+  | "gemini-3-pro-image"
+  | "gemini-2.5-flash-image";
 
 export type OptimizerModel =
-  | 'gemini-3.1-flash-lite'
-  | 'gemini-3.1-flash'
-  | 'gemini-2.5-flash';
+  "gemini-3.1-flash-lite" | "gemini-3.1-flash" | "gemini-2.5-flash";
 
-export type CombinationMode = 'cartesian' | 'paired';
-export type TaskStatus = 'waiting' | 'running' | 'success' | 'failed' | 'stopped';
-export type ImageSize = '0.5K' | '1K' | '2K' | '4K';
-export type CreationTool = 'workflow' | 'scene' | 'scene-replace' | 'scene-logo-replace' | 'scene-replace-tabs' | 'cup-resize' | 'logo' | 'logo-replace' | 'logo-replace-tabs' | 'logo-removal' | 'logo-export' | 'paper-text' | 'background-removal' | 'outpaint' | 'object-replace' | 'inpaint' | 'product-detail';
+export type CombinationMode = "cartesian" | "paired";
+export type TaskStatus =
+  "waiting" | "running" | "success" | "failed" | "stopped";
+export type ImageSize = "0.5K" | "1K" | "2K" | "4K";
+export type CreationTool =
+  | "workflow"
+  | "scene"
+  | "scene-replace"
+  | "scene-logo-replace"
+  | "scene-replace-tabs"
+  | "auto-scene-classify"
+  | "auto-logo-classify"
+  | "cup-resize"
+  | "logo"
+  | "logo-replace"
+  | "logo-replace-tabs"
+  | "logo-removal"
+  | "logo-export"
+  | "paper-text"
+  | "background-removal"
+  | "outpaint"
+  | "object-replace"
+  | "inpaint"
+  | "product-detail";
 
-export type LogoRemovalScope = 'cup-body' | 'cup-and-bottom' | 'all-product-carriers' | 'wooden-box' | 'other';
-export type AiProvider = 'gemini' | 'openai';
+export type LogoRemovalScope =
+  | "cup-body"
+  | "cup-and-bottom"
+  | "all-product-carriers"
+  | "wooden-box"
+  | "other";
+export type AiProvider = "gemini" | "openai";
 
 export interface LogoRemovalSettings {
   scopes: LogoRemovalScope[];
@@ -24,15 +47,15 @@ export interface LogoRemovalSettings {
   scope?: LogoRemovalScope;
   analysisProvider: AiProvider;
   analysisModel: OptimizerModel;
-  openAiAnalysisModel: 'gpt-5.6-sol' | 'gpt-5.6-terra' | 'gpt-5.6-luna';
+  openAiAnalysisModel: "gpt-5.6-sol" | "gpt-5.6-terra" | "gpt-5.6-luna";
   imageProvider: AiProvider;
   imageModel: ImageModel;
-  openAiImageModel: 'gpt-image-2' | 'gpt-image-2-2026-04-21';
+  openAiImageModel: "gpt-image-2" | "gpt-image-2-2026-04-21";
   imageSize: ImageSize;
   verificationEnabled: boolean;
   verificationProvider: AiProvider;
   verificationModel: OptimizerModel;
-  openAiVerificationModel: 'gpt-5.6-sol' | 'gpt-5.6-terra' | 'gpt-5.6-luna';
+  openAiVerificationModel: "gpt-5.6-sol" | "gpt-5.6-terra" | "gpt-5.6-luna";
   prompt: string;
   concurrency: number;
   copiesPerImage: number;
@@ -55,7 +78,7 @@ export interface LogoRemovalTargetRegion {
 }
 
 export interface LogoRemovalAnalysis {
-  action: 'remove' | 'skip_no_target';
+  action: "remove" | "skip_no_target";
   summary: string;
   reason: string;
   targets: LogoRemovalTargetRegion[];
@@ -76,7 +99,7 @@ export interface LogoRemovalAttempt {
   index: number;
   startedAt: number;
   endedAt?: number;
-  status: 'running' | 'passed' | 'failed' | 'stopped';
+  status: "running" | "passed" | "failed" | "stopped";
   prompt: string;
   model: string;
   resultKey?: string;
@@ -90,14 +113,23 @@ export interface LogoRemovalTask {
   sourceName: string;
   sourceRelativePath: string;
   copyIndex: number;
-  status: 'waiting' | 'analyzing' | 'running' | 'verifying' | 'retry_wait' | 'success' | 'failed' | 'stopped' | 'skipped';
+  status:
+    | "waiting"
+    | "analyzing"
+    | "running"
+    | "verifying"
+    | "retry_wait"
+    | "success"
+    | "failed"
+    | "stopped"
+    | "skipped";
   stage: string;
   analysis?: LogoRemovalAnalysis;
   attempts: LogoRemovalAttempt[];
   resultKey?: string;
   resultMimeType?: string;
   markedUsable?: boolean;
-  inpaintStatus?: 'running' | 'success' | 'failed';
+  inpaintStatus?: "running" | "success" | "failed";
   inpaintError?: string;
   inpaintRevision?: number;
   retryCount: number;
@@ -107,7 +139,7 @@ export interface LogoRemovalTask {
 export interface AppSettings {
   apiKey: string;
   openAiApiKey: string;
-  connectionMode: 'direct' | 'proxy';
+  connectionMode: "direct" | "proxy";
   proxyUrl: string;
   imageModel: ImageModel;
   optimizerModel: OptimizerModel;
@@ -198,10 +230,10 @@ export interface GeneratedImage {
 export interface GlassLogoEtchOptions {
   scaleRatio: number;
   topMarginRatio: number;
-  logoColor: 'white' | 'black';
-  textureMode: 'laser_etch' | 'print';
+  logoColor: "white" | "black";
+  textureMode: "laser_etch" | "print";
   applyAllCups: boolean;
-  outputCoordinateMode: 'relative_percent' | 'pixel';
+  outputCoordinateMode: "relative_percent" | "pixel";
 }
 
 export interface LogoAsset {
@@ -221,7 +253,7 @@ export interface LogoPlacement {
 }
 
 export interface LogoInpaintMask {
-  mode: 'box' | 'brush';
+  mode: "box" | "brush";
   guideDataUrl: string;
 }
 
@@ -237,7 +269,7 @@ export interface LogoPair {
 export interface LogoSettings {
   imageModel: ImageModel;
   optimizerModel: OptimizerModel;
-  ratioMode: 'original' | 'fixed' | 'custom';
+  ratioMode: "original" | "fixed" | "custom";
   aspectRatio: string;
   imageSize: ImageSize;
   customOutputWidth: number;
@@ -247,10 +279,10 @@ export interface LogoSettings {
   useGlassLogoEtchSkill: boolean;
   glassEtchScaleRatio: number;
   glassEtchTopMarginRatio: number;
-  glassEtchLogoColor: 'white' | 'black';
-  glassEtchTextureMode: 'laser_etch' | 'print';
+  glassEtchLogoColor: "white" | "black";
+  glassEtchTextureMode: "laser_etch" | "print";
   glassEtchApplyAllCups: boolean;
-  glassEtchOutputCoordinateMode: 'relative_percent' | 'pixel';
+  glassEtchOutputCoordinateMode: "relative_percent" | "pixel";
 }
 
 export interface LogoReplaceSettings {
@@ -259,24 +291,24 @@ export interface LogoReplaceSettings {
   perImagePromptEnabled: boolean;
   autoGenerateAfterPromptAnalysis: boolean;
   useOldLogoReference: boolean;
-  imageProvider: 'gemini' | 'openai';
+  imageProvider: "gemini" | "openai";
   imageModel: ImageModel;
-  openAiImageModel: 'gpt-image-2';
-  ratioMode: 'original' | 'fixed' | 'custom';
+  openAiImageModel: "gpt-image-2";
+  ratioMode: "original" | "fixed" | "custom";
   aspectRatio: string;
   imageSize: ImageSize;
   customOutputWidth: number;
   customOutputHeight: number;
   concurrency: number;
   copiesPerScene: number;
-  logoPreviewBackground: 'transparent' | 'white' | 'black';
-  logoColorMode: 'original' | 'white' | 'black' | 'custom';
+  logoPreviewBackground: "transparent" | "white" | "black";
+  logoColorMode: "original" | "white" | "black" | "custom";
   customLogoColor: string;
-  engravingMode: 'auto' | 'custom';
+  engravingMode: "auto" | "custom";
   glassEngravingEnabled: boolean;
   woodEngravingEnabled: boolean;
   customEngravingEnabled: boolean;
-  woodEngravingStyle: 'auto' | 'dark-burn' | 'natural-recessed' | 'custom';
+  woodEngravingStyle: "auto" | "dark-burn" | "natural-recessed" | "custom";
   woodEngravingColorDepth: number;
   customWoodEngravingMethod: string;
   customEngravingObject: string;
@@ -285,9 +317,9 @@ export interface LogoReplaceSettings {
   customizeReplacementPrompt: boolean;
   replacementPrompt: string;
   strictTextVerification: boolean;
-  languageProvider: 'gemini' | 'openai';
+  languageProvider: "gemini" | "openai";
   verificationModel: OptimizerModel;
-  openAiLanguageModel: 'gpt-5.6-sol' | 'gpt-5.6-terra' | 'gpt-5.6-luna';
+  openAiLanguageModel: "gpt-5.6-sol" | "gpt-5.6-terra" | "gpt-5.6-luna";
   verificationRetries: number;
   autoRetryErrors: boolean;
   errorRetryLimit: number;
@@ -305,7 +337,7 @@ export interface ObjectPreservationOptions {
 
 export interface ObjectReplaceSettings {
   imageModel: ImageModel;
-  ratioMode: 'original' | 'fixed';
+  ratioMode: "original" | "fixed";
   aspectRatio: string;
   imageSize: ImageSize;
   concurrency: number;
@@ -329,22 +361,23 @@ export interface ObjectReplaceTask {
 }
 
 export interface SceneReplaceSettings {
-  executionMode: 'realtime' | 'batch';
+  executionMode: "realtime" | "batch";
   perImagePromptEnabled: boolean;
   autoGenerateAfterPromptAnalysis: boolean;
   simplifyPromptConstraints: boolean;
   detectInsufficientSceneChange: boolean;
   autoSkipWhiteBackground: boolean;
   autoRecommendScene: boolean;
-  sceneRecommendationProvider: 'gemini' | 'openai';
+  sceneRecommendationProvider: "gemini" | "openai";
   sceneRecommendationModel: OptimizerModel;
-  openAiSceneRecommendationModel: 'gpt-5.6-sol' | 'gpt-5.6-terra' | 'gpt-5.6-luna';
-  promptOptimizerProvider: 'gemini' | 'openai';
+  openAiSceneRecommendationModel:
+    "gpt-5.6-sol" | "gpt-5.6-terra" | "gpt-5.6-luna";
+  promptOptimizerProvider: "gemini" | "openai";
   promptOptimizerModel: OptimizerModel;
-  openAiPromptOptimizerModel: 'gpt-5.6-sol' | 'gpt-5.6-terra' | 'gpt-5.6-luna';
-  imageModel: ImageModel | 'gpt-image-2' | 'gpt-image-2-2026-04-21';
-  imageQuality: 'high' | 'medium' | 'low';
-  ratioMode: 'original' | 'fixed';
+  openAiPromptOptimizerModel: "gpt-5.6-sol" | "gpt-5.6-terra" | "gpt-5.6-luna";
+  imageModel: ImageModel | "gpt-image-2" | "gpt-image-2-2026-04-21";
+  imageQuality: "high" | "medium" | "low";
+  ratioMode: "original" | "fixed";
   aspectRatio: string;
   imageSize: ImageSize;
   concurrency: number;
@@ -354,17 +387,19 @@ export interface SceneReplaceSettings {
   errorRetryDelaySeconds: number;
   autoOutpaint: boolean;
   outpaintBothSizes: boolean;
-  outpaintImageModel: ImageModel | 'gpt-image-2' | 'gpt-image-2-2026-04-21';
+  outpaintImageModel: ImageModel | "gpt-image-2" | "gpt-image-2-2026-04-21";
   outpaintImageSize: ImageSize;
-  outpaintQuality: 'high' | 'medium' | 'low';
+  outpaintQuality: "high" | "medium" | "low";
   outpaintWidth: number;
   outpaintHeight: number;
   outpaintPrompt: string;
 }
 
-export type PerImagePromptTool = 'logo-replace' | 'scene-replace';
-export type PerImagePromptStatus = 'pending' | 'analyzing' | 'ready' | 'stale' | 'failed';
-export type PerImagePromptAction = 'replace' | 'skip-no-logo' | 'skip-gift-scene';
+export type PerImagePromptTool = "logo-replace" | "scene-replace";
+export type PerImagePromptStatus =
+  "pending" | "analyzing" | "ready" | "stale" | "failed";
+export type PerImagePromptAction =
+  "replace" | "skip-no-logo" | "skip-gift-scene";
 export interface PerImagePromptAssignment {
   fileKey: string;
   tool: PerImagePromptTool;
@@ -391,17 +426,156 @@ export interface SceneReplaceTask {
   resultBlob?: Blob;
   resultUrl?: string;
   resultMimeType?: string;
-  outpaintStatus?: 'idle' | 'running' | 'success' | 'failed' | 'stopped';
+  outpaintStatus?: "idle" | "running" | "success" | "failed" | "stopped";
   outpaintBlob?: Blob;
   outpaintUrl?: string;
   outpaintError?: string;
-  outpaintResults?: Array<{ width: number; height: number; blob: Blob; url: string }>;
+  outpaintResults?: Array<{
+    width: number;
+    height: number;
+    blob: Blob;
+    url: string;
+  }>;
   insufficientChangeWarning?: string;
   changedRatio?: number;
   error?: string;
   retryCount: number;
   nextRetryAt?: number;
   autoRetryStopped?: boolean;
+}
+
+export interface SceneClassificationPreset {
+  id: string;
+  name: string;
+  prompt: string;
+  isFallback: boolean;
+  updatedAt: number;
+}
+
+export interface SceneClassificationSettings {
+  provider: AiProvider;
+  geminiModel: OptimizerModel;
+  openAiModel: "gpt-5.6-sol" | "gpt-5.6-terra" | "gpt-5.6-luna";
+  concurrency: number;
+  autoRetryErrors: boolean;
+  errorRetryLimit: number;
+  errorRetryDelaySeconds: number;
+}
+
+export type AutoSceneTaskStatus =
+  | "waiting-analysis"
+  | "analyzing"
+  | "classified"
+  | "waiting-generation"
+  | "generating"
+  | "success"
+  | "failed"
+  | "stopped"
+  | "skipped-white";
+export interface AutoSceneClassificationTask {
+  id: string;
+  groupId: string;
+  groupName: string;
+  relativePath: string;
+  file: File;
+  fileIndex: number;
+  copyIndex: number;
+  status: AutoSceneTaskStatus;
+  categoryId?: string;
+  categoryName?: string;
+  categoryPrompt?: string;
+  classificationSource?: "ai" | "fallback" | "manual";
+  classificationReason?: string;
+  analysisRetryCount: number;
+  generationRetryCount: number;
+  analysisStartedAt?: number;
+  analysisEndedAt?: number;
+  generationStartedAt?: number;
+  generationEndedAt?: number;
+  resultBlob?: Blob;
+  resultUrl?: string;
+  resultMimeType?: string;
+  outpaintStatus?: "idle" | "running" | "success" | "failed" | "stopped";
+  outpaintResults?: Array<{
+    width: number;
+    height: number;
+    blob: Blob;
+    url: string;
+  }>;
+  outpaintError?: string;
+  changedRatio?: number;
+  insufficientChangeWarning?: string;
+  error?: string;
+}
+
+export interface LogoClassificationPreset {
+  id: string;
+  name: string;
+  prompt: string;
+  isFallback: boolean;
+  updatedAt: number;
+}
+
+export interface LogoClassificationSettings extends SceneClassificationSettings {
+  analyzeLogoCount: boolean;
+}
+
+export interface AutoLogoGenerationSettings {
+  imageProvider: AiProvider;
+  imageModel: ImageModel;
+  openAiImageModel: "gpt-image-2";
+  ratioMode: "original" | "fixed";
+  aspectRatio: string;
+  imageSize: ImageSize;
+  concurrency: number;
+  copiesPerScene: number;
+  autoRetryErrors: boolean;
+  errorRetryLimit: number;
+  errorRetryDelaySeconds: number;
+  strictVerification: boolean;
+  verificationRetries: number;
+}
+
+export type AutoLogoTaskStatus =
+  | "waiting-analysis"
+  | "analyzing"
+  | "waiting-generation"
+  | "generating"
+  | "success"
+  | "failed"
+  | "stopped"
+  | "skipped-no-logo";
+
+export interface AutoLogoClassificationTask {
+  id: string;
+  groupId: string;
+  groupName: string;
+  relativePath: string;
+  file: File;
+  fileIndex: number;
+  copyIndex: number;
+  status: AutoLogoTaskStatus;
+  categoryId?: string;
+  categoryName?: string;
+  categoryPrompt?: string;
+  classificationSource?: "ai" | "fallback" | "manual";
+  classificationReason?: string;
+  rawLogoCount?: number;
+  effectiveLogoCount?: number;
+  logoCountTruncated?: boolean;
+  selectedLogoIds?: string[];
+  analysisRetryCount: number;
+  generationRetryCount: number;
+  analysisStartedAt?: number;
+  analysisEndedAt?: number;
+  generationStartedAt?: number;
+  generationEndedAt?: number;
+  resultBlob?: Blob;
+  resultUrl?: string;
+  resultMimeType?: string;
+  verificationStatus?: "waiting" | "verifying" | "passed" | "failed";
+  verificationSummary?: string;
+  error?: string;
 }
 export interface LogoExpectedText {
   logoId: string;
@@ -433,14 +607,15 @@ export interface LogoReplaceTask {
   resultMimeType?: string;
   error?: string;
   retryCount: number;
-  verificationStatus?: 'pending' | 'verifying' | 'passed' | 'failed' | 'skipped';
+  verificationStatus?:
+    "pending" | "verifying" | "passed" | "failed" | "skipped";
   verificationResult?: LogoVerificationResult;
   verificationAttempts?: number;
   acceptedVerificationRisk?: boolean;
   nextRetryAt?: number;
   autoRetryStopped?: boolean;
   skipReason?: string;
-  inpaintStatus?: 'running' | 'success' | 'failed';
+  inpaintStatus?: "running" | "success" | "failed";
   inpaintError?: string;
   inpaintRevision?: number;
 }
@@ -462,7 +637,7 @@ export interface LogoReplaceTaskDetail {
   status: TaskStatus;
   retryCount: number;
   error?: string;
-  verificationStatus?: LogoReplaceTask['verificationStatus'];
+  verificationStatus?: LogoReplaceTask["verificationStatus"];
   verificationAttempts?: number;
   acceptedVerificationRisk?: boolean;
   skipReason?: string;
@@ -480,7 +655,7 @@ export interface SceneLogoStyle {
 
 export interface SceneLogoAnalysis {
   sceneId: string;
-  status: 'waiting' | 'analyzing' | 'success' | 'failed';
+  status: "waiting" | "analyzing" | "success" | "failed";
   styles: SceneLogoStyle[];
   summary?: string;
   error?: string;
@@ -502,21 +677,21 @@ export interface LogoReplaceDevTask {
 export interface InpaintSettings {
   imageModel: ImageModel;
   optimizerModel: OptimizerModel;
-  ratioMode: 'original' | 'fixed';
+  ratioMode: "original" | "fixed";
   aspectRatio: string;
   imageSize: ImageSize;
 }
 
 export interface CupResizeSettings {
-  imageModel: ImageModel | 'gpt-image-2' | 'gpt-image-2-2026-04-21';
+  imageModel: ImageModel | "gpt-image-2" | "gpt-image-2-2026-04-21";
   imageSize: ImageSize;
-  imageQuality: 'high' | 'medium' | 'low';
+  imageQuality: "high" | "medium" | "low";
 }
 
 export interface ProductDetailSettings {
   analyzerModel: OptimizerModel;
   imageModel: ImageModel;
-  ratioMode: 'original' | 'fixed';
+  ratioMode: "original" | "fixed";
   aspectRatio: string;
   imageSize: ImageSize;
   concurrency: number;

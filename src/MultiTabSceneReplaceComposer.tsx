@@ -131,6 +131,7 @@ interface Batch {
   id: string;
   groups: Group[];
   prompt: string;
+  exactPromptControl?: boolean;
   concurrency: number;
   settings?: Partial<SceneReplaceSettings>;
   folderSuggestionMode?: boolean;
@@ -142,7 +143,9 @@ interface Batch {
 export function buildFolderScenePrompt(
   commonPrompt: string,
   suggestion?: FolderSceneSuggestion,
+  exactPromptControl = false,
 ) {
+  if (exactPromptControl) return commonPrompt;
   return suggestion?.theme.trim()
     ? `${suggestion.theme.trim()}；${commonPrompt.trim()}`
     : commonPrompt.trim();
@@ -415,6 +418,9 @@ export default function MultiTabSceneReplaceComposer(
   const [prompt, setPrompt] = useState(() =>
     autoRecommendScene ? SCENE_COMMON_CONSTRAINT : SCENE_MANUAL_DEFAULT_PROMPT,
   );
+  const [exactPromptControl, setExactPromptControl] = useState(() =>
+    readLocalStorage("scene-studio.scene-tabs-exact-prompt-control", false),
+  );
   const [folderSuggestionMode, setFolderSuggestionMode] = useState(() =>
     readLocalStorage("scene-studio.folder-scene-mode", false),
   );
@@ -510,6 +516,12 @@ export default function MultiTabSceneReplaceComposer(
       JSON.stringify(autoDownloadOnComplete),
     );
   }, [autoDownloadOnComplete]);
+  useEffect(() => {
+    localStorage.setItem(
+      "scene-studio.scene-tabs-exact-prompt-control",
+      JSON.stringify(exactPromptControl),
+    );
+  }, [exactPromptControl]);
   useEffect(() => {
     localStorage.setItem(
       "scene-studio.folder-scene-suggestions",
@@ -625,6 +637,16 @@ export default function MultiTabSceneReplaceComposer(
         setRetryFailedToken(data.token);
       if (worker && data.batchId === batchId && data.type === "stop-all")
         setStopToken(data.token);
+      if (worker && data.batchId === batchId && data.type === "prompt-sync")
+        setWorkerBatch((current) =>
+          current
+            ? {
+                ...current,
+                prompt: data.prompt,
+                exactPromptControl: data.exactPromptControl,
+              }
+            : current,
+        );
       if (!worker && data.batchId === activeBatch && data.type === "progress") {
         setProgress((current) => ({
           ...current,
@@ -795,7 +817,11 @@ export default function MultiTabSceneReplaceComposer(
           name: group.name,
           relativePath: group.path,
           scenes: group.files.map(desktopAssetFromFile),
-          prompt: [folderSuggestionMode ? folderSuggestions[group.id]?.theme : "", prompt].filter(Boolean).join("；"),
+          prompt: buildFolderScenePrompt(
+            prompt,
+            folderSuggestionMode ? folderSuggestions[group.id] : undefined,
+            exactPromptControl,
+          ),
         }));
         const id = await submitDesktopJob({
           name: `多文件夹场景替换 ${new Date().toLocaleString()}`,
@@ -808,14 +834,15 @@ export default function MultiTabSceneReplaceComposer(
             tool: "scene-replace",
             settings: {
               ...storedSceneSettings,
-              autoRecommendScene: folderSuggestionMode ? false : autoRecommendScene,
+              autoRecommendScene: exactPromptControl ? false : folderSuggestionMode ? false : autoRecommendScene,
               autoSkipWhiteBackground,
-              perImagePromptEnabled: perImagePromptEnabled || autoRecommendScene,
+              perImagePromptEnabled: exactPromptControl ? false : perImagePromptEnabled || autoRecommendScene,
               autoGenerateAfterPromptAnalysis: true,
-              simplifyPromptConstraints,
+              simplifyPromptConstraints: exactPromptControl ? false : simplifyPromptConstraints,
               detectInsufficientSceneChange,
             },
-            prompt: prompt.trim(),
+            prompt: exactPromptControl ? prompt : prompt.trim(),
+            exactPromptControl,
           },
         });
         setActiveBatch(id);
@@ -857,7 +884,7 @@ export default function MultiTabSceneReplaceComposer(
       return void message.warning("所选分组全部是白底图，没有可打开的任务");
     let promptAssignments = perImagePrompts.assignments;
     if (
-      shouldAnalyzePerImagePromptsInController(
+      !exactPromptControl && shouldAnalyzePerImagePromptsInController(
         perImagePromptEnabled,
         autoGenerateAfterPromptAnalysis,
       )
@@ -898,8 +925,9 @@ export default function MultiTabSceneReplaceComposer(
     await save({
       id,
       groups,
-      prompt: prompt.trim(),
+      prompt: exactPromptControl ? prompt : prompt.trim(),
       concurrency,
+      exactPromptControl,
       folderSuggestionMode,
       folderSuggestions: effectiveSuggestions,
       perImagePrompts: promptAssignments,
@@ -927,7 +955,15 @@ export default function MultiTabSceneReplaceComposer(
     if (!batch) return;
     delete batch.startToken;
     batch.concurrency = concurrency;
+    batch.prompt = exactPromptControl ? prompt : batch.prompt;
+    batch.exactPromptControl = exactPromptControl;
     await save(batch);
+    channel.current?.postMessage({
+      type: "prompt-sync",
+      batchId: activeBatch,
+      prompt: batch.prompt,
+      exactPromptControl,
+    });
     setRunStartedAt(Date.now());
     setRunEndedAt(undefined);
     setRunDurationMs(undefined);
@@ -1315,9 +1351,21 @@ export default function MultiTabSceneReplaceComposer(
         <SceneReplaceComposer
           {...props}
           initialPrompt={workerPrompt}
-          initialSettings={workerBatch?.settings}
+          initialSettings={
+            workerBatch?.exactPromptControl
+              ? {
+                  ...workerBatch.settings,
+                  autoRecommendScene: false,
+                  perImagePromptEnabled: false,
+                  simplifyPromptConstraints: false,
+                }
+              : workerBatch?.settings
+          }
+          exactPromptControl={workerBatch?.exactPromptControl}
           perImagePromptPrefix={
-            workerBatch?.folderSuggestionMode ? folderTheme : undefined
+            !workerBatch?.exactPromptControl && workerBatch?.folderSuggestionMode
+              ? folderTheme
+              : undefined
           }
           initialPerImagePrompts={workerBatch?.perImagePrompts}
           onPerImagePromptsChange={(items) => {
@@ -1519,7 +1567,8 @@ export default function MultiTabSceneReplaceComposer(
           <Space>
             <Text>文件夹场景建议</Text>
             <Switch
-              checked={folderSuggestionMode}
+              checked={exactPromptControl ? false : folderSuggestionMode}
+              disabled={exactPromptControl}
               onChange={(value) => {
                 setFolderSuggestionMode(value);
                 setPrompt((current) =>
@@ -1536,7 +1585,7 @@ export default function MultiTabSceneReplaceComposer(
             <Button
               icon={<BulbOutlined />}
               loading={suggestingGroupIds.length > 0}
-              disabled={!folderSuggestionMode || !groups.length}
+              disabled={exactPromptControl || !folderSuggestionMode || !groups.length}
               onClick={() => void suggestGroups()}
             >
               自动场景建议
@@ -1685,6 +1734,32 @@ export default function MultiTabSceneReplaceComposer(
           align="center"
           style={{ marginBottom: 12 }}
         >
+          <div>
+            <Text strong>完全控制提示词</Text>
+            <br />
+            <Text type="secondary">
+              开启后不追加任何模板、推荐主题、逐图分析或强制限制
+            </Text>
+          </div>
+          <Switch
+            checked={exactPromptControl}
+            onChange={setExactPromptControl}
+          />
+        </Flex>
+        {exactPromptControl && (
+          <Alert
+            type="warning"
+            showIcon
+            title="最终提交提示词将与下方输入完全一致"
+            description="文本会同步并锁定到所有子标签；点击一键开始时会再次同步当前最新内容。"
+            style={{ marginBottom: 12 }}
+          />
+        )}
+        <Flex
+          justify="space-between"
+          align="center"
+          style={{ marginBottom: 12 }}
+        >
           <Text strong>自动跳过白底图（默认开启）</Text>
           <Switch
             checked={autoSkipWhiteBackground}
@@ -1698,11 +1773,12 @@ export default function MultiTabSceneReplaceComposer(
         >
           <Text strong>生成前逐图分配提示词</Text>
           <Switch
-            checked={perImagePromptEnabled}
+            checked={exactPromptControl ? false : perImagePromptEnabled}
+            disabled={exactPromptControl}
             onChange={setPerImagePromptEnabled}
           />
         </Flex>
-        {perImagePromptEnabled && (
+        {!exactPromptControl && perImagePromptEnabled && (
           <>
             <Flex
               justify="space-between"
@@ -1747,7 +1823,8 @@ export default function MultiTabSceneReplaceComposer(
           >
             <Text strong>上传后自动推荐非节日场景</Text>
             <Switch
-              checked={autoRecommendScene}
+              checked={exactPromptControl ? false : autoRecommendScene}
+              disabled={exactPromptControl}
               onChange={(value) => {
                 setAutoRecommendScene(value);
                 setPrompt((current) => {
@@ -1773,7 +1850,7 @@ export default function MultiTabSceneReplaceComposer(
           placeholder="输入发送给所有工作标签的完整场景替换提示词"
         />
       </Card>
-      {perImagePromptEnabled && autoGenerateAfterPromptAnalysis && (
+      {!exactPromptControl && perImagePromptEnabled && autoGenerateAfterPromptAnalysis && (
         <Alert
           type="info"
           showIcon
@@ -1781,7 +1858,7 @@ export default function MultiTabSceneReplaceComposer(
           description="打开工作标签后，点击一键开始所有替换；每个子标签只分析自己的图片，分析成功后自动进入生成，不占用主控页的分析资源。"
         />
       )}
-      {perImagePromptEnabled && !autoGenerateAfterPromptAnalysis && (
+      {!exactPromptControl && perImagePromptEnabled && !autoGenerateAfterPromptAnalysis && (
         <Card
           title="3. 逐图提示词审核"
           extra={

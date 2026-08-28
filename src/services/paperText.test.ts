@@ -66,4 +66,12 @@ describe('paper text helpers', () => {
     expect(body.get('output_format')).toBe('png');
     expect(body.get('prompt')).toContain('不得新增或加强全局红色、橙色、洋红色偏色');
   });
+
+  it('submits exact GPT image prompts without appending the common guard', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [{ b64_json: 'aGVsbG8=' }] }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    const exact = '原样提交的分类提示词';
+    await editPaperTextOpenAi({ apiKey: 'test-key', model: 'gpt-image-2', image: new File(['image'], 'scene.png', { type: 'image/png' }), prompt: exact, quality: 'high', exactPrompt: true });
+    expect((fetchMock.mock.calls[0][1].body as FormData).get('prompt')).toBe(exact);
+  });
 });
