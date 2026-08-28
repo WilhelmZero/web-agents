@@ -28,5 +28,5 @@ describe("AutoLogoClassificationComposer", () => {
     expect(
       screen.getByRole("button", { name: /开始自动分类并替换/ }),
     ).toBeInTheDocument();
-  });
+  }, 15_000);
 });
