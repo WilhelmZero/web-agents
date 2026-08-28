@@ -3,6 +3,7 @@ import type { GeneratedImage, ImageModel, ImageSize } from '../types';
 import { fileToBase64 } from '../utils';
 import { getGeminiApiRoot } from './gemini';
 import { appendImageGenerationGuard } from './imageGenerationGuard';
+import { recordGeneratedImages } from './generationStats';
 
 export interface GeminiSceneBatchItem { key: string; prompt: string; image: File; aspectRatio?: string }
 
@@ -35,13 +36,17 @@ export async function generateSceneReplacementBatch(options: {
   options.onState?.(String(current.state));
   if (String(current.state) !== 'JOB_STATE_SUCCEEDED') throw new Error(`Gemini Batch 任务未完成：${String(current.state)}`);
   const responses = current.dest?.inlinedResponses || [];
-  return Object.fromEntries(options.items.map((item, index) => {
+  let generatedCount = 0;
+  const results = Object.fromEntries(options.items.map((item, index) => {
     const output = responses[index];
     if (output?.error) return [item.key, new Error(output.error.message || 'Batch 子任务失败')];
     const imagePart = output?.response?.candidates?.flatMap((candidate) => candidate.content?.parts || []).find((part) => part.inlineData?.data);
     if (!imagePart?.inlineData?.data) return [item.key, new Error('Batch 子任务未返回图片')];
     const bytes = Uint8Array.from(atob(imagePart.inlineData.data), (char) => char.charCodeAt(0));
     const mimeType = imagePart.inlineData.mimeType || 'image/png';
+    generatedCount += 1;
     return [item.key, { blob: new Blob([bytes], { type: mimeType }), mimeType }];
   }));
+  recordGeneratedImages(options.model, generatedCount);
+  return results;
 }

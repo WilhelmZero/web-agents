@@ -106,6 +106,7 @@ import RequestConsoleDrawer from "./RequestConsoleDrawer";
 import GeneratingImage from "./GeneratingImage";
 import DesktopTaskCenter from "./DesktopTaskCenter";
 import OriginalCompareImage from "./OriginalCompareImage";
+import GlobalGenerationStats from "./GlobalGenerationStats";
 import { useLanguage } from "./i18n";
 import { readLocalStorage } from "./storage";
 import {
@@ -1434,6 +1435,7 @@ function AppContent() {
                 { label: "EN", value: "en-US" },
               ]}
             />
+            <GlobalGenerationStats />
             {creationTool === "scene" && tasks.length > 0 && (
               <Badge
                 status={isProcessing ? "processing" : "success"}

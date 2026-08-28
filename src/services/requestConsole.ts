@@ -1,3 +1,5 @@
+import { recordGeneratedImages } from './generationStats';
+
 export type RequestConsoleStatus = 'running' | 'retrying' | 'success' | 'failed' | 'stopped';
 
 export interface RequestConsoleEntry {
@@ -23,6 +25,8 @@ const listeners = new Set<(items: RequestConsoleEntry[]) => void>();
 const MAX_OUTPUT_IMAGES = 8;
 const MAX_INPUT_IMAGES = 8;
 const MAX_IMAGES_PER_ENTRY = 2;
+const countedGenerationEntryIds = new Set<string>();
+const requestModelsById = new Map<string, string>();
 
 function snapshot() {
   return [...entries].sort((a, b) => b.startedAt - a.startedAt);
@@ -68,6 +72,7 @@ export function startRequestConsoleEntry(input: Pick<RequestConsoleEntry, 'model
     attempt: 1,
   };
   entries.unshift(entry);
+  requestModelsById.set(entry.id, entry.model);
   if (entries.length > 60) entries.length = 60;
   trimRetainedImages('inputImages', MAX_INPUT_IMAGES);
   notify();
@@ -76,8 +81,18 @@ export function startRequestConsoleEntry(input: Pick<RequestConsoleEntry, 'model
 
 export function updateRequestConsoleEntry(id: string, patch: Partial<Omit<RequestConsoleEntry, 'id' | 'startedAt'>>) {
   const entry = entries.find((item) => item.id === id);
-  if (!entry) return;
-  const outputImages = patch.outputImages?.filter((image) => image.type.startsWith('image/')).slice(0, MAX_IMAGES_PER_ENTRY);
+  const model = entry?.model || requestModelsById.get(id);
+  if (!model) return;
+  const validOutputImages = patch.outputImages?.filter((image) => image.type.startsWith('image/'));
+  if (patch.status === 'success' && validOutputImages?.length && !countedGenerationEntryIds.has(id)) {
+    countedGenerationEntryIds.add(id);
+    recordGeneratedImages(model, validOutputImages.length);
+  }
+  if (!entry) {
+    if (patch.status === 'success' || patch.status === 'failed' || patch.status === 'stopped') requestModelsById.delete(id);
+    return;
+  }
+  const outputImages = validOutputImages?.slice(0, MAX_IMAGES_PER_ENTRY);
   const inputImages = patch.inputImages?.filter((image) => image.type.startsWith('image/')).slice(0, MAX_IMAGES_PER_ENTRY);
   Object.assign(entry, patch, outputImages ? { outputImages } : {}, inputImages ? { inputImages } : {}, { updatedAt: Date.now() });
   trimRetainedImages('inputImages', MAX_INPUT_IMAGES);
@@ -86,6 +101,12 @@ export function updateRequestConsoleEntry(id: string, patch: Partial<Omit<Reques
 }
 
 export function clearRequestConsole() {
+  entries.forEach((entry) => {
+    if (entry.status === 'success' || entry.status === 'failed' || entry.status === 'stopped') {
+      requestModelsById.delete(entry.id);
+      countedGenerationEntryIds.delete(entry.id);
+    }
+  });
   entries.length = 0;
   notify();
 }

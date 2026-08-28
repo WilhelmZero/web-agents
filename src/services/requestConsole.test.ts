@@ -7,9 +7,10 @@ import {
   updateRequestConsoleEntry,
   type RequestConsoleEntry,
 } from './requestConsole';
+import { getGenerationStatsSnapshot, resetGenerationStats } from './generationStats';
 
 describe('request console', () => {
-  beforeEach(() => clearRequestConsole());
+  beforeEach(() => { clearRequestConsole(); resetGenerationStats(); });
 
   it('stores prompt and capped input images for expandable request details', () => {
     let latest: RequestConsoleEntry[] = [];
@@ -39,6 +40,21 @@ describe('request console', () => {
     expect(latest.reduce((total, entry) => total + (entry.outputImages?.length || 0), 0)).toBe(8);
     expect(latest.every((entry) => (entry.outputImages?.length || 0) <= 2)).toBe(true);
     unsubscribe();
+  });
+
+  it('counts a successful image response only once under its exact model', () => {
+    const id = startRequestConsoleEntry({ model: 'gpt-image-2', connection: 'direct', requestSummary: 'image request' });
+    const images = [new Blob(['one'], { type: 'image/png' }), new Blob(['two'], { type: 'image/png' })];
+    updateRequestConsoleEntry(id, { status: 'success', outputImages: images });
+    updateRequestConsoleEntry(id, { status: 'success', outputImages: images });
+    expect(getGenerationStatsSnapshot()).toMatchObject({ total: 2, byModel: { 'gpt-image-2': { count: 2 } } });
+  });
+
+  it('keeps counting an in-flight image request after console logs are cleared', () => {
+    const id = startRequestConsoleEntry({ model: 'gemini-3-pro-image', connection: 'direct', requestSummary: 'image request' });
+    clearRequestConsole();
+    updateRequestConsoleEntry(id, { status: 'success', outputImages: [new Blob(['image'], { type: 'image/png' })] });
+    expect(getGenerationStatsSnapshot()).toMatchObject({ total: 1, byModel: { 'gemini-3-pro-image': { count: 1 } } });
   });
 
   it('summarizes without retaining prompt, key, or base64 data', () => {
