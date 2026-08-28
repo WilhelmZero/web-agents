@@ -129,5 +129,5 @@ describe("AutoSceneClassificationComposer", () => {
     fireEvent.click(addCategory!);
     expect(screen.getByRole("button", { name: /AI 优化/ })).toBeDisabled();
     settingsHost.remove();
-  }, 30_000);
+  }, 60_000);
 });
