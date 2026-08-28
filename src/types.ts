@@ -516,6 +516,13 @@ export interface LogoClassificationPreset {
   updatedAt: number;
 }
 
+export interface LogoClassificationPresetGroup {
+  id: string;
+  name: string;
+  categories: LogoClassificationPreset[];
+  updatedAt: number;
+}
+
 export interface LogoClassificationSettings extends SceneClassificationSettings {
   analyzeLogoCount: boolean;
 }

@@ -22,6 +22,10 @@ export const STORAGE_KEYS = {
   sceneClassificationGenerationSettings:
     "scene-studio.scene-classification-generation-settings.v1",
   logoClassificationPresets: "scene-studio.logo-classification-presets.v1",
+  logoClassificationPresetGroups:
+    "scene-studio.logo-classification-preset-groups.v2",
+  activeLogoClassificationPresetGroup:
+    "scene-studio.active-logo-classification-preset-group.v1",
   logoClassificationSettings: "scene-studio.logo-classification-settings.v1",
   logoClassificationGenerationSettings:
     "scene-studio.logo-classification-generation-settings.v1",

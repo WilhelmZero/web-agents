@@ -52,7 +52,7 @@ import {
   STORAGE_KEYS,
 } from "./constants";
 import { buildPickerFolderTree } from "./MultiTabSceneReplaceComposer";
-import { groupFolderFiles } from "./MultiTabLogoReplaceComposer";
+import { FileThumbnail, groupFolderFiles } from "./MultiTabLogoReplaceComposer";
 import { readLocalStorage } from "./storage";
 import type {
   AutoLogoClassificationTask,
@@ -60,6 +60,7 @@ import type {
   ImageModel,
   LogoAsset,
   LogoClassificationPreset,
+  LogoClassificationPresetGroup,
   LogoClassificationSettings,
 } from "./types";
 import {
@@ -71,15 +72,21 @@ import {
 } from "./utils";
 import {
   allocateLogoIds,
+  appendAutoLogoGroupFile,
   autoLogoStatusLabel,
   clampLogoCount,
   createAutoLogoTasks,
+  removeAutoLogoGroupFile,
 } from "./services/autoLogoPipeline";
 import {
   classifyLogoReplacementImage,
   normalizeLogoClassificationPresets,
   withLogoClassificationFallback,
 } from "./services/logoClassification";
+import {
+  normalizeLogoClassificationPresetGroups,
+  updateLogoClassificationPresetGroupCategories,
+} from "./services/logoClassificationPresetGroups";
 import {
   generateExactLogoReplacement,
   verifyLogoReplacement,
@@ -221,6 +228,49 @@ function PresetEditor({
   );
 }
 
+function PresetGroupEditor({
+  open,
+  initial,
+  onCancel,
+  onSave,
+}: {
+  open: boolean;
+  initial?: LogoClassificationPresetGroup;
+  onCancel: () => void;
+  onSave: (name: string) => void;
+}) {
+  const [name, setName] = useState("");
+  useEffect(() => {
+    if (open) setName(initial?.name || "");
+  }, [open, initial]);
+  return (
+    <Modal
+      title={initial ? "重命名分类提示词预设" : "新增分类提示词预设"}
+      open={open}
+      okText="保存"
+      onCancel={onCancel}
+      onOk={() => onSave(name)}
+      okButtonProps={{ disabled: !name.trim() }}
+    >
+      <Form layout="vertical">
+        <Form.Item label="预设名称" required>
+          <Input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="例如：杯具与礼盒 Logo 替换"
+          />
+        </Form.Item>
+        <Alert
+          type="info"
+          showIcon
+          title="一个预设可包含多个分类提示词"
+          description="运行时 AI 将只在当前选中预设包含的分类中进行判断。"
+        />
+      </Form>
+    </Modal>
+  );
+}
+
 export default function AutoLogoClassificationComposer({
   apiKey,
   openAiApiKey,
@@ -242,10 +292,21 @@ export default function AutoLogoClassificationComposer({
   const [checkedFolders, setCheckedFolders] = useState<string[]>([]);
   const [logos, setLogos] = useState<LogoAsset[]>([]);
   const [oldLogo, setOldLogo] = useState<LogoAsset>();
-  const [presets, setPresets] = useState<LogoClassificationPreset[]>(() =>
-    normalizeLogoClassificationPresets(
-      readLocalStorage(STORAGE_KEYS.logoClassificationPresets, []),
-    ),
+  const [presetGroups, setPresetGroups] = useState<
+    LogoClassificationPresetGroup[]
+  >(() => {
+    const hasGroupedPresets =
+      localStorage.getItem(STORAGE_KEYS.logoClassificationPresetGroups) !==
+      null;
+    return normalizeLogoClassificationPresetGroups(
+      readLocalStorage(STORAGE_KEYS.logoClassificationPresetGroups, []),
+      hasGroupedPresets
+        ? []
+        : readLocalStorage(STORAGE_KEYS.logoClassificationPresets, []),
+    );
+  });
+  const [activePresetGroupId, setActivePresetGroupId] = useState(() =>
+    readLocalStorage(STORAGE_KEYS.activeLogoClassificationPresetGroup, ""),
   );
   const [analysisSettings, setAnalysisSettings] =
     useState<LogoClassificationSettings>(
@@ -271,6 +332,11 @@ export default function AutoLogoClassificationComposer({
     open: boolean;
     preset?: LogoClassificationPreset;
   }>({ open: false });
+  const [presetGroupEditor, setPresetGroupEditor] = useState<{
+    open: boolean;
+    group?: LogoClassificationPresetGroup;
+  }>({ open: false });
+  const [managedGroupId, setManagedGroupId] = useState<string>();
   const [selectedGroupId, setSelectedGroupId] = useState<string>();
   const [previewOriginal, setPreviewOriginal] = useState(false);
   const [runStartedAt, setRunStartedAt] = useState<number>();
@@ -290,6 +356,11 @@ export default function AutoLogoClassificationComposer({
   const oldLogoRef = useRef(oldLogo);
   const analysisSettingsRef = useRef(analysisSettings);
   const generationSettingsRef = useRef(generationSettings);
+  const activePresetGroup =
+    presetGroups.find((item) => item.id === activePresetGroupId) ||
+    presetGroups[0];
+  const selectedPresetGroupId = activePresetGroup?.id || "";
+  const presets = activePresetGroup?.categories || [];
   useEffect(() => {
     tasksRef.current = tasks;
   }, [tasks]);
@@ -315,10 +386,18 @@ export default function AutoLogoClassificationComposer({
   }, [generationSettings]);
   useEffect(() => {
     localStorage.setItem(
-      STORAGE_KEYS.logoClassificationPresets,
-      JSON.stringify(presets),
+      STORAGE_KEYS.logoClassificationPresetGroups,
+      JSON.stringify(presetGroups),
     );
-  }, [presets]);
+  }, [presetGroups]);
+  useEffect(() => {
+    if (selectedPresetGroupId !== activePresetGroupId)
+      setActivePresetGroupId(selectedPresetGroupId);
+    localStorage.setItem(
+      STORAGE_KEYS.activeLogoClassificationPresetGroup,
+      JSON.stringify(selectedPresetGroupId),
+    );
+  }, [activePresetGroupId, selectedPresetGroupId]);
   useEffect(
     () => () => {
       tasksRef.current.forEach(
@@ -345,6 +424,21 @@ export default function AutoLogoClassificationComposer({
         };
       return next;
     });
+  const setPresets = useCallback(
+    (
+      updater: (
+        current: LogoClassificationPreset[],
+      ) => LogoClassificationPreset[],
+    ) =>
+      setPresetGroups((current) =>
+        updateLogoClassificationPresetGroupCategories(
+          current,
+          selectedPresetGroupId,
+          updater,
+        ),
+      ),
+    [selectedPresetGroupId],
+  );
   const clearRun = useCallback(() => {
     analysisControllers.current.forEach((item) => item.abort());
     generationControllers.current.forEach((item) => item.abort());
@@ -389,6 +483,45 @@ export default function AutoLogoClassificationComposer({
     setCheckedFolders([]);
     clearRun();
   };
+  const managedGroup = groups.find((group) => group.id === managedGroupId);
+  const removeGroup = (group: Group) => {
+    clearRun();
+    setGroups((current) => current.filter((item) => item.id !== group.id));
+    setManagedGroupId((current) =>
+      current === group.id ? undefined : current,
+    );
+    message.success(`已移除文件夹 ${group.name}`);
+  };
+  const removeAllGroups = () => {
+    clearRun();
+    setGroups([]);
+    setManagedGroupId(undefined);
+    setPendingFiles([]);
+    setCheckedFolders([]);
+    message.success("已移除全部文件夹");
+  };
+  const removeGroupFile = (groupId: string, target: File) => {
+    const group = groups.find((item) => item.id === groupId);
+    clearRun();
+    if (group?.files.length === 1) {
+      setManagedGroupId(undefined);
+      message.info(`已移除空文件夹 ${group.name}`);
+    }
+    setGroups((current) => removeAutoLogoGroupFile(current, groupId, target));
+  };
+  const addGroupFile = (groupId: string, file: File) => {
+    if (
+      !IMAGE_TYPES.includes(file.type) ||
+      file.size <= 0 ||
+      file.size > 20 * 1024 * 1024
+    ) {
+      message.error(`${file.name} 不是支持的图片，或文件超过 20MB`);
+      return Upload.LIST_IGNORE;
+    }
+    clearRun();
+    setGroups((current) => appendAutoLogoGroupFile(current, groupId, file));
+    return Upload.LIST_IGNORE;
+  };
   const addLogo = (file: File) => {
     if (!IMAGE_TYPES.includes(file.type))
       return message.warning("Logo 仅支持 PNG、JPG 或 WebP");
@@ -411,6 +544,32 @@ export default function AutoLogoClassificationComposer({
       return current.filter((item) => item.id !== id);
     });
     clearRun();
+  };
+  const savePresetGroup = (name: string) => {
+    const trimmedName = name.trim();
+    if (!trimmedName) return;
+    if (presetGroupEditor.group) {
+      setPresetGroups((current) =>
+        current.map((item) =>
+          item.id === presetGroupEditor.group?.id
+            ? { ...item, name: trimmedName, updatedAt: Date.now() }
+            : item,
+        ),
+      );
+    } else {
+      const id = createId();
+      setPresetGroups((current) => [
+        ...current,
+        { id, name: trimmedName, categories: [], updatedAt: Date.now() },
+      ]);
+      setActivePresetGroupId(id);
+    }
+    setPresetGroupEditor({ open: false });
+  };
+  const deletePresetGroup = (id: string) => {
+    setPresetGroups((current) => current.filter((item) => item.id !== id));
+    setActivePresetGroupId((current) => (current === id ? "" : current));
+    setPresetEditor({ open: false });
   };
   const savePreset = ({ name, prompt }: { name: string; prompt: string }) => {
     setPresets((current) =>
@@ -869,7 +1028,7 @@ export default function AutoLogoClassificationComposer({
       return void message.warning("请先导入至少一个图片文件夹");
     if (!logos.length) return void message.warning("请先上传至少一个新 Logo");
     if (!normalized.length || !fallback)
-      return void message.warning("请先创建分类并指定兜底分类");
+      return void message.warning("请在当前预设中创建分类并指定兜底分类");
     const analysisKey =
       analysisSettings.provider === "openai" ? openAiApiKey : apiKey;
     const generationKey =
@@ -1419,14 +1578,28 @@ export default function AutoLogoClassificationComposer({
         <div>
           <Text className="eyebrow">AUTOMATIC LOGO REPLACEMENT</Text>
           <Title level={2}>自动分类 Logo 替换</Title>
-        <Paragraph className="hero-description">
+          <Paragraph className="hero-description">
             AI 选择用户预设，可选分析产品载体上的 Logo
             数量；分析与生图使用独立并发队列。
           </Paragraph>
         </div>
         <div className="hero-orb" />
       </section>
-      <Card title="1. 导入文件夹与 Logo">
+      <Card
+        title="1. 导入文件夹与 Logo"
+        extra={
+          <Popconfirm
+            title="移除全部文件夹？"
+            description="只清空当前网页批次，不会删除电脑中的原文件。"
+            disabled={!groups.length}
+            onConfirm={removeAllGroups}
+          >
+            <Button danger disabled={!groups.length}>
+              移除全部文件夹
+            </Button>
+          </Popconfirm>
+        }
+      >
         <Flex gap={16} wrap align="start">
           <Upload.Dragger
             directory
@@ -1514,35 +1687,126 @@ export default function AutoLogoClassificationComposer({
         {groups.length ? (
           <div className="folder-group-grid" style={{ marginTop: 16 }}>
             {groups.map((group) => (
-              <Card key={group.id} size="small" title={group.name}>
+              <Card
+                key={group.id}
+                size="small"
+                hoverable
+                className="folder-manage-card"
+                title={group.name}
+                onClick={() => setManagedGroupId(group.id)}
+              >
                 <FolderCover file={group.files[0]} />
                 <Text type="secondary">
                   {group.path} · {group.files.length} 张
                 </Text>
+                <Flex gap={6} wrap>
+                  <Button
+                    type="link"
+                    size="small"
+                    style={{ paddingInline: 0 }}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setManagedGroupId(group.id);
+                    }}
+                  >
+                    查看和管理图片
+                  </Button>
+                  <Popconfirm
+                    title={`移除文件夹 ${group.name}？`}
+                    description="只从当前网页批次移除，不会删除电脑中的原文件。"
+                    onConfirm={() => removeGroup(group)}
+                  >
+                    <Button
+                      danger
+                      type="link"
+                      size="small"
+                      icon={<DeleteOutlined />}
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      移除文件夹
+                    </Button>
+                  </Popconfirm>
+                </Flex>
               </Card>
             ))}
           </div>
         ) : null}
       </Card>
-      <Card
-        title="2. 自定义分类与原样提示词"
-        extra={
+      <Card title="2. 分类提示词预设">
+        <Flex gap={12} wrap align="end" style={{ marginBottom: 14 }}>
+          <div style={{ flex: "1 1 280px" }}>
+            <Text strong>当前预设</Text>
+            <Select
+              aria-label="当前分类提示词预设"
+              value={selectedPresetGroupId || undefined}
+              placeholder="请先新增预设"
+              style={{ width: "100%", marginTop: 6 }}
+              options={presetGroups.map((group) => ({
+                value: group.id,
+                label: `${group.name}（${group.categories.length} 个分类）`,
+              }))}
+              onChange={setActivePresetGroupId}
+            />
+          </div>
+          <Space wrap>
+            <Button
+              icon={<PlusOutlined />}
+              onClick={() => setPresetGroupEditor({ open: true })}
+            >
+              新增预设
+            </Button>
+            <Button
+              icon={<EditOutlined />}
+              disabled={!activePresetGroup}
+              onClick={() =>
+                setPresetGroupEditor({
+                  open: true,
+                  group: activePresetGroup,
+                })
+              }
+            >
+              重命名
+            </Button>
+            <Popconfirm
+              title={`删除预设“${activePresetGroup?.name || ""}”？`}
+              description="该预设包含的全部分类提示词也会被删除。"
+              disabled={!activePresetGroup}
+              onConfirm={() =>
+                activePresetGroup && deletePresetGroup(activePresetGroup.id)
+              }
+            >
+              <Button danger disabled={!activePresetGroup}>
+                删除预设
+              </Button>
+            </Popconfirm>
+          </Space>
+        </Flex>
+        <Alert
+          type="info"
+          showIcon
+          title="一个预设可保存多个分类提示词"
+          description="AI 只在当前预设的分类中选择，生图只提交所选分类的提示词原文；批次启动后冻结当前预设、Logo 顺序和旧 Logo。"
+          style={{ marginBottom: 14 }}
+        />
+        <Flex
+          justify="space-between"
+          align="center"
+          style={{ marginBottom: 12 }}
+        >
+          <Text strong>
+            {activePresetGroup
+              ? `${activePresetGroup.name} · ${presets.length} 个分类`
+              : "尚未选择预设"}
+          </Text>
           <Button
             type="primary"
             icon={<PlusOutlined />}
+            disabled={!activePresetGroup}
             onClick={() => setPresetEditor({ open: true })}
           >
             新增分类
           </Button>
-        }
-      >
-        <Alert
-          type="info"
-          showIcon
-          title="AI 只选择分类，生图只提交预设原文"
-          description="首个分类自动成为兜底；批次启动后冻结当前预设、Logo 顺序和旧 Logo。"
-          style={{ marginBottom: 14 }}
-        />
+        </Flex>
         {presets.length ? (
           <div className="auto-category-grid">
             {presets.map((preset) => (
@@ -1599,7 +1863,13 @@ export default function AutoLogoClassificationComposer({
             ))}
           </div>
         ) : (
-          <Empty description="尚未创建分类，添加至少一个分类后才能运行" />
+          <Empty
+            description={
+              activePresetGroup
+                ? "当前预设尚无分类，请添加至少一个分类"
+                : "请先新增一个分类提示词预设"
+            }
+          />
         )}
       </Card>
       <Card className="action-card">
@@ -2078,11 +2348,66 @@ export default function AutoLogoClassificationComposer({
           </div>
         </Checkbox.Group>
       </Modal>
+      <Modal
+        title={managedGroup ? `${managedGroup.name} · 图片管理` : "图片管理"}
+        open={Boolean(managedGroup)}
+        width={900}
+        footer={
+          <Button onClick={() => setManagedGroupId(undefined)}>完成</Button>
+        }
+        onCancel={() => setManagedGroupId(undefined)}
+      >
+        {managedGroup ? (
+          <>
+            <Flex
+              justify="space-between"
+              align="center"
+              gap={12}
+              wrap
+              style={{ marginBottom: 14 }}
+            >
+              <Text type="secondary">
+                {managedGroup.path} · 当前 {managedGroup.files.length}
+                张；增删只影响当前网页批次。
+              </Text>
+              <Upload
+                multiple
+                showUploadList={false}
+                accept={IMAGE_TYPES.join(",")}
+                beforeUpload={(file) =>
+                  addGroupFile(managedGroup.id, file as File)
+                }
+              >
+                <Button type="primary" icon={<PlusOutlined />}>
+                  添加图片到该文件夹
+                </Button>
+              </Upload>
+            </Flex>
+            <Image.PreviewGroup>
+              <div className="batch-asset-grid">
+                {managedGroup.files.map((file, index) => (
+                  <FileThumbnail
+                    key={`${file.name}-${file.size}-${file.lastModified}-${index}`}
+                    file={file}
+                    onRemove={() => removeGroupFile(managedGroup.id, file)}
+                  />
+                ))}
+              </div>
+            </Image.PreviewGroup>
+          </>
+        ) : null}
+      </Modal>
       <PresetEditor
         open={presetEditor.open}
         initial={presetEditor.preset}
         onCancel={() => setPresetEditor({ open: false })}
         onSave={savePreset}
+      />
+      <PresetGroupEditor
+        open={presetGroupEditor.open}
+        initial={presetGroupEditor.group}
+        onCancel={() => setPresetGroupEditor({ open: false })}
+        onSave={savePresetGroup}
       />
       {!settingsHost ? (
         <aside className="logo-settings">{settingsPanel}</aside>

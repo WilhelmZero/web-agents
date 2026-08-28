@@ -40,6 +40,28 @@ export function createAutoLogoTasks(
   );
 }
 
+export function appendAutoLogoGroupFile(
+  groups: AutoLogoFolderGroup[],
+  groupId: string,
+  file: File,
+) {
+  return groups.map((group) =>
+    group.id === groupId ? { ...group, files: [...group.files, file] } : group,
+  );
+}
+
+export function removeAutoLogoGroupFile(
+  groups: AutoLogoFolderGroup[],
+  groupId: string,
+  target: File,
+) {
+  return groups.flatMap((group) => {
+    if (group.id !== groupId) return [group];
+    const files = group.files.filter((file) => file !== target);
+    return files.length ? [{ ...group, files }] : [];
+  });
+}
+
 export function autoLogoStatusLabel(
   status: AutoLogoClassificationTask["status"],
 ) {

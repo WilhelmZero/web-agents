@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   allocateLogoIds,
+  appendAutoLogoGroupFile,
   clampLogoCount,
   createAutoLogoTasks,
+  removeAutoLogoGroupFile,
 } from "./autoLogoPipeline";
 
 describe("auto Logo pipeline", () => {
@@ -37,5 +39,22 @@ describe("auto Logo pipeline", () => {
       copyIndex: 0,
       status: "waiting-analysis",
     });
+  });
+
+  it("adds and removes managed folder images without mutating other groups", () => {
+    const first = new File(["a"], "a.png", { type: "image/png" });
+    const second = new File(["b"], "b.png", { type: "image/png" });
+    const groups = [
+      { id: "a", name: "A", path: "root/A", files: [first] },
+      { id: "b", name: "B", path: "root/B", files: [second] },
+    ];
+
+    const added = appendAutoLogoGroupFile(groups, "a", second);
+    expect(added[0].files).toEqual([first, second]);
+    expect(added[1]).toBe(groups[1]);
+
+    const removed = removeAutoLogoGroupFile(added, "a", first);
+    expect(removed[0].files).toEqual([second]);
+    expect(removeAutoLogoGroupFile(removed, "a", second)).toEqual([groups[1]]);
   });
 });
