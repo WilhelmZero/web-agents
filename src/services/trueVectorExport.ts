@@ -20,6 +20,31 @@ export interface MonochromeTraceConfig {
   smoothRadius: number;
 }
 
+interface VTracerWasmConverter {
+  init: () => void;
+  tick: () => boolean;
+  free: () => void;
+}
+
+interface VTracerWasmModule {
+  default: () => Promise<unknown>;
+  BinaryImageConverter: {
+    new_with_string: (params: string) => VTracerWasmConverter;
+  };
+  ColorImageConverter: {
+    new_with_string: (params: string) => VTracerWasmConverter;
+  };
+}
+
+async function importVTracerWasm(): Promise<VTracerWasmModule> {
+  const moduleUrl = `${import.meta.env.BASE_URL}vtracer_webapp.js`;
+  const nativeImport = new Function(
+    'url',
+    'return import(url)',
+  ) as (url: string) => Promise<VTracerWasmModule>;
+  return nativeImport(moduleUrl);
+}
+
 export function analyzeVectorEligibility(imageData: Pick<ImageData, 'data' | 'width' | 'height'>): VectorEligibility {
   const bins = new Set<number>();
   const pixels = imageData.width * imageData.height;
@@ -202,8 +227,7 @@ async function vectorizeComplexImage(imageData: ImageData): Promise<string> {
   canvas.id = `${id}-canvas`; svg.id = `${id}-svg`; canvas.hidden = true; svg.style.display = 'none';
   document.body.append(canvas, svg);
   try {
-    const moduleUrl = `${import.meta.env.BASE_URL}vtracer_webapp.js`;
-    const glue = await import(/* @vite-ignore */ moduleUrl) as { default: () => Promise<unknown>; ColorImageConverter: { new_with_string: (params: string) => { init: () => void; tick: () => boolean; free: () => void } } };
+    const glue = await importVTracerWasm();
     await glue.default();
     const converter = glue.ColorImageConverter.new_with_string(JSON.stringify({ canvas_id: canvas.id, svg_id: svg.id, ...buildVTracerConfig() }));
     try {
@@ -212,6 +236,67 @@ async function vectorizeComplexImage(imageData: ImageData): Promise<string> {
       return serializeVisibleSvg(svg, imageData.width, imageData.height);
     } finally { converter.free(); }
   } finally { canvas.remove(); svg.remove(); }
+}
+
+async function vectorizeBinaryLogo(
+  imageData: ImageData,
+  outputColor: 'black' | 'white',
+): Promise<string> {
+  const binary = new ImageData(imageData.width, imageData.height);
+  for (let offset = 0; offset < imageData.data.length; offset += 4) {
+    const ink = imageData.data[offset + 3] >= 128;
+    const value = ink ? 0 : 255;
+    binary.data[offset] = value;
+    binary.data[offset + 1] = value;
+    binary.data[offset + 2] = value;
+    binary.data[offset + 3] = 255;
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = binary.width;
+  canvas.height = binary.height;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('当前浏览器无法创建平滑矢量画布');
+  context.putImageData(binary, 0, 0);
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  const id = `binary-logo-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  canvas.id = `${id}-canvas`;
+  svg.id = `${id}-svg`;
+  canvas.hidden = true;
+  svg.style.display = 'none';
+  document.body.append(canvas, svg);
+  try {
+    const glue = await importVTracerWasm();
+    await glue.default();
+    const converter = glue.BinaryImageConverter.new_with_string(
+      JSON.stringify({
+        canvas_id: canvas.id,
+        svg_id: svg.id,
+        mode: 'spline',
+        corner_threshold: Math.PI / 3,
+        length_threshold: 3.5,
+        max_iterations: 12,
+        splice_threshold: Math.PI / 4,
+        filter_speckle: 0,
+        path_precision: 3,
+      }),
+    );
+    try {
+      converter.init();
+      while (!converter.tick())
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      let output = serializeVisibleSvg(svg, imageData.width, imageData.height);
+      if (outputColor === 'white')
+        output = output.replace(/\bfill="(?!none)[^"]+"/gi, 'fill="#ffffff"');
+      if (!/<path\b/i.test(output))
+        throw new Error('平滑曲线引擎未能提取有效路径');
+      return output;
+    } finally {
+      converter.free();
+    }
+  } finally {
+    canvas.remove();
+    svg.remove();
+  }
 }
 
 export async function vectorizeImageToSvg(blob: Blob, colorCount?: number, engine: VectorTraceEngine = 'auto') {
@@ -291,6 +376,13 @@ export async function vectorizeMonochromeIconToSvg(
     imageData.data[offset + 1] = value;
     imageData.data[offset + 2] = value;
     imageData.data[offset + 3] = visible ? 255 : 0;
+  }
+  if (precision !== 'standard') {
+    const svg = await vectorizeBinaryLogo(imageData, outputColor);
+    return new Blob(
+      [preserveVectorOutputSize(svg, original.width, original.height)],
+      { type: 'image/svg+xml;charset=utf-8' },
+    );
   }
   const imported = await import('imagetracerjs');
   const tracer = imported.default;
