@@ -7,6 +7,17 @@ interface TraceColor { r: number; g: number; b: number; a: number }
 export interface VectorTraceConfig { detailed: boolean; colors: number; ltres: number; qtres: number; pathomit: number; rightangleenhance: boolean; linefilter: boolean; roundcoords: number }
 export interface VTracerConfig { mode: 'spline'; hierarchical: 'stacked'; corner_threshold: number; length_threshold: number; max_iterations: number; splice_threshold: number; filter_speckle: number; color_precision: number; layer_difference: number; path_precision: number }
 export type VectorTraceEngine = 'auto' | 'imagetracer' | 'vtracer';
+export type MonochromeVectorPrecision = 'standard' | 'fine' | 'ultra';
+
+export interface MonochromeTraceConfig {
+  scale: number;
+  maximumDimension: number;
+  alphaCutoff: number;
+  ltres: number;
+  qtres: number;
+  pathomit: number;
+  roundcoords: number;
+}
 
 export function analyzeVectorEligibility(imageData: Pick<ImageData, 'data' | 'width' | 'height'>): VectorEligibility {
   const bins = new Set<number>();
@@ -60,6 +71,42 @@ export function buildVTracerConfig(): VTracerConfig {
     corner_threshold: Math.PI / 3, length_threshold: 4, max_iterations: 10,
     splice_threshold: Math.PI / 4, filter_speckle: 2,
     color_precision: 2, layer_difference: 16, path_precision: 2,
+  };
+}
+
+export function buildMonochromeTraceConfig(
+  precision: MonochromeVectorPrecision,
+): MonochromeTraceConfig {
+  if (precision === 'ultra') {
+    return {
+      scale: 4,
+      maximumDimension: 1800,
+      alphaCutoff: 48,
+      ltres: 0.05,
+      qtres: 0.05,
+      pathomit: 0,
+      roundcoords: 3,
+    };
+  }
+  if (precision === 'fine') {
+    return {
+      scale: 3,
+      maximumDimension: 1400,
+      alphaCutoff: 64,
+      ltres: 0.16,
+      qtres: 0.16,
+      pathomit: 0,
+      roundcoords: 3,
+    };
+  }
+  return {
+    scale: 1,
+    maximumDimension: 1200,
+    alphaCutoff: 96,
+    ltres: 0.75,
+    qtres: 0.75,
+    pathomit: 2,
+    roundcoords: 2,
   };
 }
 
@@ -158,4 +205,77 @@ export async function vectorizeImageToSvg(blob: Blob, colorCount?: number, engin
   });
   if (!/<path\b/i.test(svg)) throw new Error('未能从图片中提取有效矢量路径');
   return new Blob([preserveVectorOutputSize(svg, original.width, original.height)], { type: 'image/svg+xml;charset=utf-8' });
+}
+
+export async function vectorizeMonochromeIconToSvg(
+  blob: Blob,
+  outputColor: 'black' | 'white',
+  precision: MonochromeVectorPrecision = 'fine',
+) {
+  const bitmap = await createImageBitmap(blob);
+  const config = buildMonochromeTraceConfig(precision);
+  const original = { width: bitmap.width, height: bitmap.height };
+  const scale = Math.max(
+    1,
+    Math.min(
+      config.scale,
+      config.maximumDimension / Math.max(bitmap.width, bitmap.height),
+    ),
+  );
+  const width = Math.max(1, Math.round(bitmap.width * scale));
+  const height = Math.max(1, Math.round(bitmap.height * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  if (!context) {
+    bitmap.close();
+    throw new Error('浏览器无法创建高精度矢量化画布');
+  }
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = 'high';
+  context.drawImage(bitmap, 0, 0, width, height);
+  bitmap.close();
+  const imageData = context.getImageData(0, 0, width, height);
+  const value = outputColor === 'white' ? 255 : 0;
+  for (let offset = 0; offset < imageData.data.length; offset += 4) {
+    const visible = imageData.data[offset + 3] >= config.alphaCutoff;
+    imageData.data[offset] = value;
+    imageData.data[offset + 1] = value;
+    imageData.data[offset + 2] = value;
+    imageData.data[offset + 3] = visible ? 255 : 0;
+  }
+  const imported = await import('imagetracerjs');
+  const tracer = imported.default;
+  const svg = tracer.imagedataToSVG(imageData, {
+    ltres: config.ltres,
+    qtres: config.qtres,
+    pathomit: config.pathomit,
+    rightangleenhance: false,
+    colorsampling: 0,
+    numberofcolors: 2,
+    colorquantcycles: 1,
+    pal: [
+      { r: 0, g: 0, b: 0, a: 0 },
+      { r: value, g: value, b: value, a: 255 },
+    ],
+    layering: 0,
+    strokewidth: 0,
+    linefilter: false,
+    scale: 1,
+    roundcoords: config.roundcoords,
+    viewbox: true,
+    desc: true,
+    blurradius: 0,
+  });
+  const visibleSvg = svg.replace(
+    /<path\b(?=[^>]*\bopacity="0(?:\.0+)?")[^>]*\/>/gi,
+    '',
+  );
+  if (!/<path\b/i.test(visibleSvg))
+    throw new Error('未能从图标中提取高精度矢量路径');
+  return new Blob(
+    [preserveVectorOutputSize(visibleSvg, original.width, original.height)],
+    { type: 'image/svg+xml;charset=utf-8' },
+  );
 }

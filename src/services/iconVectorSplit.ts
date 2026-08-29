@@ -10,6 +10,7 @@ export interface IconVectorSplitSettings {
   minimumHeightPercent: number;
   paddingPercent: number;
   outputColor: "black" | "white";
+  vectorPrecision: "standard" | "fine" | "ultra";
 }
 
 export interface IconRegion {
@@ -44,6 +45,7 @@ export const DEFAULT_ICON_VECTOR_SPLIT_SETTINGS: IconVectorSplitSettings = {
   minimumHeightPercent: 4,
   paddingPercent: 1.2,
   outputColor: "black",
+  vectorPrecision: "fine",
 };
 
 function foregroundPixel(

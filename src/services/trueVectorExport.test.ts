@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { analyzeVectorEligibility, buildVectorTraceConfig, buildVTracerConfig, extractColorPreservingPalette, preserveVectorOutputSize, resolveVectorTraceEngine, serializeVisibleSvg } from './trueVectorExport';
+import { analyzeVectorEligibility, buildMonochromeTraceConfig, buildVectorTraceConfig, buildVTracerConfig, extractColorPreservingPalette, preserveVectorOutputSize, resolveVectorTraceEngine, serializeVisibleSvg } from './trueVectorExport';
 
 describe('true vector export eligibility', () => {
   it('accepts simple two-color artwork', () => {
@@ -58,6 +58,25 @@ describe('true vector export eligibility', () => {
 
   it('keeps a lighter trace for simple logos', () => {
     expect(buildVectorTraceConfig({ eligible: true, colorBins: 3, suggestedColors: 3 })).toMatchObject({ detailed: false, colors: 8, pathomit: 4 });
+  });
+
+  it('keeps every small path and tight curve in fine icon tracing', () => {
+    expect(buildMonochromeTraceConfig('fine')).toMatchObject({
+      scale: 3,
+      ltres: 0.16,
+      qtres: 0.16,
+      pathomit: 0,
+      roundcoords: 3,
+    });
+  });
+
+  it('uses the largest supersampling and smallest curve tolerance in ultra mode', () => {
+    const fine = buildMonochromeTraceConfig('fine');
+    const ultra = buildMonochromeTraceConfig('ultra');
+    expect(ultra.scale).toBeGreaterThan(fine.scale);
+    expect(ultra.ltres).toBeLessThan(fine.ltres);
+    expect(ultra.qtres).toBeLessThan(fine.qtres);
+    expect(ultra.pathomit).toBe(0);
   });
 
   it('uses compact stacked color clustering for complex artwork', () => {

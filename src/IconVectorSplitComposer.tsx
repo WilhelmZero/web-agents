@@ -108,7 +108,7 @@ export default function IconVectorSplitComposer() {
         if (!nextDetection.regions.length)
           throw new Error("没有识别到可拆分图标，请调整前景颜色、阈值或分组间距");
         setDetection(nextDetection);
-        const { vectorizeImageToSvg } = await import(
+        const { vectorizeMonochromeIconToSvg } = await import(
           "./services/trueVectorExport"
         );
         const baseName = sanitizeFileName(file.name);
@@ -119,17 +119,17 @@ export default function IconVectorSplitComposer() {
             activeSettings,
             nextDetection.resolvedMode,
           );
-          const svgBlob = await vectorizeImageToSvg(
+          const svgBlob = await vectorizeMonochromeIconToSvg(
             pngBlob,
-            2,
-            "imagetracer",
+            activeSettings.outputColor,
+            activeSettings.vectorPrecision,
           );
           generated.push({
             id: nextDetection.regions[index].id,
             name: `${baseName}_图标_${String(index + 1).padStart(2, "0")}`,
             pngBlob,
             svgBlob,
-            previewUrl: URL.createObjectURL(pngBlob),
+            previewUrl: URL.createObjectURL(svgBlob),
             selected: true,
           });
           setCompleted(index + 1);
@@ -291,6 +291,26 @@ export default function IconVectorSplitComposer() {
             options={[
               { value: "black", label: "黑色" },
               { value: "white", label: "白色" },
+            ]}
+          />
+        </Form.Item>
+        <Form.Item
+          label="矢量精度"
+          extra="高精细适合大多数图标；极致会保留更多细线和小孔，但处理更慢、文件更大"
+        >
+          <Segmented
+            block
+            value={settings.vectorPrecision}
+            onChange={(vectorPrecision) =>
+              patchSettings({
+                vectorPrecision:
+                  vectorPrecision as IconVectorSplitSettings["vectorPrecision"],
+              })
+            }
+            options={[
+              { value: "standard", label: "标准" },
+              { value: "fine", label: "高精细" },
+              { value: "ultra", label: "极致" },
             ]}
           />
         </Form.Item>
