@@ -30,6 +30,7 @@ import {
   ReloadOutlined,
   RocketOutlined,
   SaveOutlined,
+  ScissorOutlined,
   SettingOutlined,
   StopOutlined,
   SwapOutlined,
@@ -107,6 +108,7 @@ import GeneratingImage from "./GeneratingImage";
 import DesktopTaskCenter from "./DesktopTaskCenter";
 import OriginalCompareImage from "./OriginalCompareImage";
 import GlobalGenerationStats from "./GlobalGenerationStats";
+import IconVectorSplitComposer from "./IconVectorSplitComposer";
 import { useLanguage } from "./i18n";
 import { readLocalStorage } from "./storage";
 import {
@@ -243,6 +245,12 @@ const CREATION_TOOL_ITEMS: Array<{
     icon: <DownloadOutlined />,
     label: "批量导出 Logo",
     description: "从图片或 PSD 图层批量整理 Logo",
+  },
+  {
+    key: "icon-vector-split",
+    icon: <ScissorOutlined />,
+    label: "图标拆分矢量化",
+    description: "从排版图片自动拆分多个图标并导出独立 SVG",
   },
   {
     key: "paper-text",
@@ -1501,7 +1509,7 @@ function AppContent() {
                 />
               </Tooltip>
             )}
-            {compact && !showPinnedHome && (
+            {compact && !showPinnedHome && creationTool !== "icon-vector-split" && (
               <Button
                 icon={<SettingOutlined />}
                 onClick={() => setSettingsOpen(true)}
@@ -1806,6 +1814,9 @@ function AppContent() {
                   onSessionStateChange={setLogoExportHasSession}
                   settingsHost={logoExportSettingsHost}
                 />
+              </div>
+              <div hidden={creationTool !== "icon-vector-split"}>
+                <IconVectorSplitComposer />
               </div>
               <div hidden={creationTool !== "background-removal"}>
                 <BackgroundRemovalComposer
@@ -2457,7 +2468,7 @@ function AppContent() {
       >
         {creationTool === "scene" ? (
           settingsPanel
-        ) : compact ? (
+        ) : compact && creationTool !== "icon-vector-split" ? (
           <div
             ref={
               creationTool === "logo"

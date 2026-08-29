@@ -89,6 +89,15 @@ const translations: Record<string, string> = {
   创作工具: "Creation tools",
   场景图生成: "Scene generator",
   "Logo 合成": "Logo composite",
+  图标拆分矢量化: "Icon sheet vectorizer",
+  "从排版图片自动拆分多个图标并导出独立 SVG":
+    "Automatically split icons from a sheet and export separate SVG files",
+  图片图标自动拆分与矢量化: "Automatic icon splitting and vectorization",
+  "本地识别一张排版图中的多个独立图标，去除背景与编号，分别生成透明 PNG 和真实 SVG Path。":
+    "Detect separate icons in a layout locally, remove backgrounds and labels, then create transparent PNGs and true SVG paths.",
+  导入图标排版图片: "Import icon sheet",
+  独立矢量文件: "Separate vector files",
+  识别与输出设置: "Detection and output settings",
   局部重绘: "Inpainting",
   生成结果局部重绘: "Inpaint generated result",
   "Logo 去除结果局部重绘": "Inpaint Logo removal result",

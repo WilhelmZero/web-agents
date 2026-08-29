@@ -14,6 +14,7 @@ export const CREATION_TOOLS: readonly CreationTool[] = [
   "logo-replace-tabs",
   "logo-removal",
   "logo-export",
+  "icon-vector-split",
   "paper-text",
   "background-removal",
   "outpaint",
