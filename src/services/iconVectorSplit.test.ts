@@ -32,6 +32,13 @@ function syntheticSheet() {
 }
 
 describe("icon vector sheet detection", () => {
+  it("defaults to a 1000px square output with fine vector precision", () => {
+    expect(DEFAULT_ICON_VECTOR_SPLIT_SETTINGS).toMatchObject({
+      outputSize: 1000,
+      vectorPrecision: "fine",
+    });
+  });
+
   it("groups disconnected glyph parts and sorts icons in reading order", () => {
     const regions = detectIconRegionsFromImageData(
       syntheticSheet(),

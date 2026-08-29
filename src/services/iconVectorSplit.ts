@@ -11,6 +11,7 @@ export interface IconVectorSplitSettings {
   paddingPercent: number;
   outputColor: "black" | "white";
   vectorPrecision: "standard" | "fine" | "ultra";
+  outputSize: 512 | 1000 | 2000;
 }
 
 export interface IconRegion {
@@ -46,6 +47,7 @@ export const DEFAULT_ICON_VECTOR_SPLIT_SETTINGS: IconVectorSplitSettings = {
   paddingPercent: 1.2,
   outputColor: "black",
   vectorPrecision: "fine",
+  outputSize: 1000,
 };
 
 function foregroundPixel(
@@ -327,12 +329,30 @@ export async function extractIconRaster(
     const width = Math.max(1, Math.min(bitmap.width - x, Math.ceil(region.width)));
     const height = Math.max(1, Math.min(bitmap.height - y, Math.ceil(region.height)));
     const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
+    const outputSize = settings.outputSize || 1000;
+    canvas.width = outputSize;
+    canvas.height = outputSize;
     const context = canvas.getContext("2d", { willReadFrequently: true });
     if (!context) throw new Error("当前浏览器无法提取图标");
-    context.drawImage(bitmap, x, y, width, height, 0, 0, width, height);
-    const imageData = context.getImageData(0, 0, width, height);
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
+    const scale = Math.min(outputSize / width, outputSize / height);
+    const drawWidth = Math.max(1, Math.round(width * scale));
+    const drawHeight = Math.max(1, Math.round(height * scale));
+    const drawX = Math.round((outputSize - drawWidth) / 2);
+    const drawY = Math.round((outputSize - drawHeight) / 2);
+    context.drawImage(
+      bitmap,
+      x,
+      y,
+      width,
+      height,
+      drawX,
+      drawY,
+      drawWidth,
+      drawHeight,
+    );
+    const imageData = context.getImageData(0, 0, outputSize, outputSize);
     const output = settings.outputColor === "white" ? 255 : 0;
     for (let offset = 0; offset < imageData.data.length; offset += 4) {
       const red = imageData.data[offset];

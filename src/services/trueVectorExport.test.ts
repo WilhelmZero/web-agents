@@ -63,10 +63,12 @@ describe('true vector export eligibility', () => {
   it('keeps every small path and tight curve in fine icon tracing', () => {
     expect(buildMonochromeTraceConfig('fine')).toMatchObject({
       scale: 3,
-      ltres: 0.16,
-      qtres: 0.16,
+      maximumDimension: 1600,
+      ltres: 1.15,
+      qtres: 1.15,
       pathomit: 0,
       roundcoords: 3,
+      smoothRadius: 2,
     });
   });
 

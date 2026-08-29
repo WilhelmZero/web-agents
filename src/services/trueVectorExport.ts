@@ -17,6 +17,7 @@ export interface MonochromeTraceConfig {
   qtres: number;
   pathomit: number;
   roundcoords: number;
+  smoothRadius: number;
 }
 
 export function analyzeVectorEligibility(imageData: Pick<ImageData, 'data' | 'width' | 'height'>): VectorEligibility {
@@ -80,23 +81,25 @@ export function buildMonochromeTraceConfig(
   if (precision === 'ultra') {
     return {
       scale: 4,
-      maximumDimension: 1800,
-      alphaCutoff: 48,
-      ltres: 0.05,
-      qtres: 0.05,
+      maximumDimension: 2200,
+      alphaCutoff: 88,
+      ltres: 0.55,
+      qtres: 0.55,
       pathomit: 0,
       roundcoords: 3,
+      smoothRadius: 1,
     };
   }
   if (precision === 'fine') {
     return {
       scale: 3,
-      maximumDimension: 1400,
-      alphaCutoff: 64,
-      ltres: 0.16,
-      qtres: 0.16,
+      maximumDimension: 1600,
+      alphaCutoff: 96,
+      ltres: 1.15,
+      qtres: 1.15,
       pathomit: 0,
       roundcoords: 3,
+      smoothRadius: 2,
     };
   }
   return {
@@ -107,7 +110,45 @@ export function buildMonochromeTraceConfig(
     qtres: 0.75,
     pathomit: 2,
     roundcoords: 2,
+    smoothRadius: 1,
   };
+}
+
+function smoothAlphaChannel(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  radius: number,
+) {
+  if (radius <= 0) return;
+  const size = width * height;
+  const source = new Uint8ClampedArray(size);
+  const horizontal = new Uint8ClampedArray(size);
+  for (let index = 0; index < size; index += 1)
+    source[index] = data[index * 4 + 3];
+  for (let y = 0; y < height; y += 1) {
+    let sum = 0;
+    for (let x = -radius; x <= radius; x += 1)
+      sum += source[y * width + Math.max(0, Math.min(width - 1, x))];
+    for (let x = 0; x < width; x += 1) {
+      horizontal[y * width + x] = Math.round(sum / (radius * 2 + 1));
+      const removeX = Math.max(0, x - radius);
+      const addX = Math.min(width - 1, x + radius + 1);
+      sum += source[y * width + addX] - source[y * width + removeX];
+    }
+  }
+  for (let x = 0; x < width; x += 1) {
+    let sum = 0;
+    for (let y = -radius; y <= radius; y += 1)
+      sum += horizontal[Math.max(0, Math.min(height - 1, y)) * width + x];
+    for (let y = 0; y < height; y += 1) {
+      data[(y * width + x) * 4 + 3] = Math.round(sum / (radius * 2 + 1));
+      const removeY = Math.max(0, y - radius);
+      const addY = Math.min(height - 1, y + radius + 1);
+      sum +=
+        horizontal[addY * width + x] - horizontal[removeY * width + x];
+    }
+  }
 }
 
 export function resolveVectorTraceEngine(analysis: VectorEligibility, requestedColors: number | undefined, engine: VectorTraceEngine): Exclude<VectorTraceEngine, 'auto'> {
@@ -237,6 +278,12 @@ export async function vectorizeMonochromeIconToSvg(
   context.drawImage(bitmap, 0, 0, width, height);
   bitmap.close();
   const imageData = context.getImageData(0, 0, width, height);
+  smoothAlphaChannel(
+    imageData.data,
+    imageData.width,
+    imageData.height,
+    config.smoothRadius,
+  );
   const value = outputColor === 'white' ? 255 : 0;
   for (let offset = 0; offset < imageData.data.length; offset += 4) {
     const visible = imageData.data[offset + 3] >= config.alphaCutoff;

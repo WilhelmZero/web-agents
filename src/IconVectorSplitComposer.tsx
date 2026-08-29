@@ -314,6 +314,25 @@ export default function IconVectorSplitComposer() {
             ]}
           />
         </Form.Item>
+        <Form.Item
+          label="输出画布"
+          extra="PNG 和 SVG 均使用正方形透明画布；默认 1000×1000，放大检查时不会再使用低分辨率裁切图"
+        >
+          <Segmented
+            block
+            value={settings.outputSize}
+            onChange={(outputSize) =>
+              patchSettings({
+                outputSize: Number(outputSize) as IconVectorSplitSettings["outputSize"],
+              })
+            }
+            options={[
+              { value: 512, label: "512" },
+              { value: 1000, label: "1000" },
+              { value: 2000, label: "2000" },
+            ]}
+          />
+        </Form.Item>
         <Button
           block
           type="primary"
