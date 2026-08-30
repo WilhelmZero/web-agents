@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { analyzeVectorEligibility, buildMonochromeTraceConfig, buildVectorTraceConfig, buildVTracerConfig, extractColorPreservingPalette, preserveVectorOutputSize, resolveVectorTraceEngine, serializeVisibleSvg } from './trueVectorExport';
+import { analyzeVectorEligibility, buildBinaryVTracerConfig, buildMonochromeTraceConfig, buildVectorTraceConfig, buildVTracerConfig, extractColorPreservingPalette, preserveVectorOutputSize, resolveAdaptiveAlphaCutoff, resolveVectorTraceEngine, serializeVisibleSvg } from './trueVectorExport';
 
 describe('true vector export eligibility', () => {
   it('accepts simple two-color artwork', () => {
@@ -79,6 +79,24 @@ describe('true vector export eligibility', () => {
     expect(ultra.ltres).toBeLessThan(fine.ltres);
     expect(ultra.qtres).toBeLessThan(fine.qtres);
     expect(ultra.pathomit).toBe(0);
+  });
+
+  it('uses extra iterations and coordinate precision for ultra spline tracing', () => {
+    const fine = buildBinaryVTracerConfig('fine');
+    const ultra = buildBinaryVTracerConfig('ultra');
+    expect(ultra.max_iterations).toBeGreaterThan(fine.max_iterations);
+    expect(ultra.path_precision).toBeGreaterThan(fine.path_precision);
+    expect(fine.filter_speckle).toBe(2);
+    expect(ultra.filter_speckle).toBe(0);
+  });
+
+  it('adapts alpha threshold while keeping it inside a detail-safe range', () => {
+    const data = new Uint8ClampedArray(40 * 4);
+    for (let index = 0; index < 40; index += 1)
+      data[index * 4 + 3] = index < 30 ? 0 : index < 35 ? 88 : 255;
+    const cutoff = resolveAdaptiveAlphaCutoff(data, 96);
+    expect(cutoff).toBeGreaterThanOrEqual(96);
+    expect(cutoff).toBeLessThanOrEqual(160);
   });
 
   it('uses compact stacked color clustering for complex artwork', () => {

@@ -20,6 +20,16 @@ export interface MonochromeTraceConfig {
   smoothRadius: number;
 }
 
+export interface BinaryVTracerConfig {
+  mode: 'spline';
+  corner_threshold: number;
+  length_threshold: number;
+  max_iterations: number;
+  splice_threshold: number;
+  filter_speckle: number;
+  path_precision: number;
+}
+
 interface VTracerWasmConverter {
   init: () => void;
   tick: () => boolean;
@@ -139,6 +149,72 @@ export function buildMonochromeTraceConfig(
   };
 }
 
+export function buildBinaryVTracerConfig(
+  precision: MonochromeVectorPrecision,
+): BinaryVTracerConfig {
+  if (precision === 'ultra') {
+    return {
+      mode: 'spline',
+      corner_threshold: Math.PI / 3,
+      length_threshold: 3.5,
+      max_iterations: 16,
+      splice_threshold: Math.PI / 4,
+      filter_speckle: 0,
+      path_precision: 4,
+    };
+  }
+  return {
+    mode: 'spline',
+    corner_threshold: Math.PI / 3,
+    length_threshold: 3.5,
+    max_iterations: 12,
+    splice_threshold: Math.PI / 4,
+    filter_speckle: 2,
+    path_precision: 3,
+  };
+}
+
+export function resolveAdaptiveAlphaCutoff(
+  data: Uint8ClampedArray,
+  fallback: number,
+) {
+  const histogram = new Uint32Array(256);
+  let pixels = 0;
+  const totalPixels = Math.floor(data.length / 4);
+  const sampleStep = Math.max(1, Math.floor(totalPixels / 100000));
+  for (let pixel = 0; pixel < totalPixels; pixel += sampleStep) {
+    const offset = pixel * 4 + 3;
+    histogram[data[offset]] += 1;
+    pixels += 1;
+  }
+  if (!pixels) return fallback;
+  let total = 0;
+  for (let alpha = 0; alpha < 256; alpha += 1)
+    total += alpha * histogram[alpha];
+  let backgroundWeight = 0;
+  let backgroundTotal = 0;
+  let bestVariance = -1;
+  let otsu = fallback;
+  for (let alpha = 0; alpha < 255; alpha += 1) {
+    backgroundWeight += histogram[alpha];
+    if (!backgroundWeight) continue;
+    const foregroundWeight = pixels - backgroundWeight;
+    if (!foregroundWeight) break;
+    backgroundTotal += alpha * histogram[alpha];
+    const backgroundMean = backgroundTotal / backgroundWeight;
+    const foregroundMean = (total - backgroundTotal) / foregroundWeight;
+    const variance =
+      backgroundWeight * foregroundWeight *
+      (backgroundMean - foregroundMean) ** 2;
+    if (variance > bestVariance) {
+      bestVariance = variance;
+      otsu = alpha;
+    }
+  }
+  const adaptive = Math.round(fallback * 0.65 + otsu * 0.35);
+  return Math.max(fallback, Math.min(160, adaptive));
+}
+
 function smoothAlphaChannel(
   data: Uint8ClampedArray,
   width: number,
@@ -241,6 +317,7 @@ async function vectorizeComplexImage(imageData: ImageData): Promise<string> {
 async function vectorizeBinaryLogo(
   imageData: ImageData,
   outputColor: 'black' | 'white',
+  precision: MonochromeVectorPrecision,
 ): Promise<string> {
   const binary = new ImageData(imageData.width, imageData.height);
   for (let offset = 0; offset < imageData.data.length; offset += 4) {
@@ -271,13 +348,7 @@ async function vectorizeBinaryLogo(
       JSON.stringify({
         canvas_id: canvas.id,
         svg_id: svg.id,
-        mode: 'spline',
-        corner_threshold: Math.PI / 3,
-        length_threshold: 3.5,
-        max_iterations: 12,
-        splice_threshold: Math.PI / 4,
-        filter_speckle: 0,
-        path_precision: 3,
+        ...buildBinaryVTracerConfig(precision),
       }),
     );
     try {
@@ -370,15 +441,19 @@ export async function vectorizeMonochromeIconToSvg(
     config.smoothRadius,
   );
   const value = outputColor === 'white' ? 255 : 0;
+  const adaptiveCutoff = resolveAdaptiveAlphaCutoff(
+    imageData.data,
+    config.alphaCutoff,
+  );
   for (let offset = 0; offset < imageData.data.length; offset += 4) {
-    const visible = imageData.data[offset + 3] >= config.alphaCutoff;
+    const visible = imageData.data[offset + 3] >= adaptiveCutoff;
     imageData.data[offset] = value;
     imageData.data[offset + 1] = value;
     imageData.data[offset + 2] = value;
     imageData.data[offset + 3] = visible ? 255 : 0;
   }
   if (precision !== 'standard') {
-    const svg = await vectorizeBinaryLogo(imageData, outputColor);
+    const svg = await vectorizeBinaryLogo(imageData, outputColor, precision);
     return new Blob(
       [preserveVectorOutputSize(svg, original.width, original.height)],
       { type: 'image/svg+xml;charset=utf-8' },
