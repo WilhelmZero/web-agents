@@ -26,6 +26,7 @@ export type CreationTool =
   | "logo-removal"
   | "logo-export"
   | "icon-vector-split"
+  | "custom-monochrome-logo"
   | "paper-text"
   | "background-removal"
   | "outpaint"

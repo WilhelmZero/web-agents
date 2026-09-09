@@ -109,6 +109,7 @@ import DesktopTaskCenter from "./DesktopTaskCenter";
 import OriginalCompareImage from "./OriginalCompareImage";
 import GlobalGenerationStats from "./GlobalGenerationStats";
 import IconVectorSplitComposer from "./IconVectorSplitComposer";
+import CustomMonochromeLogoComposer from "./CustomMonochromeLogoComposer";
 import { useLanguage } from "./i18n";
 import { readLocalStorage } from "./storage";
 import {
@@ -245,6 +246,12 @@ const CREATION_TOOL_ITEMS: Array<{
     icon: <DownloadOutlined />,
     label: "批量导出 Logo",
     description: "从图片或 PSD 图层批量整理 Logo",
+  },
+  {
+    key: "custom-monochrome-logo",
+    icon: <ScissorOutlined />,
+    label: "客户定制黑白 Logo",
+    description: "照片雕刻、自动审核优化与黑白 PNG 输出",
   },
   {
     key: "icon-vector-split",
@@ -1509,7 +1516,7 @@ function AppContent() {
                 />
               </Tooltip>
             )}
-            {compact && !showPinnedHome && creationTool !== "icon-vector-split" && (
+            {compact && !showPinnedHome && !["icon-vector-split", "custom-monochrome-logo"].includes(creationTool) && (
               <Button
                 icon={<SettingOutlined />}
                 onClick={() => setSettingsOpen(true)}
@@ -1817,6 +1824,9 @@ function AppContent() {
               </div>
               <div hidden={creationTool !== "icon-vector-split"}>
                 <IconVectorSplitComposer />
+              </div>
+              <div hidden={creationTool !== "custom-monochrome-logo"}>
+                <CustomMonochromeLogoComposer openAiApiKey={settings.openAiApiKey} onConfigureKey={() => setKeyOpen(true)} />
               </div>
               <div hidden={creationTool !== "background-removal"}>
                 <BackgroundRemovalComposer
@@ -2468,7 +2478,7 @@ function AppContent() {
       >
         {creationTool === "scene" ? (
           settingsPanel
-        ) : compact && creationTool !== "icon-vector-split" ? (
+        ) : compact && !["icon-vector-split", "custom-monochrome-logo"].includes(creationTool) ? (
           <div
             ref={
               creationTool === "logo"

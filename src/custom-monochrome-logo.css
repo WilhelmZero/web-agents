@@ -1,0 +1,141 @@
+.custom-monochrome-logo {
+  padding: 20px;
+  max-width: 1800px;
+  margin: auto;
+}
+.custom-monochrome-logo header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.custom-monochrome-logo h2 {
+  margin: 0 0 8px;
+}
+.custom-monochrome-logo p,
+.custom-monochrome-logo small {
+  color: var(--text-secondary, #85909f);
+}
+.custom-monochrome-logo .engraving-layout {
+  display: grid;
+  grid-template-columns: 310px minmax(0, 1fr);
+  gap: 20px;
+}
+.custom-monochrome-logo aside,
+.custom-monochrome-logo main {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.custom-monochrome-logo label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+.custom-monochrome-logo .engraving-inline {
+  flex-direction: row;
+  justify-content: space-between;
+}
+.custom-monochrome-logo .ant-alert {
+  margin-bottom: 12px;
+}
+.custom-monochrome-logo .engraving-comparison {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.custom-monochrome-logo .engraving-image {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.custom-monochrome-logo .engraving-image .ant-image {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  border-radius: 10px;
+  overflow: hidden;
+  min-height: 240px;
+}
+.custom-monochrome-logo .engraving-image img {
+  max-height: 560px;
+  object-fit: contain;
+}
+.custom-monochrome-logo .engraving-empty {
+  min-height: 360px;
+  background: #11151c;
+  color: #8691a2;
+  border: 1px dashed #394353;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+.custom-monochrome-logo .engraving-candidates {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+.custom-monochrome-logo .engraving-candidates .engraving-image img {
+  max-height: 280px;
+}
+.custom-monochrome-logo .engraving-candidates small {
+  overflow-wrap: anywhere;
+}
+.engraving-mask-stage {
+  height: 55vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: #171b23;
+  margin: 16px 0;
+}
+.engraving-mask-stage > div {
+  position: relative;
+  max-height: 100%;
+  max-width: 100%;
+  height: 100%;
+}
+.engraving-mask-stage img,
+.engraving-mask-stage canvas {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  top: 0;
+  left: 0;
+  object-fit: contain;
+}
+.engraving-mask-stage canvas {
+  touch-action: none;
+  opacity: 0.6;
+  cursor: crosshair;
+}
+@media (max-width: 900px) {
+  .custom-monochrome-logo .engraving-layout {
+    grid-template-columns: 260px minmax(0, 1fr);
+    gap: 12px;
+  }
+  .custom-monochrome-logo .engraving-comparison {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 650px) {
+  .custom-monochrome-logo {
+    padding: 12px;
+  }
+  .custom-monochrome-logo header {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .custom-monochrome-logo .engraving-layout {
+    grid-template-columns: 1fr;
+  }
+  .custom-monochrome-logo .engraving-empty {
+    min-height: 220px;
+  }
+}

@@ -18,6 +18,16 @@ export type AppLanguage = "zh-CN" | "en-US";
 const LANGUAGE_KEY = "scene-studio-language";
 
 const translations: Record<string, string> = {
+  "客户定制黑白 Logo": "Custom monochrome logo",
+  "照片雕刻、自动审核优化与黑白 PNG 输出": "Photo engraving, automatic review and monochrome PNG export",
+  "工具设置": "Tool settings",
+  "上传客户照片": "Upload customer photo",
+  "生成黑白 Logo": "Generate monochrome logo",
+  "停止后续步骤": "Stop subsequent steps",
+  "完整尺寸导出": "Export at full resolution",
+  "背景擦除校正": "Background erasure correction",
+  "自动优化": "Automatic optimization",
+  "各轮评分与候选结果": "Round scores and candidate results",
   杯子大小精确调整: "Precise cup resizing",
   精确调整场景里的杯子大小: "Precisely resize a cup in a scene",
   "先按像素确定杯子的位置、尺寸和白底画布，再让 AI 只完成自然融合。":
