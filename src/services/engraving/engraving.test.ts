@@ -222,7 +222,7 @@ describe("ported automatic optimization state machine", () => {
     expect(() => validateAutoOptions({ maxRounds: 11 })).toThrow();
     expect(() => validateReview({})).toThrow();
   });
-  it("passes only at thresholds including identity and subjects", async () => {
+  it("stops immediately when the average reaches the target", async () => {
     const d = dependencies();
     const run = await runAutoTune(d);
     expect(run.status).toBe("completed");
@@ -235,6 +235,7 @@ describe("ported automatic optimization state machine", () => {
     d.review = vi.fn(async () =>
       ++n === 1
         ? assessment({
+            scores: { ...assessment().scores, texture: 20 },
             issues: ["texture_weak"],
             action: "adjust",
             adjustments: {
@@ -257,7 +258,13 @@ describe("ported automatic optimization state machine", () => {
     const d = dependencies();
     d.options.maxRounds = 2;
     d.review = vi.fn(async () =>
-      assessment({ issues: ["identity"], action: "regenerate" }),
+      assessment({
+        scores: { ...assessment().scores, identity: 20 },
+        issues: ["identity"],
+        action: "regenerate",
+        suggestions:
+          "左侧人物的眼睛形状改变，恢复原照眼角与瞳孔轮廓，保留已正确的衣物纹理。",
+      }),
     );
     const result = await runAutoTune(d);
     expect(result.status).toBe("limit");
@@ -270,6 +277,19 @@ describe("ported automatic optimization state machine", () => {
       "Restore the exact original faces",
     );
     expect(result.best).not.toBeNull();
+    expect(vi.mocked(d.generate).mock.calls[1][0].feedback).toContain(
+      "左侧人物的眼睛形状改变",
+    );
+    expect(result.rounds[0].suggestions).toContain("衣物纹理");
+  });
+  it("does not continue billing at target even when the review suggests regeneration", async () => {
+    const d = dependencies();
+    d.review = vi.fn(async () =>
+      assessment({ action: "regenerate", issues: ["hair_dark"] }),
+    );
+    const result = await runAutoTune(d);
+    expect(result.status).toBe("completed");
+    expect(d.generate).toHaveBeenCalledTimes(1);
   });
   it("saves a paid image returned after stop and does not start its review", async () => {
     const d = dependencies();

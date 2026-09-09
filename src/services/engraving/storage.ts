@@ -1,6 +1,7 @@
 import type { Preferences, SavedTask } from "./types";
+import { OPENAI_ROOT } from "../openAiEndpoint";
 export const DEFAULT_PREFERENCES: Preferences = {
-  baseUrl: "https://api.openai.com/v1",
+  baseUrl: OPENAI_ROOT,
   imageModel: "gpt-image-2",
   reviewModel: "gpt-5.4-mini",
   quality: "high",
@@ -19,7 +20,6 @@ export function loadPreferences(): Preferences {
     if (p?.version !== 1 || !p.settings) return { ...DEFAULT_PREFERENCES };
     const out = { ...DEFAULT_PREFERENCES };
     for (const key of [
-      "baseUrl",
       "imageModel",
       "reviewModel",
       "instructions",
@@ -57,7 +57,7 @@ export function loadPreferences(): Preferences {
 export function savePreferences(value: Preferences) {
   // Explicit allowlist: never persist API credentials even if supplied at runtime.
   const settings = Object.fromEntries(
-    Object.keys(DEFAULT_PREFERENCES).map((key) => [
+    Object.keys(DEFAULT_PREFERENCES).filter((key) => key !== "baseUrl").map((key) => [
       key,
       value[key as keyof Preferences],
     ]),

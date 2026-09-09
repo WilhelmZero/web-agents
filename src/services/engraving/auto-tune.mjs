@@ -11,8 +11,7 @@ export function validateAutoOptions(value = {}) {
 
 function assessed(review, target) {
   const score = Math.round(SCORE_KEYS.reduce((sum, key) => sum + review.scores[key], 0) / SCORE_KEYS.length);
-  const passed = score >= target && Math.min(...SCORE_KEYS.map(key => review.scores[key])) >= target - 5 &&
-    review.scores.identity >= 90 && review.scores.subjects >= 90 && review.issues.length === 0;
+  const passed = score >= target;
   return { ...review, score, passed, issueLabels: review.issues.map(key => ISSUES[key]) };
 }
 
@@ -78,7 +77,7 @@ export async function runAutoTune({ original, reference, config, subject, instru
       } else {
         action = 'generate';
         const issues = [...assessment.issues, ...SCORE_KEYS.filter(k => assessment.scores[k] < (['identity', 'subjects'].includes(k) ? Math.max(90, targetScore) : targetScore)).map(k => ({ hair: 'hair_dark', texture: 'texture_weak', tones: 'highlights' }[k] || k))];
-        feedback = issues.map(issue => FIXES[issue]).filter(Boolean).join('\n');
+        feedback = [assessment.suggestions, ...issues.map(issue => FIXES[issue])].filter(Boolean).join('\n');
         params = validateOptions({ ...initialParams, eraseMask: undefined, preview: false });
       }
     }

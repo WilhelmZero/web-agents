@@ -18,7 +18,7 @@ export default function EngravingMaskEditor({
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const history = useRef<({ x: number; y: number }[] | null)[]>([]);
-  const stage = useRef<HTMLDivElement>(null);
+  const [stageElement, setStageElement] = useState<HTMLDivElement | null>(null);
   const [displaySize, setDisplaySize] = useState({ width: 1, height: 1 });
   const widths = useRef<number[]>([]);
   const undoFloor = useRef(0);
@@ -51,17 +51,21 @@ export default function EngravingMaskEditor({
     });
   }
   useEffect(() => {
-    const element = stage.current;
+    const element = stageElement;
     if (!element) return;
-    const observer = new ResizeObserver(() => {
+    const measure = () => {
       const box = element.getBoundingClientRect();
+      if (!box.width || !box.height) return;
       const ratio = Math.min(box.width / job.width, box.height / job.height);
       setDisplaySize({ width: job.width * ratio, height: job.height * ratio });
-    });
+    };
+    const observer = new ResizeObserver(measure);
+    measure();
     observer.observe(element);
     return () => observer.disconnect();
-  }, [job.width, job.height]);
+  }, [stageElement, job.width, job.height]);
   useEffect(() => {
+    if (!stageElement) return;
     if (!value) {
       setReady(true);
       return;
@@ -102,7 +106,7 @@ export default function EngravingMaskEditor({
     return () => {
       disposed = true;
     };
-  }, [job.width, job.height, value]);
+  }, [stageElement, job.width, job.height, value]);
   function point(event: PointerEvent<HTMLCanvasElement>) {
     const box = event.currentTarget.getBoundingClientRect();
     return {
@@ -152,7 +156,7 @@ export default function EngravingMaskEditor({
       <Space wrap>
         <span>画笔大小</span>
         <Slider
-          aria-label="画笔大小"
+          ariaLabelForHandle="画笔大小"
           style={{ width: 160 }}
           min={5}
           max={120}
@@ -186,7 +190,7 @@ export default function EngravingMaskEditor({
           清空
         </Button>
       </Space>
-      <div ref={stage} className="engraving-mask-stage">
+      <div ref={setStageElement} className="engraving-mask-stage">
         <div style={displaySize}>
           <img src={sourceUrl} alt="待擦除生成图" />
           <canvas

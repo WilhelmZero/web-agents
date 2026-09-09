@@ -1,7 +1,16 @@
 .custom-monochrome-logo {
-  padding: 20px;
-  max-width: 1800px;
-  margin: auto;
+  padding: 16px 20px 0;
+  height: calc(100dvh - 72px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.workspace-layout.is-engraving .content-inner {
+  max-width: none;
+  padding: 0;
+}
+.workspace-layout.is-engraving .main-content {
+  overflow: hidden;
 }
 .custom-monochrome-logo header {
   display: flex;
@@ -19,8 +28,25 @@
 }
 .custom-monochrome-logo .engraving-layout {
   display: grid;
-  grid-template-columns: 310px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) 330px;
   gap: 20px;
+  flex: 1;
+  min-height: 0;
+}
+.custom-monochrome-logo .engraving-settings {
+  grid-column: 2;
+  grid-row: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 0 10px 24px 0;
+}
+.custom-monochrome-logo main {
+  grid-column: 1;
+  grid-row: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 24px;
 }
 .custom-monochrome-logo aside,
 .custom-monochrome-logo main {
@@ -63,11 +89,12 @@
   min-height: 240px;
 }
 .custom-monochrome-logo .engraving-image img {
-  max-height: 560px;
+  width: 100%;
+  height: clamp(380px, 65vh, 850px);
   object-fit: contain;
 }
 .custom-monochrome-logo .engraving-empty {
-  min-height: 360px;
+  min-height: clamp(380px, 65vh, 850px);
   background: #11151c;
   color: #8691a2;
   border: 1px dashed #394353;
@@ -110,6 +137,37 @@
   left: 0;
   object-fit: contain;
 }
+.engraving-mask-stage img {
+  background: #000;
+}
+.custom-monochrome-logo .engraving-result-card > .ant-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.custom-monochrome-logo .engraving-result-card .ant-image {
+  background: #000;
+}
+.custom-monochrome-logo .engraving-result-card .ant-image img {
+  width: 100%;
+  max-height: 500px;
+  object-fit: contain;
+}
+.custom-monochrome-logo .engraving-raw-images {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.custom-monochrome-logo .engraving-result-card pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.custom-monochrome-logo .engraving-results-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
 .engraving-mask-stage canvas {
   touch-action: none;
   opacity: 0.6;
@@ -117,7 +175,7 @@
 }
 @media (max-width: 900px) {
   .custom-monochrome-logo .engraving-layout {
-    grid-template-columns: 260px minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) 280px;
     gap: 12px;
   }
   .custom-monochrome-logo .engraving-comparison {
@@ -127,6 +185,8 @@
 @media (max-width: 650px) {
   .custom-monochrome-logo {
     padding: 12px;
+    height: auto;
+    overflow: visible;
   }
   .custom-monochrome-logo header {
     align-items: flex-start;
@@ -134,6 +194,19 @@
   }
   .custom-monochrome-logo .engraving-layout {
     grid-template-columns: 1fr;
+  }
+  .custom-monochrome-logo main {
+    grid-column: 1;
+    grid-row: 1;
+    overflow: visible;
+  }
+  .custom-monochrome-logo .engraving-settings {
+    grid-column: 1;
+    grid-row: 2;
+    max-height: 70dvh;
+  }
+  .custom-monochrome-logo .engraving-image img {
+    height: 380px;
   }
   .custom-monochrome-logo .engraving-empty {
     min-height: 220px;

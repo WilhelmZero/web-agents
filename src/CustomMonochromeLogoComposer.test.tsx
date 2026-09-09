@@ -4,9 +4,11 @@ import {
   screen,
   waitFor,
   cleanup,
+  within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import CustomMonochromeLogoComposer from "./CustomMonochromeLogoComposer";
+import * as engravingApi from "./services/engraving/api";
 vi.mock("./services/engraving/storage", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./services/engraving/storage")>()),
   loadTask: vi.fn(async () => undefined),
@@ -39,14 +41,29 @@ describe("customer monochrome page", () => {
       screen
         .queryAllByRole("img")
         .filter((el) => (el as HTMLImageElement).src?.includes("reference")),
-    ).toHaveLength(0);
+    ).toHaveLength(1);
+    expect(screen.getByRole('button',{name:/上传风格参考图/})).toBeInTheDocument();
+    expect(screen.queryByText('3 · 雕刻参数')).not.toBeInTheDocument();
+    expect(screen.getByRole('button',{name:/补充提示词再生成一张/})).toBeDisabled();
+    expect(screen.getByRole('combobox',{name:'常用 DPI'})).toBeInTheDocument();
     expect(screen.getAllByRole("switch")[0]).toBeChecked();
-    fireEvent.click(screen.getByRole("button", { name: /工具设置/ }));
-    await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: /工具设置/ })).not.toBeInTheDocument();
+    const panel = screen.getByRole("complementary", { name: "参数设置" });
+    expect(within(panel).getByDisplayValue("gpt-image-2")).toBeInTheDocument();
+    expect(within(panel).getByText("生成质量")).toBeInTheDocument();
+    expect(screen.queryByText("兼容 API 地址")).not.toBeInTheDocument();
     expect(screen.getByDisplayValue("gpt-image-2")).toBeInTheDocument();
     expect(screen.getByDisplayValue("gpt-5.4-mini")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /测试连接/ }),
     ).toBeInTheDocument();
+  }, 15000);
+  it("ignores legacy tool API addresses and tests the shared GPT endpoint", async () => {
+    localStorage.setItem("custom-monochrome-logo:settings:v1", JSON.stringify({version:1,settings:{baseUrl:"https://legacy.invalid/v1"}}));
+    const test = vi.spyOn(engravingApi, "testConnection").mockResolvedValue(1);
+    render(<CustomMonochromeLogoComposer openAiApiKey="mock-key" onConfigureKey={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: /测试连接/ }));
+    await waitFor(() => expect(test).toHaveBeenCalledWith(expect.objectContaining({baseUrl:"https://api.openai.com/v1",apiKey:"mock-key"})));
+    test.mockRestore();
   }, 15000);
 });

@@ -9,7 +9,7 @@ export const DEFAULTS = Object.freeze({
 });
 const RANGES = {
   texture: [0, 100], contrast: [0, 100], brightness: [0, 100], shadow: [0, 100],
-  blackPoint: [0, 40], widthMm: [10, 300], dpi: [150, 1200], margin: [0, 15],
+  blackPoint: [0, 40], widthMm: [10, 300], dpi: [72, 1200], margin: [0, 15],
 };
 const LABELS = {
   texture: '纹理', contrast: '对比度', brightness: '亮度', shadow: '暗部层次',

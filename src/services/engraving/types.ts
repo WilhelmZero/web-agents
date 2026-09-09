@@ -38,6 +38,7 @@ export interface ImageJob {
   warnings: string[];
 }
 export interface Review {
+  suggestions?: string;
   scores: Record<
     "identity" | "subjects" | "hair" | "texture" | "background" | "tones",
     number
@@ -125,4 +126,15 @@ export interface SavedTask {
   run?: AutoRun;
   startedAt?: number;
   endedAt?: number;
+  customReference?: Blob;
+  results?: StoredResult[];
+}
+export interface StoredResult {
+  job: ImageJob;
+  params: RenderParams;
+  initialParams: RenderParams;
+  reviews: Round[];
+  prompt?: string;
+  reference?: Blob;
+  createdAt: number;
 }

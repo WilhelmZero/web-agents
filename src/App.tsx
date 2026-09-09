@@ -1564,7 +1564,7 @@ function AppContent() {
       )}
 
       <Layout
-        className={`workspace-layout${showPinnedHome ? " is-tool-home" : ""}${creationTool === "workflow" && !showPinnedHome ? " is-workflow" : ""}`}
+        className={`workspace-layout${showPinnedHome ? " is-tool-home" : ""}${creationTool === "workflow" && !showPinnedHome ? " is-workflow" : ""}${creationTool === "custom-monochrome-logo" && !showPinnedHome ? " is-engraving" : ""}`}
       >
         <Sider
           width={214}

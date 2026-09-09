@@ -13,7 +13,7 @@ import {
 } from "./requestConsole";
 import { appendImageGenerationGuard } from "./imageGenerationGuard";
 
-const OPENAI_ROOT = "https://api.openai.com/v1";
+import { OPENAI_ROOT } from "./openAiEndpoint";
 
 async function openAiError(response: Response) {
   const body = (await response.json().catch(() => null)) as {
