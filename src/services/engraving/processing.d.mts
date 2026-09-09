@@ -33,3 +33,8 @@ export function dither(
   width: number,
   height: number,
 ): Uint8Array;
+export function cropPixels(
+  width: number,
+  height: number,
+  crop?: import("./types").CropRect | null,
+): { x: number; y: number; width: number; height: number };

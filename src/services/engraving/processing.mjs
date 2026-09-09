@@ -22,6 +22,9 @@ export function validateOptions(options = {}) {
     throw new TypeError('处理参数必须为对象。');
   }
   const result = { ...DEFAULTS, ...options };
+  if (result.pixelWidth !== undefined && (!Number.isInteger(result.pixelWidth) || result.pixelWidth < 1 || result.pixelWidth > MAX_IMAGE_EDGE)) throw new RangeError('像素宽度必须为 1–8192 的整数。');
+  if (result.pixelMargin !== undefined && (!Number.isInteger(result.pixelMargin) || result.pixelMargin < 0)) throw new RangeError('像素边距必须为非负整数。');
+  if (result.crop) cropPixels(10000, 10000, result.crop);
   for (const [name, [min, max]] of Object.entries(RANGES)) {
     if (typeof result[name] !== 'number' || !Number.isFinite(result[name])) {
       throw new TypeError(`${LABELS[name]}必须为有效数字。`);
@@ -36,7 +39,7 @@ export function validateOptions(options = {}) {
   for (const key of ['invert', 'preview']) {
     if (typeof result[key] !== 'boolean') throw new TypeError(`${key}必须为布尔值。`);
   }
-  if (result.margin * 2 >= result.widthMm) {
+  if (result.pixelWidth === undefined && result.margin * 2 >= result.widthMm) {
     throw new RangeError('左右边距之和必须小于成品宽度。');
   }
   if (result.eraseMask !== undefined && typeof result.eraseMask !== 'string') {
@@ -128,15 +131,24 @@ export function preparePixels(rgba, width, height, options, mask = null) {
   return { grayAlpha, width, height, visible };
 }
 
+export function cropPixels(width, height, crop) {
+  if (!crop) return { x: 0, y: 0, width, height };
+  if (![crop.x, crop.y, crop.width, crop.height].every(Number.isFinite) || crop.x < 0 || crop.y < 0 || crop.width <= 0 || crop.height <= 0 || crop.x + crop.width > 1.0000001 || crop.y + crop.height > 1.0000001) throw new RangeError('裁剪区域必须在图片范围内且不能为空。');
+  const x = Math.min(width - 1, Math.floor(crop.x * width));
+  const y = Math.min(height - 1, Math.floor(crop.y * height));
+  return { x, y, width: Math.max(1, Math.min(width, Math.round((crop.x + crop.width) * width)) - x), height: Math.max(1, Math.min(height, Math.round((crop.y + crop.height) * height)) - y) };
+}
+
 export function outputDimensions(sourceWidth, sourceHeight, options) {
-  let width = Math.round(options.widthMm * options.dpi / 25.4);
-  let margin = Math.round(options.margin * options.dpi / 25.4);
+  let width = options.pixelWidth ?? Math.round(options.widthMm * options.dpi / 25.4);
+  let margin = options.pixelWidth !== undefined ? (options.pixelMargin ?? 0) : Math.round(options.margin * options.dpi / 25.4);
   let contentWidth = width - margin * 2;
   if (contentWidth < 1) throw new RangeError('边距过大，图片没有可用的内容区域。');
   let contentHeight = Math.max(1, Math.round(contentWidth * sourceHeight / sourceWidth));
   let height = contentHeight + margin * 2;
-  if (options.preview && Math.max(width, height) > 1200) {
-    const ratio = 1200 / Math.max(width, height);
+  const previewEdge = Math.min(1200, Math.max(64, options.previewEdge || 1200));
+  if (options.preview && Math.max(width, height) > previewEdge) {
+    const ratio = previewEdge / Math.max(width, height);
     width = Math.max(1, Math.round(width * ratio));
     margin = Math.max(0, Math.round(margin * ratio));
     contentWidth = width - margin * 2;
@@ -144,16 +156,16 @@ export function outputDimensions(sourceWidth, sourceHeight, options) {
     contentHeight = Math.max(1, Math.round(contentWidth * sourceHeight / sourceWidth));
     height = contentHeight + margin * 2;
     // Rounding all dimensions independently can add one pixel to a tall canvas.
-    while (Math.max(width, height) > 1200 && contentWidth > 1) {
+    while (Math.max(width, height) > previewEdge && contentWidth > 1) {
       contentWidth--;
       width--;
       contentHeight = Math.max(1, Math.round(contentWidth * sourceHeight / sourceWidth));
       height = contentHeight + margin * 2;
     }
-    if (height > 1200) {
+    if (height > previewEdge) {
       // A subpixel-wide image must still occupy one output pixel.
-      contentHeight = 1200 - margin * 2;
-      height = 1200;
+      contentHeight = previewEdge - margin * 2;
+      height = previewEdge;
     }
   }
   assertDimensions(width, height, options.preview ? '预览图片' : '导出图片');

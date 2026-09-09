@@ -1,4 +1,13 @@
+export interface CropRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
 export interface RenderParams {
+  crop?: CropRect | null;
+  pixelWidth?: number;
+  pixelMargin?: number;
   texture: number;
   contrast: number;
   brightness: number;
@@ -10,6 +19,7 @@ export interface RenderParams {
   margin: number;
   invert: boolean;
   preview?: boolean;
+  previewEdge?: number;
   eraseMask?: string;
 }
 export type Subject = "auto" | "portrait" | "pet" | "group" | "horse";
@@ -130,6 +140,7 @@ export interface SavedTask {
   results?: StoredResult[];
 }
 export interface StoredResult {
+  manualParams?: Partial<RenderParams>;
   job: ImageJob;
   params: RenderParams;
   initialParams: RenderParams;

@@ -4,14 +4,12 @@ import {
   Alert,
   Button,
   Card,
-  Collapse,
   Image,
   Input,
   InputNumber,
   Modal,
   Progress,
   Select,
-  Slider,
   Space,
   Switch,
   Tag,
@@ -34,16 +32,11 @@ import {
 import { processInWorker } from "./services/engraving/workerClient";
 import type {
   AutoRun,
-  Candidate,
   ImageJob,
   Preferences,
-  RenderParams,
   SavedTask,
 } from "./services/engraving/types";
-import EngravingResultCard, {
-  EngravingCompareGroup,
-  DpiControl,
-} from "./components/EngravingResultCard";
+import EngravingGallery from "./components/EngravingGallery";
 import {
   taskResults,
   mergeReviews,
@@ -126,9 +119,6 @@ export default function CustomMonochromeLogoComposer({
   const [error, setError] = useState(""),
     [storageWarning, setStorageWarning] = useState(""),
     [notice, setNotice] = useState("");
-  const [preview, setPreview] = useState<{ blob: Blob; warnings: string[] }>(),
-    [rendering, setRendering] = useState(false),
-    [exporting, setExporting] = useState(false);
   const [additionalOpen, setAdditionalOpen] = useState(false),
     [additionalPrompt, setAdditionalPrompt] = useState(""),
     [testing, setTesting] = useState(false),
@@ -174,7 +164,7 @@ export default function CustomMonochromeLogoComposer({
     }
   }, [preferences]);
   useEffect(() => {
-    if (!loaded || busy) return;
+    if (!loaded) return;
     const timer = setTimeout(() => {
       void saveTask(task).catch(() =>
         setStorageWarning("本地任务保存失败，请先下载结果。"),
@@ -196,46 +186,8 @@ export default function CustomMonochromeLogoComposer({
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
   }, [busy]);
-  useEffect(() => {
-    const abort = new AbortController();
-    setPreview(undefined);
-    if (!task.job) {
-      setRendering(false);
-      return;
-    }
-    setRendering(true);
-    const job = task.job;
-    const timer = setTimeout(() => {
-      processInWorker(job.blob, { ...task.params, preview: true }, abort.signal)
-        .then((result) => {
-          if (!abort.signal.aborted) {
-            setPreview({ blob: result.buffer, warnings: result.warnings });
-            setError("");
-          }
-        })
-        .catch((e) => {
-          if (!abort.signal.aborted) setError(e.message);
-        })
-        .finally(() => {
-          if (!abort.signal.aborted) setRendering(false);
-        });
-    }, 350);
-    return () => {
-      clearTimeout(timer);
-      abort.abort();
-    };
-  }, [task.job, task.params]);
   const patchPreferences = (patch: Partial<Preferences>) =>
     setPreferences((previous) => ({ ...previous, ...patch }));
-  const patchParams = (patch: Partial<RenderParams>) =>
-    updateTask(
-      taskRef.current.job
-        ? changeResultParams(taskRef.current, taskRef.current.job.id, patch)
-        : {
-            ...taskRef.current,
-            params: { ...taskRef.current.params, ...patch },
-          },
-    );
   async function upload(file: File) {
     if (active.current || uploading || !loaded) return;
     setUploading(true);
@@ -247,7 +199,7 @@ export default function CustomMonochromeLogoComposer({
         original: result.buffer,
         customReference: taskRef.current.customReference,
         fileName: file.name,
-        params: { ...taskRef.current.params, eraseMask: undefined },
+        params: { ...taskRef.current.params, eraseMask: undefined, crop: null },
       });
       setNotice(result.warnings.join("；"));
     } catch (e) {
@@ -255,14 +207,6 @@ export default function CustomMonochromeLogoComposer({
     } finally {
       setUploading(false);
     }
-  }
-  function adopt(candidate: Candidate) {
-    if (active.current) return;
-    updateTask({
-      ...taskRef.current,
-      job: candidate.job,
-      params: { ...candidate.params },
-    });
   }
   async function startGeneration(additional?: string) {
     if (active.current || !taskRef.current.original) return;
@@ -352,15 +296,19 @@ export default function CustomMonochromeLogoComposer({
             ...taskResults(taskRef.current),
             {
               job,
-              params: { ...initial.params, eraseMask: undefined },
-              initialParams: { ...initial.params, eraseMask: undefined },
+              params: { ...initial.params, eraseMask: undefined, crop: null },
+              initialParams: {
+                ...initial.params,
+                eraseMask: undefined,
+                crop: null,
+              },
               reviews: [],
               createdAt: Date.now(),
               reference: usedReference,
               prompt: lastPrompt,
             },
           ],
-          params: { ...initial.params, eraseMask: undefined },
+          params: { ...initial.params, eraseMask: undefined, crop: null },
         });
         return job;
       };
@@ -403,7 +351,7 @@ export default function CustomMonochromeLogoComposer({
             : "生成完成，请人工检查",
           fallback: {
             job,
-            params: { ...initial.params, eraseMask: undefined },
+            params: { ...initial.params, eraseMask: undefined, crop: null },
             round: 1,
           },
         };
@@ -426,26 +374,6 @@ export default function CustomMonochromeLogoComposer({
       });
       active.current = false;
       setBusy(false);
-    }
-  }
-  async function exportResult() {
-    if (!task.job) return;
-    setExporting(true);
-    setError("");
-    try {
-      const result = await processInWorker(task.job.blob, {
-        ...task.params,
-        preview: false,
-      });
-      download(
-        result.buffer,
-        `${task.fileName.replace(/\.[^.]+$/, "") || "engraving"}-${task.params.widthMm}mm-${task.params.dpi}dpi.png`,
-      );
-      setNotice(result.warnings.join("；"));
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setExporting(false);
     }
   }
   const run = task.run;
@@ -736,66 +664,6 @@ export default function CustomMonochromeLogoComposer({
               ) : null}
             </Space>
           </Card>
-          <Card title="4 · 输出尺寸与下载" size="small">
-            <Space wrap align="end">
-              <label>
-                输出模式
-                <Select
-                  aria-label="输出模式"
-                  disabled={locked}
-                  value={task.params.mode}
-                  onChange={(mode) => patchParams({ mode })}
-                  options={[
-                    { value: "grayscale", label: "灰度 PNG" },
-                    { value: "dither", label: "二值点阵 PNG" },
-                  ]}
-                />
-              </label>
-              <label>
-                宽度（mm）
-                <InputNumber
-                  aria-label="宽度（mm）"
-                  disabled={locked}
-                  min={10}
-                  max={300}
-                  value={task.params.widthMm}
-                  onChange={(n) => n !== null && patchParams({ widthMm: n })}
-                />
-              </label>
-              <label>
-                DPI
-                <DpiControl
-                  value={task.params.dpi}
-                  disabled={locked}
-                  onChange={(dpi) => patchParams({ dpi })}
-                />
-              </label>
-              <label>
-                边距（mm）
-                <InputNumber
-                  aria-label="边距（mm）"
-                  disabled={locked}
-                  min={0}
-                  max={15}
-                  value={task.params.margin}
-                  onChange={(n) => n !== null && patchParams({ margin: n })}
-                />
-              </label>
-              <Button
-                type="primary"
-                icon={<DownloadOutlined />}
-                disabled={!task.job || locked}
-                loading={exporting}
-                onClick={() => void exportResult()}
-              >
-                完整尺寸导出
-              </Button>
-            </Space>
-            <p>
-              预览最长边 1200px；导出从生成原图重新计算，包含 DPI 元数据。最大
-              8192px / 2400 万像素。默认 80mm / 300 DPI = 945px 宽。
-            </p>
-          </Card>
         </aside>
         <main>
           {run ? (
@@ -826,38 +694,14 @@ export default function CustomMonochromeLogoComposer({
               />
             </Card>
           ) : null}
-          <EngravingCompareGroup original={task.original}>
-            <div className="engraving-comparison">
-              <PreviewImage blob={task.original} title="原照" />
-              <PreviewImage
-                blob={preview?.blob}
-                title={rendering ? "结果计算中…" : "雕刻结果"}
-              />
-            </div>
-          </EngravingCompareGroup>
-          {task.job?.warnings
-            .concat(preview?.warnings || [])
-            .map((warning, index) => (
-              <Alert key={index} type="warning" title={warning} />
-            ))}
-          <div className="engraving-results-list">
-            {results.map((result) => (
-              <EngravingResultCard
-                key={result.job.id}
-                result={result}
-                original={task.original}
-                disabled={locked}
-                onAdopt={() =>
-                  adopt({ job: result.job, params: result.params, round: 0 })
-                }
-                onChange={(patch) =>
-                  updateTask(
-                    changeResultParams(taskRef.current, result.job.id, patch),
-                  )
-                }
-              />
-            ))}
-          </div>
+          <PreviewImage blob={task.original} title="原照" />
+          <EngravingGallery
+            results={results}
+            original={task.original}
+            onChange={(id, patch) => {
+              updateTask(changeResultParams(taskRef.current, id, patch));
+            }}
+          />
         </main>
       </div>
       <Modal

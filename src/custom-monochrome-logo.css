@@ -164,9 +164,140 @@
   font-size: 12px;
 }
 .custom-monochrome-logo .engraving-results-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+.engraving-gallery {
+  container-type: inline-size;
+  min-width: 0;
+}
+.engraving-gallery-toolbar {
+  margin-bottom: 12px;
+}
+@container (min-width: 480px) {
+  .custom-monochrome-logo .engraving-results-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@container (min-width: 720px) {
+  .custom-monochrome-logo .engraving-results-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@container (min-width: 1000px) {
+  .custom-monochrome-logo .engraving-results-list {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+.engraving-result-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+}
+.custom-monochrome-logo .engraving-result-heading label {
+  width: auto;
+  flex-direction: row;
+}
+.engraving-preview-button {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: #080a0e;
+  color: #b8bfcb;
+  cursor: zoom-in;
+  overflow: hidden;
+  border-radius: 8px;
+}
+.engraving-result-card .engraving-preview-button {
+  height: 160px;
+}
+.engraving-preview-button img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  min-height: 0;
+}
+.engraving-editor-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 24px;
+}
+.engraving-editor-preview {
+  min-width: 0;
+}
+.engraving-editor-preview .engraving-preview-button {
+  height: 60dvh;
+  margin-bottom: 12px;
+}
+.engraving-editor-params {
+  max-height: 65dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding-right: 12px;
   display: flex;
   flex-direction: column;
+  gap: 14px;
+}
+.engraving-editor-params label,
+.engraving-export-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.engraving-editor-params pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.engraving-editor-params .ant-image img {
+  max-height: 220px;
+  object-fit: contain;
+  background: #000;
+}
+.engraving-crop-stage {
+  width: 100%;
+  height: 55dvh;
+  background: #111;
+  touch-action: none;
+  user-select: none;
+  cursor: crosshair;
+}
+.engraving-export-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 16px;
+}
+.engraving-export-sizes {
+  max-height: 150px;
+  overflow-y: auto;
+  margin-bottom: 12px;
+}
+.custom-monochrome-logo main > .engraving-image img {
+  height: 280px;
+}
+.custom-monochrome-logo main > .engraving-image .ant-image {
+  min-height: 0;
+}
+@media (max-width: 700px) {
+  .engraving-editor-layout {
+    grid-template-columns: 1fr;
+  }
+  .engraving-editor-preview .engraving-preview-button {
+    height: 35dvh;
+  }
+  .engraving-editor-params {
+    max-height: 38dvh;
+  }
+  .engraving-edit-modal {
+    top: 12px;
+  }
+  .engraving-export-fields {
+    grid-template-columns: 1fr;
+  }
 }
 .engraving-mask-stage canvas {
   touch-action: none;

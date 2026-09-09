@@ -28,10 +28,15 @@ export function mergeReviews(
   return results.map((result) => {
     const reviews = run.rounds.filter((r) => r.job.id === result.job.id);
     if (!reviews.length) return result;
+    if (
+      reviews.length === result.reviews.length &&
+      reviews.every((review, index) => review === result.reviews[index])
+    )
+      return result;
     return {
       ...result,
       reviews,
-      params: { ...reviews[reviews.length - 1].params },
+      params: { ...reviews[reviews.length - 1].params, ...result.manualParams },
     };
   });
 }
@@ -43,9 +48,13 @@ export function changeResultParams(
 ): SavedTask {
   const results = taskResults(task).map((result) =>
     result.job.id === id
-      ? { ...result, params: { ...result.params, ...patch } }
+      ? {
+          ...result,
+          params: { ...result.params, ...patch },
+          manualParams: { ...result.manualParams, ...patch },
+        }
       : result,
   );
-  const selected = results.find((r) => r.job.id === task.job?.id);
-  return { ...task, results, ...(selected ? { params: selected.params } : {}) };
+  // task.params belongs to the automatic pipeline, never to the result editor.
+  return { ...task, results };
 }

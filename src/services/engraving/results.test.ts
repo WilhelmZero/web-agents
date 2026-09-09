@@ -80,6 +80,7 @@ it("keeps previously generated results when merging a new run and preserves cust
   expect(merged).toEqual(results);
   expect(merged[0].job.blob).toBe(task.job?.blob);
   const selected = changeResultParams({ ...task, results }, "old", { dpi: 96 });
-  expect(selected.params.dpi).toBe(96);
+  expect(selected.params.dpi).toBe(300);
+  expect(selected.results?.[0].params.dpi).toBe(96);
   expect(selected.customReference).toBe(task.customReference);
 });

@@ -4,6 +4,7 @@ import {
   enhance,
   dither,
   validateOptions,
+  cropPixels,
 } from "./processing.mjs";
 import type { RenderParams, Rendered } from "./types";
 
@@ -194,15 +195,20 @@ export async function renderImage(
 ): Promise<Rendered> {
   const settings = validateOptions(options);
   const bitmap = await createImageBitmap(blob);
-  const width = bitmap.width,
-    height = bitmap.height;
-  if (width * height > 24_000_000 || Math.max(width, height) > 8192) {
+  const fullWidth = bitmap.width,
+    fullHeight = bitmap.height;
+  const region = cropPixels(fullWidth, fullHeight, settings.crop);
+  const { width, height } = region;
+  if (
+    fullWidth * fullHeight > 24_000_000 ||
+    Math.max(fullWidth, fullHeight) > 8192
+  ) {
     bitmap.close();
     throw new Error("处理图像超过 8192px / 2400 万像素限制。");
   }
   const inputCanvas = new OffscreenCanvas(width, height),
     ctx = context(inputCanvas);
-  ctx.drawImage(bitmap, 0, 0);
+  ctx.drawImage(bitmap, region.x, region.y, width, height, 0, 0, width, height);
   bitmap.close();
   let mask: Uint8ClampedArray | null = null;
   if (settings.eraseMask) {
@@ -215,11 +221,21 @@ export async function renderImage(
       await (await fetch(settings.eraseMask)).blob(),
     );
     try {
-      if (maskImage.width !== width || maskImage.height !== height)
+      if (maskImage.width !== fullWidth || maskImage.height !== fullHeight)
         throw new Error("擦除蒙版尺寸必须与生成图一致。");
       const maskCanvas = new OffscreenCanvas(width, height),
         mctx = context(maskCanvas);
-      mctx.drawImage(maskImage, 0, 0);
+      mctx.drawImage(
+        maskImage,
+        region.x,
+        region.y,
+        width,
+        height,
+        0,
+        0,
+        width,
+        height,
+      );
       mask = mctx.getImageData(0, 0, width, height).data;
     } finally {
       maskImage.close();
