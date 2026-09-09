@@ -5,7 +5,7 @@ export const MAX_IMAGE_EDGE = 8192;
 
 export const DEFAULTS = Object.freeze({
   texture: 65, contrast: 50, brightness: 50, shadow: 30, blackPoint: 10,
-  mode: 'grayscale', widthMm: 80, dpi: 300, margin: 4, invert: false, preview: false,
+  mode: 'grayscale', widthMm: 80, dpi: 800, margin: 0, invert: false, preview: false,
 });
 const RANGES = {
   texture: [0, 100], contrast: [0, 100], brightness: [0, 100], shadow: [0, 100],

@@ -17,10 +17,10 @@ export interface ExportSettings {
 export const EXPORT_DEFAULTS: ExportSettings = {
   unit: "mm",
   widthMm: 80,
-  dpi: 300,
-  margin: 4,
-  pixelWidth: 945,
-  pixelMargin: 47,
+  dpi: 800,
+  margin: 0,
+  pixelWidth: 2520,
+  pixelMargin: 0,
 };
 const KEY = "custom-monochrome-logo:export:v1";
 export function exportParams(
@@ -55,8 +55,15 @@ export function exportDimensions(
 export function loadExportSettings(): ExportSettings {
   try {
     const data = JSON.parse(localStorage.getItem(KEY) || "null");
-    if (data?.version !== 1) return { ...EXPORT_DEFAULTS };
+    if (![1, 2].includes(data?.version)) return { ...EXPORT_DEFAULTS };
     const settings = { ...EXPORT_DEFAULTS, ...data.settings };
+    // Upgrade previous defaults once; newly saved explicit choices remain intact.
+    if (data.version === 1) {
+      if (settings.dpi === 300) settings.dpi = 800;
+      if (settings.margin === 4) settings.margin = 0;
+      if (settings.pixelWidth === 945) settings.pixelWidth = 2520;
+      if (settings.pixelMargin === 47) settings.pixelMargin = 0;
+    }
     if (!["mm", "px"].includes(settings.unit)) throw new Error();
     exportParams({ ...DEFAULTS }, { ...settings, unit: "mm" });
     exportParams({ ...DEFAULTS }, { ...settings, unit: "px" });
@@ -66,7 +73,7 @@ export function loadExportSettings(): ExportSettings {
   }
 }
 export function saveExportSettings(settings: ExportSettings) {
-  localStorage.setItem(KEY, JSON.stringify({ version: 1, settings }));
+  localStorage.setItem(KEY, JSON.stringify({ version: 2, settings }));
 }
 // The immutable snapshot is captured on confirmation, not when opening the dialog.
 export function snapshotExport(

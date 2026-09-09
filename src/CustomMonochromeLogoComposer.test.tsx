@@ -65,8 +65,8 @@ describe("customer monochrome page", () => {
     expect(screen.getByDisplayValue("gpt-image-2")).toBeInTheDocument();
     expect(screen.getByDisplayValue("gpt-5.4-mini")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /测试连接/ }),
-    ).toBeInTheDocument();
+      screen.queryByRole("button", { name: /测试连接/ }),
+    ).not.toBeInTheDocument();
   }, 15000);
   it("ignores legacy tool API addresses and tests the shared GPT endpoint", async () => {
     localStorage.setItem(
@@ -83,15 +83,15 @@ describe("customer monochrome page", () => {
         onConfigureKey={vi.fn()}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: /测试连接/ }));
     await waitFor(() =>
-      expect(test).toHaveBeenCalledWith(
-        expect.objectContaining({
-          baseUrl: "https://api.openai.com/v1",
-          apiKey: "mock-key",
-        }),
-      ),
+      expect(
+        screen.getByRole("button", { name: /上传客户照片/ }),
+      ).toBeEnabled(),
     );
+    expect(
+      screen.queryByRole("button", { name: /测试连接|全局 API 设置/ }),
+    ).not.toBeInTheDocument();
+    expect(test).not.toHaveBeenCalled();
     test.mockRestore();
   }, 15000);
 });

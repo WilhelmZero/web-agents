@@ -18,11 +18,7 @@ import {
 import { DownloadOutlined, UploadOutlined } from "@ant-design/icons";
 import { DEFAULTS, validateOptions } from "./services/engraving/processing.mjs";
 import { runAutoTune } from "./services/engraving/auto-tune.mjs";
-import {
-  createEngravingApi,
-  testConnection,
-  apiBase,
-} from "./services/engraving/api";
+import { createEngravingApi, apiBase } from "./services/engraving/api";
 import {
   loadPreferences,
   savePreferences,
@@ -41,6 +37,7 @@ import {
   taskResults,
   mergeReviews,
   changeResultParams,
+  clearTaskResults,
 } from "./services/engraving/results";
 import { buildPrompt } from "./services/engraving/prompts.mjs";
 import "./custom-monochrome-logo.css";
@@ -121,8 +118,9 @@ export default function CustomMonochromeLogoComposer({
     [notice, setNotice] = useState("");
   const [additionalOpen, setAdditionalOpen] = useState(false),
     [additionalPrompt, setAdditionalPrompt] = useState(""),
-    [testing, setTesting] = useState(false),
     [now, setNow] = useState(Date.now());
+  const [clearOpen, setClearOpen] = useState(false),
+    [clearing, setClearing] = useState(false);
   const customReferenceUrl = useBlobUrl(task.customReference);
   function updateTask(next: SavedTask) {
     taskRef.current = next;
@@ -164,14 +162,14 @@ export default function CustomMonochromeLogoComposer({
     }
   }, [preferences]);
   useEffect(() => {
-    if (!loaded) return;
+    if (!loaded || clearing) return;
     const timer = setTimeout(() => {
       void saveTask(task).catch(() =>
         setStorageWarning("本地任务保存失败，请先下载结果。"),
       );
     }, 350);
     return () => clearTimeout(timer);
-  }, [task, loaded, busy]);
+  }, [task, loaded, busy, clearing]);
   useEffect(() => {
     if (!busy) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -199,7 +197,13 @@ export default function CustomMonochromeLogoComposer({
         original: result.buffer,
         customReference: taskRef.current.customReference,
         fileName: file.name,
-        params: { ...taskRef.current.params, eraseMask: undefined, crop: null },
+        params: {
+          ...taskRef.current.params,
+          dpi: DEFAULTS.dpi,
+          margin: DEFAULTS.margin,
+          eraseMask: undefined,
+          crop: null,
+        },
       });
       setNotice(result.warnings.join("；"));
     } catch (e) {
@@ -232,7 +236,14 @@ export default function CustomMonochromeLogoComposer({
         ...preferences,
         auto: additional === undefined && preferences.auto,
       },
-      initial = taskRef.current,
+      initial = {
+        ...taskRef.current,
+        params: {
+          ...taskRef.current.params,
+          dpi: DEFAULTS.dpi,
+          margin: DEFAULTS.margin,
+        },
+      },
       original = initial.original!;
     const config = { ...snapshot, baseUrl: OPENAI_ROOT, apiKey: openAiApiKey };
     let run: AutoRun = {
@@ -381,7 +392,7 @@ export default function CustomMonochromeLogoComposer({
     ? Math.max(0, ((task.endedAt || now) - task.startedAt) / 1000)
     : 0;
   const results = taskResults(task);
-  const locked = busy || !loaded || uploading;
+  const locked = busy || !loaded || uploading || clearing;
   return (
     <section className="custom-monochrome-logo">
       <header>
@@ -435,29 +446,6 @@ export default function CustomMonochromeLogoComposer({
                   }))}
                 />
               </label>
-
-              <small>复用全局 OpenAI / GPT 地址与密钥</small>
-              <Button onClick={onConfigureKey}>全局 API 设置</Button>
-              <Button
-                loading={testing}
-                onClick={async () => {
-                  setTesting(true);
-                  try {
-                    const count = await testConnection({
-                      ...preferences,
-                      baseUrl: OPENAI_ROOT,
-                      apiKey: openAiApiKey,
-                    });
-                    setNotice(`连接成功，返回 ${count} 个模型；未生成图片。`);
-                  } catch (e) {
-                    setError((e as Error).message);
-                  } finally {
-                    setTesting(false);
-                  }
-                }}
-              >
-                测试连接（仅模型列表）
-              </Button>
             </Space>
           </Card>
           <Card title="1 · 原照与主体" size="small">
@@ -696,6 +684,8 @@ export default function CustomMonochromeLogoComposer({
           ) : null}
           <PreviewImage blob={task.original} title="原照" />
           <EngravingGallery
+            onClear={() => setClearOpen(true)}
+            clearDisabled={locked}
             results={results}
             original={task.original}
             onChange={(id, patch) => {
@@ -704,6 +694,37 @@ export default function CustomMonochromeLogoComposer({
           />
         </main>
       </div>
+      <Modal
+        open={clearOpen}
+        title="清空历史结果"
+        okText="确认清空"
+        cancelText="取消"
+        confirmLoading={clearing}
+        okButtonProps={{ danger: true, disabled: locked }}
+        onCancel={() => !clearing && setClearOpen(false)}
+        onOk={async () => {
+          if (active.current || uploading || !loaded || clearing) return;
+          setClearing(true);
+          try {
+            const next = clearTaskResults(taskRef.current);
+            await saveTask(next);
+            updateTask(next);
+            setClearOpen(false);
+            setNotice(
+              "历史生成结果及审核记录已清空，无法撤销。原照、风格参考和全局生成统计已保留。",
+            );
+          } catch {
+            setError("清空失败，历史结果仍保留，请检查本地存储权限后重试。");
+          } finally {
+            setClearing(false);
+          }
+        }}
+      >
+        <p>
+          将删除当前工具本地保存的全部生成图片、逐图参数、裁剪、擦除蒙版及审核记录，清空后无法恢复。请先下载需要保留的图片。
+        </p>
+        <p>保留原照、风格参考、生成配置和全局生成张数统计。</p>
+      </Modal>
       <Modal
         open={additionalOpen}
         title="补充提示词，再生成一张"

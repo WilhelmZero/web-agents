@@ -1,4 +1,15 @@
 import type { AutoRun, SavedTask, StoredResult, RenderParams } from "./types";
+export function clearTaskResults(task: SavedTask): SavedTask {
+  return {
+    ...task,
+    results: [],
+    job: undefined,
+    run: undefined,
+    startedAt: undefined,
+    endedAt: undefined,
+    params: { ...task.params, crop: null, eraseMask: undefined },
+  };
+}
 
 export function taskResults(task: SavedTask): StoredResult[] {
   if (task.results) return task.results;

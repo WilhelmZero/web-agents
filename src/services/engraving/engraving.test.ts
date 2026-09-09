@@ -112,7 +112,8 @@ describe("engraving browser pixel engine", () => {
     ).toBeLessThanOrEqual(2);
   });
   it("exports 80 mm at 300 DPI as 945 px and bounds extreme output", () => {
-    expect(outputDimensions(1000, 1000, DEFAULTS).width).toBe(945);
+    expect(outputDimensions(1000, 1000, { ...DEFAULTS, dpi: 300 }).width).toBe(945);
+    expect(outputDimensions(1000, 1000, DEFAULTS)).toMatchObject({width:2520,margin:0});
     expect(() =>
       outputDimensions(100, 2000, { ...DEFAULTS, widthMm: 300, dpi: 1200 }),
     ).toThrow(/过大/);

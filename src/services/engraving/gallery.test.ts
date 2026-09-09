@@ -5,7 +5,12 @@ import {
   outputDimensions,
   validateOptions,
 } from "./processing.mjs";
-import { changeResultParams, mergeReviews } from "./results";
+import {
+  changeResultParams,
+  mergeReviews,
+  clearTaskResults,
+  taskResults,
+} from "./results";
 import {
   exportDimensions,
   EXPORT_DEFAULTS,
@@ -29,6 +34,59 @@ const result = (id = "one"): StoredResult => ({
   createdAt: 1,
 });
 afterEach(() => localStorage.clear());
+it("clears every result and legacy fallback while retaining original and reference", () => {
+  const r = result(),
+    original = new Blob(["original"]),
+    reference = new Blob(["reference"]);
+  const task: SavedTask = {
+    version: 1,
+    fileName: "photo.png",
+    original,
+    customReference: reference,
+    params: { ...DEFAULTS },
+    results: [r],
+    job: r.job,
+    startedAt: 1,
+    endedAt: 2,
+    run: {
+      status: "completed",
+      phase: "",
+      maxRounds: 1,
+      targetScore: 85,
+      generations: 1,
+      checks: 0,
+      best: null,
+      rounds: [],
+      fallback: { job: r.job, params: r.params, round: 1 },
+    } as AutoRun,
+  };
+  const cleared = clearTaskResults(task);
+  expect(taskResults(cleared)).toEqual([]);
+  expect(cleared.job).toBeUndefined();
+  expect(cleared.run).toBeUndefined();
+  expect(cleared.original).toBe(original);
+  expect(cleared.customReference).toBe(reference);
+  expect(cleared.fileName).toBe("photo.png");
+  expect(task.results).toHaveLength(1);
+});
+it("upgrades old export defaults but keeps new explicit DPI and margin choices", () => {
+  localStorage.setItem(
+    "custom-monochrome-logo:export:v1",
+    JSON.stringify({
+      version: 1,
+      settings: {
+        ...EXPORT_DEFAULTS,
+        dpi: 300,
+        margin: 4,
+        pixelWidth: 945,
+        pixelMargin: 47,
+      },
+    }),
+  );
+  expect(loadExportSettings()).toEqual(EXPORT_DEFAULTS);
+  saveExportSettings({ ...EXPORT_DEFAULTS, dpi: 300, margin: 4 });
+  expect(loadExportSettings()).toMatchObject({ dpi: 300, margin: 4 });
+});
 it("converts normalized crops to bounded pixel rectangles and rejects invalid regions", () => {
   expect(
     cropPixels(400, 600, { x: 0.25, y: 0.25, width: 0.5, height: 0.5 }),
@@ -51,7 +109,10 @@ it("converts normalized crops to bounded pixel rectangles and rejects invalid re
 });
 it("uses cropped aspect ratios, exact pixel widths, margins and existing millimeter defaults", () => {
   const r = result();
-  expect(exportDimensions(r, EXPORT_DEFAULTS).width).toBe(945);
+  expect(exportDimensions(r, EXPORT_DEFAULTS)).toMatchObject({
+    width: 2520,
+    margin: 0,
+  });
   r.params.crop = { x: 0, y: 0, width: 0.5, height: 1 };
   expect(
     exportDimensions(r, {

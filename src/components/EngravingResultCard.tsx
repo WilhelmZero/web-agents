@@ -56,12 +56,12 @@ export function DpiControl({
         aria-label="常用 DPI"
         disabled={disabled}
         value={
-          [72, 96, 150, 200, 300, 600, 1200].includes(value) ? value : undefined
+          [72, 96, 150, 200, 300, 600, 800, 1200].includes(value) ? value : undefined
         }
         placeholder="常用 DPI"
         style={{ width: 110 }}
         onChange={onChange}
-        options={[72, 96, 150, 200, 300, 600, 1200].map((value) => ({
+        options={[72, 96, 150, 200, 300, 600, 800, 1200].map((value) => ({
           value,
           label: String(value),
         }))}

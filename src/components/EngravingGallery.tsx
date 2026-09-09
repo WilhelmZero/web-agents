@@ -77,10 +77,14 @@ export default function EngravingGallery({
   results,
   original,
   onChange,
+  onClear,
+  clearDisabled = false,
 }: {
   results: StoredResult[];
   original?: Blob;
   onChange: (id: string, patch: Partial<RenderParams>) => void;
+  onClear?: () => void;
+  clearDisabled?: boolean;
 }) {
   const [selected, setSelected] = useState<string[]>([]),
     [editing, setEditing] = useState<string>(),
@@ -92,6 +96,15 @@ export default function EngravingGallery({
     <section className="engraving-gallery" aria-label="生成结果">
       <Space wrap className="engraving-gallery-toolbar">
         <strong>生成结果 · {results.length} 张</strong>
+        {onClear ? (
+          <Button
+            danger
+            disabled={clearDisabled || !results.length}
+            onClick={onClear}
+          >
+            清空历史结果
+          </Button>
+        ) : null}
         <Button
           disabled={!results.length}
           onClick={() => setSelected(results.map((r) => r.job.id))}
