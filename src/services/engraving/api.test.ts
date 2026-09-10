@@ -119,3 +119,15 @@ it('sends edit candidate, style and identity original in explicit role order',as
  await expect(createEngravingApi(fetcher as typeof fetch,normalize).generate({...input(),editMode:true})).rejects.toThrow('缺少原照');
  expect(fetcher).toHaveBeenCalledTimes(1);
 });
+
+it('sends an expanded edit canvas plus style and untouched identity anchor',async()=>{
+ const padded=new Blob(['expanded'],{type:'image/png'}),draw=vi.fn();
+ vi.stubGlobal('OffscreenCanvas',class{constructor(public width:number,public height:number){}getContext(){return {drawImage:draw};}convertToBlob(){return Promise.resolve(padded);}});
+ const fetcher=vi.fn(async()=>Response.json({data:[{b64_json:btoa('png')}]}));
+ const req={...input(),outpaint:{enabled:true,instructions:'右侧补全手臂'}};
+ const normalize=vi.fn(async(buffer:Blob)=>({buffer,width:200,height:100,warnings:[]}));
+ await createEngravingApi(fetcher as typeof fetch,normalize).generate(req);
+ const form=(vi.mocked(fetcher as typeof fetch).mock.calls[0][1]!.body as FormData);
+ expect(form.getAll('image[]')).toHaveLength(3);expect(draw).toHaveBeenCalled();expect(form.get('prompt')).toContain('OUTPAINTING IS ENABLED');expect(form.get('prompt')).toContain('Image 3 is the ONLY source');
+ expect(startRequestConsoleEntry).toHaveBeenCalledWith(expect.objectContaining({inputImages:[padded,req.referenceImage,req.image]}));
+});

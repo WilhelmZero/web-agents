@@ -31,11 +31,13 @@ export interface Config {
   quality: "low" | "medium" | "high" | "auto";
   apiKey: string;
 }
+export interface OutpaintOptions { enabled: boolean; instructions: string; }
 export interface Preferences extends Omit<Config, "apiKey"> {
   subject: Subject;
   style: Style;
   reference: "portrait" | "couple" | "bouquet";
   instructions: string;
+  outpaint?: OutpaintOptions;
   auto: boolean;
   continueOnGenerated: boolean;
   maxRounds: number;
@@ -96,6 +98,7 @@ export interface Rendered {
   warnings: string[];
 }
 export interface GenerateInput {
+  outpaint?: OutpaintOptions;
   editMode?: boolean;
   originalImage?: Blob;
   image: Blob;
@@ -107,6 +110,7 @@ export interface GenerateInput {
   feedback?: string;
 }
 export interface ReviewInput {
+  outpaint?: OutpaintOptions;
   original: Blob;
   reference: Blob;
   rendered: Blob;
@@ -115,6 +119,7 @@ export interface ReviewInput {
   instructions: string;
 }
 export interface AutoDependencies {
+  outpaint?: OutpaintOptions;
   original: Blob;
   reference: Blob;
   config: Config;

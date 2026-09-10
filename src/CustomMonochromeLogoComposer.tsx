@@ -1,6 +1,14 @@
+import BatchEngravingComposer from "./components/BatchEngravingComposer";
+import * as taskStorage from "./services/engraving/storage";
 import { OPENAI_ROOT } from "./services/openAiEndpoint";
 import { createPortal } from "react-dom";
-import { useEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useMemo,
+  useImperativeHandle,
+} from "react";
 import {
   Alert,
   Divider,
@@ -106,16 +114,57 @@ function PreviewImage({ blob, title }: { blob?: Blob; title: string }) {
     </div>
   );
 }
-export default function CustomMonochromeLogoComposer({
+export function EngravingTaskComposer({
   openAiApiKey,
   onConfigureKey,
   settingsHost,
+  scope,
+  embedded = false,
+  initialFile,
+  onTaskState,
+  controllerRef,
+  batchLocked = false,
 }: {
   openAiApiKey: string;
   onConfigureKey: () => void;
   settingsHost?: HTMLElement | null;
+  scope?: string;
+  embedded?: boolean;
+  initialFile?: File;
+  batchLocked?: boolean;
+  controllerRef?: React.Ref<{ start: () => Promise<void>; stop: () => void }>;
+  onTaskState?: (state: {
+    task: SavedTask;
+    busy: boolean;
+    ready: boolean;
+    loaded: boolean; importing: boolean;
+  }) => void;
 }) {
-  const [preferences, setPreferences] = useState(loadPreferences);
+  const store = useMemo(
+    () =>
+      scope
+        ? taskStorage.getTaskStorage(scope)
+        : {
+            loadPreferences,
+            savePreferences,
+            loadTask,
+            saveTask,
+            startNewTask,
+            listTaskHistory,
+            copyHistoryTask,
+          },
+    [scope],
+  );
+  const {
+    loadPreferences: readPreferences,
+    savePreferences: writePreferences,
+    loadTask: readTask,
+    saveTask: writeTask,
+    startNewTask: newTask,
+    listTaskHistory: readHistory,
+    copyHistoryTask: copyTask,
+  } = store;
+  const [preferences, setPreferences] = useState(readPreferences);
   const [task, setTask] = useState<SavedTask>({
     version: 1,
     fileName: "",
@@ -141,8 +190,8 @@ export default function CustomMonochromeLogoComposer({
   async function openHistory() {
     setHistoryBusy(true);
     try {
-      await saveTask(taskRef.current);
-      setHistory(await listTaskHistory());
+      await writeTask(taskRef.current);
+      setHistory(await readHistory());
       setHistoryOpen(true);
     } catch {
       setStorageWarning("无法读取任务历史，请先下载当前结果。");
@@ -154,8 +203,8 @@ export default function CustomMonochromeLogoComposer({
     if (active.current) return;
     setHistoryBusy(true);
     try {
-      await saveTask(taskRef.current);
-      const saved = await copyHistoryTask(id);
+      await writeTask(taskRef.current);
+      const saved = await copyTask(id);
       updateTask({ ...saved, results: taskResults(saved) });
       setHistoryOpen(false);
       setError("");
@@ -175,7 +224,7 @@ export default function CustomMonochromeLogoComposer({
   async function persist(next: SavedTask) {
     updateTask(next);
     try {
-      await saveTask(next);
+      await writeTask(next);
     } catch {
       setStorageWarning(
         "本地保存失败（可能存储空间不足或浏览器禁止存储）。当前结果仍在内存，请及时下载；刷新可能丢失。",
@@ -184,7 +233,7 @@ export default function CustomMonochromeLogoComposer({
   }
   useEffect(() => {
     let disposed = false;
-    loadTask()
+    readTask()
       .then((saved) => {
         if (!disposed && saved)
           updateTask({ ...saved, results: taskResults(saved) });
@@ -202,7 +251,7 @@ export default function CustomMonochromeLogoComposer({
   }, []);
   useEffect(() => {
     try {
-      savePreferences(preferences);
+      writePreferences(preferences);
     } catch {
       setStorageWarning("设置无法写入本地存储。");
     }
@@ -210,7 +259,7 @@ export default function CustomMonochromeLogoComposer({
   useEffect(() => {
     if (!loaded || clearing || uploading || historyBusy) return;
     const timer = setTimeout(() => {
-      void saveTask(task).catch(() =>
+      void writeTask(task).catch(() =>
         setStorageWarning("本地任务保存失败，请先下载结果。"),
       );
     }, 350);
@@ -238,8 +287,8 @@ export default function CustomMonochromeLogoComposer({
     setError("");
     try {
       const result = await processInWorker(file, undefined, undefined, true);
-      await saveTask(taskRef.current);
-      await startNewTask();
+      await writeTask(taskRef.current);
+      await newTask();
       await persist({
         version: 1,
         original: result.buffer,
@@ -334,7 +383,11 @@ export default function CustomMonochromeLogoComposer({
       let lastPrompt = "";
       const api = createEngravingApi();
       const generate: typeof api.generate = async (input) => {
-        lastPrompt = buildPrompt({ ...input, hasReference: true });
+        lastPrompt = buildPrompt({
+          ...input,
+          editMode: input.editMode || input.outpaint?.enabled,
+          hasReference: true,
+        });
         return api.generate(input);
       };
       const saveCandidate = async (
@@ -383,6 +436,7 @@ export default function CustomMonochromeLogoComposer({
           subject: snapshot.subject,
           instructions: snapshot.instructions,
           style: snapshot.style,
+          outpaint: snapshot.outpaint,
           params: initial.params,
           options: snapshot,
           ...api,
@@ -401,6 +455,7 @@ export default function CustomMonochromeLogoComposer({
           subject: snapshot.subject,
           instructions: snapshot.instructions,
           style: snapshot.style,
+          outpaint: snapshot.outpaint,
           feedback: additional,
         });
         const job = await saveCandidate(result.buffer, result.warnings);
@@ -437,12 +492,37 @@ export default function CustomMonochromeLogoComposer({
       setBusy(false);
     }
   }
+  const imported = useRef<File | undefined>(undefined);
+  const [initialImported, setInitialImported] = useState(!initialFile);
+  useEffect(() => {
+    if (loaded && initialFile && imported.current !== initialFile) {
+      imported.current = initialFile;
+      setInitialImported(false);
+      void upload(initialFile).finally(() => setInitialImported(true));
+    }
+  }, [loaded, initialFile]);
+  useEffect(() => {
+    onTaskState?.({
+      task,
+      busy,
+      ready: loaded && initialImported && !uploading && !!task.original,
+      loaded,
+      importing: uploading || (!!initialFile && !initialImported),
+    });
+  }, [task, busy, loaded, uploading, onTaskState, initialImported]);
+  useImperativeHandle(controllerRef, () => ({
+    start: () => startGeneration(),
+    stop: () => {
+      stop.current = true;
+    },
+  }));
   const run = task.run;
   const elapsed = task.startedAt
     ? Math.max(0, ((task.endedAt || now) - task.startedAt) / 1000)
     : 0;
   const results = taskResults(task);
-  const locked = busy || !loaded || uploading || clearing || historyBusy;
+  const locked =
+    busy || !loaded || uploading || clearing || historyBusy || batchLocked;
 
   const settingsPanel = (
     <div
@@ -590,43 +670,22 @@ export default function CustomMonochromeLogoComposer({
       {notice ? <Alert type="info" title={notice} /> : null}
       <div className="engraving-layout">
         <main>
-          <Card
-            className="workflow-card"
-            title={
-              <Space>
-                <FileImageOutlined />
-                <span>上传单张原图</span>
-              </Space>
-            }
-          >
-            {!task.original ? (
-              <Upload.Dragger
-                aria-label="上传单张原图"
-                accept="image/jpeg,image/png,image/webp"
-                multiple={false}
-                maxCount={1}
-                showUploadList={false}
-                disabled={locked}
-                beforeUpload={(file) => {
-                  void upload(file);
-                  return false;
-                }}
-              >
-                <p className="ant-upload-drag-icon">
+          {!embedded && (
+            <Card
+              className="workflow-card"
+              title={
+                <Space>
                   <FileImageOutlined />
-                </p>
-                <p className="ant-upload-text">点击或拖拽上传图片</p>
-                <p className="ant-upload-hint">
-                  JPEG / PNG / WebP · ≤20 MB · ≤4000 万像素
-                </p>
-              </Upload.Dragger>
-            ) : (
-              <>
-                <PreviewImage blob={task.original} title="原照" />
-                <p>{task.fileName}</p>
-                <Upload
+                  <span>上传单张原图</span>
+                </Space>
+              }
+            >
+              {!task.original ? (
+                <Upload.Dragger
+                  aria-label="上传单张原图"
                   accept="image/jpeg,image/png,image/webp"
                   multiple={false}
+                  maxCount={1}
                   showUploadList={false}
                   disabled={locked}
                   beforeUpload={(file) => {
@@ -634,20 +693,43 @@ export default function CustomMonochromeLogoComposer({
                     return false;
                   }}
                 >
-                  <Button
-                    icon={<UploadOutlined />}
-                    loading={uploading}
+                  <p className="ant-upload-drag-icon">
+                    <FileImageOutlined />
+                  </p>
+                  <p className="ant-upload-text">点击或拖拽上传图片</p>
+                  <p className="ant-upload-hint">
+                    JPEG / PNG / WebP · ≤20 MB · ≤4000 万像素
+                  </p>
+                </Upload.Dragger>
+              ) : (
+                <>
+                  <PreviewImage blob={task.original} title="原照" />
+                  <p>{task.fileName}</p>
+                  <Upload
+                    accept="image/jpeg,image/png,image/webp"
+                    multiple={false}
+                    showUploadList={false}
                     disabled={locked}
+                    beforeUpload={(file) => {
+                      void upload(file);
+                      return false;
+                    }}
                   >
-                    替换原图
-                  </Button>
-                </Upload>
-                <p>
-                  替换原图将开始独立任务；当前原照、结果和参数保留在任务历史中。
-                </p>
-              </>
-            )}
-          </Card>
+                    <Button
+                      icon={<UploadOutlined />}
+                      loading={uploading}
+                      disabled={locked}
+                    >
+                      替换原图
+                    </Button>
+                  </Upload>
+                  <p>
+                    替换原图将开始独立任务；当前原照、结果和参数保留在任务历史中。
+                  </p>
+                </>
+              )}
+            </Card>
+          )}
           <Card className="workflow-card" title="主体与风格">
             <Space orientation="vertical" style={{ width: "100%" }}>
               {" "}
@@ -680,6 +762,45 @@ export default function CustomMonochromeLogoComposer({
                   ]}
                 />
               </label>
+              <label className="engraving-inline">
+                扩图补全主体
+                <Switch
+                  aria-label="扩图补全主体"
+                  disabled={locked}
+                  checked={preferences.outpaint?.enabled === true}
+                  onChange={(enabled) =>
+                    patchPreferences({
+                      outpaint: {
+                        enabled,
+                        instructions: preferences.outpaint?.instructions || "",
+                      },
+                    })
+                  }
+                />
+              </label>
+              {preferences.outpaint?.enabled && (
+                <>
+                  <Input.TextArea
+                    aria-label="扩图要求"
+                    disabled={locked}
+                    maxLength={800}
+                    showCount
+                    value={preferences.outpaint.instructions}
+                    placeholder="留空由AI自动判断；例如：向图片右侧扩图，补全人物手臂和手肘，保留安全边距"
+                    onChange={(e) =>
+                      patchPreferences({
+                        outpaint: {
+                          enabled: true,
+                          instructions: e.target.value,
+                        },
+                      })
+                    }
+                  />
+                  <small>
+                    补全照片边缘被截断的主体，画面外细节由AI推测；开启自动优化可检查完整性。
+                  </small>
+                </>
+              )}
               {referenceControlsVisible ? (
                 <>
                   {" "}
@@ -860,7 +981,7 @@ export default function CustomMonochromeLogoComposer({
           setClearing(true);
           try {
             const next = clearTaskResults(taskRef.current);
-            await saveTask(next);
+            await writeTask(next);
             updateTask(next);
             setClearOpen(false);
             setNotice(
@@ -904,3 +1025,5 @@ export default function CustomMonochromeLogoComposer({
     </section>
   );
 }
+
+export default BatchEngravingComposer;

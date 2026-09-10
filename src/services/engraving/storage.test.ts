@@ -155,3 +155,9 @@ it("loads the latest saved state on route re-entry and safely forks without Web 
   await b.saveTask(task("fork"));
   expect((await a.loadTask())?.fileName).toBe("after");
 });
+
+it('isolates multiple image slots in one tab and their expansion settings',async()=>{
+ const module=await newDocument();const a=module.getTaskStorage('a'),b=module.getTaskStorage('b');await Promise.all([a.loadTask(),b.loadTask()]);
+ await Promise.all([a.saveTask(task('A')),b.saveTask(task('B'))]);expect((await a.loadTask())?.fileName).toBe('A');expect((await b.loadTask())?.fileName).toBe('B');
+ a.savePreferences({...module.DEFAULT_PREFERENCES,outpaint:{enabled:true,instructions:'右侧手臂'}});expect(a.loadPreferences().outpaint?.enabled).toBe(true);expect(b.loadPreferences().outpaint?.enabled).toBe(false);
+});

@@ -8,12 +8,12 @@ const SUBJECTS = {
   horse: 'Keep the rider and the entire visible horse as one coherent subject, including mane, tail, legs, saddle, bridle, reins and stirrups. Preserve all original contact and overlaps.',
 };
 
-export function buildPrompt({ subject = 'auto', instructions = '', style = 'strong', hasReference = false, feedback = '', editMode = false } = {}) {
+export function buildPrompt({ subject = 'auto', instructions = '', style = 'strong', hasReference = false, feedback = '', editMode = false, outpaint } = {}) {
   if (!Object.hasOwn(SUBJECTS, subject)) throw new AppError('请选择有效的主体类型。');
   if (!['strong', 'natural'].includes(style)) throw new AppError('请选择有效的纹理风格。');
   if (typeof instructions !== 'string' || instructions.length > 1600) throw new AppError('补充要求最多 1600 字。');
 
-  const prompt = `Edit the supplied customer photograph into a production-oriented monochrome laser-engraving portrait for a dark-coated cup. Use the input photograph as the identity and geometry source. The final image will be composited onto PURE BLACK (#000000): black means no engraving and light marks mean engraving.
+  let prompt = `Edit the supplied customer photograph into a production-oriented monochrome laser-engraving portrait for a dark-coated cup. Use the input photograph as the identity and geometry source. The final image will be composited onto PURE BLACK (#000000): black means no engraving and light marks mean engraving.
 ${hasReference ? '\nIMAGE ROLES: Image 1 is the ONLY source for identity, anatomy, clothing, objects, pose, composition and number of subjects. Image 2 is a STYLE REFERENCE ONLY for grayscale tonal separation and finely etched hair, fur and fabric texture. Never copy the people, faces, animals, clothes, words, objects or composition from Image 2. Transfer its engraving treatment onto Image 1 while preserving Image 1\'s exact subjects.' : ''}
 
 SUBJECT SELECTION
@@ -32,6 +32,10 @@ DELIVERABLE
 A single high-fidelity grayscale engraving image with clean transparent background, ready to composite onto pure black. Preserve continuous grayscale detail; final machine-specific dithering is handled separately.
 ${instructions.trim() ? `\nCUSTOMER\'S ADDITIONAL SUBJECT / APPEARANCE REQUEST\n${instructions.trim()}` : ''}
 ${feedback ? `\nCORRECTIONS FROM THE PREVIOUS QUALITY CHECK (still use image 1 as the only identity source)\n${feedback.slice(0, 3000)}` : ''}`;
+  if (outpaint?.enabled) {
+    if (typeof outpaint.instructions !== 'string' || outpaint.instructions.length > 800) throw new AppError('扩图要求最多 800 字。');
+    prompt += '\nOUTPAINTING IS ENABLED: The edit canvas includes transparent expansion space. The original frame is NOT a crop boundary. Reconstruct only missing continuations of retained subjects cut off by the photograph edge, including the requested arm, elbow, hand, feet, hair or associated object. Preserve all observed identities and existing anatomy; infer plausible unseen continuation with matching proportions, pose, clothing and texture. Do not add new people, new objects or extra limbs. Do not merely shrink the same cropped subject, leave a severed edge, or fill the added area with empty background. Enlarge/reframe the composition as needed so the completed requested parts fit fully inside the image, with a safety margin. Keep non-subject areas transparent. This permission overrides exact original framing/geometry ONLY for completing cropped-off regions. Completion is inferred, not recovered photographic evidence.\n' + (outpaint.instructions.trim() ? 'REQUESTED EXPANSION (region description only): '+JSON.stringify(outpaint.instructions) : 'AUTO: inspect all frame edges and complete visibly clipped subject parts; do not unnecessarily extend already complete subjects.');
+  }
   if (!editMode) return prompt;
   return prompt
     .replace('Edit the supplied customer photograph', 'Make targeted improvements to the supplied existing engraving candidate')

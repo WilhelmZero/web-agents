@@ -7,4 +7,5 @@ export function validateReview(value: unknown): Review;
 export function buildReviewPrompt(
   params: RenderParams,
   instructions?: string,
+  outpaint?: import("./types").OutpaintOptions,
 ): string;

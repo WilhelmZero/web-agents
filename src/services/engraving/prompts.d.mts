@@ -6,4 +6,5 @@ export function buildPrompt(options?: {
   hasReference?: boolean;
   feedback?: string;
   editMode?: boolean;
+  outpaint?: import("./types").OutpaintOptions;
 }): string;

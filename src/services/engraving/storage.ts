@@ -10,16 +10,18 @@ export const DEFAULT_PREFERENCES: Preferences = {
   style: "strong",
   reference: "portrait",
   instructions: "",
+  outpaint: { enabled: false, instructions: "" },
   auto: true,
   continueOnGenerated: false,
   maxRounds: 5,
   targetScore: 85,
 };
 const KEY = "custom-monochrome-logo:settings:v1";
-export function loadPreferences(): Preferences {
+export function loadPreferences(scope = ""): Preferences {
+  const tabKey = KEY + (scope ? ":" + scope : "");
   try {
     const p = JSON.parse(
-      sessionStorage.getItem(KEY) || localStorage.getItem(KEY) || "null",
+      sessionStorage.getItem(tabKey) || localStorage.getItem(KEY) || "null",
     );
     if (p?.version !== 1 || !p.settings) return { ...DEFAULT_PREFERENCES };
     const out = { ...DEFAULT_PREFERENCES };
@@ -50,20 +52,28 @@ export function loadPreferences(): Preferences {
       p.settings.targetScore <= 95
     )
       out.targetScore = p.settings.targetScore;
+    out.outpaint = {
+      enabled: p.settings.outpaint?.enabled === true,
+      instructions:
+        typeof p.settings.outpaint?.instructions === "string"
+          ? p.settings.outpaint.instructions.slice(0, 800)
+          : "",
+    };
     out.instructions = out.instructions.slice(0, 1600);
     return out;
   } catch {
     return { ...DEFAULT_PREFERENCES };
   }
 }
-export function savePreferences(value: Preferences) {
+export function savePreferences(value: Preferences, scope = "") {
+  const tabKey = KEY + (scope ? ":" + scope : "");
   // Explicit allowlist: never persist API credentials even if supplied at runtime.
   const settings = Object.fromEntries(
     Object.keys(DEFAULT_PREFERENCES)
       .filter((key) => key !== "baseUrl")
       .map((key) => [key, value[key as keyof Preferences]]),
   );
-  sessionStorage.setItem(KEY, JSON.stringify({ version: 1, settings }));
+  sessionStorage.setItem(tabKey, JSON.stringify({ version: 1, settings }));
 }
 function database(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -89,152 +99,180 @@ export function restoreTask(task: SavedTask): SavedTask {
     : task;
 }
 
-const CURRENT = "custom-monochrome-logo:current-task:v2";
 export interface TaskHistoryEntry {
   id: string;
   fileName: string;
   updatedAt: number;
   count: number;
 }
-let currentId = "";
-let initialized: Promise<void> | undefined;
-let pending: Promise<void> = Promise.resolve();
 
-async function readTask(id: string): Promise<SavedTask | undefined> {
-  const db = await database();
-  try {
-    return await new Promise((resolve, reject) => {
-      const req = db
-        .transaction("tasks", "readonly")
-        .objectStore("tasks")
-        .get(id);
-      req.onsuccess = () =>
-        resolve(req.result?.version === 1 ? req.result : undefined);
-      req.onerror = () => reject(req.error);
-    });
-  } finally {
-    db.close();
+export function createTaskStorage(scope = "") {
+  const CURRENT =
+    "custom-monochrome-logo:current-task:v2" + (scope ? ":" + scope : "");
+  let currentId = "";
+  let initialized: Promise<void> | undefined;
+  let pending: Promise<void> = Promise.resolve();
+
+  async function readTask(id: string): Promise<SavedTask | undefined> {
+    const db = await database();
+    try {
+      return await new Promise((resolve, reject) => {
+        const req = db
+          .transaction("tasks", "readonly")
+          .objectStore("tasks")
+          .get(id);
+        req.onsuccess = () =>
+          resolve(req.result?.version === 1 ? req.result : undefined);
+        req.onerror = () => reject(req.error);
+      });
+    } finally {
+      db.close();
+    }
   }
-}
-async function writeTask(id: string, snapshot: SavedTask) {
-  const db = await database();
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction("tasks", "readwrite"),
-        store = tx.objectStore("tasks");
-      store.put(snapshot, id);
-      if (snapshot.original || taskResults(snapshot).length) {
-        store.put(
-          {
-            id,
-            fileName: snapshot.fileName,
-            updatedAt: Date.now(),
-            count: taskResults(snapshot).length,
-          },
-          "history:" + id,
-        );
-      }
-      tx.oncomplete = () => resolve();
-      tx.onabort = tx.onerror = () =>
-        reject(tx.error || new Error("本地存储失败，请下载结果。"));
-    });
-  } finally {
-    db.close();
+  async function writeTask(id: string, snapshot: SavedTask) {
+    const db = await database();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction("tasks", "readwrite"),
+          store = tx.objectStore("tasks");
+        store.put(snapshot, id);
+        if (snapshot.original || taskResults(snapshot).length) {
+          store.put(
+            {
+              id,
+              fileName: snapshot.fileName,
+              updatedAt: Date.now(),
+              count: taskResults(snapshot).length,
+            },
+            "history:" + id,
+          );
+        }
+        tx.oncomplete = () => resolve();
+        tx.onabort = tx.onerror = () =>
+          reject(tx.error || new Error("本地存储失败，请下载结果。"));
+      });
+    } finally {
+      db.close();
+    }
   }
-}
-// A document holds its writer lock until unload. Duplicated tabs inherit sessionStorage,
-// but cannot acquire the same lock and therefore fork before any writes.
-async function claim(id: string): Promise<boolean> {
-  if (!navigator.locks) return false;
-  return new Promise((resolve, reject) => {
-    void navigator.locks
-      .request("engraving:" + id, { ifAvailable: true }, async (lock) => {
-        if (!lock) {
-          resolve(false);
+  // A document holds its writer lock until unload. Duplicated tabs inherit sessionStorage,
+  // but cannot acquire the same lock and therefore fork before any writes.
+  async function claim(id: string): Promise<boolean> {
+    if (!navigator.locks) return false;
+    return new Promise((resolve, reject) => {
+      void navigator.locks
+        .request("engraving:" + id, { ifAvailable: true }, async (lock) => {
+          if (!lock) {
+            resolve(false);
+            return;
+          }
+          resolve(true);
+          await new Promise<void>((release) =>
+            window.addEventListener("pagehide", (event) => {
+              // Keep the lock while in bfcache, where this document can later resume.
+              if (!event.persisted) release();
+            }),
+          );
+        })
+        .catch(reject);
+    });
+  }
+  async function freshId() {
+    const id = "task:" + crypto.randomUUID();
+    await claim(id);
+    currentId = id;
+    sessionStorage.setItem(CURRENT, id);
+  }
+  function ensureReady(): Promise<void> {
+    if (!initialized)
+      initialized = (async () => {
+        const previous = sessionStorage.getItem(CURRENT);
+        if (previous && (await claim(previous))) {
+          currentId = previous;
           return;
         }
-        resolve(true);
-        await new Promise<void>((release) =>
-          window.addEventListener("pagehide", (event) => {
-            // Keep the lock while in bfcache, where this document can later resume.
-            if (!event.persisted) release();
-          }),
-        );
-      })
-      .catch(reject);
-  });
-}
-async function freshId() {
-  const id = "task:" + crypto.randomUUID();
-  await claim(id);
-  currentId = id;
-  sessionStorage.setItem(CURRENT, id);
-}
-function ensureReady(): Promise<void> {
-  if (!initialized)
-    initialized = (async () => {
-      const previous = sessionStorage.getItem(CURRENT);
-      if (previous && (await claim(previous))) {
-        currentId = previous;
-        return;
-      }
-      await freshId();
-      // Old shared cache remains untouched, so an old-version tab cannot overwrite v2 tasks.
-      const saved = await readTask(previous || "latest");
-      if (!saved) return undefined;
-      const restored = restoreTask(saved);
-      await writeTask(currentId, restored);
-    })();
-  return initialized;
-}
-export async function loadTask(): Promise<SavedTask | undefined> {
-  await ensureReady();
-  await pending;
-  const saved = await readTask(currentId);
-  return saved && restoreTask(saved);
-}
-export function saveTask(task: SavedTask): Promise<void> {
-  const snapshot = structuredClone(task);
-  const write = async () => {
-    await ensureReady();
-    await writeTask(currentId, snapshot);
-  };
-  pending = pending.catch(() => undefined).then(write);
-  return pending;
-}
-// Called only after saving the current task, while UI edits/generation are disabled.
-export async function startNewTask() {
-  await ensureReady();
-  await pending;
-  await freshId();
-}
-export async function listTaskHistory(): Promise<TaskHistoryEntry[]> {
-  await ensureReady();
-  const db = await database();
-  try {
-    return await new Promise((resolve, reject) => {
-      const req = db
-        .transaction("tasks", "readonly")
-        .objectStore("tasks")
-        .getAll(IDBKeyRange.bound("history:", "history:\uffff"));
-      req.onsuccess = () =>
-        resolve(
-          (req.result as TaskHistoryEntry[]).sort(
-            (a, b) => b.updatedAt - a.updatedAt,
-          ),
-        );
-      req.onerror = () => reject(req.error);
-    });
-  } finally {
-    db.close();
+        await freshId();
+        // Old shared cache remains untouched, so an old-version tab cannot overwrite v2 tasks.
+        if (scope && !previous) return;
+        const saved = await readTask(previous || "latest");
+        if (!saved) return undefined;
+        const restored = restoreTask(saved);
+        await writeTask(currentId, restored);
+      })();
+    return initialized;
   }
+  async function loadTask(): Promise<SavedTask | undefined> {
+    await ensureReady();
+    await pending;
+    const saved = await readTask(currentId);
+    return saved && restoreTask(saved);
+  }
+  function saveTask(task: SavedTask): Promise<void> {
+    const snapshot = structuredClone(task);
+    const write = async () => {
+      await ensureReady();
+      await writeTask(currentId, snapshot);
+    };
+    pending = pending.catch(() => undefined).then(write);
+    return pending;
+  }
+  // Called only after saving the current task, while UI edits/generation are disabled.
+  async function startNewTask() {
+    await ensureReady();
+    await pending;
+    await freshId();
+  }
+  async function listTaskHistory(): Promise<TaskHistoryEntry[]> {
+    await ensureReady();
+    const db = await database();
+    try {
+      return await new Promise((resolve, reject) => {
+        const req = db
+          .transaction("tasks", "readonly")
+          .objectStore("tasks")
+          .getAll(IDBKeyRange.bound("history:", "history:\uffff"));
+        req.onsuccess = () =>
+          resolve(
+            (req.result as TaskHistoryEntry[]).sort(
+              (a, b) => b.updatedAt - a.updatedAt,
+            ),
+          );
+        req.onerror = () => reject(req.error);
+      });
+    } finally {
+      db.close();
+    }
+  }
+  async function copyHistoryTask(id: string): Promise<SavedTask> {
+    if (!id.startsWith("task:")) throw new Error("无效任务。");
+    const saved = await readTask(id);
+    if (!saved) throw new Error("该历史任务已不可用。");
+    await startNewTask();
+    const restored = restoreTask(saved);
+    await saveTask(restored);
+    return restored;
+  }
+
+  return {
+    loadTask,
+    saveTask,
+    startNewTask,
+    listTaskHistory,
+    copyHistoryTask,
+    loadPreferences: () => loadPreferences(scope),
+    savePreferences: (v: Preferences) => savePreferences(v, scope),
+  };
 }
-export async function copyHistoryTask(id: string): Promise<SavedTask> {
-  if (!id.startsWith("task:")) throw new Error("无效任务。");
-  const saved = await readTask(id);
-  if (!saved) throw new Error("该历史任务已不可用。");
-  await startNewTask();
-  const restored = restoreTask(saved);
-  await saveTask(restored);
-  return restored;
+const defaultStore = createTaskStorage();
+export const {
+  loadTask,
+  saveTask,
+  startNewTask,
+  listTaskHistory,
+  copyHistoryTask,
+} = defaultStore;
+const scopes = new Map<string, ReturnType<typeof createTaskStorage>>();
+export function getTaskStorage(scope: string) {
+  if (!scopes.has(scope)) scopes.set(scope, createTaskStorage(scope));
+  return scopes.get(scope)!;
 }

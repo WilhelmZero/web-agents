@@ -385,3 +385,10 @@ it('persists the opt-in switch and assigns distinct edit image roles',()=>{
  const prompt=buildPrompt({hasReference:true,editMode:true,feedback:'Improve hair'});
  expect(prompt).toContain('Image 1 is the EDIT TARGET'); expect(prompt).toContain('Image 3 is the ONLY source'); expect(prompt).not.toContain('Image 1 is the ONLY source');
 });
+
+it('requires complete outpainted subjects even when the average score passes',async()=>{
+ const d=dependencies();d.outpaint={enabled:true,instructions:'右侧补全手臂'};d.options.maxRounds=2;
+ let n=0;d.review=vi.fn(async()=>++n===1?assessment({scores:{identity:99,subjects:59,hair:99,texture:99,background:99,tones:99},issues:['subjects'],action:'adjust'}):assessment());
+ const result=await runAutoTune(d);expect(result.generations).toBe(2);expect(result.status).toBe('completed');expect(result.rounds[0].passed).toBe(false);
+ expect(d.generate).toHaveBeenCalledWith(expect.objectContaining({outpaint:d.outpaint}));expect(d.review).toHaveBeenCalledWith(expect.objectContaining({original:d.original,outpaint:d.outpaint}));
+});

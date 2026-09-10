@@ -1,3 +1,4 @@
+import { prepareOutpaint } from "./outpaint";
 import {
   startRequestConsoleEntry,
   updateRequestConsoleEntry,
@@ -138,9 +139,13 @@ export function createEngravingApi(
 ) {
   return {
     async generate(input: GenerateInput) {
-      const { config, image, referenceImage } = input;
+      const { config, referenceImage } = input;
+      if(input.outpaint?.enabled && (typeof input.outpaint.instructions !== "string" || input.outpaint.instructions.length>800)) throw new AppError("扩图要求最多800字。");
+      const image = input.editMode ? input.image : await prepareOutpaint(input.image, input.outpaint);
+      const useAnchor = input.editMode || input.outpaint?.enabled;
+      const originalAnchor = input.originalImage || input.image;
       if (input.editMode && !input.originalImage) throw new AppError("持续优化缺少原照参考。");
-      const prompt = buildPrompt({ ...input, hasReference: true });
+      const prompt = buildPrompt({ ...input, editMode: !!useAnchor, hasReference: true });
       const bitmap = await createImageBitmap(image);
       const ratio = bitmap.width / bitmap.height;
       bitmap.close();
@@ -157,7 +162,7 @@ export function createEngravingApi(
       }).forEach(([key, value]) => form.append(key, value));
       form.append("image[]", image, input.editMode ? "candidate.png" : "original.png");
       form.append("image[]", referenceImage, "reference.png");
-      if (input.editMode) form.append("image[]", input.originalImage!, "identity-original.png");
+      if (useAnchor) form.append("image[]", originalAnchor, "identity-original.png");
       if (["gpt-image-1", "gpt-image-1.5"].includes(config.imageModel))
         form.append("input_fidelity", "high");
       const id = startRequestConsoleEntry({
@@ -165,7 +170,7 @@ export function createEngravingApi(
         connection: "direct",
         requestSummary: input.editMode ? "客户定制黑白 Logo · 持续优化（生成图 + 风格参考 + 原照）" : "客户定制黑白 Logo · 生成（原照 + 风格参考）",
         requestPrompt: prompt,
-        inputImages: input.editMode ? [image, referenceImage, input.originalImage!] : [image, referenceImage],
+        inputImages: useAnchor ? [image, referenceImage, originalAnchor] : [image, referenceImage],
       });
       const start = Date.now();
       try {
@@ -210,7 +215,7 @@ export function createEngravingApi(
       }
     },
     async review(input: ReviewInput) {
-      const prompt = buildReviewPrompt(input.params, input.instructions);
+      const prompt = buildReviewPrompt(input.params, input.instructions, input.outpaint);
       const images = await Promise.all(
         [input.original, input.reference, input.rendered].map(async (blob) => ({
           type: "input_image",
