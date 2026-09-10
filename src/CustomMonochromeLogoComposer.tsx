@@ -132,7 +132,7 @@ export function EngravingTaskComposer({
   embedded?: boolean;
   initialFile?: File;
   batchLocked?: boolean;
-  controllerRef?: React.Ref<{ start: () => Promise<void>; stop: () => void }>;
+  controllerRef?: React.Ref<{ start: () => Promise<void>; stop: () => void; flush: () => Promise<void> }>;
   onTaskState?: (state: {
     task: SavedTask;
     busy: boolean;
@@ -511,6 +511,7 @@ export function EngravingTaskComposer({
     });
   }, [task, busy, loaded, uploading, onTaskState, initialImported]);
   useImperativeHandle(controllerRef, () => ({
+    flush: () => writeTask(taskRef.current),
     start: () => startGeneration(),
     stop: () => {
       stop.current = true;

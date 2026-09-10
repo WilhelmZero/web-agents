@@ -15,8 +15,18 @@ import { useEngravingUrl } from "./EngravingResultCard";
 import { runTaskQueue } from "../services/engraving/task-queue";
 const KEY = "custom-monochrome-logo:workspace:v1";
 type Slot = { id: string; file?: File };
-type State = { task: SavedTask; busy: boolean; ready: boolean; loaded: boolean; importing: boolean };
-type Controller = { start: () => Promise<void>; stop: () => void };
+type State = {
+  task: SavedTask;
+  busy: boolean;
+  ready: boolean;
+  loaded: boolean;
+  importing: boolean;
+};
+type Controller = {
+  start: () => Promise<void>;
+  stop: () => void;
+  flush: () => Promise<void>;
+};
 function initialSlots(): Slot[] {
   try {
     const data = JSON.parse(sessionStorage.getItem(KEY) || "null");
@@ -37,11 +47,15 @@ function Thumbnail({
   state,
   selected,
   onSelect,
+  onRemove,
+  removeDisabled,
 }: {
   slot: Slot;
   state?: State;
   selected: boolean;
   onSelect: () => void;
+  onRemove: () => void;
+  removeDisabled: boolean;
 }) {
   const url = useEngravingUrl(state?.task.original || slot.file);
   return (
@@ -61,7 +75,9 @@ function Thumbnail({
         <div style={{ height: 86 }}>等待导入</div>
       )}
       <Button
-        aria-label={"切换任务 " + (state?.task.fileName || slot.file?.name || "当前任务")}
+        aria-label={
+          "切换任务 " + (state?.task.fileName || slot.file?.name || "当前任务")
+        }
         type={selected ? "primary" : "default"}
         size="small"
         block
@@ -79,9 +95,24 @@ function Thumbnail({
             ? "失败，可单独重试"
             : state?.ready
               ? "就绪"
-              : state?.loaded ? "待导入" : "读取中"}{" "}
+              : state?.loaded
+                ? "待导入"
+                : "读取中"}{" "}
         · {state?.task.results?.length || 0} 张
       </small>
+      <Button
+        danger
+        size="small"
+        block
+        style={{ marginTop: 8 }}
+        disabled={removeDisabled}
+        aria-label={
+          "删除原照 " + (state?.task.fileName || slot.file?.name || "当前任务")
+        }
+        onClick={onRemove}
+      >
+        删除
+      </Button>
     </Card>
   );
 }
@@ -106,23 +137,30 @@ export default function BatchEngravingComposer({
   const callbacks = useRef(new Map<string, (state: State) => void>());
   const [parallel, setParallel] = useState(2),
     [batch, setBatch] = useState(false),
+    [deleting, setDeleting] = useState(false),
     [error, setError] = useState(""),
     [progress, setProgress] = useState("");
   const cancelled = useRef(false);
+  const deletingRef = useRef(false);
   const callback = useCallback((id: string) => {
     if (!callbacks.current.has(id))
       callbacks.current.set(id, (state) =>
         setStates((old) =>
-          old[id]?.task === state.task &&
-          old[id]?.busy === state.busy &&
-          old[id]?.importing === state.importing && old[id]?.loaded === state.loaded && old[id]?.ready === state.ready
+          !slotsRef.current.some((s) => s.id === id)
             ? old
-            : { ...old, [id]: state },
+            : old[id]?.task === state.task &&
+                old[id]?.busy === state.busy &&
+                old[id]?.importing === state.importing &&
+                old[id]?.loaded === state.loaded &&
+                old[id]?.ready === state.ready
+              ? old
+              : { ...old, [id]: state },
         ),
       );
     return callbacks.current.get(id)!;
   }, []);
   const add = (file: File) => {
+    if (deletingRef.current) return false;
     if (
       file.size > 20 * 1024 * 1024 ||
       !["image/png", "image/jpeg", "image/webp"].includes(file.type)
@@ -156,6 +194,7 @@ export default function BatchEngravingComposer({
     return false;
   };
   const startAll = async () => {
+    if (deletingRef.current) return;
     if (!openAiApiKey.trim()) {
       onConfigureKey();
       return;
@@ -199,7 +238,58 @@ export default function BatchEngravingComposer({
     for (const ref of controls.current.values()) ref.current?.stop();
     setProgress("停止后续请求，正在返回的结果仍会保存");
   };
+  const removeSlots = async (ids: string[]) => {
+    if (
+      deletingRef.current ||
+      batch ||
+      slotsRef.current.some((s) => {
+        const state = statesRef.current[s.id];
+        return !state?.loaded || state.busy || state.importing;
+      })
+    )
+      return;
+    deletingRef.current = true;
+    setDeleting(true);
+    setError("");
+    try {
+      // Flush debounced edits before unmounting; saved tasks remain in history.
+      for (const id of ids) {
+        const controller = controls.current.get(id)?.current;
+        if (!controller) throw new Error("任务尚未准备好");
+        await controller.flush();
+      }
+      const remaining = slotsRef.current.filter((s) => !ids.includes(s.id));
+      // A fresh scope prevents the legacy default task reappearing after reload.
+      const next = remaining.length ? remaining : [{ id: crypto.randomUUID() }];
+      sessionStorage.setItem(KEY, JSON.stringify(next.map((s) => s.id)));
+      slotsRef.current = next;
+      setSlots(next);
+      setSelected((current) =>
+        next.some((s) => s.id === current) ? current : next[0].id,
+      );
+      setStates((old) =>
+        Object.fromEntries(
+          Object.entries(old).filter(([id]) => !ids.includes(id)),
+        ),
+      );
+      for (const id of ids) {
+        controls.current.delete(id);
+        callbacks.current.delete(id);
+      }
+      setProgress("已从工作区删除，已保存的任务仍可从历史恢复");
+    } catch {
+      setError("未能保存任务或工作区列表，图片尚未删除，请重试。");
+    } finally {
+      deletingRef.current = false;
+      setDeleting(false);
+    }
+  };
   const anyBusy = Object.values(states).some((s) => s.busy);
+  const removalLocked =
+    deleting ||
+    batch ||
+    anyBusy ||
+    slots.some((s) => !states[s.id]?.loaded || states[s.id]?.importing);
   return (
     <section>
       <Card title="导入原照 · 多图独立任务" className="workflow-card">
@@ -207,7 +297,9 @@ export default function BatchEngravingComposer({
           accept="image/jpeg,image/png,image/webp"
           multiple
           showUploadList={false}
-          disabled={batch || slots.some((s) => !states[s.id]?.loaded)}
+          disabled={
+            deleting || batch || slots.some((s) => !states[s.id]?.loaded)
+          }
           beforeUpload={add}
         >
           <p>点击或拖拽导入多张原照</p>
@@ -224,6 +316,10 @@ export default function BatchEngravingComposer({
               state={states[slot.id]}
               selected={selected === slot.id}
               onSelect={() => setSelected(slot.id)}
+              onRemove={() => void removeSlots([slot.id])}
+              removeDisabled={
+                removalLocked || !(slot.file || states[slot.id]?.task.original)
+              }
             />
           ))}
         </Space>
@@ -235,13 +331,19 @@ export default function BatchEngravingComposer({
             max={4}
             precision={0}
             value={parallel}
-            disabled={batch || anyBusy}
+            disabled={deleting || batch || anyBusy}
             onChange={(v) => v && setParallel(v)}
           />
           <Button
             type="primary"
             disabled={
-              batch || anyBusy || slots.some(s=>!states[s.id]?.loaded || states[s.id]?.importing) || !Object.values(states).some((s) => s.ready)
+              deleting ||
+              batch ||
+              anyBusy ||
+              slots.some(
+                (s) => !states[s.id]?.loaded || states[s.id]?.importing,
+              ) ||
+              !Object.values(states).some((s) => s.ready)
             }
             onClick={() => void startAll()}
           >
@@ -250,8 +352,24 @@ export default function BatchEngravingComposer({
           <Button disabled={!batch && !anyBusy} onClick={stopAll}>
             全部停止
           </Button>
+          <Button
+            danger
+            aria-label="全部删除" loading={deleting}
+            disabled={
+              removalLocked ||
+              !slots.some((s) => s.file || states[s.id]?.task.original)
+            }
+            onClick={() => void removeSlots(slots.map((s) => s.id))}
+          >
+            全部删除
+          </Button>
           <Tag>每张图独立计费 · 设置按图分别配置</Tag>
         </Space>
+        <p>
+          <small>
+            删除仅移出当前工作区，已保存任务可从历史恢复。生成或导入期间不可删除，请先停止并等待任务结束。
+          </small>
+        </p>
         {progress && <p role="status">{progress}</p>}
         {error && <Alert type="error" title={error} />}
       </Card>
@@ -269,7 +387,7 @@ export default function BatchEngravingComposer({
               openAiApiKey={openAiApiKey}
               onConfigureKey={onConfigureKey}
               settingsHost={selected === slot.id ? settingsHost : undefined}
-              batchLocked={batch}
+              batchLocked={batch || deleting}
             />
           </div>
         );
