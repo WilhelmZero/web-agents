@@ -5,4 +5,5 @@ export function buildPrompt(options?: {
   style?: Style;
   hasReference?: boolean;
   feedback?: string;
+  editMode?: boolean;
 }): string;

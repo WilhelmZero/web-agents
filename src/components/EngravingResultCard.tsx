@@ -256,7 +256,7 @@ export function EngravingResultEditor({
                       <div key={r.round}>
                         <p>
                           第 {r.round} 轮 · {r.score} 分 ·{" "}
-                          {r.action === "adjust" ? "本地调参" : "AI 生图"}
+                          {r.action === "adjust" ? "本地调参" : r.editedFromRound ? `基于第 ${r.editedFromRound} 版继续优化` : "AI 生图"}
                         </p>
                         <p>{r.suggestions || r.issueLabels.join("；")}</p>
                         <pre>

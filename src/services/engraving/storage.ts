@@ -10,6 +10,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   reference: "portrait",
   instructions: "",
   auto: true,
+  continueOnGenerated: false,
   maxRounds: 5,
   targetScore: 85,
 };
@@ -19,6 +20,7 @@ export function loadPreferences(): Preferences {
     const p = JSON.parse(localStorage.getItem(KEY) || "null");
     if (p?.version !== 1 || !p.settings) return { ...DEFAULT_PREFERENCES };
     const out = { ...DEFAULT_PREFERENCES };
+    if (typeof p.settings.continueOnGenerated === "boolean") out.continueOnGenerated = p.settings.continueOnGenerated;
     for (const key of [
       "imageModel",
       "reviewModel",

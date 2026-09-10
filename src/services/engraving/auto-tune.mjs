@@ -6,7 +6,9 @@ export function validateAutoOptions(value = {}) {
   const maxRounds = value.maxRounds ?? 5, targetScore = value.targetScore ?? 85;
   if (!Number.isInteger(maxRounds) || maxRounds < 1 || maxRounds > 10) throw new AppError('自动调试轮数必须为 1–10，默认 5 轮。');
   if (!Number.isInteger(targetScore) || targetScore < 70 || targetScore > 95) throw new AppError('目标评分必须为 70–95。');
-  return { maxRounds, targetScore };
+  const continueOnGenerated = value.continueOnGenerated ?? false;
+  if (typeof continueOnGenerated !== "boolean") throw new AppError("持续优化开关必须为布尔值。");
+  return { maxRounds, targetScore, continueOnGenerated };
 }
 
 function assessed(review, target) {
@@ -26,27 +28,35 @@ const FIXES = {
   artifacts: 'Remove fabricated details and repair original anatomy and lettering using only image 1.',
 };
 
+
+function correctionFeedback(assessment, targetScore, editMode = false) {
+  const issues = [...assessment.issues, ...SCORE_KEYS.filter(k => assessment.scores[k] < (['identity', 'subjects'].includes(k) ? Math.max(90, targetScore) : targetScore)).map(k => ({ hair: 'hair_dark', texture: 'texture_weak', tones: 'highlights' }[k] || k))];
+  return [editMode ? 'Scores for this edit target: ' + JSON.stringify(assessment.scores) : '', assessment.suggestions?.slice(0, 1600), ...[...new Set(issues)].map(issue => editMode ? FIXES[issue]?.replaceAll('image 1', 'image 3') : FIXES[issue])].filter(Boolean).join('\n').slice(0, 3000);
+}
+
 // Each round is one candidate render + review, including the first generation.
-// Every candidate starts from the original photo; no chained identity drift.
+// Continuing edits use the best assessed raw candidate and the original identity anchor.
 export async function runAutoTune({ original, reference, config, subject, instructions, style, params: initialParams, options,
   generate, review, render, saveCandidate, publish, cancelled = () => false }) {
-  const { maxRounds, targetScore } = validateAutoOptions(options);
+  const { maxRounds, targetScore, continueOnGenerated } = validateAutoOptions(options);
   let params = validateOptions({ ...initialParams, eraseMask: undefined, preview: false });
   let source, job, best = null, fallback = null, feedback = '', action = 'generate';
-  let generations = 0, checks = 0;
+  let generations = 0, checks = 0, editedFromRound, editedFromJobId;
   const rounds = [], tried = new Set();
   const state = (status, phase = '', extra = {}) => ({ status, phase, maxRounds, targetScore, generations, checks, rounds: [...rounds], best, fallback, ...extra });
   try {
     for (let round = 1; round <= maxRounds; round++) {
       if (cancelled()) return state('cancelled', '已停止后续调试');
       if (action === 'generate') {
+        const base = continueOnGenerated ? best : null;
+        editedFromRound = base?.round; editedFromJobId = base?.job.id;
         generations++;
-        await publish(state('running', `第 ${round}/${maxRounds} 轮：${source ? '重新生成' : '生成图片'}`));
+        await publish(state('running', `第 ${round}/${maxRounds} 轮：${base ? `基于第 ${base.round} 版继续优化` : source ? '重新生成' : '生成图片'}`));
         if (cancelled()) { generations--; return state('cancelled', '已停止，未提交下一次生图'); }
-        const result = await generate({ image: original, referenceImage: reference, config, subject, instructions, style, feedback });
+        const result = await generate({ image: base ? base.job.blob : original, referenceImage: reference, config, subject, instructions, style, feedback: base ? correctionFeedback(base, targetScore, true) : feedback, ...(base ? { editMode: true, originalImage: original } : {}) });
         source = result.buffer;
         job = await saveCandidate(source, result.warnings || []);
-        fallback = { job, params: { ...params }, round, assessed: false };
+        fallback = { job, editedFromRound, editedFromJobId, params: { ...params }, round, assessed: false };
         tried.clear();
         // Save before cancellation, so an already-billed result is not discarded.
         await publish(state('running', `第 ${round}/${maxRounds} 轮：图片已保存`));
@@ -57,7 +67,7 @@ export async function runAutoTune({ original, reference, config, subject, instru
       if (cancelled()) return state('cancelled', '已停止，保留现有结果');
       checks++;
       const assessment = assessed(validateReview(await review({ original, reference, rendered: rendered.buffer, config, params, instructions })), targetScore);
-      const entry = { ...assessment, round, action, reviewAction: assessment.action, job, params: { ...params } };
+      const entry = { ...assessment, round, action, editedFromRound, editedFromJobId, reviewAction: assessment.action, job, params: { ...params } };
       rounds.push(entry);
       // Prefer integrity over aesthetics when the candidate has a missing face/subject.
       const rank = item => (item.passed ? 1000 : 0) + Math.min(item.scores.identity, item.scores.subjects) * 2 + item.score;
@@ -76,8 +86,7 @@ export async function runAutoTune({ original, reference, config, subject, instru
         params = proposed; action = 'adjust';
       } else {
         action = 'generate';
-        const issues = [...assessment.issues, ...SCORE_KEYS.filter(k => assessment.scores[k] < (['identity', 'subjects'].includes(k) ? Math.max(90, targetScore) : targetScore)).map(k => ({ hair: 'hair_dark', texture: 'texture_weak', tones: 'highlights' }[k] || k))];
-        feedback = [assessment.suggestions, ...issues.map(issue => FIXES[issue])].filter(Boolean).join('\n');
+        feedback = correctionFeedback(assessment, targetScore);
         params = validateOptions({ ...initialParams, eraseMask: undefined, preview: false });
       }
     }

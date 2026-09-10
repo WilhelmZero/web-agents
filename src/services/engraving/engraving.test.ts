@@ -366,3 +366,22 @@ describe("isolated settings and recovery", () => {
     ));
 });
 type PreferencesWithKey = typeof DEFAULT_PREFERENCES & { apiKey: string };
+
+it('continues from best raw candidate with matching feedback and original anchor after regression', async()=>{
+ const d=dependencies(); d.options={maxRounds:3,targetScore:95,continueOnGenerated:true};
+ const sources=[new Blob(['first']),new Blob(['worse']),new Blob(['third'])]; let n=0, r=0;
+ d.generate=vi.fn(async()=>({buffer:sources[n++],warnings:[]}));
+ d.review=vi.fn(async()=>assessment({scores:{identity:90,subjects:90,hair:++r===2?20:70,texture:70,background:90,tones:70},action:'regenerate',issues:['hair_dark'],suggestions:r===2?'worse advice':'best advice'}));
+ const run=await runAutoTune(d); const calls=vi.mocked(d.generate).mock.calls;
+ expect(calls[0][0].image).toBe(d.original); expect(calls[0][0].editMode).toBeUndefined();
+ for(const index of [1,2]) { expect(calls[index][0].image).toBe(sources[0]); expect(calls[index][0].originalImage).toBe(d.original); expect(calls[index][0].referenceImage).toBe(d.reference); expect(calls[index][0].feedback).toContain('best advice'); expect(calls[index][0].feedback).not.toContain('worse advice'); }
+ expect(run.rounds[2].editedFromRound).toBe(1); expect(run.status).toBe('limit');
+ for(const call of vi.mocked(d.review).mock.calls) expect(call[0].original).toBe(d.original);
+});
+it('persists the opt-in switch and assigns distinct edit image roles',()=>{
+ localStorage.clear(); expect(loadPreferences().continueOnGenerated).toBe(false);
+ savePreferences({...DEFAULT_PREFERENCES,continueOnGenerated:true}); expect(loadPreferences().continueOnGenerated).toBe(true);
+ expect(()=>validateAutoOptions({continueOnGenerated:'yes' as unknown as boolean})).toThrow();
+ const prompt=buildPrompt({hasReference:true,editMode:true,feedback:'Improve hair'});
+ expect(prompt).toContain('Image 1 is the EDIT TARGET'); expect(prompt).toContain('Image 3 is the ONLY source'); expect(prompt).not.toContain('Image 1 is the ONLY source');
+});

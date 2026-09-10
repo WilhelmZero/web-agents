@@ -459,6 +459,8 @@ export default function CustomMonochromeLogoComposer({
             onChange={(auto) => patchPreferences({ auto })}
           />
         </label>
+        <label className="engraving-inline">在生成图上持续优化<Switch aria-label="在生成图上持续优化" disabled={locked || !preferences.auto} checked={preferences.continueOnGenerated} onChange={continueOnGenerated => patchPreferences({ continueOnGenerated })} /></label>
+        <small>开启后，从评分最佳的生成图继续修改，并附带原照保留人物和构图。</small>
         <label>
           最多轮数
           <InputNumber

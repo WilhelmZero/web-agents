@@ -139,6 +139,7 @@ export function createEngravingApi(
   return {
     async generate(input: GenerateInput) {
       const { config, image, referenceImage } = input;
+      if (input.editMode && !input.originalImage) throw new AppError("持续优化缺少原照参考。");
       const prompt = buildPrompt({ ...input, hasReference: true });
       const bitmap = await createImageBitmap(image);
       const ratio = bitmap.width / bitmap.height;
@@ -154,16 +155,17 @@ export function createEngravingApi(
         background: "transparent",
         output_format: "png",
       }).forEach(([key, value]) => form.append(key, value));
-      form.append("image[]", image, "original.png");
+      form.append("image[]", image, input.editMode ? "candidate.png" : "original.png");
       form.append("image[]", referenceImage, "reference.png");
+      if (input.editMode) form.append("image[]", input.originalImage!, "identity-original.png");
       if (["gpt-image-1", "gpt-image-1.5"].includes(config.imageModel))
         form.append("input_fidelity", "high");
       const id = startRequestConsoleEntry({
         model: config.imageModel,
         connection: "direct",
-        requestSummary: "客户定制黑白 Logo · 生成（原照 + 风格参考）",
+        requestSummary: input.editMode ? "客户定制黑白 Logo · 持续优化（生成图 + 风格参考 + 原照）" : "客户定制黑白 Logo · 生成（原照 + 风格参考）",
         requestPrompt: prompt,
-        inputImages: [image, referenceImage],
+        inputImages: input.editMode ? [image, referenceImage, input.originalImage!] : [image, referenceImage],
       });
       const start = Date.now();
       try {

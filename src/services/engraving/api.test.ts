@@ -108,3 +108,14 @@ describe("compatible image API", () => {
     expect(apiBase("https://example.com/v1/")).toBe("https://example.com/v1");
   });
 });
+
+it('sends edit candidate, style and identity original in explicit role order',async()=>{
+ const fetcher=vi.fn(async()=>Response.json({data:[{b64_json:btoa('png')}]}));
+ const normalize=vi.fn(async(buffer:Blob)=>({buffer,width:200,height:100,warnings:[]}));
+ await createEngravingApi(fetcher as typeof fetch,normalize).generate({...input(),editMode:true,originalImage:new Blob(['identity'])});
+ const body=vi.mocked(fetcher as typeof fetch).mock.calls[0][1]!.body as FormData;
+ expect(body.getAll('image[]').map(v=>(v as File).name)).toEqual(['candidate.png','reference.png','identity-original.png']);
+ expect(body.get('prompt')).toContain('Image 3 is the ONLY source');
+ await expect(createEngravingApi(fetcher as typeof fetch,normalize).generate({...input(),editMode:true})).rejects.toThrow('缺少原照');
+ expect(fetcher).toHaveBeenCalledTimes(1);
+});

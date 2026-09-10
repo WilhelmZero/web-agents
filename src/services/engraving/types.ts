@@ -37,6 +37,7 @@ export interface Preferences extends Omit<Config, "apiKey"> {
   reference: "portrait" | "couple" | "bouquet";
   instructions: string;
   auto: boolean;
+  continueOnGenerated: boolean;
   maxRounds: number;
   targetScore: number;
 }
@@ -65,6 +66,8 @@ export interface Candidate {
   params: RenderParams;
   round: number;
   assessed?: boolean;
+  editedFromRound?: number;
+  editedFromJobId?: string;
 }
 export interface Round extends Candidate, Omit<Review, "action"> {
   action: "generate" | "adjust";
@@ -93,6 +96,8 @@ export interface Rendered {
   warnings: string[];
 }
 export interface GenerateInput {
+  editMode?: boolean;
+  originalImage?: Blob;
   image: Blob;
   referenceImage: Blob;
   config: Config;
@@ -117,7 +122,7 @@ export interface AutoDependencies {
   instructions: string;
   style: Style;
   params: RenderParams;
-  options: { maxRounds: number; targetScore: number };
+  options: { maxRounds: number; targetScore: number; continueOnGenerated?: boolean };
   generate: (
     input: GenerateInput,
   ) => Promise<{ buffer: Blob; warnings: string[] }>;
