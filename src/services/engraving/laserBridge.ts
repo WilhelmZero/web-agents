@@ -13,6 +13,7 @@ export function openLaser3d(
   status: (text: string) => void,
   target = (import.meta.env.DEV && import.meta.env.VITE_3D_PREVIEW_URL) ||
     "https://wilhelmzero.github.io/img2threejs/",
+  timeoutMs = 45000,
 ) {
   const session = crypto.randomUUID(),
     url = new URL(target);
@@ -70,9 +71,19 @@ export function openLaser3d(
     timeout = setTimeout(() => {
       cleanup();
       status("3D导入超时，请重试或下载图片后手动导入。");
-    }, 45000);
+    }, timeoutMs);
   window.addEventListener("message", receive);
   status("等待3D工作台就绪…");
   ping();
   return cleanup;
+}
+
+export function openHighQualityLaser3d(
+  payload: LaserPayload,
+  status: (text: string) => void,
+) {
+  const target =
+    (import.meta.env.DEV && import.meta.env.VITE_HIGH_QUALITY_3D_PREVIEW_URL) ||
+    "https://wilhelmzero.github.io/cup-studio/";
+  return openLaser3d(payload, status, target, 120000);
 }

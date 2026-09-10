@@ -4,6 +4,7 @@ import type { StoredResult } from "../services/engraving/types";
 import { processInWorker } from "../services/engraving/workerClient";
 import {
   openLaser3d,
+  openHighQualityLaser3d,
   type LaserPayload,
 } from "../services/engraving/laserBridge";
 import { downloadEngraving } from "./EngravingResultCard";
@@ -146,6 +147,20 @@ export default function LaserPreview({
             }}
           >
             3D预览
+          </Button>
+          <Button
+            disabled={!current}
+            onClick={() => {
+              if (current) {
+                bridgeCleanup.current();
+                bridgeCleanup.current = openHighQualityLaser3d(
+                  current.payload,
+                  setMessage,
+                );
+              }
+            }}
+          >
+            高质量3D预览
           </Button>
           <Button onClick={onClose}>关闭</Button>
         </Space>

@@ -52,3 +52,5 @@ npm run build
 
 ## 雕刻预览联动
 Scene Studio 的雕刻预览通过 engraving-preview-v1 postMessage 协议发送 PNG Blob、像素及毫米尺寸和 DPI。图片不进入 URL，也不上传服务器。接收端验证 opener、origin 与随机 session，收到有效图片并应用纹理后回执；45秒超时可重试。外部会话不读取或写入默认草稿。雕刻材质将黑色转透明，亮度映射为白色磨砂覆盖，普通贴图仍保持原行为。导入过大的图案会等比缩小到杯身可用区域；模拟不代替实际打样。开发联调使用127.0.0.1:5179发送，VITE_3D_PREVIEW_URL可在开发环境指定接收端地址。
+
+高质量3D预览：雕刻预览中的同名按钮将当前雕刻用图传入 https://wilhelmzero.github.io/cup-studio/ ，使用默认玻璃杯与磨砂雕刻材质，保持独立草稿。使用与普通3D预览相同的 engraving-preview-v1 协议，高质量接收等待上限120秒。本地开发可设置 VITE_HIGH_QUALITY_3D_PREVIEW_URL；生产固定使用上述站点。图片仅在浏览器之间传递，不调用AI。

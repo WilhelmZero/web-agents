@@ -53,6 +53,7 @@ it("snapshots all current parameters, renders full resolution dither and cancels
       onClose={() => {}}
     />,
   );
+  expect(screen.getByRole("button", { name: "高质量3D预览" })).toBeDisabled();
   expect(processInWorker).toHaveBeenCalledTimes(1);
   const signal = vi.mocked(processInWorker).mock.calls[0][2]!;
   view.unmount();
