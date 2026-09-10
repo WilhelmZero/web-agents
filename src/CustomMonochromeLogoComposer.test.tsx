@@ -13,6 +13,9 @@ vi.mock("./services/engraving/storage", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./services/engraving/storage")>()),
   loadTask: vi.fn(async () => undefined),
   saveTask: vi.fn(async () => {}),
+  startNewTask: vi.fn(async () => {}),
+  listTaskHistory: vi.fn(async () => []),
+  copyHistoryTask: vi.fn(),
 }));
 vi.mock("./services/engraving/workerClient", () => ({
   processInWorker: vi.fn(),
@@ -21,7 +24,7 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
-  localStorage.clear();
+  (localStorage.clear(), sessionStorage.clear());
 });
 describe("customer monochrome page", () => {
   it("requires upload, preserves the five subjects and hidden textual references, and opens independent settings", async () => {
@@ -237,3 +240,18 @@ it.each([false, true])(
   },
   15000,
 );
+
+it("restores history as a copy without starting generation",async()=>{
+ const storage=await import("./services/engraving/storage");
+ const {DEFAULTS}=await import("./services/engraving/processing.mjs");
+ vi.mocked(storage.listTaskHistory).mockResolvedValueOnce([{id:"task:old",fileName:"旧照片.jpg",updatedAt:1,count:2}]);
+ vi.mocked(storage.copyHistoryTask).mockResolvedValueOnce({version:1,fileName:"restored.jpg",params:{...DEFAULTS}});
+ render(<CustomMonochromeLogoComposer openAiApiKey="" onConfigureKey={vi.fn()}/>);
+ await waitFor(()=>expect(screen.getByRole("button",{name:"任务历史"})).toBeEnabled());
+ fireEvent.click(screen.getByRole("button",{name:"任务历史"}));
+ await screen.findByText(/旧照片.jpg/);
+ fireEvent.click(screen.getByRole("button",{name:"恢复副本"}));
+ await screen.findByText(/已恢复为本标签的独立副本/);
+ expect(storage.copyHistoryTask).toHaveBeenCalledWith("task:old");
+ expect(screen.getByRole("button",{name:"生成黑白 Logo"})).toBeDisabled();
+});

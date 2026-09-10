@@ -32,6 +32,10 @@ import {
   savePreferences,
   loadTask,
   saveTask,
+  startNewTask,
+  listTaskHistory,
+  copyHistoryTask,
+  type TaskHistoryEntry,
 } from "./services/engraving/storage";
 import { processInWorker } from "./services/engraving/workerClient";
 import type {
@@ -131,6 +135,37 @@ export default function CustomMonochromeLogoComposer({
     [now, setNow] = useState(Date.now());
   const [clearOpen, setClearOpen] = useState(false),
     [clearing, setClearing] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [history, setHistory] = useState<TaskHistoryEntry[]>([]);
+  const [historyBusy, setHistoryBusy] = useState(false);
+  async function openHistory() {
+    setHistoryBusy(true);
+    try {
+      await saveTask(taskRef.current);
+      setHistory(await listTaskHistory());
+      setHistoryOpen(true);
+    } catch {
+      setStorageWarning("无法读取任务历史，请先下载当前结果。");
+    } finally {
+      setHistoryBusy(false);
+    }
+  }
+  async function restoreHistory(id: string) {
+    if (active.current) return;
+    setHistoryBusy(true);
+    try {
+      await saveTask(taskRef.current);
+      const saved = await copyHistoryTask(id);
+      updateTask({ ...saved, results: taskResults(saved) });
+      setHistoryOpen(false);
+      setError("");
+      setNotice("已恢复为本标签的独立副本，不影响其他标签；不会自动生成。");
+    } catch {
+      setStorageWarning("恢复历史失败，请保留当前页面并先下载结果。");
+    } finally {
+      setHistoryBusy(false);
+    }
+  }
   const referenceControlsVisible = false;
   const customReferenceUrl = useBlobUrl(task.customReference);
   function updateTask(next: SavedTask) {
@@ -173,14 +208,14 @@ export default function CustomMonochromeLogoComposer({
     }
   }, [preferences]);
   useEffect(() => {
-    if (!loaded || clearing) return;
+    if (!loaded || clearing || uploading || historyBusy) return;
     const timer = setTimeout(() => {
       void saveTask(task).catch(() =>
         setStorageWarning("本地任务保存失败，请先下载结果。"),
       );
     }, 350);
     return () => clearTimeout(timer);
-  }, [task, loaded, busy, clearing]);
+  }, [task, loaded, busy, clearing, uploading, historyBusy]);
   useEffect(() => {
     if (!busy) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -203,6 +238,8 @@ export default function CustomMonochromeLogoComposer({
     setError("");
     try {
       const result = await processInWorker(file, undefined, undefined, true);
+      await saveTask(taskRef.current);
+      await startNewTask();
       await persist({
         version: 1,
         original: result.buffer,
@@ -405,7 +442,7 @@ export default function CustomMonochromeLogoComposer({
     ? Math.max(0, ((task.endedAt || now) - task.startedAt) / 1000)
     : 0;
   const results = taskResults(task);
-  const locked = busy || !loaded || uploading || clearing;
+  const locked = busy || !loaded || uploading || clearing || historyBusy;
 
   const settingsPanel = (
     <div
@@ -459,8 +496,20 @@ export default function CustomMonochromeLogoComposer({
             onChange={(auto) => patchPreferences({ auto })}
           />
         </label>
-        <label className="engraving-inline">在生成图上持续优化<Switch aria-label="在生成图上持续优化" disabled={locked || !preferences.auto} checked={preferences.continueOnGenerated} onChange={continueOnGenerated => patchPreferences({ continueOnGenerated })} /></label>
-        <small>开启后，从评分最佳的生成图继续修改，并附带原照保留人物和构图。</small>
+        <label className="engraving-inline">
+          在生成图上持续优化
+          <Switch
+            aria-label="在生成图上持续优化"
+            disabled={locked || !preferences.auto}
+            checked={preferences.continueOnGenerated}
+            onChange={(continueOnGenerated) =>
+              patchPreferences({ continueOnGenerated })
+            }
+          />
+        </label>
+        <small>
+          开启后，从评分最佳的生成图继续修改，并附带原照保留人物和构图。
+        </small>
         <label>
           最多轮数
           <InputNumber
@@ -499,7 +548,39 @@ export default function CustomMonochromeLogoComposer({
           <h2>客户定制黑白 Logo</h2>
           <p>照片雕刻工作台 · 保留主体细节，输出适合黑色涂层的灰度或点阵 PNG</p>
         </div>
+        <Button disabled={locked} onClick={() => void openHistory()}>
+          任务历史
+        </Button>
       </header>
+      <Modal
+        open={historyOpen}
+        title="任务历史"
+        onCancel={() => !historyBusy && setHistoryOpen(false)}
+        footer={null}
+      >
+        <p>
+          各标签独立保存。恢复会创建副本，当前任务仍保留在历史中；历史仅保存在此浏览器。
+        </p>
+        {!history.length && <p>暂无保存的任务。</p>}
+        <Space orientation="vertical" style={{ width: "100%" }}>
+          {history.map((entry) => (
+            <Card key={entry.id} size="small">
+              <Space wrap>
+                <span>
+                  {entry.fileName || "未命名任务"} · {entry.count} 张 ·{" "}
+                  {new Date(entry.updatedAt).toLocaleString()}
+                </span>
+                <Button
+                  disabled={historyBusy}
+                  onClick={() => void restoreHistory(entry.id)}
+                >
+                  恢复副本
+                </Button>
+              </Space>
+            </Card>
+          ))}
+        </Space>
+      </Modal>
       {storageWarning ? (
         <Alert type="warning" showIcon title={storageWarning} />
       ) : null}
@@ -561,7 +642,9 @@ export default function CustomMonochromeLogoComposer({
                     替换原图
                   </Button>
                 </Upload>
-                <p>替换原图会清除当前生成结果、裁剪和擦除选区。</p>
+                <p>
+                  替换原图将开始独立任务；当前原照、结果和参数保留在任务历史中。
+                </p>
               </>
             )}
           </Card>

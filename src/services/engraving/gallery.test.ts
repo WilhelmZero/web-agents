@@ -33,7 +33,7 @@ const result = (id = "one"): StoredResult => ({
   reviews: [],
   createdAt: 1,
 });
-afterEach(() => localStorage.clear());
+afterEach(() => (localStorage.clear(), sessionStorage.clear()));
 it("clears every result and legacy fallback while retaining original and reference", () => {
   const r = result(),
     original = new Blob(["original"]),
@@ -185,7 +185,7 @@ it("persists independent export settings and falls back for invalid stored setti
   };
   saveExportSettings(settings);
   expect(loadExportSettings()).toEqual(settings);
-  localStorage.setItem(
+  sessionStorage.setItem(
     "custom-monochrome-logo:export:v1",
     JSON.stringify({ version: 1, settings: { pixelWidth: -10 } }),
   );
@@ -216,3 +216,4 @@ it("snapshots selected results and renders sequentially, preserving successful f
   expect(out.errors[0]).toContain("mock failure");
   expect(progress.mock.calls).toEqual([[1], [2]]);
 });
+

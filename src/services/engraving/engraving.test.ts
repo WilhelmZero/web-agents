@@ -326,7 +326,7 @@ describe("ported automatic optimization state machine", () => {
 });
 
 describe("isolated settings and recovery", () => {
-  beforeEach(() => localStorage.clear());
+  beforeEach(() => (localStorage.clear(), sessionStorage.clear()));
   it("persists only allowlisted nonsecret preferences", () => {
     savePreferences({
       ...DEFAULT_PREFERENCES,
@@ -335,7 +335,7 @@ describe("isolated settings and recovery", () => {
     } as PreferencesWithKey);
     expect(loadPreferences().instructions).toBe("保留帽子");
     expect(
-      localStorage.getItem("custom-monochrome-logo:settings:v1"),
+      sessionStorage.getItem("custom-monochrome-logo:settings:v1"),
     ).not.toContain("secret");
   });
   it("recovers interrupted tasks without automatic execution", () => {
@@ -379,7 +379,7 @@ it('continues from best raw candidate with matching feedback and original anchor
  for(const call of vi.mocked(d.review).mock.calls) expect(call[0].original).toBe(d.original);
 });
 it('persists the opt-in switch and assigns distinct edit image roles',()=>{
- localStorage.clear(); expect(loadPreferences().continueOnGenerated).toBe(false);
+ (localStorage.clear(), sessionStorage.clear()); expect(loadPreferences().continueOnGenerated).toBe(false);
  savePreferences({...DEFAULT_PREFERENCES,continueOnGenerated:true}); expect(loadPreferences().continueOnGenerated).toBe(true);
  expect(()=>validateAutoOptions({continueOnGenerated:'yes' as unknown as boolean})).toThrow();
  const prompt=buildPrompt({hasReference:true,editMode:true,feedback:'Improve hair'});

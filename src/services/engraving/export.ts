@@ -54,7 +54,7 @@ export function exportDimensions(
 }
 export function loadExportSettings(): ExportSettings {
   try {
-    const data = JSON.parse(localStorage.getItem(KEY) || "null");
+    const data = JSON.parse(sessionStorage.getItem(KEY) || localStorage.getItem(KEY) || "null");
     if (![1, 2].includes(data?.version)) return { ...EXPORT_DEFAULTS };
     const settings = { ...EXPORT_DEFAULTS, ...data.settings };
     // Upgrade previous defaults once; newly saved explicit choices remain intact.
@@ -73,7 +73,7 @@ export function loadExportSettings(): ExportSettings {
   }
 }
 export function saveExportSettings(settings: ExportSettings) {
-  localStorage.setItem(KEY, JSON.stringify({ version: 2, settings }));
+  sessionStorage.setItem(KEY, JSON.stringify({ version: 2, settings }));
 }
 // The immutable snapshot is captured on confirmation, not when opening the dialog.
 export function snapshotExport(
