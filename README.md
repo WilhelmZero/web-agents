@@ -49,3 +49,6 @@ npm run build
 代理模式不会自动隐藏浏览器中的 API Key，也不能仅靠 CORS 防止代理被恶意调用。请仅在可信设备使用；若把前端或 Worker 公开部署，应再使用 Cloudflare Access、WAF 或其他身份认证与限流策略保护 Worker。
 
 生成接口与模型能力以 [Gemini 图片生成文档](https://ai.google.dev/gemini-api/docs/image-generation?hl=zh-cn) 为准，价格以 [Gemini API 官方定价](https://ai.google.dev/gemini-api/docs/pricing) 为准。
+
+## 雕刻预览联动
+Scene Studio 的雕刻预览通过 engraving-preview-v1 postMessage 协议发送 PNG Blob、像素及毫米尺寸和 DPI。图片不进入 URL，也不上传服务器。接收端验证 opener、origin 与随机 session，收到有效图片并应用纹理后回执；45秒超时可重试。外部会话不读取或写入默认草稿。雕刻材质将黑色转透明，亮度映射为白色磨砂覆盖，普通贴图仍保持原行为。导入过大的图案会等比缩小到杯身可用区域；模拟不代替实际打样。开发联调使用127.0.0.1:5179发送，VITE_3D_PREVIEW_URL可在开发环境指定接收端地址。

@@ -1,3 +1,4 @@
+import LaserPreview from "./LaserPreview";
 import { useEffect, useState } from "react";
 import {
   Alert,
@@ -94,6 +95,7 @@ export function EngravingResultEditor({
   const preview = useEngravingPreview(result.job.blob, result.params);
   const url = useEngravingUrl(preview.blob),
     rawUrl = useEngravingUrl(result.job.blob);
+  const [laserOpen, setLaserOpen] = useState(false);
   const [cropping, setCropping] = useState(false),
     [mask, setMask] = useState(false);
   const latest = result.reviews.at(-1);
@@ -112,6 +114,7 @@ export function EngravingResultEditor({
         </Space>
       }
     >
+      {laserOpen && <LaserPreview result={result} onClose={() => setLaserOpen(false)} />}
       <div className="engraving-editor-layout">
         <div className="engraving-editor-preview">
           {cropping && rawUrl ? (
@@ -148,7 +151,7 @@ export function EngravingResultEditor({
                 >
                   重置裁剪
                 </Button>
-                <Button onClick={onDownload}>下载</Button>
+                <Button onClick={() => setLaserOpen(true)}>雕刻预览</Button>
               </Space>
             </>
           )}
