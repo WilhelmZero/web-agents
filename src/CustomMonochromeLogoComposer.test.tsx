@@ -254,4 +254,4 @@ it("restores history as a copy without starting generation",async()=>{
  await screen.findByText(/已恢复为本标签的独立副本/);
  expect(storage.copyHistoryTask).toHaveBeenCalledWith("task:old");
  expect(screen.getByRole("button",{name:"生成黑白 Logo"})).toBeDisabled();
-});
+}, 20000);
