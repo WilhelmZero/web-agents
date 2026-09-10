@@ -19,6 +19,8 @@ vi.mock("./services/engraving/workerClient", () => ({
 }));
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
+  vi.clearAllMocks();
   localStorage.clear();
 });
 describe("customer monochrome page", () => {
@@ -27,9 +29,7 @@ describe("customer monochrome page", () => {
       <CustomMonochromeLogoComposer openAiApiKey="" onConfigureKey={vi.fn()} />,
     );
     await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: /上传客户照片/ }),
-      ).toBeEnabled(),
+      expect(screen.getByLabelText("上传单张原图")).toBeEnabled(),
     );
     expect(
       screen.getByRole("button", { name: /生成黑白 Logo/ }),
@@ -41,10 +41,10 @@ describe("customer monochrome page", () => {
       screen
         .queryAllByRole("img")
         .filter((el) => (el as HTMLImageElement).src?.includes("reference")),
-    ).toHaveLength(1);
+    ).toHaveLength(0);
     expect(
-      screen.getByRole("button", { name: /上传风格参考图/ }),
-    ).toBeInTheDocument();
+      screen.queryByRole("button", { name: /上传风格参考图/ }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText("3 · 雕刻参数")).not.toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /补充提示词再生成一张/ }),
@@ -84,9 +84,7 @@ describe("customer monochrome page", () => {
       />,
     );
     await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: /上传客户照片/ }),
-      ).toBeEnabled(),
+      expect(screen.getByLabelText("上传单张原图")).toBeEnabled(),
     );
     expect(
       screen.queryByRole("button", { name: /测试连接|全局 API 设置/ }),
@@ -95,3 +93,141 @@ describe("customer monochrome page", () => {
     test.mockRestore();
   }, 15000);
 });
+
+it("portals only settings while keeping source, subject and actions in the center", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const view = render(
+    <CustomMonochromeLogoComposer
+      openAiApiKey=""
+      onConfigureKey={vi.fn()}
+      settingsHost={host}
+    />,
+  );
+  await waitFor(() =>
+    expect(screen.getByLabelText("上传单张原图")).toBeEnabled(),
+  );
+  expect(within(host).getByText("图片模型")).toBeInTheDocument();
+  expect(
+    within(host).queryByRole("button", { name: "生成黑白 Logo" }),
+  ).not.toBeInTheDocument();
+  expect(
+    within(screen.getByRole("main")).getByRole("combobox", {
+      name: "保留主体",
+    }),
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByRole("combobox", { name: "风格参考" }),
+  ).not.toBeInTheDocument();
+  view.unmount();
+  host.remove();
+});
+
+it.each([false, true])(
+  "uses portrait despite saved custom references, including supplemental generation (auto=%s)",
+  async (auto) => {
+    const { loadTask } = await import("./services/engraving/storage");
+    const { processInWorker } =
+      await import("./services/engraving/workerClient");
+    const { DEFAULTS } = await import("./services/engraving/processing.mjs");
+    const original = new Blob(["original"]),
+      customReference = new Blob(["old custom"]);
+    const portrait = new Blob(["portrait"]);
+    vi.mocked(loadTask).mockResolvedValueOnce({
+      version: 1,
+      fileName: "saved.png",
+      original,
+      customReference,
+      params: { ...DEFAULTS },
+    });
+    localStorage.setItem(
+      "custom-monochrome-logo:settings:v1",
+      JSON.stringify({ version: 1, settings: { reference: "bouquet", auto } }),
+    );
+    vi.stubGlobal(
+      "URL",
+      Object.assign(URL, {
+        createObjectURL: vi.fn(() => "blob:test"),
+        revokeObjectURL: vi.fn(),
+      }),
+    );
+    vi.stubGlobal(
+      "createImageBitmap",
+      vi.fn(async () => ({ width: 400, height: 600, close: vi.fn() })),
+    );
+    const fetchMock = vi.fn(async (_url: string) => ({
+      ok: true,
+      blob: async () => portrait,
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.mocked(processInWorker).mockResolvedValue({
+      buffer: portrait,
+      width: 400,
+      height: 600,
+      warnings: [],
+    });
+    const generate = vi.fn(
+      async (_input: import("./services/engraving/types").GenerateInput) => ({
+        buffer: new Blob(["generated"]),
+        warnings: [],
+      }),
+    );
+    const review = vi.fn(
+      async (_input: import("./services/engraving/types").ReviewInput) => ({
+        scores: {
+          identity: 95,
+          subjects: 95,
+          hair: 95,
+          texture: 95,
+          background: 95,
+          tones: 95,
+        },
+        issues: [],
+        action: "accept" as const,
+        adjustments: { texture: 65, contrast: 50, brightness: 50, shadow: 30, blackPoint: 0 },
+      }),
+    );
+    const api = vi
+      .spyOn(engravingApi, "createEngravingApi")
+      .mockReturnValue({ generate, review });
+    render(
+      <CustomMonochromeLogoComposer
+        openAiApiKey="fake-key"
+        onConfigureKey={vi.fn()}
+      />,
+    );
+    const button = screen.getByRole("button", { name: "生成黑白 Logo" });
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(button);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "补充提示词再生成一张" }),
+      ).toBeEnabled(),
+    );
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(generate.mock.calls[0][0].referenceImage).toBe(portrait);
+    if (auto) expect(review.mock.calls[0][0].reference).toBe(portrait);
+    fireEvent.click(
+      screen.getByRole("button", { name: "补充提示词再生成一张" }),
+    );
+    fireEvent.change(screen.getByRole("textbox", { name: "补充提示词" }), {
+      target: { value: "加强发丝" },
+    });
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: "再生成一张",
+      }),
+    );
+    await waitFor(() => expect(generate).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(button).toBeEnabled());
+    expect(generate.mock.calls[1][0].referenceImage).toBe(portrait);
+    expect(
+      fetchMock.mock.calls.every((call) =>
+        String(call[0]).endsWith("engraving-references/portrait-reference.jpg"),
+      ),
+    ).toBe(true);
+    expect(review).toHaveBeenCalledTimes(auto ? 1 : 0);
+    api.mockRestore();
+  },
+  15000,
+);

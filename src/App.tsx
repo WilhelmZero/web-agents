@@ -623,6 +623,7 @@ function AppContent() {
   const [logoSettingsHost, setLogoSettingsHost] = useState<HTMLElement | null>(
     null,
   );
+  const [engravingSettingsHost, setEngravingSettingsHost] = useState<HTMLElement | null>(null);
   const [inpaintSettingsHost, setInpaintSettingsHost] =
     useState<HTMLElement | null>(null);
   const [productDetailSettingsHost, setProductDetailSettingsHost] =
@@ -1516,7 +1517,7 @@ function AppContent() {
                 />
               </Tooltip>
             )}
-            {compact && !showPinnedHome && !["icon-vector-split", "custom-monochrome-logo"].includes(creationTool) && (
+            {compact && !showPinnedHome && !["icon-vector-split"].includes(creationTool) && (
               <Button
                 icon={<SettingOutlined />}
                 onClick={() => setSettingsOpen(true)}
@@ -1564,7 +1565,7 @@ function AppContent() {
       )}
 
       <Layout
-        className={`workspace-layout${showPinnedHome ? " is-tool-home" : ""}${creationTool === "workflow" && !showPinnedHome ? " is-workflow" : ""}${creationTool === "custom-monochrome-logo" && !showPinnedHome ? " is-engraving" : ""}`}
+        className={`workspace-layout${showPinnedHome ? " is-tool-home" : ""}${creationTool === "workflow" && !showPinnedHome ? " is-workflow" : ""}`}
       >
         <Sider
           width={214}
@@ -1826,7 +1827,7 @@ function AppContent() {
                 <IconVectorSplitComposer />
               </div>
               <div hidden={creationTool !== "custom-monochrome-logo"}>
-                <CustomMonochromeLogoComposer openAiApiKey={settings.openAiApiKey} onConfigureKey={() => setKeyOpen(true)} />
+                <CustomMonochromeLogoComposer settingsHost={engravingSettingsHost} openAiApiKey={settings.openAiApiKey} onConfigureKey={() => setKeyOpen(true)} />
               </div>
               <div hidden={creationTool !== "background-removal"}>
                 <BackgroundRemovalComposer
@@ -2452,6 +2453,7 @@ function AppContent() {
             <div ref={setCupResizeSettingsHost} />
           </Sider>
         )}
+        {!compact && creationTool === "custom-monochrome-logo" && (<Sider width={330} theme="light" className="settings-sider"><div ref={setEngravingSettingsHost} /></Sider>)}
         {!compact && creationTool === "inpaint" && (
           <Sider width={330} theme="light" className="settings-sider">
             <div ref={setInpaintSettingsHost} />
@@ -2478,10 +2480,10 @@ function AppContent() {
       >
         {creationTool === "scene" ? (
           settingsPanel
-        ) : compact && !["icon-vector-split", "custom-monochrome-logo"].includes(creationTool) ? (
+        ) : compact && !["icon-vector-split"].includes(creationTool) ? (
           <div
             ref={
-              creationTool === "logo"
+              creationTool === "custom-monochrome-logo" ? setEngravingSettingsHost : creationTool === "logo"
                 ? setLogoSettingsHost
                 : creationTool === "logo-replace"
                   ? setLogoReplaceSettingsHost

@@ -1,7 +1,11 @@
 import { OPENAI_ROOT } from "./services/openAiEndpoint";
+import { createPortal } from "react-dom";
 import { useEffect, useRef, useState } from "react";
 import {
   Alert,
+  Divider,
+  Flex,
+  Form,
   Button,
   Card,
   Image,
@@ -15,7 +19,11 @@ import {
   Tag,
   Upload,
 } from "antd";
-import { DownloadOutlined, UploadOutlined } from "@ant-design/icons";
+import {
+  DownloadOutlined,
+  UploadOutlined,
+  FileImageOutlined,
+} from "@ant-design/icons";
 import { DEFAULTS, validateOptions } from "./services/engraving/processing.mjs";
 import { runAutoTune } from "./services/engraving/auto-tune.mjs";
 import { createEngravingApi, apiBase } from "./services/engraving/api";
@@ -97,9 +105,11 @@ function PreviewImage({ blob, title }: { blob?: Blob; title: string }) {
 export default function CustomMonochromeLogoComposer({
   openAiApiKey,
   onConfigureKey,
+  settingsHost,
 }: {
   openAiApiKey: string;
   onConfigureKey: () => void;
+  settingsHost?: HTMLElement | null;
 }) {
   const [preferences, setPreferences] = useState(loadPreferences);
   const [task, setTask] = useState<SavedTask>({
@@ -121,6 +131,7 @@ export default function CustomMonochromeLogoComposer({
     [now, setNow] = useState(Date.now());
   const [clearOpen, setClearOpen] = useState(false),
     [clearing, setClearing] = useState(false);
+  const referenceControlsVisible = false;
   const customReferenceUrl = useBlobUrl(task.customReference);
   function updateTask(next: SavedTask) {
     taskRef.current = next;
@@ -272,10 +283,12 @@ export default function CustomMonochromeLogoComposer({
       });
     };
     try {
-      let reference = initial.customReference;
+      let reference = referenceControlsVisible
+        ? initial.customReference
+        : undefined;
       if (!reference) {
         const response = await fetch(
-          `${import.meta.env.BASE_URL}engraving-references/${snapshot.reference}-reference.jpg`,
+          `${import.meta.env.BASE_URL}engraving-references/${referenceControlsVisible ? snapshot.reference : "portrait"}-reference.jpg`,
         );
         if (!response.ok) throw new Error("风格参考加载失败");
         reference = (await processInWorker(await response.blob())).buffer;
@@ -393,6 +406,90 @@ export default function CustomMonochromeLogoComposer({
     : 0;
   const results = taskResults(task);
   const locked = busy || !loaded || uploading || clearing;
+
+  const settingsPanel = (
+    <div
+      className="settings-panel engraving-settings-panel"
+      role="complementary"
+      aria-label="参数设置"
+    >
+      <Flex justify="space-between">
+        <h3 style={{ margin: 0 }}>雕刻设置</h3>
+        <Tag>单图</Tag>
+      </Flex>
+      <Divider />
+      <Form layout="vertical">
+        {" "}
+        <Form.Item label="图片模型">
+          <Input
+            disabled={busy}
+            value={preferences.imageModel}
+            onChange={(e) => patchPreferences({ imageModel: e.target.value })}
+          />
+        </Form.Item>
+        <Form.Item label="审核模型">
+          <Input
+            disabled={busy}
+            value={preferences.reviewModel}
+            onChange={(e) => patchPreferences({ reviewModel: e.target.value })}
+          />
+        </Form.Item>
+        <Form.Item label="生成质量">
+          <Select
+            disabled={busy}
+            style={{ width: "100%" }}
+            value={preferences.quality}
+            onChange={(quality) => patchPreferences({ quality })}
+            options={["low", "medium", "high", "auto"].map((value) => ({
+              value,
+              label: value,
+            }))}
+          />
+        </Form.Item>
+      </Form>
+      <Divider />
+      <h4>自动优化</h4>
+      <Space orientation="vertical" style={{ width: "100%" }}>
+        {" "}
+        <label className="engraving-inline">
+          自动优化
+          <Switch
+            disabled={locked}
+            checked={preferences.auto}
+            onChange={(auto) => patchPreferences({ auto })}
+          />
+        </label>
+        <label>
+          最多轮数
+          <InputNumber
+            aria-label="最多轮数"
+            disabled={locked || !preferences.auto}
+            min={1}
+            max={10}
+            precision={0}
+            value={preferences.maxRounds}
+            onChange={(n) => n !== null && patchPreferences({ maxRounds: n })}
+          />
+        </label>
+        <label>
+          目标评分
+          <InputNumber
+            aria-label="目标评分"
+            disabled={locked || !preferences.auto}
+            min={70}
+            max={95}
+            precision={0}
+            value={preferences.targetScore}
+            onChange={(n) => n !== null && patchPreferences({ targetScore: n })}
+          />
+        </label>
+        <small>
+          每轮审核后调参或重新生成，可能多次计费；失败不自动重发。审核 Token
+          按实际账单计费。
+        </small>
+      </Space>
+    </div>
+  );
   return (
     <section className="custom-monochrome-logo">
       <header>
@@ -409,49 +506,22 @@ export default function CustomMonochromeLogoComposer({
       ) : null}
       {notice ? <Alert type="info" title={notice} /> : null}
       <div className="engraving-layout">
-        <aside aria-label="参数设置" className="engraving-settings">
-          <h3>参数设置</h3>
-          <Card title="模型与质量" size="small">
-            <Space orientation="vertical" style={{ width: "100%" }}>
-              <label>
-                图片模型
-                <Input
-                  disabled={busy}
-                  value={preferences.imageModel}
-                  onChange={(e) =>
-                    patchPreferences({ imageModel: e.target.value })
-                  }
-                />
-              </label>
-              <label>
-                审核模型
-                <Input
-                  disabled={busy}
-                  value={preferences.reviewModel}
-                  onChange={(e) =>
-                    patchPreferences({ reviewModel: e.target.value })
-                  }
-                />
-              </label>
-              <label>
-                生成质量
-                <Select
-                  disabled={busy}
-                  style={{ width: "100%" }}
-                  value={preferences.quality}
-                  onChange={(quality) => patchPreferences({ quality })}
-                  options={["low", "medium", "high", "auto"].map((value) => ({
-                    value,
-                    label: value,
-                  }))}
-                />
-              </label>
-            </Space>
-          </Card>
-          <Card title="1 · 原照与主体" size="small">
-            <Space orientation="vertical" style={{ width: "100%" }}>
-              <Upload
+        <main>
+          <Card
+            className="workflow-card"
+            title={
+              <Space>
+                <FileImageOutlined />
+                <span>上传单张原图</span>
+              </Space>
+            }
+          >
+            {!task.original ? (
+              <Upload.Dragger
+                aria-label="上传单张原图"
                 accept="image/jpeg,image/png,image/webp"
+                multiple={false}
+                maxCount={1}
                 showUploadList={false}
                 disabled={locked}
                 beforeUpload={(file) => {
@@ -459,16 +529,43 @@ export default function CustomMonochromeLogoComposer({
                   return false;
                 }}
               >
-                <Button
-                  icon={<UploadOutlined />}
-                  loading={uploading}
+                <p className="ant-upload-drag-icon">
+                  <FileImageOutlined />
+                </p>
+                <p className="ant-upload-text">点击或拖拽上传图片</p>
+                <p className="ant-upload-hint">
+                  JPEG / PNG / WebP · ≤20 MB · ≤4000 万像素
+                </p>
+              </Upload.Dragger>
+            ) : (
+              <>
+                <PreviewImage blob={task.original} title="原照" />
+                <p>{task.fileName}</p>
+                <Upload
+                  accept="image/jpeg,image/png,image/webp"
+                  multiple={false}
+                  showUploadList={false}
                   disabled={locked}
+                  beforeUpload={(file) => {
+                    void upload(file);
+                    return false;
+                  }}
                 >
-                  上传客户照片
-                </Button>
-              </Upload>
-              <small>JPEG / PNG / WebP · ≤20 MB · ≤4000 万像素</small>
-              <span>{task.fileName}</span>
+                  <Button
+                    icon={<UploadOutlined />}
+                    loading={uploading}
+                    disabled={locked}
+                  >
+                    替换原图
+                  </Button>
+                </Upload>
+                <p>替换原图会清除当前生成结果、裁剪和擦除选区。</p>
+              </>
+            )}
+          </Card>
+          <Card className="workflow-card" title="主体与风格">
+            <Space orientation="vertical" style={{ width: "100%" }}>
+              {" "}
               <label>
                 保留主体
                 <Select
@@ -498,70 +595,75 @@ export default function CustomMonochromeLogoComposer({
                   ]}
                 />
               </label>
-              <label>
-                风格参考
-                <Select
-                  aria-label="风格参考"
-                  disabled={locked}
-                  value={preferences.reference}
-                  onChange={(reference) => {
-                    patchPreferences({ reference });
-                    updateTask({
-                      ...taskRef.current,
-                      customReference: undefined,
-                    });
-                  }}
-                  options={[
-                    { value: "portrait", label: "人物雕刻" },
-                    { value: "couple", label: "双人雕刻" },
-                    { value: "bouquet", label: "人物与花束" },
-                  ]}
-                />
-              </label>
-              <small>
-                用于 AI 风格对照，不复制参考人物。内置素材随网页公开分发。
-              </small>
-              <Image
-                src={
-                  customReferenceUrl ||
-                  `${import.meta.env.BASE_URL}engraving-references/${preferences.reference}-reference.jpg`
-                }
-                alt="当前风格参考图"
-                style={{ maxHeight: 200, objectFit: "contain" }}
-              />
-              <Upload
-                accept="image/jpeg,image/png,image/webp"
-                showUploadList={false}
-                disabled={locked}
-                beforeUpload={(file) => {
-                  setUploading(true);
-                  void processInWorker(file, undefined, undefined, true)
-                    .then((result) =>
-                      persist({
-                        ...taskRef.current,
-                        customReference: result.buffer,
-                      }),
-                    )
-                    .catch((e) => setError(e.message))
-                    .finally(() => setUploading(false));
-                  return false;
-                }}
-              >
-                <Button disabled={locked}>上传风格参考图</Button>
-              </Upload>
-              {task.customReference ? (
-                <Button
-                  disabled={locked}
-                  onClick={() =>
-                    updateTask({
-                      ...taskRef.current,
-                      customReference: undefined,
-                    })
-                  }
-                >
-                  恢复内置风格参考
-                </Button>
-              ) : null}
+              {referenceControlsVisible ? (
+                <>
+                  {" "}
+                  <label>
+                    风格参考
+                    <Select
+                      aria-label="风格参考"
+                      disabled={locked}
+                      value={preferences.reference}
+                      onChange={(reference) => {
+                        patchPreferences({ reference });
+                        updateTask({
+                          ...taskRef.current,
+                          customReference: undefined,
+                        });
+                      }}
+                      options={[
+                        { value: "portrait", label: "人物雕刻" },
+                        { value: "couple", label: "双人雕刻" },
+                        { value: "bouquet", label: "人物与花束" },
+                      ]}
+                    />
+                  </label>
+                  <small>
+                    用于 AI 风格对照，不复制参考人物。内置素材随网页公开分发。
+                  </small>
+                  <Image
+                    src={
+                      customReferenceUrl ||
+                      `${import.meta.env.BASE_URL}engraving-references/${preferences.reference}-reference.jpg`
+                    }
+                    alt="当前风格参考图"
+                    style={{ maxHeight: 200, objectFit: "contain" }}
+                  />
+                  <Upload
+                    accept="image/jpeg,image/png,image/webp"
+                    showUploadList={false}
+                    disabled={locked}
+                    beforeUpload={(file) => {
+                      setUploading(true);
+                      void processInWorker(file, undefined, undefined, true)
+                        .then((result) =>
+                          persist({
+                            ...taskRef.current,
+                            customReference: result.buffer,
+                          }),
+                        )
+                        .catch((e) => setError(e.message))
+                        .finally(() => setUploading(false));
+                      return false;
+                    }}
+                  >
+                    <Button disabled={locked}>上传风格参考图</Button>
+                  </Upload>
+                  {task.customReference ? (
+                    <Button
+                      disabled={locked}
+                      onClick={() =>
+                        updateTask({
+                          ...taskRef.current,
+                          customReference: undefined,
+                        })
+                      }
+                    >
+                      恢复内置风格参考
+                    </Button>
+                  ) : null}
+                </>
+              ) : null}{" "}
               <Input.TextArea
                 aria-label="主体保留要求"
                 disabled={locked}
@@ -576,84 +678,46 @@ export default function CustomMonochromeLogoComposer({
               />
             </Space>
           </Card>
-          <Card title="2 · AI 生成与自动优化" size="small">
-            <Space orientation="vertical" style={{ width: "100%" }}>
-              <label className="engraving-inline">
-                自动优化
-                <Switch
-                  disabled={locked}
-                  checked={preferences.auto}
-                  onChange={(auto) => patchPreferences({ auto })}
-                />
-              </label>
-              <label>
-                最多轮数
-                <InputNumber
-                  aria-label="最多轮数"
-                  disabled={locked || !preferences.auto}
-                  min={1}
-                  max={10}
-                  precision={0}
-                  value={preferences.maxRounds}
-                  onChange={(n) =>
-                    n !== null && patchPreferences({ maxRounds: n })
-                  }
-                />
-              </label>
-              <label>
-                目标评分
-                <InputNumber
-                  aria-label="目标评分"
-                  disabled={locked || !preferences.auto}
-                  min={70}
-                  max={95}
-                  precision={0}
-                  value={preferences.targetScore}
-                  onChange={(n) =>
-                    n !== null && patchPreferences({ targetScore: n })
-                  }
-                />
-              </label>
-              <small>
-                每轮审核后调参或重新生成，可能多次计费；失败不自动重发。审核
-                Token 按实际账单计费。
-              </small>
-              <Button
-                type="primary"
-                block
-                disabled={locked || !task.original}
-                onClick={() => void startGeneration()}
-              >
-                生成黑白 Logo
-              </Button>
-              <Button
-                block
-                disabled={locked || !task.original || !results.length}
-                onClick={() => {
-                  setAdditionalPrompt("");
-                  setAdditionalOpen(true);
-                }}
-              >
-                补充提示词再生成一张
-              </Button>
-              {busy ? (
+          <Card className="action-card">
+            <Flex justify="space-between" align="center" gap={12} wrap>
+              <div>
+                <h3>生成黑白 Logo</h3>
+                <small>保留主体细节，输出雕刻效果</small>
+              </div>
+              <Space wrap>
+                {" "}
                 <Button
-                  danger
-                  block
+                  type="primary"
+                  disabled={locked || !task.original}
+                  onClick={() => void startGeneration()}
+                >
+                  生成黑白 Logo
+                </Button>
+                <Button
+                  disabled={locked || !task.original || !results.length}
                   onClick={() => {
-                    stop.current = true;
-                    setNotice(
-                      "已请求停止：不会开始下一步，正在执行的请求返回后先保存图片。",
-                    );
+                    setAdditionalPrompt("");
+                    setAdditionalOpen(true);
                   }}
                 >
-                  停止后续步骤
+                  补充提示词再生成一张
                 </Button>
-              ) : null}
-            </Space>
+                {busy ? (
+                  <Button
+                    danger
+                    onClick={() => {
+                      stop.current = true;
+                      setNotice(
+                        "已请求停止：不会开始下一步，正在执行的请求返回后先保存图片。",
+                      );
+                    }}
+                  >
+                    停止后续步骤
+                  </Button>
+                ) : null}
+              </Space>
+            </Flex>
           </Card>
-        </aside>
-        <main>
           {run ? (
             <Card size="small">
               <Space wrap>
@@ -682,7 +746,6 @@ export default function CustomMonochromeLogoComposer({
               />
             </Card>
           ) : null}
-          <PreviewImage blob={task.original} title="原照" />
           <EngravingGallery
             onClear={() => setClearOpen(true)}
             clearDisabled={locked}
@@ -694,6 +757,11 @@ export default function CustomMonochromeLogoComposer({
           />
         </main>
       </div>
+      {settingsHost ? (
+        createPortal(settingsPanel, settingsHost)
+      ) : settingsHost === undefined ? (
+        <aside className="logo-settings">{settingsPanel}</aside>
+      ) : null}
       <Modal
         open={clearOpen}
         title="清空历史结果"
