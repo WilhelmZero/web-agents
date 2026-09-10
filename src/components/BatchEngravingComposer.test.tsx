@@ -22,11 +22,13 @@ vi.mock("../CustomMonochromeLogoComposer", () => ({
     onTaskState,
     controllerRef,
     scope,
+    workspaceActive,
   }: {
     initialFile?: File;
     onTaskState: (v: unknown) => void;
     controllerRef: React.Ref<unknown>;
     scope?: string;
+    workspaceActive?: boolean;
   }) => {
     const task = useMemo<SavedTask>(
       () => ({
@@ -55,7 +57,7 @@ vi.mock("../CustomMonochromeLogoComposer", () => ({
       flush: () => calls.flush(),
       stop: () => calls.stop(scope || "default"),
     }));
-    return <div>编辑任务：{initialFile?.name || "空"}</div>;
+    return <div hidden={!workspaceActive}>编辑任务：{initialFile?.name || "空"}</div>;
   },
 }));
 afterEach(() => {

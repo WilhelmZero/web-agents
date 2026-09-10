@@ -124,6 +124,7 @@ export function EngravingTaskComposer({
   onTaskState,
   controllerRef,
   batchLocked = false,
+  workspaceActive = true,
 }: {
   openAiApiKey: string;
   onConfigureKey: () => void;
@@ -132,6 +133,7 @@ export function EngravingTaskComposer({
   embedded?: boolean;
   initialFile?: File;
   batchLocked?: boolean;
+  workspaceActive?: boolean;
   controllerRef?: React.Ref<{ start: () => Promise<void>; stop: () => void; flush: () => Promise<void> }>;
   onTaskState?: (state: {
     task: SavedTask;
@@ -624,7 +626,7 @@ export function EngravingTaskComposer({
   );
   return (
     <section className="custom-monochrome-logo">
-      <header>
+      <header hidden={!workspaceActive}>
         <div>
           <h2>客户定制黑白 Logo</h2>
           <p>照片雕刻工作台 · 保留主体细节，输出适合黑色涂层的灰度或点阵 PNG</p>
@@ -671,6 +673,7 @@ export function EngravingTaskComposer({
       {notice ? <Alert type="info" title={notice} /> : null}
       <div className="engraving-layout">
         <main>
+          <div hidden={!workspaceActive}>
           {!embedded && (
             <Card
               className="workflow-card"
@@ -953,6 +956,8 @@ export function EngravingTaskComposer({
               />
             </Card>
           ) : null}
+          </div>
+          {embedded && task.original && <h3>原照：{task.fileName} · {busy ? "生成中" : "生成结果"}</h3>}
           <EngravingGallery
             onClear={() => setClearOpen(true)}
             clearDisabled={locked}

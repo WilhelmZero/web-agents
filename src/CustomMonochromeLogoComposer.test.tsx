@@ -255,3 +255,35 @@ it("restores history as a copy without starting generation",async()=>{
  expect(storage.copyHistoryTask).toHaveBeenCalledWith("task:old");
  expect(screen.getByRole("button",{name:"生成黑白 Logo"})).toBeDisabled();
 }, 20000);
+
+it.each([false, true])('keeps both real task results visible when concurrent responses finish in either order (reverse=%s)', async (reverse) => {
+ const {createRef}=await import('react');
+ const {act}=await import('@testing-library/react');
+ const {loadTask,saveTask}=await import('./services/engraving/storage');
+ const {processInWorker}=await import('./services/engraving/workerClient');
+ const {DEFAULTS}=await import('./services/engraving/processing.mjs');
+ const originals=[new Blob(['A']),new Blob(['B'])];
+ const outputs=[new Blob(['result A']),new Blob(['result B'])];
+ for(let i=0;i<2;i++) vi.mocked(loadTask).mockResolvedValueOnce({version:1,fileName:i?'B.png':'A.png',original:originals[i],params:{...DEFAULTS}});
+ localStorage.setItem('custom-monochrome-logo:settings:v1',JSON.stringify({version:1,settings:{auto:false}}));
+ vi.stubGlobal('URL',Object.assign(URL,{createObjectURL:vi.fn(()=> 'blob:test'),revokeObjectURL:vi.fn()}));
+ vi.stubGlobal('createImageBitmap',vi.fn(async()=>({width:400,height:600,close:vi.fn()})));
+ vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,blob:async()=>new Blob(['reference'])})));
+ vi.mocked(processInWorker).mockImplementation(async(blob)=>({buffer:blob,width:400,height:600,warnings:[]}));
+ const complete:((v:{buffer:Blob;warnings:string[]})=>void)[]=[];
+ const generate=vi.fn((input:import('./services/engraving/types').GenerateInput)=>new Promise<{buffer:Blob;warnings:string[]}>(resolve=>{complete[originals.indexOf(input.image)]=resolve;}));
+ const api=vi.spyOn(engravingApi,'createEngravingApi').mockReturnValue({generate,review:vi.fn()});
+ type Control={start:()=>Promise<void>;stop:()=>void;flush:()=>Promise<void>};
+ const refs=[createRef<Control>(),createRef<Control>()];
+ const view=render(<>{[0,1].map(i=><CustomMonochromeLogoComposer key={i} embedded workspaceActive={i===0} settingsHost={null} controllerRef={refs[i]} openAiApiKey="mock" onConfigureKey={vi.fn()}/>)}</>);
+ await waitFor(()=>expect(screen.getByRole('button',{name:'生成黑白 Logo'})).toBeEnabled());
+ let running:Promise<void>[]=[];
+ await act(async()=>{running=refs.map(ref=>ref.current!.start());});
+ await waitFor(()=>expect(generate).toHaveBeenCalledTimes(2));
+ for(const i of reverse?[1,0]:[0,1]) await act(async()=>{complete[i]({buffer:outputs[i],warnings:[]});await running[i];});
+ const galleries=screen.getAllByRole('region',{name:'生成结果'});
+ expect(galleries).toHaveLength(2);
+ for(const gallery of galleries) {expect(gallery).toBeVisible();expect(within(gallery).getByText('生成结果 · 1 张')).toBeVisible();}
+ for(let i=0;i<2;i++) expect(vi.mocked(saveTask).mock.calls.some(([task])=>task.original===originals[i] && task.results?.length===1 && task.results[0].job.blob===outputs[i])).toBe(true);
+ view.unmount();api.mockRestore();
+},20000);

@@ -377,16 +377,17 @@ export default function BatchEngravingComposer({
         if (!controls.current.has(slot.id))
           controls.current.set(slot.id, createRef<Controller>());
         return (
-          <div key={slot.id} hidden={selected !== slot.id}>
+          <div key={slot.id}>
             <EngravingTaskComposer
               scope={slot.id === "default" ? undefined : slot.id}
               embedded
+              workspaceActive={selected === slot.id}
               initialFile={slot.file}
               onTaskState={callback(slot.id)}
               controllerRef={controls.current.get(slot.id)}
               openAiApiKey={openAiApiKey}
               onConfigureKey={onConfigureKey}
-              settingsHost={selected === slot.id ? settingsHost : undefined}
+              settingsHost={selected === slot.id ? settingsHost : null}
               batchLocked={batch || deleting}
             />
           </div>
