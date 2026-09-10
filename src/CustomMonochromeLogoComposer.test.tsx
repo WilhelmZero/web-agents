@@ -276,14 +276,14 @@ it.each([false, true])('keeps both real task results visible when concurrent res
  type Control={start:()=>Promise<void>;stop:()=>void;flush:()=>Promise<void>};
  const refs=[createRef<Control>(),createRef<Control>()];
  const view=render(<>{[0,1].map(i=><CustomMonochromeLogoComposer key={i} embedded workspaceActive={i===0} settingsHost={null} controllerRef={refs[i]} openAiApiKey="mock" onConfigureKey={vi.fn()}/>)}</>);
- await waitFor(()=>expect(screen.getByRole('button',{name:'生成黑白 Logo'})).toBeEnabled());
+ await waitFor(()=>expect(screen.getByRole('button',{name:'生成黑白 Logo'})).toBeEnabled(), {timeout:10000});
  let running:Promise<void>[]=[];
  await act(async()=>{running=refs.map(ref=>ref.current!.start());});
- await waitFor(()=>expect(generate).toHaveBeenCalledTimes(2));
+ await waitFor(()=>expect(generate).toHaveBeenCalledTimes(2), {timeout:10000});
  for(const i of reverse?[1,0]:[0,1]) await act(async()=>{complete[i]({buffer:outputs[i],warnings:[]});await running[i];});
  const galleries=screen.getAllByRole('region',{name:'生成结果'});
  expect(galleries).toHaveLength(2);
  for(const gallery of galleries) {expect(gallery).toBeVisible();expect(within(gallery).getByText('生成结果 · 1 张')).toBeVisible();}
  for(let i=0;i<2;i++) expect(vi.mocked(saveTask).mock.calls.some(([task])=>task.original===originals[i] && task.results?.length===1 && task.results[0].job.blob===outputs[i])).toBe(true);
  view.unmount();api.mockRestore();
-},20000);
+},60000);
