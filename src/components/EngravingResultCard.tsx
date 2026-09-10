@@ -315,11 +315,13 @@ export default function EngravingResultCard({
   onDownload: () => void;
   onPreview: () => void;
 }) {
+  const [laserOpen, setLaserOpen] = useState(false);
   const preview = useEngravingPreview(result.job.blob, result.params, 400),
     url = useEngravingUrl(preview.blob);
   const latest = result.reviews.at(-1);
   return (
     <Card className="engraving-result-card" size="small">
+      {laserOpen && <LaserPreview result={result} onClose={() => setLaserOpen(false)} />}
       <div className="engraving-result-heading">
         <Checkbox
           checked={selected}
@@ -347,6 +349,9 @@ export default function EngravingResultCard({
         <Button size="small" onClick={onEdit}>
           调节参数
         </Button>
+        <Button size="small" onClick={() => setLaserOpen(true)}>
+          3D预览
+        </Button>
         <Button size="small" onClick={onDownload}>
           下载
         </Button>
@@ -354,3 +359,4 @@ export default function EngravingResultCard({
     </Card>
   );
 }
+
