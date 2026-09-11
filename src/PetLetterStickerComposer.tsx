@@ -7,6 +7,7 @@ import {
   Image,
   InputNumber,
   Modal,
+  Popconfirm,
   Progress,
   Select,
   Slider,
@@ -290,6 +291,18 @@ export default function PetLetterStickerComposer({
     } finally {
       setRunning(false);
     }
+  }
+  function clearResults() {
+    renderVersion.current++;
+    layoutVersion.current++;
+    clearTimeout(layoutTimer.current);
+    setResults([]);
+    setCurrentId("");
+    setSelected([]);
+    setSelectedSprite("");
+    setPreviewOpen(false);
+    setExportIds([]);
+    setExportProgress(0);
   }
   function editLayout(fn: (layout: Layout) => Layout) {
     if (!current || current.status !== "success") return;
@@ -842,6 +855,22 @@ export default function PetLetterStickerComposer({
               >
                 重试失败 / 停止项
               </Button>
+              <Popconfirm
+                title="清空全部结果？"
+                description="已生成的预览和编辑结果将从本机历史中移除，且无法恢复。"
+                okText="确认清空"
+                cancelText="取消"
+                okButtonProps={{ danger: true }}
+                onConfirm={clearResults}
+              >
+                <Button
+                  danger
+                  icon={<DeleteOutlined />}
+                  disabled={!results.length || running || exporting}
+                >
+                  清空结果
+                </Button>
+              </Popconfirm>
             </Space>
           </div>
           <div className="pet-gallery">
