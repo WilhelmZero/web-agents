@@ -110,7 +110,18 @@ export default function PetLetterStickerComposer({
           defaultLibrary(),
           loadWorkspace(),
         ]);
-        const libs = saved?.libraries?.length ? saved.libraries : [builtin];
+        const libs = (
+          saved?.libraries?.length ? saved.libraries : [builtin]
+        ).map((lib) => {
+          if (lib.id !== builtin.id) return lib;
+          const candy = builtin.assets.find((a) => a.id === "bow-candy");
+          return candy
+            ? {
+                ...lib,
+                assets: lib.assets.map((a) => (a.id === candy.id ? candy : a)),
+              }
+            : lib;
+        });
         if (!libs.some((l) => l.id === builtin.id)) libs.unshift(builtin);
         setLibraries(libs);
         setLibraryId(saved?.libraryId || builtin.id);
@@ -454,9 +465,14 @@ export default function PetLetterStickerComposer({
         options={[
           { value: "barlow-medium", label: "Barlow Semi Condensed Medium" },
           {
+            value: "roboto-condensed-medium",
+            label: "Roboto Condensed Medium",
+          },
+          {
             value:
               settings.fontKey &&
               settings.fontKey !== "anton" &&
+              settings.fontKey !== "roboto-condensed-medium" &&
               settings.fontKey !== "barlow-medium"
                 ? settings.fontKey
                 : "apex-new",
@@ -465,31 +481,34 @@ export default function PetLetterStickerComposer({
           { value: "anton", label: "Anton（原版）" },
         ]}
       />
-      {settings.fontKey !== "barlow-medium" && settings.fontKey !== "anton" && (
-        <>
-          <Upload
-            accept=".otf,.ttf,.woff,.woff2"
-            showUploadList={false}
-            beforeUpload={async (file) => {
-              try {
-                const key = await importApexFont(file);
-                setFontName(file.name);
-                change("fontKey", key);
-              } catch (e) {
-                setError(String(e));
-              }
-              return false;
-            }}
-          >
-            <Button style={{ marginTop: 8 }}>导入 Apex New 字体</Button>
-          </Upload>
-          <p>
-            字体仅保存在本机，不随网站公开分发。Trial /
-            个人使用版仅用于相应许可范围；商用请使用获授权文件。
-          </p>
-        </>
-      )}
-      {settings.fontKey === "barlow-medium" && (
+      {settings.fontKey !== "barlow-medium" &&
+        settings.fontKey !== "roboto-condensed-medium" &&
+        settings.fontKey !== "anton" && (
+          <>
+            <Upload
+              accept=".otf,.ttf,.woff,.woff2"
+              showUploadList={false}
+              beforeUpload={async (file) => {
+                try {
+                  const key = await importApexFont(file);
+                  setFontName(file.name);
+                  change("fontKey", key);
+                } catch (e) {
+                  setError(String(e));
+                }
+                return false;
+              }}
+            >
+              <Button style={{ marginTop: 8 }}>导入 Apex New 字体</Button>
+            </Upload>
+            <p>
+              字体仅保存在本机，不随网站公开分发。Trial /
+              个人使用版仅用于相应许可范围；商用请使用获授权文件。
+            </p>
+          </>
+        )}
+      {(settings.fontKey === "barlow-medium" ||
+        settings.fontKey === "roboto-condensed-medium") && (
         <p>
           内置 Medium 字重，允许商用；随应用附带 SIL OFL
           开源许可证。无需安装或上传字体。

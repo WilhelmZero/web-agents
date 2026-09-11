@@ -50,9 +50,11 @@ export async function importApexFont(file: File) {
 export const fontFamily = (key?: string) =>
   key === "barlow-medium"
     ? "PetBarlowMedium"
-    : !key || key === "anton"
-      ? "PetAnton"
-      : `PetApex_${key.replace(/[^a-zA-Z0-9]/g, "_")}`;
+    : key === "roboto-condensed-medium"
+      ? "PetRobotoCondensedMedium"
+      : !key || key === "anton"
+        ? "PetAnton"
+        : `PetApex_${key.replace(/[^a-zA-Z0-9]/g, "_")}`;
 export async function latestApexFont() {
   return record("latest");
 }
@@ -61,10 +63,24 @@ export function ensurePetFont(key = "anton"): Promise<string> {
   if (!load) {
     load = (async () => {
       const family = fontFamily(key);
-      if (key === "anton" || key === "barlow-medium") {
+      const bundled: Record<string, string> = {
+        anton: "Anton-Regular.ttf",
+        "barlow-medium": "BarlowSemiCondensed-Medium.ttf",
+        "roboto-condensed-medium": "RobotoCondensed-Variable.ttf",
+      };
+      if (bundled[key]) {
+        // DOM typings omit this supported FontFace descriptor in some TS versions.
+        const descriptors: FontFaceDescriptors & {
+          variationSettings?: string;
+        } =
+          key === "roboto-condensed-medium"
+            ? { variationSettings: '"wght" 500' }
+            : {};
         const f = new FontFace(
           family,
-          `url(${import.meta.env.BASE_URL}pet-letter-stickers/${key === "barlow-medium" ? "BarlowSemiCondensed-Medium.ttf" : "Anton-Regular.ttf"})`,
+          `url(${import.meta.env.BASE_URL}pet-letter-stickers/${bundled[key]})`,
+          // Pin the variable font to true Medium, including Canvas exports.
+          descriptors,
         );
         await f.load();
         document.fonts.add(f);

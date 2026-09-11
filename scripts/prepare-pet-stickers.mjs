@@ -35,6 +35,15 @@ const regions = [
 ];
 const assets = [];
 for (const [id, name, x, y, w, h, kind = 'character'] of regions) {
+  // The sheet crop clips the wrapper and includes a cat paw. Keep the reviewed
+  // regenerated replacement instead of recreating the defective crop.
+  if (id === 'bow-candy') {
+    const replacement = `${out}/bow-candy-v2.png`;
+    const m = await sharp(replacement).metadata();
+    await sharp(replacement).png().toFile(`${out}/bow-candy.png`);
+    assets.push({id, name, kind, src: 'bow-candy-v2.png', width: m.width, height: m.height, reviewed: true, pose: 'full'});
+    continue;
+  }
   const rect = {left: Math.round(x*scale), top: Math.round(y*scale), width: Math.round(w*scale), height: Math.round(h*scale)};
   const raw = await sharp(source).extract(rect).ensureAlpha().raw().toBuffer();
   const seen = new Uint8Array(rect.width*rect.height);

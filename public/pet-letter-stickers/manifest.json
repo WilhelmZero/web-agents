@@ -343,15 +343,9 @@
       "id": "bow-candy",
       "name": "蝴蝶糖果",
       "kind": "decoration",
-      "src": "bow-candy.png",
-      "width": 352,
-      "height": 227,
-      "sourceRect": {
-        "left": 2633,
-        "top": 883,
-        "width": 352,
-        "height": 227
-      },
+      "src": "bow-candy-v2.png",
+      "width": 1562,
+      "height": 1007,
       "reviewed": true,
       "pose": "full"
     },
