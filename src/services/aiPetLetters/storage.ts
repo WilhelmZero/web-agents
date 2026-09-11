@@ -10,6 +10,10 @@ const SETTINGS_KEY = "ai-pet-letter-stickers:settings:v1";
 const PROMPTS_KEY = "ai-pet-letter-stickers:prompts:v1";
 const DB_NAME = "ai-pet-letter-stickers-v1";
 
+function isPreviousDefaultPrompt(value: string | undefined): boolean {
+  return Boolean(value?.includes("其他角色和小装饰保持参考图中的身份、造型、数量和大致位置。"));
+}
+
 export function loadAiPetLetterSettings(): AiPetLetterSettings {
   try {
     return { ...DEFAULT_AI_PET_LETTER_SETTINGS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}"), version: 1 };
@@ -30,7 +34,8 @@ export function loadAiPetLetterPrompts(): AiPetLetterPrompt[] {
     return defaults.map((item) => {
       const savedItem = byLetter.get(item.letter);
       const legacyLocalComposite = savedItem?.currentPrompt?.includes("逐像素保持") || savedItem?.currentPrompt?.includes("局部编辑");
-      return { ...item, ...savedItem, currentPrompt: legacyLocalComposite ? item.currentPrompt : savedItem?.currentPrompt || item.currentPrompt, defaultPrompt: item.defaultPrompt };
+      const shouldUpgradeDefault = legacyLocalComposite || isPreviousDefaultPrompt(savedItem?.currentPrompt);
+      return { ...item, ...savedItem, currentPrompt: shouldUpgradeDefault ? item.currentPrompt : savedItem?.currentPrompt || item.currentPrompt, defaultPrompt: item.defaultPrompt };
     });
   } catch {
     return defaults;

@@ -21,13 +21,18 @@ describe("AI pet letter prompts", () => {
       expect(item.currentPrompt).toContain("完整肢体");
       expect(item.currentPrompt).toContain("不得互相遮挡");
       expect(item.currentPrompt).toContain("不得被画布边缘裁切");
+      expect(item.currentPrompt).toContain("明显空白");
+      expect(item.currentPrompt).toContain("轮换不同萌宠");
       expect(item.currentPrompt).toContain("不得出现目标字母以外");
     });
+    expect(prompts[1].currentPrompt).not.toBe(prompts[2].currentPrompt);
+    expect(prompts[1].currentPrompt).toContain("裹绷带的灰猫");
+    expect(prompts[2].currentPrompt).toContain("拿棒棒糖的黑猫");
   });
 
   it("rejects optimized prompts that lose the target or protection rules", () => {
     expect(validateOptimizedPrompt("B", "把它改好")).toContain("目标字母 B");
-    expect(validateOptimizedPrompt("B", "整幅图统一生成，将字母 B 改成蓝色，角色不能遮挡，肢体完整，背景不变")).toBeNull();
+    expect(validateOptimizedPrompt("B", "整幅图统一生成，将字母 B 改成蓝色，角色不能遮挡，肢体完整，背景不变，空白处补小贴纸，轮换互动萌宠")).toBeNull();
   });
 });
 
@@ -101,5 +106,17 @@ describe("isolated persistence", () => {
     const workspace = { tasks: [], updatedAt: 7, referenceBlob: new Blob(["ref"], { type: "image/png" }) };
     await saveAiPetLetterWorkspace(workspace);
     expect((await loadAiPetLetterWorkspace())?.updatedAt).toBe(7);
+  });
+
+  it("upgrades an untouched previous default while preserving a custom prompt", () => {
+    localStorage.clear();
+    localStorage.setItem("ai-pet-letter-stickers:prompts:v1", JSON.stringify([
+      { letter: "B", currentPrompt: "将参考图中央的大写 A 准确替换成大写 B。其他角色和小装饰保持参考图中的身份、造型、数量和大致位置。", selected: true },
+      { letter: "C", currentPrompt: "用户自定义：整幅图生成字母 C，并保留我的特殊要求", selected: false },
+    ]));
+    const prompts = loadAiPetLetterPrompts();
+    expect(prompts[1].currentPrompt).toContain("轮换不同萌宠");
+    expect(prompts[2].currentPrompt).toBe("用户自定义：整幅图生成字母 C，并保留我的特殊要求");
+    expect(prompts[2].selected).toBe(false);
   });
 });

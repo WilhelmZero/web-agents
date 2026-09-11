@@ -181,7 +181,7 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
     if (!globalSettings.openAiApiKey) { onConfigure(); return; }
     setOptimizingAll(true);
     try {
-      const input = `一次性优化 A-Z 的整幅图片编辑提示词。返回 JSON 对象，键必须为 A 到 Z，值为对应完整中文提示词。每项必须明确目标大写字母，保留橙色渐变和黑色描边，要求整幅图统一生成且没有拼接接缝，所有角色完整可见、互不遮挡重叠、不被裁切，并禁止其他文字。\n\n${JSON.stringify(Object.fromEntries(prompts.map((item) => [item.letter, item.currentPrompt])))}`;
+      const input = `一次性优化 A-Z 的整幅图片编辑提示词。返回 JSON 对象，键必须为 A 到 Z，值为对应完整中文提示词。每项必须明确目标大写字母，保留橙色渐变和黑色描边，要求整幅图统一生成且没有拼接接缝，所有角色完整可见、互不遮挡重叠、不被裁切。A–Z 必须有计划地轮换直接趴靠或抱住字母的萌宠，避免相邻成品顶部重复同一只猫；替换后若有明显空白，只能用少量参考图已有的小贴纸自然填充且不能遮挡字母或角色。禁止其他文字。\n\n${JSON.stringify(Object.fromEntries(prompts.map((item) => [item.letter, item.currentPrompt])))}`;
       const response = await optimizeAiPetLetterPrompts({ apiKey: globalSettings.openAiApiKey, input, batch: true });
       const parsed = JSON.parse(response) as Record<string, string>;
       const next = prompts.map((item) => ({ letter: item.letter, before: item.currentPrompt, after: parsed[item.letter]?.trim() || "" }));
