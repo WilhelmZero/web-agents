@@ -17,15 +17,17 @@ describe("AI pet letter prompts", () => {
     expect(prompts[0].currentPrompt).toContain("重新绘制参考图中央相同的大写 A");
     expect(prompts[1].currentPrompt).toContain("替换成大写 B");
     prompts.forEach((item) => {
-      expect(item.currentPrompt).toContain("外围元素");
+      expect(item.currentPrompt).toContain("整幅图");
       expect(item.currentPrompt).toContain("完整肢体");
+      expect(item.currentPrompt).toContain("不得互相遮挡");
+      expect(item.currentPrompt).toContain("不得被画布边缘裁切");
       expect(item.currentPrompt).toContain("不得出现目标字母以外");
     });
   });
 
   it("rejects optimized prompts that lose the target or protection rules", () => {
     expect(validateOptimizedPrompt("B", "把它改好")).toContain("目标字母 B");
-    expect(validateOptimizedPrompt("B", "将字母 B 改成蓝色，外围不变，角色肢体完整，背景不变")).toBeNull();
+    expect(validateOptimizedPrompt("B", "整幅图统一生成，将字母 B 改成蓝色，角色不能遮挡，肢体完整，背景不变")).toBeNull();
   });
 });
 
@@ -72,6 +74,14 @@ describe("OpenAI image edit request", () => {
   it("classifies temporary errors separately from permission errors", () => {
     expect(new AiPetLetterApiError("busy", 503, true).retryable).toBe(true);
     expect(new AiPetLetterApiError("unauthorized", 401, false).retryable).toBe(false);
+  });
+
+  it("supports whole-image editing without a mask", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({ data: [{ b64_json: btoa("png") }] }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    await editAiPetLetter({ apiKey: "key", image: new Blob(["image"], { type: "image/png" }), prompt: "整幅生成", model: "gpt-image-2.5-sunburst", quality: "xhigh" });
+    const form = fetchMock.mock.calls[0][1]?.body as FormData;
+    expect(form.has("mask")).toBe(false);
   });
 
   it("does not retry an insufficient-quota 429 response", async () => {

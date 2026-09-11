@@ -1,6 +1,6 @@
 import { AI_PET_LETTERS, type AiPetLetterPrompt } from "./types";
 
-const fixedConstraints = `只允许调整直接趴在、抱住或贴住中央字母的萌宠，让它们与字形边缘产生自然、可信的接触和互动。保持每个角色原本的身份、颜色、服装、五官、画风和完整肢体，不得缺少眼睛、耳朵、爪子或尾巴。未接触中央字母的角色、糖果、星星、蝙蝠、月亮、背景和所有外围元素必须逐像素保持原内容、原位置、原大小和原数量，不得新增、删除、移动或重绘。画面中不得出现目标字母以外的其他文字或字母。`;
+const fixedConstraints = `请把整幅图作为一张完整、连续的插画统一生成，不使用局部矩形重绘、像素回填、贴片或拼接效果，画面中不能出现矩形边界、色差、接缝或局部清晰度差异。直接趴在、抱住或贴住中央字母的萌宠可以随新字形做少量自然调整，使爪子、身体与字形边缘产生可信互动；其他角色和小装饰保持参考图中的身份、造型、数量和大致位置。所有萌宠必须完整可见并保留完整肢体：角色之间不得互相遮挡、重叠、穿插或粘连，也不得被画布边缘裁切；脸部、眼睛、耳朵、爪子、身体和尾巴必须清楚完整，不能出现半只角色、重复肢体或残缺结构。字母不得压住角色的脸部、眼睛或主体躯干。糖果、星星、蝙蝠、月亮等小贴纸不能遮挡字母和萌宠。保持全图统一的蓝色背景、线条粗细、色彩、光影、清晰度和扁平卡通贴纸画风。画面中不得出现目标字母以外的其他文字或字母。`;
 
 export function defaultPromptForLetter(letter: string): string {
   const target = letter.toUpperCase();
@@ -22,11 +22,11 @@ export function validateOptimizedPrompt(letter: string, prompt: string): string 
   if (!value) return "优化结果为空";
   const targetPattern = new RegExp(`(?:大写|字母|uppercase|letter)[\\s“\"']*${letter}[\\s”\"']*`, "i");
   if (!targetPattern.test(value)) return `优化结果没有明确保留目标字母 ${letter}`;
-  const required = ["外围", "不", "角色", "肢体", "背景"];
-  if (required.some((part) => !value.includes(part))) return "优化结果丢失了外围保护或角色完整性约束";
+  const required = ["整幅", "角色", "肢体", "背景", "遮挡"];
+  if (required.some((part) => !value.includes(part))) return "优化结果丢失了整幅生成、遮挡控制或角色完整性约束";
   return null;
 }
 
 export function promptOptimizerInstruction(letter: string, prompt: string): string {
-  return `优化下面用于图片局部编辑的中文提示词，使模型更稳定地只修改中央字母和直接接触字母的萌宠。必须保留目标大写字母 ${letter}、橙色渐变、黑色描边、角色身份与完整肢体、外围元素逐像素不变、禁止其他文字这几类约束。只返回优化后的完整提示词，不要解释。\n\n原提示词：\n${prompt}`;
+  return `优化下面用于整幅图片编辑的中文提示词。必须保留目标大写字母 ${letter}、橙色渐变、黑色描边、整幅图统一重绘、无矩形边界或拼接痕迹、角色身份与完整肢体、角色之间不得遮挡重叠或裁切、背景和其他元素保持一致、禁止其他文字这些约束。只返回优化后的完整提示词，不要解释。\n\n原提示词：\n${prompt}`;
 }

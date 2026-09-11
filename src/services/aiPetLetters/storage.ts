@@ -27,7 +27,11 @@ export function loadAiPetLetterPrompts(): AiPetLetterPrompt[] {
   try {
     const saved = JSON.parse(localStorage.getItem(PROMPTS_KEY) || "[]") as Partial<AiPetLetterPrompt>[];
     const byLetter = new Map(saved.map((item) => [item.letter, item]));
-    return defaults.map((item) => ({ ...item, ...byLetter.get(item.letter), defaultPrompt: item.defaultPrompt }));
+    return defaults.map((item) => {
+      const savedItem = byLetter.get(item.letter);
+      const legacyLocalComposite = savedItem?.currentPrompt?.includes("逐像素保持") || savedItem?.currentPrompt?.includes("局部编辑");
+      return { ...item, ...savedItem, currentPrompt: legacyLocalComposite ? item.currentPrompt : savedItem?.currentPrompt || item.currentPrompt, defaultPrompt: item.defaultPrompt };
+    });
   } catch {
     return defaults;
   }

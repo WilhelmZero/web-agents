@@ -14,7 +14,7 @@ function decodeBase64(value: string): Blob {
 export async function editAiPetLetter(options: {
   apiKey: string;
   image: Blob;
-  mask: Blob;
+  mask?: Blob;
   prompt: string;
   model: AiPetLetterModel;
   quality: AiPetLetterQuality;
@@ -24,15 +24,15 @@ export async function editAiPetLetter(options: {
   const requestId = startRequestConsoleEntry({
     model: options.model,
     connection: "direct",
-    requestSummary: "AI 萌宠字母贴纸 · 3840×2160 · PNG",
+    requestSummary: "AI 萌宠字母贴纸 · 整幅生成 · 3840×2160 · PNG",
     requestPrompt: options.prompt,
-    inputImages: [options.image, options.mask],
+    inputImages: [options.image, ...(options.mask ? [options.mask] : [])],
   });
   const startedAt = performance.now();
   try {
     const form = new FormData();
     form.append("image", options.image, "reference.png");
-    form.append("mask", options.mask, "mask.png");
+    if (options.mask) form.append("mask", options.mask, "mask.png");
     form.append("prompt", options.prompt);
     form.append("model", options.model);
     form.append("quality", options.quality);
