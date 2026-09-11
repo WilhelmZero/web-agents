@@ -28,6 +28,7 @@ export type CreationTool =
   | "icon-vector-split"
   | "custom-monochrome-logo"
   | "pet-letter-stickers"
+  | "ai-pet-letter-stickers"
   | "paper-text"
   | "background-removal"
   | "outpaint"

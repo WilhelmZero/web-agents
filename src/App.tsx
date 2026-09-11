@@ -34,6 +34,7 @@ import {
   SettingOutlined,
   StopOutlined,
   SwapOutlined,
+  ThunderboltOutlined,
   VideoCameraOutlined,
 } from "@ant-design/icons";
 import { Attachments } from "@ant-design/x";
@@ -111,6 +112,7 @@ import GlobalGenerationStats from "./GlobalGenerationStats";
 import IconVectorSplitComposer from "./IconVectorSplitComposer";
 import CustomMonochromeLogoComposer from "./CustomMonochromeLogoComposer";
 import PetLetterStickerComposer from "./PetLetterStickerComposer";
+import AiPetLetterStickerComposer from "./AiPetLetterStickerComposer";
 import { useLanguage } from "./i18n";
 import { readLocalStorage } from "./storage";
 import {
@@ -259,6 +261,12 @@ const CREATION_TOOL_ITEMS: Array<{
     icon: <PictureOutlined />,
     label: "萌宠字母贴纸",
     description: "完整萌宠、互动姿势与高清 A–Z 字母排版",
+  },
+  {
+    key: "ai-pet-letter-stickers",
+    icon: <ThunderboltOutlined />,
+    label: "AI 萌宠字母贴纸",
+    description: "用局部 AI 编辑自然替换 A–Z 字母并严格保护外围",
   },
   {
     key: "icon-vector-split",
@@ -632,6 +640,7 @@ function AppContent() {
   );
   const [engravingSettingsHost, setEngravingSettingsHost] = useState<HTMLElement | null>(null);
   const [petSettingsHost, setPetSettingsHost] = useState<HTMLElement | null>(null);
+  const [aiPetSettingsHost, setAiPetSettingsHost] = useState<HTMLElement | null>(null);
   const [inpaintSettingsHost, setInpaintSettingsHost] =
     useState<HTMLElement | null>(null);
   const [productDetailSettingsHost, setProductDetailSettingsHost] =
@@ -1840,6 +1849,9 @@ function AppContent() {
               <div hidden={creationTool !== "pet-letter-stickers"}>
                 <PetLetterStickerComposer active={creationTool === "pet-letter-stickers"} settings={settings} settingsHost={petSettingsHost} onConfigure={() => setKeyOpen(true)} />
               </div>
+              <div hidden={creationTool !== "ai-pet-letter-stickers"}>
+                <AiPetLetterStickerComposer active={creationTool === "ai-pet-letter-stickers"} settings={settings} settingsHost={aiPetSettingsHost} onConfigure={() => setKeyOpen(true)} />
+              </div>
               <div hidden={creationTool !== "background-removal"}>
                 <BackgroundRemovalComposer
                   apiKey={settings.apiKey}
@@ -2466,6 +2478,7 @@ function AppContent() {
         )}
         {!compact && creationTool === "custom-monochrome-logo" && (<Sider width={330} theme="light" className="settings-sider"><div ref={setEngravingSettingsHost} /></Sider>)}
         {!compact && creationTool === "pet-letter-stickers" && (<Sider width={330} theme="light" className="settings-sider"><div ref={setPetSettingsHost} /></Sider>)}
+        {!compact && creationTool === "ai-pet-letter-stickers" && (<Sider width={330} theme="light" className="settings-sider"><div ref={setAiPetSettingsHost} /></Sider>)}
         {!compact && creationTool === "inpaint" && (
           <Sider width={330} theme="light" className="settings-sider">
             <div ref={setInpaintSettingsHost} />
@@ -2495,7 +2508,7 @@ function AppContent() {
         ) : compact && !["icon-vector-split"].includes(creationTool) ? (
           <div
             ref={
-              creationTool === "pet-letter-stickers" ? setPetSettingsHost : creationTool === "custom-monochrome-logo" ? setEngravingSettingsHost : creationTool === "logo"
+              creationTool === "ai-pet-letter-stickers" ? setAiPetSettingsHost : creationTool === "pet-letter-stickers" ? setPetSettingsHost : creationTool === "custom-monochrome-logo" ? setEngravingSettingsHost : creationTool === "logo"
                 ? setLogoSettingsHost
                 : creationTool === "logo-replace"
                   ? setLogoReplaceSettingsHost

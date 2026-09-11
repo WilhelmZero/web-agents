@@ -16,6 +16,9 @@ describe("creation tool URL helpers", () => {
     expect(readCreationTool("?tool=auto-logo-classify")).toBe(
       "auto-logo-classify",
     );
+    expect(readCreationTool("?tool=ai-pet-letter-stickers")).toBe(
+      "ai-pet-letter-stickers",
+    );
   });
 
   it("falls back for missing or invalid tools", () => {
