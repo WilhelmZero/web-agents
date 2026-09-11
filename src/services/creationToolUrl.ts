@@ -16,6 +16,7 @@ export const CREATION_TOOLS: readonly CreationTool[] = [
   "logo-export",
   "icon-vector-split",
   "custom-monochrome-logo",
+  "pet-letter-stickers",
   "paper-text",
   "background-removal",
   "outpaint",

@@ -156,6 +156,7 @@ async function postGemini(
   body: unknown,
   signal?: AbortSignal,
   apiBaseUrl?: string | null,
+  retry = true,
 ): Promise<GeminiResponse> {
   const url = `${getGeminiApiRoot(apiBaseUrl === null ? "" : apiBaseUrl)}/models/${encodeURIComponent(model)}:generateContent`;
   const requestStartedAt = performance.now();
@@ -197,12 +198,12 @@ async function postGemini(
     requestPrompt: debugParts.prompt,
     inputImages: debugParts.images,
   });
-  const maximumAttempts = Math.max(
+  const maximumAttempts = retry ? Math.max(
     MAX_TRANSIENT_RETRIES,
     getGeminiCapacitySettings().enabled
       ? getGeminiCapacitySettings().retryLimit
       : 0,
-  );
+  ) : 0;
   for (let attempt = 0; attempt <= maximumAttempts; attempt += 1) {
     try {
       const sharedWait = geminiCapacityWaitMs();
@@ -269,7 +270,7 @@ async function postGemini(
         data.error?.message,
       );
       const retryable = isRetryableGeminiStatus(response.status);
-      const retryLimit =
+      const retryLimit = !retry ? 0 :
         response.status === 524
           ? 1
           : capacityError && getGeminiCapacitySettings().enabled
@@ -317,9 +318,9 @@ async function postGemini(
         !(error instanceof TypeError)
       )
         throw error;
-      if (attempt === MAX_TRANSIENT_RETRIES) {
+      if (attempt >= (retry ? MAX_TRANSIENT_RETRIES : 0)) {
         const networkError = new Error(
-          `网络请求失败，已自动重试 ${MAX_TRANSIENT_RETRIES} 次，请检查代理或网络连接`,
+          `网络请求失败，已自动重试 ${retry ? MAX_TRANSIENT_RETRIES : 0} 次，请检查代理或网络连接`,
         );
         updateRequestConsoleEntry(consoleId, {
           status: "failed",
@@ -887,6 +888,7 @@ export async function generateExactLogoReplacement(options: {
   imageSize: ImageSize;
   signal?: AbortSignal;
   apiBaseUrl?: string | null;
+  retry?: boolean;
 }): Promise<GeneratedImage> {
   const [sceneData, oldLogoData, ...logos] = await Promise.all([
     fileToBase64(options.scene),
@@ -919,6 +921,7 @@ export async function generateExactLogoReplacement(options: {
     },
     options.signal,
     options.apiBaseUrl,
+    options.retry,
   );
   const imagePart = data.candidates
     ?.flatMap((candidate) => candidate.content?.parts ?? [])

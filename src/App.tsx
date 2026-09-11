@@ -110,6 +110,7 @@ import OriginalCompareImage from "./OriginalCompareImage";
 import GlobalGenerationStats from "./GlobalGenerationStats";
 import IconVectorSplitComposer from "./IconVectorSplitComposer";
 import CustomMonochromeLogoComposer from "./CustomMonochromeLogoComposer";
+import PetLetterStickerComposer from "./PetLetterStickerComposer";
 import { useLanguage } from "./i18n";
 import { readLocalStorage } from "./storage";
 import {
@@ -252,6 +253,12 @@ const CREATION_TOOL_ITEMS: Array<{
     icon: <ScissorOutlined />,
     label: "客户定制黑白 Logo",
     description: "照片雕刻、自动审核优化与黑白 PNG 输出",
+  },
+  {
+    key: "pet-letter-stickers",
+    icon: <PictureOutlined />,
+    label: "萌宠字母贴纸",
+    description: "完整萌宠、互动姿势与高清 A–Z 字母排版",
   },
   {
     key: "icon-vector-split",
@@ -624,6 +631,7 @@ function AppContent() {
     null,
   );
   const [engravingSettingsHost, setEngravingSettingsHost] = useState<HTMLElement | null>(null);
+  const [petSettingsHost, setPetSettingsHost] = useState<HTMLElement | null>(null);
   const [inpaintSettingsHost, setInpaintSettingsHost] =
     useState<HTMLElement | null>(null);
   const [productDetailSettingsHost, setProductDetailSettingsHost] =
@@ -1829,6 +1837,9 @@ function AppContent() {
               <div hidden={creationTool !== "custom-monochrome-logo"}>
                 <CustomMonochromeLogoComposer settingsHost={engravingSettingsHost} openAiApiKey={settings.openAiApiKey} onConfigureKey={() => setKeyOpen(true)} />
               </div>
+              <div hidden={creationTool !== "pet-letter-stickers"}>
+                <PetLetterStickerComposer active={creationTool === "pet-letter-stickers"} settings={settings} settingsHost={petSettingsHost} onConfigure={() => setKeyOpen(true)} />
+              </div>
               <div hidden={creationTool !== "background-removal"}>
                 <BackgroundRemovalComposer
                   apiKey={settings.apiKey}
@@ -2454,6 +2465,7 @@ function AppContent() {
           </Sider>
         )}
         {!compact && creationTool === "custom-monochrome-logo" && (<Sider width={330} theme="light" className="settings-sider"><div ref={setEngravingSettingsHost} /></Sider>)}
+        {!compact && creationTool === "pet-letter-stickers" && (<Sider width={330} theme="light" className="settings-sider"><div ref={setPetSettingsHost} /></Sider>)}
         {!compact && creationTool === "inpaint" && (
           <Sider width={330} theme="light" className="settings-sider">
             <div ref={setInpaintSettingsHost} />
@@ -2483,7 +2495,7 @@ function AppContent() {
         ) : compact && !["icon-vector-split"].includes(creationTool) ? (
           <div
             ref={
-              creationTool === "custom-monochrome-logo" ? setEngravingSettingsHost : creationTool === "logo"
+              creationTool === "pet-letter-stickers" ? setPetSettingsHost : creationTool === "custom-monochrome-logo" ? setEngravingSettingsHost : creationTool === "logo"
                 ? setLogoSettingsHost
                 : creationTool === "logo-replace"
                   ? setLogoReplaceSettingsHost

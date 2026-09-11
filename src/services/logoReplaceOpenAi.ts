@@ -258,6 +258,7 @@ export function generateExactLogoReplacementOpenAi(options: {
   prompt: string;
   size?: OpenAiImageOutputSize | "omit";
   signal?: AbortSignal;
+  requestLabel?: string;
 }) {
   return editImages({
     ...options,
@@ -268,7 +269,7 @@ export function generateExactLogoReplacementOpenAi(options: {
     ],
     prompt: options.prompt,
     exactPrompt: true,
-    requestLabel: `自动分类 Logo 替换 · ${options.logos.length} 张新 Logo`,
+    requestLabel: options.requestLabel ?? `自动分类 Logo 替换 · ${options.logos.length} 张新 Logo`,
   });
 }
 

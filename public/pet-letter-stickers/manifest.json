@@ -1,0 +1,483 @@
+{
+  "version": 1,
+  "id": "halloween-cats-v1",
+  "name": "万圣节小猫",
+  "assets": [
+    {
+      "id": "witch",
+      "name": "黑色巫师猫",
+      "kind": "character",
+      "src": "witch.png",
+      "width": 1119,
+      "height": 936,
+      "sourceRect": {
+        "left": 106,
+        "top": 164,
+        "width": 1119,
+        "height": 936
+      },
+      "reviewed": true,
+      "pose": "full"
+    },
+    {
+      "id": "pumpkin-white",
+      "name": "白色南瓜猫",
+      "kind": "character",
+      "src": "pumpkin-white.png",
+      "width": 641,
+      "height": 854,
+      "sourceRect": {
+        "left": 1577,
+        "top": 125,
+        "width": 641,
+        "height": 854
+      },
+      "reviewed": true,
+      "pose": "full"
+    },
+    {
+      "id": "bat-gray",
+      "name": "灰色蝙蝠猫",
+      "kind": "character",
+      "src": "bat-gray.png",
+      "width": 743,
+      "height": 805,
+      "sourceRect": {
+        "left": 2267,
+        "top": 145,
+        "width": 743,
+        "height": 805
+      },
+      "reviewed": true,
+      "pose": "full"
+    },
+    {
+      "id": "vampire-white",
+      "name": "白色吸血鬼猫",
+      "kind": "character",
+      "src": "vampire-white.png",
+      "width": 883,
+      "height": 820,
+      "sourceRect": {
+        "left": 3111,
+        "top": 323,
+        "width": 883,
+        "height": 820
+      },
+      "reviewed": true,
+      "pose": "full"
+    },
+    {
+      "id": "mummy",
+      "name": "木乃伊猫",
+      "kind": "character",
+      "src": "mummy.png",
+      "width": 772,
+      "height": 810,
+      "sourceRect": {
+        "left": 4133,
+        "top": 140,
+        "width": 772,
+        "height": 810
+      },
+      "reviewed": true,
+      "pose": "full"
+    },
+    {
+      "id": "bat-white",
+      "name": "白色蝙蝠猫",
+      "kind": "character",
+      "src": "bat-white.png",
+      "width": 936,
+      "height": 849,
+      "sourceRect": {
+        "left": 5807,
+        "top": 121,
+        "width": 936,
+        "height": 849
+      },
+      "reviewed": true,
+      "pose": "full"
+    },
+    {
+      "id": "ghost",
+      "name": "幽灵猫",
+      "kind": "character",
+      "src": "ghost.png",
+      "width": 699,
+      "height": 781,
+      "sourceRect": {
+        "left": 1138,
+        "top": 1104,
+        "width": 699,
+        "height": 781
+      },
+      "reviewed": true,
+      "pose": "full"
+    },
+    {
+      "id": "cauldron",
+      "name": "坩埚猫",
+      "kind": "character",
+      "src": "cauldron.png",
+      "width": 873,
+      "height": 1047,
+      "sourceRect": {
+        "left": 1847,
+        "top": 979,
+        "width": 873,
+        "height": 1047
+      },
+      "reviewed": true,
+      "pose": "full"
+    },
+    {
+      "id": "pumpkin-black",
+      "name": "黑色南瓜猫",
+      "kind": "character",
+      "src": "pumpkin-black.png",
+      "width": 695,
+      "height": 801,
+      "sourceRect": {
+        "left": 3053,
+        "top": 1182,
+        "width": 695,
+        "height": 801
+      },
+      "reviewed": true,
+      "pose": "full"
+    },
+    {
+      "id": "orange",
+      "name": "橙色小猫",
+      "kind": "character",
+      "src": "orange.png",
+      "width": 781,
+      "height": 960,
+      "sourceRect": {
+        "left": 1037,
+        "top": 1881,
+        "width": 781,
+        "height": 960
+      },
+      "reviewed": true,
+      "pose": "full"
+    },
+    {
+      "id": "cape-black",
+      "name": "黑色披风猫",
+      "kind": "character",
+      "src": "cape-black.png",
+      "width": 714,
+      "height": 887,
+      "sourceRect": {
+        "left": 2074,
+        "top": 2113,
+        "width": 714,
+        "height": 887
+      },
+      "reviewed": true,
+      "pose": "full"
+    },
+    {
+      "id": "moon",
+      "name": "月亮猫",
+      "kind": "character",
+      "src": "moon.png",
+      "width": 830,
+      "height": 810,
+      "sourceRect": {
+        "left": 140,
+        "top": 2846,
+        "width": 830,
+        "height": 810
+      },
+      "reviewed": true,
+      "pose": "full"
+    },
+    {
+      "id": "vampire-orange",
+      "name": "橙色吸血鬼猫",
+      "kind": "character",
+      "src": "vampire-orange.png",
+      "width": 593,
+      "height": 728,
+      "sourceRect": {
+        "left": 4047,
+        "top": 3492,
+        "width": 593,
+        "height": 728
+      },
+      "reviewed": true,
+      "pose": "full"
+    },
+    {
+      "id": "blanket",
+      "name": "星星毯子猫",
+      "kind": "character",
+      "src": "blanket.png",
+      "width": 670,
+      "height": 564,
+      "sourceRect": {
+        "left": 6121,
+        "top": 2957,
+        "width": 670,
+        "height": 564
+      },
+      "reviewed": true,
+      "pose": "full"
+    },
+    {
+      "id": "star",
+      "name": "星星",
+      "kind": "decoration",
+      "src": "star.png",
+      "width": 130,
+      "height": 121,
+      "sourceRect": {
+        "left": 3043,
+        "top": 125,
+        "width": 130,
+        "height": 121
+      },
+      "reviewed": true,
+      "pose": "full"
+    },
+    {
+      "id": "candy",
+      "name": "糖果",
+      "kind": "decoration",
+      "src": "candy.png",
+      "width": 265,
+      "height": 174,
+      "sourceRect": {
+        "left": 3328,
+        "top": 130,
+        "width": 265,
+        "height": 174
+      },
+      "reviewed": true,
+      "pose": "full"
+    },
+    {
+      "id": "bat",
+      "name": "蝙蝠",
+      "kind": "decoration",
+      "src": "bat.png",
+      "width": 318,
+      "height": 193,
+      "sourceRect": {
+        "left": 203,
+        "top": 125,
+        "width": 318,
+        "height": 193
+      },
+      "reviewed": true,
+      "pose": "full"
+    },
+    {
+      "id": "paw",
+      "name": "爪印",
+      "kind": "decoration",
+      "src": "paw.png",
+      "width": 193,
+      "height": 217,
+      "sourceRect": {
+        "left": 3791,
+        "top": 2243,
+        "width": 193,
+        "height": 217
+      },
+      "reviewed": true,
+      "pose": "full"
+    },
+    {
+      "id": "skull",
+      "name": "小骷髅",
+      "kind": "decoration",
+      "src": "skull.png",
+      "width": 217,
+      "height": 275,
+      "sourceRect": {
+        "left": 1244,
+        "top": 463,
+        "width": 217,
+        "height": 275
+      },
+      "reviewed": true,
+      "pose": "full"
+    },
+    {
+      "id": "moon-small",
+      "name": "小月亮",
+      "kind": "decoration",
+      "src": "moon-small.png",
+      "width": 260,
+      "height": 294,
+      "sourceRect": {
+        "left": 1124,
+        "top": 96,
+        "width": 260,
+        "height": 294
+      },
+      "reviewed": true,
+      "pose": "full"
+    },
+    {
+      "id": "candy-green",
+      "name": "绿色糖果",
+      "kind": "decoration",
+      "src": "candy-green.png",
+      "width": 241,
+      "height": 207,
+      "sourceRect": {
+        "left": 111,
+        "top": 357,
+        "width": 241,
+        "height": 207
+      },
+      "reviewed": true,
+      "pose": "full"
+    },
+    {
+      "id": "bow-candy",
+      "name": "蝴蝶糖果",
+      "kind": "decoration",
+      "src": "bow-candy.png",
+      "width": 352,
+      "height": 227,
+      "sourceRect": {
+        "left": 2633,
+        "top": 883,
+        "width": 352,
+        "height": 227
+      },
+      "reviewed": true,
+      "pose": "full"
+    },
+    {
+      "id": "star-black",
+      "name": "黑色星星",
+      "kind": "decoration",
+      "src": "star-black.png",
+      "width": 227,
+      "height": 232,
+      "sourceRect": {
+        "left": 3781,
+        "top": 53,
+        "width": 227,
+        "height": 232
+      },
+      "reviewed": true,
+      "pose": "full"
+    },
+    {
+      "id": "witch-top",
+      "name": "黑色巫师猫 · 趴顶",
+      "characterId": "witch",
+      "kind": "character",
+      "pose": "top",
+      "reviewed": true,
+      "src": "witch-top.png",
+      "frontSrc": "witch-top-front.png",
+      "rearSrc": "witch-top-rear.png",
+      "width": 1092,
+      "height": 838,
+      "contact": {
+        "x": 0.65,
+        "y": 0.88
+      },
+      "reviewNotes": "人工检查：眼睛、耳朵、爪子、尾巴与服装一致；后腿自然重叠。临时品红底已分离；排版只允许接触区域遮挡。"
+    },
+    {
+      "id": "witch-side",
+      "name": "黑色巫师猫 · 抱边",
+      "characterId": "witch",
+      "kind": "character",
+      "pose": "side",
+      "reviewed": true,
+      "src": "witch-side.png",
+      "frontSrc": "witch-side-front.png",
+      "rearSrc": "witch-side-rear.png",
+      "width": 660,
+      "height": 1062,
+      "contact": {
+        "x": 0.14,
+        "y": 0.53
+      },
+      "reviewNotes": "人工检查：眼睛、耳朵、爪子、尾巴与服装一致；后腿自然重叠。临时品红底已分离；排版只允许接触区域遮挡。"
+    },
+    {
+      "id": "vampire-top",
+      "name": "白色吸血鬼猫 · 趴顶",
+      "characterId": "vampire-white",
+      "kind": "character",
+      "pose": "top",
+      "reviewed": true,
+      "src": "vampire-top.png",
+      "frontSrc": "vampire-top-front.png",
+      "rearSrc": "vampire-top-rear.png",
+      "width": 1184,
+      "height": 712,
+      "contact": {
+        "x": 0.3,
+        "y": 0.8
+      },
+      "reviewNotes": "人工检查：眼睛、耳朵、爪子、尾巴与服装一致；后腿自然重叠。临时品红底已分离；排版只允许接触区域遮挡。"
+    },
+    {
+      "id": "vampire-side",
+      "name": "白色吸血鬼猫 · 抱边",
+      "characterId": "vampire-white",
+      "kind": "character",
+      "pose": "side",
+      "reviewed": true,
+      "src": "vampire-side.png",
+      "frontSrc": "vampire-side-front.png",
+      "rearSrc": "vampire-side-rear.png",
+      "width": 797,
+      "height": 1200,
+      "contact": {
+        "x": 0.12,
+        "y": 0.49
+      },
+      "reviewNotes": "人工检查：眼睛、耳朵、爪子、尾巴与服装一致；后腿自然重叠。临时品红底已分离；排版只允许接触区域遮挡。"
+    },
+    {
+      "id": "orange-top",
+      "name": "橙色小猫 · 趴顶",
+      "characterId": "orange",
+      "kind": "character",
+      "pose": "top",
+      "reviewed": true,
+      "src": "orange-top.png",
+      "frontSrc": "orange-top-front.png",
+      "rearSrc": "orange-top-rear.png",
+      "width": 1158,
+      "height": 914,
+      "contact": {
+        "x": 0.28,
+        "y": 0.81
+      },
+      "reviewNotes": "人工检查：眼睛、耳朵、爪子、尾巴与服装一致；后腿自然重叠。临时品红底已分离；排版只允许接触区域遮挡。"
+    },
+    {
+      "id": "orange-side",
+      "name": "橙色小猫 · 抱边",
+      "characterId": "orange",
+      "kind": "character",
+      "pose": "side",
+      "reviewed": true,
+      "src": "orange-side.png",
+      "frontSrc": "orange-side-front.png",
+      "rearSrc": "orange-side-rear.png",
+      "width": 788,
+      "height": 1189,
+      "contact": {
+        "x": 0.12,
+        "y": 0.5
+      },
+      "reviewNotes": "人工检查：眼睛、耳朵、爪子、尾巴与服装一致；后腿自然重叠。临时品红底已分离；排版只允许接触区域遮挡。"
+    }
+  ]
+}

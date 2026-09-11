@@ -18,6 +18,19 @@ export type AppLanguage = "zh-CN" | "en-US";
 const LANGUAGE_KEY = "scene-studio-language";
 
 const translations: Record<string, string> = {
+  "萌宠字母贴纸": "Pet letter stickers",
+  "完整萌宠、互动姿势与高清 A–Z 字母排版": "Complete pets, interactive poses and high-resolution A–Z layouts",
+  "字母选择": "Letters",
+  "文字样式": "Letter style",
+  "换一版排布": "Shuffle layout",
+  "贴纸素材库": "Sticker library",
+  "上传替换贴纸": "Upload replacement sheet",
+  "验证五字母": "Five-letter sample",
+  "随机种子": "Random seed",
+  "角色密度": "Character density",
+  "疏松": "Sparse",
+  "适中": "Balanced",
+  "密集": "Dense",
   "客户定制黑白 Logo": "Custom monochrome logo",
   "照片雕刻、自动审核优化与黑白 PNG 输出": "Photo engraving, automatic review and monochrome PNG export",
   "工具设置": "Tool settings",
