@@ -790,7 +790,7 @@ export function EngravingTaskComposer({
                     maxLength={800}
                     showCount
                     value={preferences.outpaint.instructions}
-                    placeholder="留空由AI自动判断；例如：向图片右侧扩图，补全人物手臂和手肘，保留安全边距"
+                    placeholder="例如：向图片上/下/左/右侧扩图，补全人物手臂和手肘/腿部，保留安全边距"
                     onChange={(e) =>
                       patchPreferences({
                         outpaint: {

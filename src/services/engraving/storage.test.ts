@@ -138,6 +138,25 @@ it("isolates preferences and preserves read-only legacy defaults", async () => {
   expect(a.loadPreferences().instructions).toBe("A");
 });
 
+it("defaults and migrates the subject outpainting instructions without overriding a later clear", async () => {
+  const module = await newDocument();
+  expect(module.loadPreferences().outpaint?.instructions).toBe(
+    module.DEFAULT_OUTPAINT_INSTRUCTIONS,
+  );
+  sessionStorage.setItem(
+    "custom-monochrome-logo:settings:v1",
+    JSON.stringify({ version: 1, settings: { outpaint: { enabled: true, instructions: "" } } }),
+  );
+  expect(module.loadPreferences().outpaint?.instructions).toBe(
+    module.DEFAULT_OUTPAINT_INSTRUCTIONS,
+  );
+  module.savePreferences({
+    ...module.DEFAULT_PREFERENCES,
+    outpaint: { enabled: true, instructions: "" },
+  });
+  expect(module.loadPreferences().outpaint?.instructions).toBe("");
+});
+
 it("loads the latest saved state on route re-entry and safely forks without Web Locks", async () => {
   const a = await newDocument();
   await a.loadTask();

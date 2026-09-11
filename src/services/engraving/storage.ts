@@ -1,6 +1,8 @@
 import type { Preferences, SavedTask } from "./types";
 import { taskResults } from "./results";
 import { OPENAI_ROOT } from "../openAiEndpoint";
+export const DEFAULT_OUTPAINT_INSTRUCTIONS =
+  "向图片上/下/左/右侧扩图，补全人物手臂和手肘/腿部，保留安全边距";
 export const DEFAULT_PREFERENCES: Preferences = {
   baseUrl: OPENAI_ROOT,
   imageModel: "gpt-image-2",
@@ -10,20 +12,22 @@ export const DEFAULT_PREFERENCES: Preferences = {
   style: "strong",
   reference: "portrait",
   instructions: "",
-  outpaint: { enabled: false, instructions: "" },
+  outpaint: { enabled: false, instructions: DEFAULT_OUTPAINT_INSTRUCTIONS },
   auto: true,
   continueOnGenerated: false,
   maxRounds: 5,
   targetScore: 85,
 };
 const KEY = "custom-monochrome-logo:settings:v1";
+const SETTINGS_VERSION = 2;
 export function loadPreferences(scope = ""): Preferences {
   const tabKey = KEY + (scope ? ":" + scope : "");
   try {
     const p = JSON.parse(
       sessionStorage.getItem(tabKey) || localStorage.getItem(KEY) || "null",
     );
-    if (p?.version !== 1 || !p.settings) return { ...DEFAULT_PREFERENCES };
+    if (![1, SETTINGS_VERSION].includes(p?.version) || !p.settings)
+      return { ...DEFAULT_PREFERENCES };
     const out = { ...DEFAULT_PREFERENCES };
     if (typeof p.settings.continueOnGenerated === "boolean")
       out.continueOnGenerated = p.settings.continueOnGenerated;
@@ -52,12 +56,14 @@ export function loadPreferences(scope = ""): Preferences {
       p.settings.targetScore <= 95
     )
       out.targetScore = p.settings.targetScore;
+    const savedOutpaintInstructions = p.settings.outpaint?.instructions;
     out.outpaint = {
       enabled: p.settings.outpaint?.enabled === true,
       instructions:
-        typeof p.settings.outpaint?.instructions === "string"
-          ? p.settings.outpaint.instructions.slice(0, 800)
-          : "",
+        typeof savedOutpaintInstructions === "string" &&
+        (p.version === SETTINGS_VERSION || savedOutpaintInstructions.trim())
+          ? savedOutpaintInstructions.slice(0, 800)
+          : DEFAULT_OUTPAINT_INSTRUCTIONS,
     };
     out.instructions = out.instructions.slice(0, 1600);
     return out;
@@ -73,7 +79,10 @@ export function savePreferences(value: Preferences, scope = "") {
       .filter((key) => key !== "baseUrl")
       .map((key) => [key, value[key as keyof Preferences]]),
   );
-  sessionStorage.setItem(tabKey, JSON.stringify({ version: 1, settings }));
+  sessionStorage.setItem(
+    tabKey,
+    JSON.stringify({ version: SETTINGS_VERSION, settings }),
+  );
 }
 function database(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
