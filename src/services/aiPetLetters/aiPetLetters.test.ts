@@ -1,8 +1,8 @@
 import "fake-indexeddb/auto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { editAiPetLetter, AiPetLetterApiError } from "./api";
-import { HIGH_RES_HEIGHT, HIGH_RES_WIDTH, NATIVE_HEIGHT, NATIVE_WIDTH, strictCompositePixels } from "./image";
-import { createDefaultPrompts, validateOptimizedPrompt } from "./prompts";
+import { HIGH_RES_HEIGHT, HIGH_RES_WIDTH, NATIVE_HEIGHT, NATIVE_WIDTH, normalizeHexColor, strictCompositePixels } from "./image";
+import { adaptPromptOutputMode, createDefaultPrompts, validateOptimizedPrompt } from "./prompts";
 import { loadAiPetLetterPrompts, loadAiPetLetterSettings, loadAiPetLetterWorkspace, saveAiPetLetterPrompts, saveAiPetLetterSettings, saveAiPetLetterWorkspace } from "./storage";
 import { AI_PET_LETTERS, DEFAULT_AI_PET_LETTER_SETTINGS, normalizeQuality, qualityOptions } from "./types";
 import { getGenerationStatsSnapshot, resetGenerationStats } from "../generationStats";
@@ -34,6 +34,16 @@ describe("AI pet letter prompts", () => {
     expect(validateOptimizedPrompt("B", "把它改好")).toContain("目标字母 B");
     expect(validateOptimizedPrompt("B", "整幅图统一生成，将字母 B 改成蓝色，角色不能遮挡，肢体完整，背景不变，空白处补小贴纸，轮换互动萌宠")).toBeNull();
   });
+
+  it("keeps the selected background mode visible in the final prompt", () => {
+    const direct = createDefaultPrompts()[1].currentPrompt;
+    const transparent = adaptPromptOutputMode(direct, "transparent-colorize");
+    expect(transparent).toContain("背景必须完全透明");
+    expect(transparent).not.toContain("直接生成完整蓝色底色");
+    const restored = adaptPromptOutputMode(transparent, "direct-background");
+    expect(restored).toContain("直接生成完整蓝色底色");
+    expect(restored).not.toContain("背景必须完全透明");
+  });
 });
 
 describe("model capabilities", () => {
@@ -49,6 +59,10 @@ describe("strict compositing", () => {
     expect([NATIVE_WIDTH, NATIVE_HEIGHT]).toEqual([3840, 2160]);
     expect(NATIVE_WIDTH * NATIVE_HEIGHT).toBe(8_294_400);
     expect([HIGH_RES_WIDTH, HIGH_RES_HEIGHT]).toEqual([7717, 4346]);
+  });
+  it("normalizes the local colorization background", () => {
+    expect(normalizeHexColor("#ABCDEF")).toBe("#abcdef");
+    expect(normalizeHexColor("invalid")).toBe("#00aeff");
   });
   it("copies outside pixels exactly from the reference", () => {
     const original = new Uint8ClampedArray([10, 20, 30, 255, 40, 50, 60, 255]);
@@ -74,6 +88,14 @@ describe("OpenAI image edit request", () => {
     expect(form.get("image")).toBeInstanceOf(File);
     expect(form.get("mask")).toBeInstanceOf(File);
     expect(getGenerationStatsSnapshot().byModel["gpt-image-2.5-sunburst"].count).toBe(1);
+  });
+
+  it("requests a transparent PNG when transparent colorization is selected", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({ data: [{ b64_json: btoa("png") }] }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    await editAiPetLetter({ apiKey: "key", image: new Blob(["image"], { type: "image/png" }), prompt: "透明背景", model: "gpt-image-2.5-sunburst", quality: "xhigh", background: "transparent" });
+    const form = fetchMock.mock.calls[0][1]?.body as FormData;
+    expect(form.get("background")).toBe("transparent");
   });
 
   it("classifies temporary errors separately from permission errors", () => {

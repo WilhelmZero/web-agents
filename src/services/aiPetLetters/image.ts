@@ -9,6 +9,28 @@ function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   return new Promise((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("无法编码 PNG")), "image/png"));
 }
 
+export function normalizeHexColor(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  return /^#[0-9a-f]{6}$/.test(normalized) ? normalized : "#00aeff";
+}
+
+export async function colorizeTransparentResult(source: Blob, backgroundColor: string): Promise<Blob> {
+  const bitmap = await loadBitmap(source);
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext("2d", { alpha: false });
+    if (!context) throw new Error("浏览器不支持 Canvas");
+    context.fillStyle = normalizeHexColor(backgroundColor);
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(bitmap, 0, 0);
+    return await canvasToBlob(canvas);
+  } finally {
+    bitmap.close();
+  }
+}
+
 export function loadBitmap(source: Blob | string): Promise<ImageBitmap> {
   if (typeof source !== "string") return createImageBitmap(source);
   return fetch(source).then((response) => {

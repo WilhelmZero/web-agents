@@ -1,4 +1,8 @@
-import { AI_PET_LETTERS, type AiPetLetterPrompt } from "./types";
+import { AI_PET_LETTERS, type AiPetLetterOutputMode, type AiPetLetterPrompt } from "./types";
+
+const DIRECT_BACKGROUND_REQUIREMENT = "输出背景模式：直接生成完整蓝色底色，底色覆盖整个画布，不保留透明通道。";
+const TRANSPARENT_BACKGROUND_REQUIREMENT = "输出背景模式：背景必须完全透明并保留真实 Alpha 通道，只保留字母、萌宠和小贴纸；主体边缘干净，不得残留蓝边、白边、色块或背景阴影。";
+const OUTPUT_MODE_REQUIREMENT = /\s*输出背景模式：[^。]*。/g;
 
 const interactionPets = [
   "戴南瓜帽的白猫",
@@ -38,7 +42,15 @@ export function defaultPromptForLetter(letter: string): string {
   const action = target === "A"
     ? "重新绘制参考图中央相同的大写 A，并改善直接贴住 A 的萌宠与字母的互动关系"
     : `将参考图中央的大写 A 准确替换成大写 ${target}`;
-  return `${action}。新字母必须沿用原 A 的 Apex 风格粗体字形观感、橙色渐变填充、黑色描边、视觉高度、宽度比例、中心位置和透视。${interactionDirection(target)}${fixedConstraints}`;
+  return `${action}。新字母必须沿用原 A 的 Apex 风格粗体字形观感、橙色渐变填充、黑色描边、视觉高度、宽度比例、中心位置和透视。${interactionDirection(target)}${fixedConstraints}\n${DIRECT_BACKGROUND_REQUIREMENT}`;
+}
+
+export function adaptPromptOutputMode(prompt: string, mode: AiPetLetterOutputMode): string {
+  let base = prompt.replace(OUTPUT_MODE_REQUIREMENT, "").trim();
+  if (mode === "transparent-colorize") {
+    base = base.replaceAll("保持全图统一的蓝色背景、", "保持全图统一的");
+  }
+  return `${base}\n${mode === "transparent-colorize" ? TRANSPARENT_BACKGROUND_REQUIREMENT : DIRECT_BACKGROUND_REQUIREMENT}`;
 }
 
 export function createDefaultPrompts(): AiPetLetterPrompt[] {

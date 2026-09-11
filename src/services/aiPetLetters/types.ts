@@ -11,6 +11,8 @@ export type AiPetLetterQuality =
   | "high"
   | "xhigh"
   | "max";
+export type AiPetLetterOutputMode = "direct-background" | "transparent-colorize";
+export type AiPetLetterDownloadVariant = "colorized" | "transparent";
 export type AiPetLetterTaskStatus =
   | "waiting"
   | "running"
@@ -20,11 +22,14 @@ export type AiPetLetterTaskStatus =
   | "interrupted";
 
 export interface AiPetLetterSettings {
-  version: 1;
+  version: 2;
   model: AiPetLetterModel;
   quality: AiPetLetterQuality;
   concurrency: number;
   downloadSize: "native" | "high-res";
+  outputMode: AiPetLetterOutputMode;
+  backgroundColor: string;
+  downloadVariant: AiPetLetterDownloadVariant;
   cropZoom: number;
   cropX: number;
   cropY: number;
@@ -50,6 +55,8 @@ export interface AiPetLetterResult {
   letter: string;
   rawBlob: Blob;
   compositeBlob: Blob;
+  outputMode?: AiPetLetterOutputMode;
+  backgroundColor?: string;
   referenceFingerprint: string;
   width: number;
   height: number;
@@ -62,6 +69,8 @@ export interface AiPetLetterTask {
   prompt: string;
   model: AiPetLetterModel;
   quality: AiPetLetterQuality;
+  outputMode?: AiPetLetterOutputMode;
+  backgroundColor?: string;
   retries: number;
   startedAt?: number;
   endedAt?: number;
@@ -79,11 +88,14 @@ export interface AiPetLetterWorkspace {
 }
 
 export const DEFAULT_AI_PET_LETTER_SETTINGS: AiPetLetterSettings = {
-  version: 1,
+  version: 2,
   model: "gpt-image-2.5-sunburst",
   quality: "xhigh",
   concurrency: 1,
   downloadSize: "high-res",
+  outputMode: "direct-background",
+  backgroundColor: "#00aeff",
+  downloadVariant: "colorized",
   cropZoom: 1,
   cropX: 0,
   cropY: 0,

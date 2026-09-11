@@ -16,7 +16,7 @@ function isPreviousDefaultPrompt(value: string | undefined): boolean {
 
 export function loadAiPetLetterSettings(): AiPetLetterSettings {
   try {
-    return { ...DEFAULT_AI_PET_LETTER_SETTINGS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}"), version: 1 };
+    return { ...DEFAULT_AI_PET_LETTER_SETTINGS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}"), version: 2 };
   } catch {
     return DEFAULT_AI_PET_LETTER_SETTINGS;
   }

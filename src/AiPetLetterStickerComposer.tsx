@@ -1,12 +1,11 @@
-import { CheckOutlined, CloudUploadOutlined, DeleteOutlined, DownloadOutlined, ReloadOutlined, StopOutlined, ThunderboltOutlined } from "@ant-design/icons";
-import { Alert, App, Button, Card, Checkbox, Collapse, Empty, Image, Input, Modal, Popconfirm, Progress, Segmented, Select, Slider, Space, Statistic, Tag, Typography, Upload } from "antd";
+import { CheckOutlined, CloudUploadOutlined, DeleteOutlined, DownloadOutlined, ReloadOutlined, StopOutlined, SwapOutlined, ThunderboltOutlined } from "@ant-design/icons";
+import { Alert, App, Button, Card, Checkbox, Collapse, ColorPicker, Empty, Image, Input, Modal, Popconfirm, Progress, Segmented, Select, Slider, Space, Statistic, Tag, Tooltip, Typography, Upload } from "antd";
 import JSZip from "jszip";
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import OriginalCompareImage from "./OriginalCompareImage";
 import { editAiPetLetter, AiPetLetterApiError, optimizeAiPetLetterPrompts } from "./services/aiPetLetters/api";
-import { downloadBlob, fingerprintBlob, normalizeReference, resizeForDownload } from "./services/aiPetLetters/image";
-import { createDefaultPrompts, defaultPromptForLetter, promptOptimizerInstruction, validateOptimizedPrompt } from "./services/aiPetLetters/prompts";
+import { colorizeTransparentResult, downloadBlob, fingerprintBlob, normalizeHexColor, normalizeReference, resizeForDownload } from "./services/aiPetLetters/image";
+import { adaptPromptOutputMode, createDefaultPrompts, defaultPromptForLetter, promptOptimizerInstruction, validateOptimizedPrompt } from "./services/aiPetLetters/prompts";
 import { loadAiPetLetterPrompts, loadAiPetLetterSettings, loadAiPetLetterWorkspace, saveAiPetLetterPrompts, saveAiPetLetterSettings, saveAiPetLetterWorkspace } from "./services/aiPetLetters/storage";
 import { normalizeQuality, qualityOptions, type AiPetLetterPrompt, type AiPetLetterSettings, type AiPetLetterTask } from "./services/aiPetLetters/types";
 import type { AppSettings } from "./types";
@@ -25,9 +24,9 @@ function useBlobUrl(blob?: Blob) {
   return url;
 }
 
-function ResultCover({ blob, letter, referenceUrl }: { blob: Blob; letter: string; referenceUrl?: string }) {
+function ResultCover({ blob, letter, onOpen }: { blob: Blob; letter: string; onOpen: () => void }) {
   const url = useBlobUrl(blob);
-  return url ? <OriginalCompareImage src={url} originalSrc={referenceUrl} originalAlt="本次参考图" originalLabel="参考图" alt={`${letter} 生成结果`} /> : null;
+  return url ? <Image preview={false} src={url} alt={`${letter} 生成结果`} onClick={onOpen} /> : null;
 }
 
 function elapsed(start?: number, end?: number) {
@@ -48,7 +47,7 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
 }) {
   const { message } = App.useApp();
   const [settings, setSettings] = useState<AiPetLetterSettings>(loadAiPetLetterSettings);
-  const [prompts, setPrompts] = useState<AiPetLetterPrompt[]>(loadAiPetLetterPrompts);
+  const [prompts, setPrompts] = useState<AiPetLetterPrompt[]>(() => loadAiPetLetterPrompts().map((item) => ({ ...item, defaultPrompt: adaptPromptOutputMode(item.defaultPrompt, settings.outputMode), currentPrompt: adaptPromptOutputMode(item.currentPrompt, settings.outputMode) })));
   const [referenceBlob, setReferenceBlob] = useState<Blob>();
   const [normalizedPreviewBlob, setNormalizedPreviewBlob] = useState<Blob>();
   const [referenceName, setReferenceName] = useState("默认 A 字母参考图");
@@ -56,6 +55,8 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
   const [tasks, setTasks] = useState<AiPetLetterTask[]>([]);
   const [hydrated, setHydrated] = useState(false);
   const [preview, setPreview] = useState<{ kind: "reference" | "raw"; letter?: string }>({ kind: "reference" });
+  const [compareLetter, setCompareLetter] = useState<string>();
+  const [enlarged, setEnlarged] = useState<{ letter: string; current: number }>();
   const [selectedResults, setSelectedResults] = useState<string[]>([]);
   const [optimizingAll, setOptimizingAll] = useState(false);
   const [optimizationDiff, setOptimizationDiff] = useState<Array<{ letter: string; before: string; after: string }>>([]);
@@ -74,8 +75,12 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
   const currentReferenceFingerprint = useMemo(() => `${referenceFingerprint}:${settings.cropZoom.toFixed(3)}:${settings.cropX.toFixed(3)}:${settings.cropY.toFixed(3)}`, [referenceFingerprint, settings.cropX, settings.cropY, settings.cropZoom]);
   const referenceCompareUrl = useBlobUrl(normalizedPreviewBlob || referenceBlob);
   const previewTask = tasks.find((item) => item.letter === preview.letter);
-  const previewBlob = preview.kind === "reference" ? (normalizedPreviewBlob || referenceBlob) : previewTask?.result?.rawBlob;
+  const previewBlob = preview.kind === "reference" ? (normalizedPreviewBlob || referenceBlob) : previewTask?.result?.compositeBlob;
   const previewUrl = useBlobUrl(previewBlob);
+  const detailLetter = enlarged?.letter || compareLetter;
+  const detailTask = tasks.find((item) => item.letter === detailLetter);
+  const detailResultUrl = useBlobUrl(detailTask?.result?.compositeBlob);
+  const detailRawUrl = useBlobUrl(detailTask?.result?.rawBlob);
 
   const loadDefault = useCallback(async () => {
     const referenceResponse = await fetch(`${asset("default-reference.png")}?v=3`);
@@ -123,7 +128,7 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
     const snapshot = { ...settings, quality: normalizeQuality(settings.model, settings.quality) };
     const now = Date.now(); setStartedAt(now); setRunning(true); stopAll.current = false;
     setSelectedResults((items) => items.filter((letter) => !letters.includes(letter)));
-    const queued = letters.map<AiPetLetterTask>((letter) => ({ letter, status: "waiting", prompt: promptSnapshot.get(letter)!, model: snapshot.model, quality: snapshot.quality, retries: 0 }));
+    const queued = letters.map<AiPetLetterTask>((letter) => ({ letter, status: "waiting", prompt: promptSnapshot.get(letter)!, model: snapshot.model, quality: snapshot.quality, outputMode: snapshot.outputMode, backgroundColor: snapshot.backgroundColor, retries: 0 }));
     setTasks((current) => {
       if (!replace) return queued;
       const target = new Set(letters); return [...current.filter((item) => !target.has(item.letter)), ...queued].sort((a, b) => a.letter.localeCompare(b.letter));
@@ -142,8 +147,9 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
             while (true) {
               try {
                 setRequestCount((value) => value + 1);
-                const rawBlob = await editAiPetLetter({ apiKey: globalSettings.openAiApiKey, image: normalizedReference, prompt: promptSnapshot.get(letter)!, model: snapshot.model, quality: snapshot.quality, signal: controller.signal, attempt: retries + 1 });
-                updateTask(letter, { status: "success", retries, endedAt: Date.now(), result: { letter, rawBlob, compositeBlob: rawBlob, referenceFingerprint: currentReferenceFingerprint, width: 3840, height: 2160, createdAt: Date.now() } });
+                const rawBlob = await editAiPetLetter({ apiKey: globalSettings.openAiApiKey, image: normalizedReference, prompt: promptSnapshot.get(letter)!, model: snapshot.model, quality: snapshot.quality, background: snapshot.outputMode === "transparent-colorize" ? "transparent" : undefined, signal: controller.signal, attempt: retries + 1 });
+                const compositeBlob = snapshot.outputMode === "transparent-colorize" ? await colorizeTransparentResult(rawBlob, snapshot.backgroundColor) : rawBlob;
+                updateTask(letter, { status: "success", retries, endedAt: Date.now(), result: { letter, rawBlob, compositeBlob, outputMode: snapshot.outputMode, backgroundColor: snapshot.backgroundColor, referenceFingerprint: currentReferenceFingerprint, width: 3840, height: 2160, createdAt: Date.now() } });
                 break;
               } catch (error) {
                 if (controller.signal.aborted || stopAll.current) { updateTask(letter, { status: "stopped", retries, endedAt: Date.now() }); break; }
@@ -203,14 +209,18 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
   const downloadTask = async (task: AiPetLetterTask) => {
     if (!task.result) return;
     message.loading({ content: `正在准备 ${task.letter}.png`, key: "ai-pet-download", duration: 0 });
-    try { downloadBlob(await resizeForDownload(task.result.rawBlob, settings.downloadSize), `${task.letter}.png`); message.success({ content: "下载已开始", key: "ai-pet-download" }); }
+    const useTransparent = settings.downloadVariant === "transparent" && task.result.outputMode === "transparent-colorize";
+    try { downloadBlob(await resizeForDownload(useTransparent ? task.result.rawBlob : task.result.compositeBlob, settings.downloadSize), `${task.letter}${useTransparent ? "_透明" : ""}.png`); message.success({ content: "下载已开始", key: "ai-pet-download" }); }
     catch (error) { message.error({ content: error instanceof Error ? error.message : "导出失败", key: "ai-pet-download" }); }
   };
   const downloadSelected = async () => {
     const selected = tasks.filter((task) => selectedResults.includes(task.letter) && task.result);
     if (!selected.length) { message.warning("请先选择结果"); return; }
     const zip = new JSZip();
-    for (const task of selected) zip.file(`${task.letter}.png`, await resizeForDownload(task.result!.rawBlob, settings.downloadSize));
+    for (const task of selected) {
+      const useTransparent = settings.downloadVariant === "transparent" && task.result!.outputMode === "transparent-colorize";
+      zip.file(`${task.letter}${useTransparent ? "_透明" : ""}.png`, await resizeForDownload(useTransparent ? task.result!.rawBlob : task.result!.compositeBlob, settings.downloadSize));
+    }
     downloadBlob(await zip.generateAsync({ type: "blob" }), "AI萌宠字母贴纸.zip");
   };
 
@@ -226,6 +236,18 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
     <Select value={settings.model} options={["gpt-image-2.5-sunburst", "gpt-image-2.5-flare", "gpt-image-2"].map((value) => ({ value, label: value }))} onChange={(model) => { const quality = normalizeQuality(model, settings.quality); setSettings((value) => ({ ...value, model, quality })); if (quality !== settings.quality) message.info("GPT Image 2 最高使用 high，已自动调整"); }} />
     <label>生成质量</label><Select value={settings.quality} options={qualityOptions(settings.model).map((value) => ({ value, label: value }))} onChange={(quality) => setSettings((value) => ({ ...value, quality }))} />
     <label>并发数：{settings.concurrency}</label><Slider min={1} max={6} value={settings.concurrency} onChange={(concurrency) => setSettings((value) => ({ ...value, concurrency }))} />
+    <label>背景生成模式</label>
+    <Segmented block value={settings.outputMode} options={[{ label: "直接生成底色", value: "direct-background" }, { label: "透明图后上色", value: "transparent-colorize" }]} onChange={(outputMode) => {
+      const nextMode = outputMode as AiPetLetterSettings["outputMode"];
+      setSettings((value) => ({ ...value, outputMode: nextMode, downloadVariant: nextMode === "direct-background" ? "colorized" : value.downloadVariant }));
+      setPrompts((items) => items.map((item) => ({ ...item, defaultPrompt: adaptPromptOutputMode(item.defaultPrompt, nextMode), currentPrompt: adaptPromptOutputMode(item.currentPrompt, nextMode) })));
+    }} />
+    {settings.outputMode === "transparent-colorize" ? <>
+      <label>上色背景</label>
+      <Space.Compact block><ColorPicker value={settings.backgroundColor} onChangeComplete={(color) => setSettings((value) => ({ ...value, backgroundColor: color.toHexString() }))} /><Input aria-label="上色背景色" value={settings.backgroundColor} onChange={(event) => setSettings((value) => ({ ...value, backgroundColor: event.target.value }))} onBlur={() => setSettings((value) => ({ ...value, backgroundColor: normalizeHexColor(value.backgroundColor) }))} /></Space.Compact>
+      <label>下载内容</label><Segmented block value={settings.downloadVariant} options={[{ label: "上色成品", value: "colorized" }, { label: "AI 透明原图", value: "transparent" }]} onChange={(downloadVariant) => setSettings((value) => ({ ...value, downloadVariant: downloadVariant as AiPetLetterSettings["downloadVariant"] }))} />
+      <Alert type="info" showIcon message="AI 生成透明 PNG，页面再用所选颜色铺底；透明原图与上色成品都会保留。" />
+    </> : <Alert type="info" showIcon message="当前模式由 AI 直接生成包含背景底色的完整图片。" />}
     <label>下载尺寸</label><Segmented block value={settings.downloadSize} onChange={(downloadSize) => setSettings((value) => ({ ...value, downloadSize: downloadSize as "native" | "high-res" }))} options={[{ label: "AI 原生 3840×2160", value: "native" }, { label: "高清 7717×4346", value: "high-res" }]} />
     <Alert type="info" showIcon message="高清档为本地高质量放大，不会增加 AI 原生细节。费用按 OpenAI 实际账单计费。" />
     <label>参考图裁切缩放：{settings.cropZoom.toFixed(2)}×</label><Slider min={1} max={2} step={0.01} value={settings.cropZoom} onChange={(cropZoom) => setSettings((value) => ({ ...value, cropZoom }))} />
@@ -238,7 +260,7 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
   if (!active && !hydrated) return null;
   return <div className="ai-pet-letter-page">
     <section className="ai-pet-letter-hero">
-      <div><Tag color="purple">整幅 AI 生成</Tag><Title level={2}>AI 萌宠字母贴纸</Title><Text type="secondary">整幅画面统一交给 AI 重新生成，直接使用 AI 原始返回图，不再进行局部拼接或像素回填。</Text></div>
+      <div><Tag color="purple">整幅 AI 生成</Tag><Title level={2}>AI 萌宠字母贴纸</Title><Text type="secondary">整幅画面统一交给 AI 重新生成，不做局部拼接；支持直接生成底色，或生成透明 PNG 后在本地上色。</Text></div>
       <Space wrap>
         <Upload showUploadList={false} beforeUpload={uploadReference} accept="image/png,image/jpeg,image/webp"><Button icon={<CloudUploadOutlined />}>替换参考图</Button></Upload>
         <Button onClick={() => void loadDefault()}>恢复默认图</Button>
@@ -259,16 +281,35 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
     </section>
     {!!tasks.length && <Progress percent={Math.round(finished / tasks.length * 100)} status={statusCounts.failed ? "exception" : running ? "active" : "normal"} />}
     <section className="ai-pet-letter-main">
-      <Card className="ai-pet-letter-preview" title={preview.kind === "reference" ? referenceName : `${preview.letter} · AI 原始返回图`} extra={preview.letter && <Segmented value={preview.kind} onChange={(kind) => setPreview({ kind: kind as "reference" | "raw", letter: preview.letter })} options={[{ label: "参考图", value: "reference" }, { label: "AI 结果", value: "raw" }]} />}>
-        {previewUrl ? <Image src={previewUrl} preview={{ mask: "点击放大" }} /> : <Empty description="暂无可预览图片" />}
+      <Card className="ai-pet-letter-preview" title={preview.kind === "reference" ? referenceName : `${preview.letter} · 生成结果`} extra={preview.letter && <Segmented value={preview.kind} onChange={(kind) => setPreview({ kind: kind as "reference" | "raw", letter: preview.letter })} options={[{ label: "参考图", value: "reference" }, { label: "生成结果", value: "raw" }]} />}>
+        {previewUrl ? <Image src={previewUrl} preview={preview.kind === "reference" ? { mask: "点击放大" } : false} onClick={preview.kind === "raw" && preview.letter ? () => setEnlarged({ letter: preview.letter!, current: 0 }) : undefined} /> : <Empty description="暂无可预览图片" />}
       </Card>
     </section>
     <Card title="A–Z 最终提示词" extra={<Space wrap><Text type="secondary">界面文字会逐字提交，不追加隐藏提示词</Text><Button size="small" onClick={() => setPrompts((items) => items.map((item) => ({ ...item, selected: true })))}>全选</Button><Button size="small" onClick={() => setPrompts((items) => items.map((item) => ({ ...item, selected: false })))}>取消全选</Button></Space>}>
-      <Collapse items={prompts.map((item) => ({ key: item.letter, label: <Space><Checkbox checked={item.selected} onClick={(event) => event.stopPropagation()} onChange={(event) => setPrompts((items) => items.map((value) => value.letter === item.letter ? { ...value, selected: event.target.checked } : value))} /><Tag color="blue">{item.letter}</Tag><Text type="secondary">{statusLabel(tasks.find((task) => task.letter === item.letter)?.status)}</Text></Space>, children: <><Input.TextArea autoSize={{ minRows: 4, maxRows: 10 }} maxLength={3000} showCount value={item.currentPrompt} onChange={(event) => setPrompts((items) => items.map((value) => value.letter === item.letter ? { ...value, currentPrompt: event.target.value } : value))} /><Space className="ai-pet-prompt-actions"><Button icon={<ReloadOutlined />} onClick={() => setPrompts((items) => items.map((value) => value.letter === item.letter ? { ...value, currentPrompt: defaultPromptForLetter(item.letter) } : value))}>恢复默认</Button><Button loading={item.optimizing} icon={<ThunderboltOutlined />} onClick={() => void optimizeOne(item.letter)}>AI 优化</Button>{tasks.find((task) => task.letter === item.letter)?.status === "running" && <Button danger onClick={() => controllers.current.get(item.letter)?.abort()}>停止此图</Button>}<Button onClick={() => void processLetters([item.letter], true)}>重新生成</Button></Space></> }))} />
+      <Collapse items={prompts.map((item) => ({ key: item.letter, label: <Space><Checkbox checked={item.selected} onClick={(event) => event.stopPropagation()} onChange={(event) => setPrompts((items) => items.map((value) => value.letter === item.letter ? { ...value, selected: event.target.checked } : value))} /><Tag color="blue">{item.letter}</Tag><Text type="secondary">{statusLabel(tasks.find((task) => task.letter === item.letter)?.status)}</Text></Space>, children: <><Input.TextArea autoSize={{ minRows: 4, maxRows: 10 }} maxLength={3000} showCount value={item.currentPrompt} onChange={(event) => setPrompts((items) => items.map((value) => value.letter === item.letter ? { ...value, currentPrompt: event.target.value } : value))} /><Space className="ai-pet-prompt-actions"><Button icon={<ReloadOutlined />} onClick={() => setPrompts((items) => items.map((value) => value.letter === item.letter ? { ...value, currentPrompt: adaptPromptOutputMode(defaultPromptForLetter(item.letter), settings.outputMode) } : value))}>恢复默认</Button><Button loading={item.optimizing} icon={<ThunderboltOutlined />} onClick={() => void optimizeOne(item.letter)}>AI 优化</Button>{tasks.find((task) => task.letter === item.letter)?.status === "running" && <Button danger onClick={() => controllers.current.get(item.letter)?.abort()}>停止此图</Button>}<Button onClick={() => void processLetters([item.letter], true)}>重新生成</Button></Space></> }))} />
     </Card>
     <Card title="生成结果" extra={<Space><Checkbox checked={successful.length > 0 && successful.every((item) => selectedResults.includes(item.letter))} onChange={(event) => setSelectedResults(event.target.checked ? successful.map((item) => item.letter) : [])}>全选已有结果</Checkbox><Button icon={<DownloadOutlined />} onClick={() => void downloadSelected()}>下载所选（{selectedResults.length}）</Button><Button disabled={!tasks.some((task) => task.status === "failed" || task.status === "interrupted")} onClick={() => void processLetters(tasks.filter((task) => task.status === "failed" || task.status === "interrupted").map((task) => task.letter), true)}>重试失败</Button><Popconfirm title="清空所有生成任务和结果？" onConfirm={() => { stop(); setTasks([]); setSelectedResults([]); setPreview({ kind: "reference" }); }}><Button danger icon={<DeleteOutlined />}>清空结果</Button></Popconfirm></Space>}>
-      {tasks.length ? <div className="ai-pet-letter-gallery"><Image.PreviewGroup>{tasks.map((task) => <Card key={`${task.letter}-${task.result?.createdAt || 0}`} size="small" className="ai-pet-letter-result" cover={task.result ? <ResultCover blob={task.result.rawBlob} letter={task.letter} referenceUrl={referenceCompareUrl} /> : <div className="ai-pet-letter-placeholder"><strong>{task.letter}</strong><span>{task.status === "running" ? "生成中…" : task.error || statusLabel(task.status)}</span></div>} actions={task.result ? [<Button type="text" key="view" onClick={() => setPreview({ kind: "raw", letter: task.letter })}>对比</Button>, <Button type="text" key="download" onClick={() => void downloadTask(task)}>下载</Button>, <Button type="text" key="retry" onClick={() => void processLetters([task.letter], true)}>重生</Button>] : undefined}><Card.Meta title={<Space><Checkbox checked={selectedResults.includes(task.letter)} disabled={!task.result} onChange={(event) => setSelectedResults((items) => event.target.checked ? [...new Set([...items, task.letter])] : items.filter((letter) => letter !== task.letter))} />{task.letter}<Tag color={task.status === "success" ? "success" : task.status === "failed" ? "error" : "default"}>{statusLabel(task.status)}</Tag></Space>} description={task.result && task.result.referenceFingerprint !== currentReferenceFingerprint ? "旧参考图" : task.retries ? `重试 ${task.retries} 次` : ""} /></Card>)}</Image.PreviewGroup></div> : <Empty description="尚未生成；可以先编辑 26 条提示词" />}
+      {tasks.length ? <div className="ai-pet-letter-gallery">{tasks.map((task) => <Card key={`${task.letter}-${task.result?.createdAt || 0}`} size="small" className="ai-pet-letter-result" cover={task.result ? <ResultCover blob={task.result.compositeBlob} letter={task.letter} onOpen={() => setEnlarged({ letter: task.letter, current: 0 })} /> : <div className="ai-pet-letter-placeholder"><strong>{task.letter}</strong><span>{task.status === "running" ? "生成中…" : task.error || statusLabel(task.status)}</span></div>} actions={task.result ? [<Button type="text" key="view" onClick={() => { setPreview({ kind: "raw", letter: task.letter }); setCompareLetter(task.letter); }}>对比</Button>, <Button type="text" key="download" onClick={() => void downloadTask(task)}>下载</Button>, <Button type="text" key="retry" onClick={() => void processLetters([task.letter], true)}>重生</Button>] : undefined}><Card.Meta title={<Space><Checkbox checked={selectedResults.includes(task.letter)} disabled={!task.result} onChange={(event) => setSelectedResults((items) => event.target.checked ? [...new Set([...items, task.letter])] : items.filter((letter) => letter !== task.letter))} />{task.letter}<Tag color={task.status === "success" ? "success" : task.status === "failed" ? "error" : "default"}>{statusLabel(task.status)}</Tag></Space>} description={task.result && task.result.referenceFingerprint !== currentReferenceFingerprint ? "旧参考图" : task.result?.outputMode === "transparent-colorize" ? `透明原图 · ${task.result.backgroundColor || "#00aeff"} 上色` : task.retries ? `重试 ${task.retries} 次` : ""} /></Card>)}</div> : <Empty description="尚未生成；可以先编辑 26 条提示词" />}
     </Card>
+    {enlarged && detailResultUrl && referenceCompareUrl ? <Image.PreviewGroup
+      items={[{ src: detailResultUrl, alt: `${enlarged.letter} 生成结果` }, { src: referenceCompareUrl, alt: "本次参考图" }, ...(detailTask?.result?.outputMode === "transparent-colorize" && detailRawUrl ? [{ src: detailRawUrl, alt: `${enlarged.letter} AI 透明原图` }] : [])]}
+      preview={{
+        open: true,
+        current: enlarged.current,
+        onChange: (current) => setEnlarged((value) => value ? { ...value, current } : value),
+        onOpenChange: (open) => { if (!open) setEnlarged(undefined); },
+        countRender: (current) => current === 1 ? `${enlarged.letter} · 上色成品` : current === 2 ? "参考图" : "AI 透明原图",
+        actionsRender: (originalNode, info) => <>{originalNode}<Tooltip title={info.current === 0 ? "切换到参考图" : "切换到生成结果"}><button type="button" aria-label={info.current === 0 ? "切换到参考图" : "切换到生成结果"} className="scene-preview-compare-action" onClick={(event) => { event.stopPropagation(); setEnlarged((value) => value ? { ...value, current: info.current === 0 ? 1 : 0 } : value); }}><SwapOutlined /></button></Tooltip></>,
+      }}
+    /> : null}
+    <Modal width={1180} open={Boolean(compareLetter)} title={`${compareLetter || ""} · 生成结果与参考图对比`} onCancel={() => setCompareLetter(undefined)} footer={<Button onClick={() => setCompareLetter(undefined)}>关闭</Button>}>
+      {detailResultUrl && referenceCompareUrl ? <div className="ai-pet-letter-compare-grid">
+        <figure><figcaption>生成结果（点击继续放大）</figcaption><Image preview={false} src={detailResultUrl} alt={`${compareLetter || ""} 生成结果`} onClick={() => compareLetter && setEnlarged({ letter: compareLetter, current: 0 })} /></figure>
+        <figure><figcaption>本次参考图（点击继续放大）</figcaption><Image preview={false} src={referenceCompareUrl} alt="本次参考图" onClick={() => compareLetter && setEnlarged({ letter: compareLetter, current: 1 })} /></figure>
+        {detailTask?.result?.outputMode === "transparent-colorize" && detailRawUrl ? <figure><figcaption>AI 透明原图（点击继续放大）</figcaption><Image preview={false} src={detailRawUrl} alt={`${compareLetter || ""} AI 透明原图`} onClick={() => compareLetter && setEnlarged({ letter: compareLetter, current: 2 })} /></figure> : null}
+      </div> : <Empty description="暂无可对比图片" />}
+      {detailTask?.result?.outputMode === "transparent-colorize" && detailRawUrl ? <Alert className="ai-pet-letter-transparent-note" type="info" showIcon message="此结果同时保留 AI 透明原图；可在右侧将下载内容切换为“AI 透明原图”。" /> : null}
+    </Modal>
     {settingsHost ? createPortal(inspector, settingsHost) : null}
     <Modal width={920} title="批量提示词优化对比" open={optimizationDiff.length > 0} onCancel={() => setOptimizationDiff([])} onOk={() => { const byLetter = new Map(optimizationDiff.map((item) => [item.letter, item.after])); setPrompts((items) => items.map((item) => ({ ...item, currentPrompt: byLetter.get(item.letter) || item.currentPrompt }))); setOptimizationDiff([]); }} okText="应用全部">
       <div className="ai-pet-optimization-diff">{optimizationDiff.map((item) => <Collapse key={item.letter} items={[{ key: item.letter, label: `${item.letter} · 查看修改`, children: <div className="ai-pet-diff-columns"><div><Text strong>修改前</Text><p>{item.before}</p></div><div><Text strong>修改后</Text><p>{item.after}</p></div></div> }]} />)}</div>

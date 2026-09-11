@@ -18,6 +18,7 @@ export async function editAiPetLetter(options: {
   prompt: string;
   model: AiPetLetterModel;
   quality: AiPetLetterQuality;
+  background?: "transparent" | "opaque";
   signal?: AbortSignal;
   attempt?: number;
 }): Promise<Blob> {
@@ -38,6 +39,7 @@ export async function editAiPetLetter(options: {
     form.append("quality", options.quality);
     form.append("size", "3840x2160");
     form.append("output_format", "png");
+    if (options.background) form.append("background", options.background);
     form.append("n", "1");
     const response = await fetch(`${OPENAI_ROOT}/images/edits`, {
       method: "POST",
