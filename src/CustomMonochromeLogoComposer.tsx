@@ -1,3 +1,4 @@
+import { IMAGE_MODEL_OPTIONS, IMAGE_QUALITIES, supportsQuality } from "./services/engraving/models";
 import { rasterizeSvg } from "./services/engraving/svg";
 import BatchEngravingComposer from "./components/BatchEngravingComposer";
 import * as taskStorage from "./services/engraving/storage";
@@ -12,6 +13,7 @@ import {
 } from "react";
 import {
   Alert,
+  AutoComplete,
   Divider,
   Flex,
   Form,
@@ -551,11 +553,17 @@ export function EngravingTaskComposer({
       <Divider />
       <Form layout="vertical">
         {" "}
-        <Form.Item label="图片模型">
-          <Input
-            disabled={busy}
+        <Form.Item label="图片模型" extra="可从列表选择，也可直接输入完整模型名称。">
+          <AutoComplete
+            aria-label="图片模型"
+            disabled={locked}
+            style={{ width: "100%" }}
             value={preferences.imageModel}
-            onChange={(e) => patchPreferences({ imageModel: e.target.value })}
+            options={IMAGE_MODEL_OPTIONS}
+            placeholder="选择或输入图片模型"
+            onChange={(imageModel) => patchPreferences({ imageModel,
+              quality: supportsQuality(imageModel, preferences.quality) ? preferences.quality : "high",
+            })}
           />
         </Form.Item>
         <Form.Item label="审核模型">
@@ -571,7 +579,8 @@ export function EngravingTaskComposer({
             style={{ width: "100%" }}
             value={preferences.quality}
             onChange={(quality) => patchPreferences({ quality })}
-            options={["low", "medium", "high", "auto"].map((value) => ({
+            options={IMAGE_QUALITIES.map((value) => ({
+              disabled: !supportsQuality(preferences.imageModel, value),
               value,
               label: value,
             }))}

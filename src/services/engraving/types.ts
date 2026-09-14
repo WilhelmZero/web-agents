@@ -30,7 +30,7 @@ export interface Config {
   baseUrl: string;
   imageModel: string;
   reviewModel: string;
-  quality: "low" | "medium" | "high" | "auto";
+  quality: "low" | "medium" | "high" | "xhigh" | "max" | "auto";
   apiKey: string;
 }
 export interface OutpaintOptions { enabled: boolean; instructions: string; }

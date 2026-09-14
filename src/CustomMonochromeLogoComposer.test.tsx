@@ -288,3 +288,20 @@ it.each([false, true])('keeps both real task results visible when concurrent res
  for(let i=0;i<2;i++) expect(vi.mocked(saveTask).mock.calls.some(([task])=>task.original===originals[i] && task.results?.length===1 && task.results[0].job.blob===outputs[i])).toBe(true);
  view.unmount();api.mockRestore();
 },60000);
+
+it("selects both 2.5 models and restores a freely entered model", async()=>{
+ const props={openAiApiKey:"",onConfigureKey:vi.fn()};
+ const view=render(<CustomMonochromeLogoComposer {...props}/>);
+ await waitFor(()=>expect(screen.getByLabelText("上传单张原图")).toBeEnabled());
+ const model=screen.getByRole("combobox",{name:"图片模型"});
+ for(const name of ["gpt-image-2.5-sunburst","gpt-image-2.5-flare"]){
+   fireEvent.mouseDown(model);
+   fireEvent.click(await screen.findByText(name,{selector:".ant-select-item-option-content"}));
+   expect(model).toHaveValue(name);
+ }
+ fireEvent.change(model,{target:{value:"my-custom-image-model"}});
+ await waitFor(()=>expect(sessionStorage.getItem("custom-monochrome-logo:settings:v1")).toContain("my-custom-image-model"));
+ view.unmount();
+ render(<CustomMonochromeLogoComposer {...props}/>);
+ expect(screen.getByRole("combobox",{name:"图片模型"})).toHaveValue("my-custom-image-model");
+},15000);

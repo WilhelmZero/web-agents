@@ -1,3 +1,4 @@
+import { supportsQuality } from "./models";
 import { prepareOutpaint } from "./outpaint";
 import {
   startRequestConsoleEntry,
@@ -142,7 +143,10 @@ export function createEngravingApi(
   return {
     async generate(input: GenerateInput) {
       signal?.throwIfAborted();
-      const { config, referenceImage } = input;
+      const { config: suppliedConfig, referenceImage } = input;
+      const config = { ...suppliedConfig, imageModel: suppliedConfig.imageModel.trim() };
+      if (!config.imageModel) throw new AppError("请输入图片模型名称。");
+      if (!supportsQuality(config.imageModel, config.quality)) throw new AppError("当前模型不支持此生成质量，请选择 high 或更低档位。");
       if(input.outpaint?.enabled && (typeof input.outpaint.instructions !== "string" || input.outpaint.instructions.length>800)) throw new AppError("扩图要求最多800字。");
       const image = input.editMode ? input.image : await prepareOutpaint(input.image, input.outpaint);
       const useAnchor = input.editMode || input.outpaint?.enabled;

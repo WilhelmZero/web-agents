@@ -142,3 +142,24 @@ it('aborts only the requested generation and does not retry',async()=>{
  await expect(api.generate(input())).rejects.toMatchObject({name:'AbortError'});
  expect(fetcher).toHaveBeenCalledTimes(1);
 });
+
+it.each(["gpt-image-2.5-sunburst", "gpt-image-2.5-flare"])("supports %s edits and extended quality without legacy fidelity", async imageModel => {
+ const fetcher=vi.fn(async()=>Response.json({data:[{b64_json:btoa("png")}]}));
+ const normalize=vi.fn(async(buffer:Blob)=>({buffer,width:200,height:100,warnings:[]}));
+ for (const quality of ["high", "xhigh", "max"] as const) {
+   await createEngravingApi(fetcher as typeof fetch,normalize).generate({...input(), config:{...config,imageModel,quality},editMode:true,originalImage:new Blob(["identity"])});
+   const body=vi.mocked(fetcher as typeof fetch).mock.lastCall![1]!.body as FormData;
+   expect(body.get("model")).toBe(imageModel);
+   expect(body.get("quality")).toBe(quality);
+   expect(body.get("background")).toBe("transparent");
+   expect(body.get("output_format")).toBe("png");
+   expect(body.get("input_fidelity")).toBeNull();
+   expect(body.getAll("image[]")).toHaveLength(3);
+ }
+ expect(fetcher).toHaveBeenCalledTimes(3);
+});
+it("rejects unsupported legacy quality before making a billable request", async()=>{
+ const fetcher=vi.fn();
+ await expect(createEngravingApi(fetcher).generate({...input(),config:{...config,quality:"max"}})).rejects.toThrow("生成质量");
+ expect(fetcher).not.toHaveBeenCalled();
+});

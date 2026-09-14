@@ -180,3 +180,13 @@ it('isolates multiple image slots in one tab and their expansion settings',async
  await Promise.all([a.saveTask(task('A')),b.saveTask(task('B'))]);expect((await a.loadTask())?.fileName).toBe('A');expect((await b.loadTask())?.fileName).toBe('B');
  a.savePreferences({...module.DEFAULT_PREFERENCES,outpaint:{enabled:true,instructions:'右侧手臂'}});expect(a.loadPreferences().outpaint?.enabled).toBe(true);expect(b.loadPreferences().outpaint?.enabled).toBe(false);
 });
+
+it("restores both 2.5 model names and extended quality preferences", async()=>{
+ const {DEFAULT_PREFERENCES,savePreferences,loadPreferences}=await import("./storage");
+ for(const imageModel of ["gpt-image-2.5-sunburst","gpt-image-2.5-flare"]){
+   for(const quality of ["xhigh","max"] as const){
+     savePreferences({...DEFAULT_PREFERENCES,imageModel,quality});
+     expect(loadPreferences()).toMatchObject({imageModel,quality});
+   }
+ }
+});

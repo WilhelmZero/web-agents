@@ -41,7 +41,7 @@ export function loadPreferences(scope = ""): Preferences {
       out.style = p.settings.style;
     if (["portrait", "couple", "bouquet"].includes(p.settings.reference))
       out.reference = p.settings.reference;
-    if (["low", "medium", "high", "auto"].includes(p.settings.quality))
+    if (["low", "medium", "high", "xhigh", "max", "auto"].includes(p.settings.quality))
       out.quality = p.settings.quality;
     if (typeof p.settings.auto === "boolean") out.auto = p.settings.auto;
     if (
