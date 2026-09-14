@@ -84,7 +84,7 @@ it("keeps numeric canvas input independent of slider range and uses selected lay
     screen.getByRole("slider", { name: "画布宽度滑动条" }),
   ).toHaveAttribute("aria-valuemax", "4096");
   fireEvent.change(width, { target: { value: "600" } });
-  fireEvent.click(screen.getByRole("button", { name: "添加文字块" }));
+  fireEvent.click(screen.getByRole("button", { name: "添加文本图层" }));
   expect(
     screen.queryByRole("spinbutton", { name: "图片 X" }),
   ).not.toBeInTheDocument();
@@ -100,5 +100,21 @@ it("keeps numeric canvas input independent of slider range and uses selected lay
     autoSize: true,
   });
   expect(result.params.layout).toBeUndefined();
+  expect(
+    screen.queryByRole("button", { name: "复制" }),
+  ).not.toBeInTheDocument();
+  const addButton = screen.getByRole("button", { name: "添加文本图层" });
+  const layers = screen.getByLabelText("图层列表");
+  expect(
+    addButton.compareDocumentPosition(layers) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  fireEvent.click(
+    screen.getByRole("button", { name: "删除文本图层 Memory 2026" }),
+  );
+  expect(screen.queryByLabelText("文字内容")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /图片图层/ })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
 }, 20000);
-

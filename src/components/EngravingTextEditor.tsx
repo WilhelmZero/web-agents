@@ -1,3 +1,4 @@
+import { DeleteOutlined } from "@ant-design/icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
@@ -422,6 +423,21 @@ export default function EngravingTextEditor({
             <span aria-hidden="true">T</span>
             <span>{t.text || "空文字"}</span>
           </button>
+          <Button
+            className="text-layer-delete"
+            type="text"
+            danger
+            icon={<DeleteOutlined />}
+            aria-label={"删除文本图层 " + (t.text || "空文字")}
+            title="删除文本图层"
+            onClick={() => {
+              setLayout((l) => ({
+                ...l,
+                texts: l.texts.filter((item) => item.id !== t.id),
+              }));
+              setSelected((current) => (current === t.id ? "image" : current));
+            }}
+          />
         </div>
       ))}
       <div
@@ -600,6 +616,39 @@ export default function EngravingTextEditor({
             )}
           </div>
           <h4>图层</h4>
+          <Button
+            onClick={() => {
+              const id = crypto.randomUUID();
+              setLayout((l) => ({
+                ...l,
+                texts: [
+                  ...l.texts,
+                  {
+                    id,
+                    text: "Memory 2026",
+                    x: l.width * 0.05,
+                    y: l.height * 0.8,
+                    width: l.width * 0.9,
+                    height: l.height * 0.18,
+                    autoSize: true,
+                    bold: false,
+                    font: "great-vibes",
+                    fontSize: Math.max(12, l.width * 0.07),
+                    color: "#ffffff",
+                    align: "center",
+                    lineHeight: 1.2,
+                    letterSpacing: 0,
+                    strokeWidth: 0,
+                    strokeColor: "#000000",
+                  },
+                ],
+              }));
+              setSelected(id);
+            }}
+            disabled={layout.texts.length >= 100}
+          >
+            添加文本图层
+          </Button>
           <small>从上到下为从前到后；拖动文字图层左侧手柄排序。</small>
           {layers}
           {selected === "image" && (
@@ -639,44 +688,12 @@ export default function EngravingTextEditor({
               </Button>
             </>
           )}
-          <h4>{text ? "文字参数" : "添加文字"}</h4>
-          <Space wrap>
-            <Button
-              onClick={() => {
-                const id = crypto.randomUUID();
-                setLayout((l) => ({
-                  ...l,
-                  texts: [
-                    ...l.texts,
-                    {
-                      id,
-                      text: "Memory 2026",
-                      x: l.width * 0.05,
-                      y: l.height * 0.8,
-                      width: l.width * 0.9,
-                      height: l.height * 0.18,
-                      autoSize: true,
-                      bold: false,
-                      font: "great-vibes",
-                      fontSize: Math.max(12, l.width * 0.07),
-                      color: "#ffffff",
-                      align: "center",
-                      lineHeight: 1.2,
-                      letterSpacing: 0,
-                      strokeWidth: 0,
-                      strokeColor: "#000000",
-                    },
-                  ],
-                }));
-                setSelected(id);
-              }}
-              disabled={layout.texts.length >= 100}
-            >
-              添加文字块
-            </Button>
+          {text && <h4>文字参数</h4>}
+          <Space wrap style={{ display: "none" }}>
             {text && (
               <>
                 <Button
+                  hidden
                   aria-label="复制"
                   onClick={() => {
                     const id = crypto.randomUUID();
@@ -692,18 +709,6 @@ export default function EngravingTextEditor({
                   disabled={layout.texts.length >= 100}
                 >
                   复制
-                </Button>
-                <Button
-                  danger
-                  onClick={() => {
-                    setLayout((l) => ({
-                      ...l,
-                      texts: l.texts.filter((t) => t.id !== selected),
-                    }));
-                    setSelected("image");
-                  }}
-                >
-                  删除文字
                 </Button>
               </>
             )}
