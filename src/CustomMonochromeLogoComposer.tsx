@@ -1,3 +1,4 @@
+import { rasterizeSvg } from "./services/engraving/svg";
 import BatchEngravingComposer from "./components/BatchEngravingComposer";
 import * as taskStorage from "./services/engraving/storage";
 import { OPENAI_ROOT } from "./services/openAiEndpoint";
@@ -175,6 +176,12 @@ export function EngravingTaskComposer({
   const taskRef = useRef(task),
     stop = useRef(false),
     active = useRef(false);
+  const cancellation = useRef<AbortController | null>(null);
+  function stopGeneration() {
+    stop.current = true;
+    cancellation.current?.abort();
+    setNotice("已停止。已收到的结果保留；已提交请求可能仍由服务端处理或计费。");
+  }
   const [loaded, setLoaded] = useState(false),
     [busy, setBusy] = useState(false),
     [uploading, setUploading] = useState(false);
@@ -288,7 +295,7 @@ export function EngravingTaskComposer({
     setUploading(true);
     setError("");
     try {
-      const result = await processInWorker(file, undefined, undefined, true);
+      const result = await processInWorker(await rasterizeSvg(file), undefined, undefined, true);
       await writeTask(taskRef.current);
       await newTask();
       await persist({
@@ -328,6 +335,8 @@ export function EngravingTaskComposer({
     }
     active.current = true;
     stop.current = false;
+    const controller = new AbortController();
+    cancellation.current = controller;
     setBusy(true);
     setError("");
     setNotice("");
@@ -377,13 +386,14 @@ export function EngravingTaskComposer({
       if (!reference) {
         const response = await fetch(
           `${import.meta.env.BASE_URL}engraving-references/${referenceControlsVisible ? snapshot.reference : "portrait"}-reference.jpg`,
+          { signal: controller.signal },
         );
         if (!response.ok) throw new Error("风格参考加载失败");
         reference = (await processInWorker(await response.blob())).buffer;
       }
       const usedReference = reference;
       let lastPrompt = "";
-      const api = createEngravingApi();
+      const api = createEngravingApi(undefined, undefined, controller.signal);
       const generate: typeof api.generate = async (input) => {
         lastPrompt = buildPrompt({
           ...input,
@@ -443,7 +453,7 @@ export function EngravingTaskComposer({
           options: snapshot,
           ...api,
           generate,
-          render: (source, params) => processInWorker(source, params),
+          render: (source, params) => processInWorker(source, params, controller.signal),
           saveCandidate,
           publish,
           cancelled: () => stop.current,
@@ -477,9 +487,9 @@ export function EngravingTaskComposer({
     } catch (e) {
       run = {
         ...run,
-        status: "failed",
+        status: stop.current ? "cancelled" : "failed",
         phase: "已停止后续步骤并保留可用结果",
-        error: e instanceof Error ? e.message : "处理失败。",
+        error: stop.current ? undefined : e instanceof Error ? e.message : "处理失败。",
       };
     } finally {
       const chosen = run.best || run.fallback;
@@ -490,6 +500,7 @@ export function EngravingTaskComposer({
         ...(chosen ? { job: chosen.job, params: { ...chosen.params } } : {}),
         endedAt: Date.now(),
       });
+      cancellation.current = null;
       active.current = false;
       setBusy(false);
     }
@@ -515,9 +526,7 @@ export function EngravingTaskComposer({
   useImperativeHandle(controllerRef, () => ({
     flush: () => writeTask(taskRef.current),
     start: () => startGeneration(),
-    stop: () => {
-      stop.current = true;
-    },
+    stop: stopGeneration,
   }));
   const run = task.run;
   const elapsed = task.startedAt
@@ -687,7 +696,7 @@ export function EngravingTaskComposer({
               {!task.original ? (
                 <Upload.Dragger
                   aria-label="上传单张原图"
-                  accept="image/jpeg,image/png,image/webp"
+                  accept="image/jpeg,image/png,image/webp,image/svg+xml,.svg"
                   multiple={false}
                   maxCount={1}
                   showUploadList={false}
@@ -710,7 +719,7 @@ export function EngravingTaskComposer({
                   <PreviewImage blob={task.original} title="原照" />
                   <p>{task.fileName}</p>
                   <Upload
-                    accept="image/jpeg,image/png,image/webp"
+                    accept="image/jpeg,image/png,image/webp,image/svg+xml,.svg"
                     multiple={false}
                     showUploadList={false}
                     disabled={locked}
@@ -840,7 +849,7 @@ export function EngravingTaskComposer({
                     style={{ maxHeight: 200, objectFit: "contain" }}
                   />
                   <Upload
-                    accept="image/jpeg,image/png,image/webp"
+                    accept="image/jpeg,image/png,image/webp,image/svg+xml,.svg"
                     showUploadList={false}
                     disabled={locked}
                     beforeUpload={(file) => {
@@ -915,12 +924,7 @@ export function EngravingTaskComposer({
                 {busy ? (
                   <Button
                     danger
-                    onClick={() => {
-                      stop.current = true;
-                      setNotice(
-                        "已请求停止：不会开始下一步，正在执行的请求返回后先保存图片。",
-                      );
-                    }}
+                    onClick={stopGeneration}
                   >
                     停止后续步骤
                   </Button>

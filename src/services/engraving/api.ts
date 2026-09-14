@@ -53,13 +53,14 @@ async function request(
     response = await fetchImpl(`${apiBase(config.baseUrl)}${path}`, {
       ...init,
       redirect: "error",
-      signal: AbortSignal.timeout(timeout),
+      signal: init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout),
       headers: {
         ...init.headers,
         Authorization: `Bearer ${config.apiKey.trim()}`,
       },
     });
   } catch (error) {
+    if (init.signal?.aborted) throw new DOMException("已停止", "AbortError");
     throw new AppError(
       error instanceof Error &&
         (error.name === "TimeoutError" || error.name === "AbortError")
@@ -136,9 +137,11 @@ export async function testConnection(
 export function createEngravingApi(
   fetchImpl = fetch,
   normalize = processInWorker,
+  signal?: AbortSignal,
 ) {
   return {
     async generate(input: GenerateInput) {
+      signal?.throwIfAborted();
       const { config, referenceImage } = input;
       if(input.outpaint?.enabled && (typeof input.outpaint.instructions !== "string" || input.outpaint.instructions.length>800)) throw new AppError("扩图要求最多800字。");
       const image = input.editMode ? input.image : await prepareOutpaint(input.image, input.outpaint);
@@ -177,7 +180,7 @@ export function createEngravingApi(
         const response = await request(
           config,
           "/images/edits",
-          { method: "POST", body: form },
+          { method: "POST", body: form, signal },
           300_000,
           fetchImpl,
         );
@@ -215,6 +218,7 @@ export function createEngravingApi(
       }
     },
     async review(input: ReviewInput) {
+      signal?.throwIfAborted();
       const prompt = buildReviewPrompt(input.params, input.instructions, input.outpaint);
       const images = await Promise.all(
         [input.original, input.reference, input.rendered].map(async (blob) => ({
@@ -238,6 +242,7 @@ export function createEngravingApi(
           input.config,
           "/responses",
           {
+            signal,
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({

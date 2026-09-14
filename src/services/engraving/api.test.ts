@@ -131,3 +131,14 @@ it('sends an expanded edit canvas plus style and untouched identity anchor',asyn
  expect(form.getAll('image[]')).toHaveLength(3);expect(draw).toHaveBeenCalled();expect(form.get('prompt')).toContain('OUTPAINTING IS ENABLED');expect(form.get('prompt')).toContain('Image 3 is the ONLY source');
  expect(startRequestConsoleEntry).toHaveBeenCalledWith(expect.objectContaining({inputImages:[padded,req.referenceImage,req.image]}));
 });
+
+it('aborts only the requested generation and does not retry',async()=>{
+ const controller=new AbortController();
+ const fetcher=vi.fn((_url:unknown,init?:RequestInit)=>new Promise<Response>((_,reject)=>init?.signal?.addEventListener('abort',()=>reject(new DOMException('stopped','AbortError')))));
+ const api=createEngravingApi(fetcher as typeof fetch,undefined,controller.signal);
+ const pending=api.generate(input());
+ const assertion=expect(pending).rejects.toMatchObject({name:'AbortError'});
+ await vi.waitFor(()=>expect(fetcher).toHaveBeenCalledTimes(1));controller.abort();await assertion;
+ await expect(api.generate(input())).rejects.toMatchObject({name:'AbortError'});
+ expect(fetcher).toHaveBeenCalledTimes(1);
+});

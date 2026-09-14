@@ -92,6 +92,7 @@ export async function runAutoTune({ original, reference, config, subject, instru
     }
     return state('limit', '已达轮数上限，未达标；保留综合最佳的一版供手动调整');
   } catch (error) {
+    if (cancelled()) return state('cancelled', '已停止，保留现有结果');
     return state('failed', '自动调试已停止，保留已生成图片', {
       error: error instanceof AppError ? error.message : (error?.message || '本地处理或保存失败，请检查浏览器存储和图片。'),
       errorCode: error instanceof AppError ? error.code : 'AUTO_TUNE_ERROR',

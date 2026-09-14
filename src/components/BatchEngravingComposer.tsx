@@ -163,9 +163,9 @@ export default function BatchEngravingComposer({
     if (deletingRef.current) return false;
     if (
       file.size > 20 * 1024 * 1024 ||
-      !["image/png", "image/jpeg", "image/webp"].includes(file.type)
+      (!["image/png", "image/jpeg", "image/webp", "image/svg+xml"].includes(file.type) && !/\.svg$/i.test(file.name))
     ) {
-      setError("请导入20MB以内的 JPEG、PNG 或 WebP 图片。");
+      setError("请导入20MB以内的 JPEG、PNG、WebP 或 SVG 图片。");
       return false;
     }
     {
@@ -236,7 +236,7 @@ export default function BatchEngravingComposer({
   const stopAll = () => {
     cancelled.current = true;
     for (const ref of controls.current.values()) ref.current?.stop();
-    setProgress("停止后续请求，正在返回的结果仍会保存");
+    setProgress("已停止后续请求，已收到结果保留；服务端可能仍处理或计费");
   };
   const removeSlots = async (ids: string[]) => {
     if (
@@ -294,7 +294,7 @@ export default function BatchEngravingComposer({
     <section>
       <Card title="导入原照 · 多图独立任务" className="workflow-card">
         <Upload.Dragger
-          accept="image/jpeg,image/png,image/webp"
+          accept="image/jpeg,image/png,image/webp,image/svg+xml,.svg"
           multiple
           showUploadList={false}
           disabled={
