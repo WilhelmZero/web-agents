@@ -1536,6 +1536,8 @@ function AppContent() {
             )}
             {compact && !showPinnedHome && !["icon-vector-split"].includes(creationTool) && (
               <Button
+                aria-label="设置"
+                title="设置"
                 icon={<SettingOutlined />}
                 onClick={() => setSettingsOpen(true)}
               >

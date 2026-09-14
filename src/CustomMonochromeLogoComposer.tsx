@@ -1,4 +1,8 @@
-import { IMAGE_MODEL_OPTIONS, IMAGE_QUALITIES, supportsQuality } from "./services/engraving/models";
+import {
+  IMAGE_MODEL_OPTIONS,
+  IMAGE_QUALITIES,
+  supportsQuality,
+} from "./services/engraving/models";
 import { rasterizeSvg } from "./services/engraving/svg";
 import BatchEngravingComposer from "./components/BatchEngravingComposer";
 import * as taskStorage from "./services/engraving/storage";
@@ -39,6 +43,7 @@ import { DEFAULTS, validateOptions } from "./services/engraving/processing.mjs";
 import { runAutoTune } from "./services/engraving/auto-tune.mjs";
 import { createEngravingApi, apiBase } from "./services/engraving/api";
 import {
+  getTaskId,
   loadPreferences,
   savePreferences,
   loadTask,
@@ -129,6 +134,8 @@ export function EngravingTaskComposer({
   batchLocked = false,
   workspaceActive = true,
   controlsHost,
+  sharedPreferences,
+  onSharedPreferencesChange,
 }: {
   openAiApiKey: string;
   onConfigureKey: () => void;
@@ -139,12 +146,20 @@ export function EngravingTaskComposer({
   batchLocked?: boolean;
   workspaceActive?: boolean;
   controlsHost?: HTMLElement | null;
-  controllerRef?: React.Ref<{ start: () => Promise<void>; stop: () => void; flush: () => Promise<void> }>;
+  sharedPreferences?: Preferences;
+  onSharedPreferencesChange?: (value: Preferences) => void;
+  controllerRef?: React.Ref<{
+    start: (preferences?: Preferences) => Promise<void>;
+    stop: () => void;
+    flush: () => Promise<void>;
+    getTaskId?: () => Promise<string>;
+  }>;
   onTaskState?: (state: {
     task: SavedTask;
     busy: boolean;
     ready: boolean;
-    loaded: boolean; importing: boolean;
+    loaded: boolean;
+    importing: boolean;
   }) => void;
 }) {
   const store = useMemo(
@@ -152,6 +167,7 @@ export function EngravingTaskComposer({
       scope
         ? taskStorage.getTaskStorage(scope)
         : {
+            getTaskId,
             loadPreferences,
             savePreferences,
             loadTask,
@@ -171,7 +187,8 @@ export function EngravingTaskComposer({
     listTaskHistory: readHistory,
     copyHistoryTask: copyTask,
   } = store;
-  const [preferences, setPreferences] = useState(readPreferences);
+  const [localPreferences, setPreferences] = useState(readPreferences);
+  const preferences = sharedPreferences || localPreferences;
   const [task, setTask] = useState<SavedTask>({
     version: 1,
     fileName: "",
@@ -186,6 +203,11 @@ export function EngravingTaskComposer({
     cancellation.current?.abort();
     setNotice("已停止。已收到的结果保留；已提交请求可能仍由服务端处理或计费。");
   }
+  const [livePreview, setLivePreview] = useState<{
+    blob: Blob;
+    label: string;
+  }>();
+  const previewRequest = useRef(0);
   const [loaded, setLoaded] = useState(false),
     [busy, setBusy] = useState(false),
     [uploading, setUploading] = useState(false);
@@ -264,11 +286,11 @@ export function EngravingTaskComposer({
   }, []);
   useEffect(() => {
     try {
-      writePreferences(preferences);
+      if (!sharedPreferences) writePreferences(preferences);
     } catch {
       setStorageWarning("设置无法写入本地存储。");
     }
-  }, [preferences]);
+  }, [preferences, sharedPreferences]);
   useEffect(() => {
     if (!loaded || clearing || uploading || historyBusy) return;
     const timer = setTimeout(() => {
@@ -292,14 +314,22 @@ export function EngravingTaskComposer({
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
   }, [busy]);
-  const patchPreferences = (patch: Partial<Preferences>) =>
-    setPreferences((previous) => ({ ...previous, ...patch }));
+  const patchPreferences = (patch: Partial<Preferences>) => {
+    if (sharedPreferences && onSharedPreferencesChange)
+      onSharedPreferencesChange({ ...sharedPreferences, ...patch });
+    else setPreferences((previous) => ({ ...previous, ...patch }));
+  };
   async function upload(file: File) {
     if (active.current || uploading || !loaded) return;
     setUploading(true);
     setError("");
     try {
-      const result = await processInWorker(await rasterizeSvg(file), undefined, undefined, true);
+      const result = await processInWorker(
+        await rasterizeSvg(file),
+        undefined,
+        undefined,
+        true,
+      );
       await writeTask(taskRef.current);
       await newTask();
       await persist({
@@ -322,7 +352,10 @@ export function EngravingTaskComposer({
       setUploading(false);
     }
   }
-  async function startGeneration(additional?: string) {
+  async function startGeneration(
+    additional?: string,
+    generationPreferences = preferences,
+  ) {
     if (active.current || !taskRef.current.original) return;
     if (!openAiApiKey.trim()) {
       onConfigureKey();
@@ -331,7 +364,10 @@ export function EngravingTaskComposer({
     try {
       validateOptions(taskRef.current.params);
       apiBase(OPENAI_ROOT);
-      if (!preferences.imageModel.trim() || !preferences.reviewModel.trim())
+      if (
+        !generationPreferences.imageModel.trim() ||
+        !generationPreferences.reviewModel.trim()
+      )
         throw new Error("请填写图像模型和审核模型。");
     } catch (e) {
       setError((e as Error).message);
@@ -345,8 +381,8 @@ export function EngravingTaskComposer({
     setError("");
     setNotice("");
     const snapshot = {
-        ...preferences,
-        auto: additional === undefined && preferences.auto,
+        ...generationPreferences,
+        auto: additional === undefined && generationPreferences.auto,
       },
       initial = {
         ...taskRef.current,
@@ -404,7 +440,27 @@ export function EngravingTaskComposer({
           editMode: input.editMode || input.outpaint?.enabled,
           hasReference: true,
         });
-        return api.generate(input);
+        const requestId = ++previewRequest.current;
+        setLivePreview(undefined);
+        return api.generate({
+          ...input,
+          onProgress: (event) => {
+            if (
+              controller.signal.aborted ||
+              requestId !== previewRequest.current
+            )
+              return;
+            setLivePreview({
+              blob: event.blob,
+              label:
+                event.kind === "partial"
+                  ? "生成中 · 已收到 " +
+                    ((event.index || 0) + 1) +
+                    " 张中间预览"
+                  : "本轮生图完成，正在处理最终图",
+            });
+          },
+        });
       };
       const saveCandidate = async (
         blob: Blob,
@@ -440,6 +496,7 @@ export function EngravingTaskComposer({
           ],
           params: { ...initial.params, eraseMask: undefined, crop: null },
         });
+        setLivePreview(undefined);
         return job;
       };
       if (stop.current)
@@ -457,7 +514,8 @@ export function EngravingTaskComposer({
           options: snapshot,
           ...api,
           generate,
-          render: (source, params) => processInWorker(source, params, controller.signal),
+          render: (source, params) =>
+            processInWorker(source, params, controller.signal),
           saveCandidate,
           publish,
           cancelled: () => stop.current,
@@ -493,7 +551,11 @@ export function EngravingTaskComposer({
         ...run,
         status: stop.current ? "cancelled" : "failed",
         phase: "已停止后续步骤并保留可用结果",
-        error: stop.current ? undefined : e instanceof Error ? e.message : "处理失败。",
+        error: stop.current
+          ? undefined
+          : e instanceof Error
+            ? e.message
+            : "处理失败。",
       };
     } finally {
       const chosen = run.best || run.fallback;
@@ -504,6 +566,7 @@ export function EngravingTaskComposer({
         ...(chosen ? { job: chosen.job, params: { ...chosen.params } } : {}),
         endedAt: Date.now(),
       });
+      setLivePreview(undefined);
       cancellation.current = null;
       active.current = false;
       setBusy(false);
@@ -529,7 +592,8 @@ export function EngravingTaskComposer({
   }, [task, busy, loaded, uploading, onTaskState, initialImported]);
   useImperativeHandle(controllerRef, () => ({
     flush: () => writeTask(taskRef.current),
-    start: () => startGeneration(),
+    getTaskId: () => store.getTaskId(),
+    start: (snapshot?: Preferences) => startGeneration(undefined, snapshot),
     stop: stopGeneration,
   }));
   const run = task.run;
@@ -548,12 +612,15 @@ export function EngravingTaskComposer({
     >
       <Flex justify="space-between">
         <h3 style={{ margin: 0 }}>雕刻设置</h3>
-        <Tag>单图</Tag>
+        <Tag>{sharedPreferences ? "整批共用" : "单图"}</Tag>
       </Flex>
       <Divider />
       <Form layout="vertical">
         {" "}
-        <Form.Item label="图片模型" extra="可从列表选择，也可直接输入完整模型名称。">
+        <Form.Item
+          label="图片模型"
+          extra="可从列表选择，也可直接输入完整模型名称。"
+        >
           <AutoComplete
             aria-label="图片模型"
             disabled={locked}
@@ -561,21 +628,26 @@ export function EngravingTaskComposer({
             value={preferences.imageModel}
             options={IMAGE_MODEL_OPTIONS}
             placeholder="选择或输入图片模型"
-            onChange={(imageModel) => patchPreferences({ imageModel,
-              quality: supportsQuality(imageModel, preferences.quality) ? preferences.quality : "high",
-            })}
+            onChange={(imageModel) =>
+              patchPreferences({
+                imageModel,
+                quality: supportsQuality(imageModel, preferences.quality)
+                  ? preferences.quality
+                  : "high",
+              })
+            }
           />
         </Form.Item>
         <Form.Item label="审核模型">
           <Input
-            disabled={busy}
+            disabled={locked}
             value={preferences.reviewModel}
             onChange={(e) => patchPreferences({ reviewModel: e.target.value })}
           />
         </Form.Item>
         <Form.Item label="生成质量">
           <Select
-            disabled={busy}
+            disabled={locked}
             style={{ width: "100%" }}
             value={preferences.quality}
             onChange={(quality) => patchPreferences({ quality })}
@@ -587,6 +659,18 @@ export function EngravingTaskComposer({
           />
         </Form.Item>
       </Form>
+      <label className="engraving-inline">
+        显示生成过程预览
+        <Switch
+          aria-label="显示生成过程预览"
+          disabled={locked}
+          checked={preferences.streamPreview !== false}
+          onChange={(streamPreview) => patchPreferences({ streamPreview })}
+        />
+      </label>
+      <small>
+        最多接收3张中间预览，可能增加输出Token费用；不支持流式的服务可关闭。失败不自动重试。
+      </small>
       <Divider />
       <h4>自动优化</h4>
       <Space orientation="vertical" style={{ width: "100%" }}>
@@ -644,285 +728,284 @@ export function EngravingTaskComposer({
       </Space>
     </div>
   );
-  const controlsPanel = (<div hidden={!workspaceActive}>
-          {!embedded && (
-            <Card
-              className="workflow-card"
-              title={
-                <Space>
-                  <FileImageOutlined />
-                  <span>上传单张原图</span>
-                </Space>
-              }
+  const controlsPanel = (
+    <div hidden={!workspaceActive}>
+      {!embedded && (
+        <Card
+          className="workflow-card"
+          title={
+            <Space>
+              <FileImageOutlined />
+              <span>上传单张原图</span>
+            </Space>
+          }
+        >
+          {!task.original ? (
+            <Upload.Dragger
+              aria-label="上传单张原图"
+              accept="image/jpeg,image/png,image/webp,image/svg+xml,.svg"
+              multiple={false}
+              maxCount={1}
+              showUploadList={false}
+              disabled={locked}
+              beforeUpload={(file) => {
+                void upload(file);
+                return false;
+              }}
             >
-              {!task.original ? (
-                <Upload.Dragger
-                  aria-label="上传单张原图"
-                  accept="image/jpeg,image/png,image/webp,image/svg+xml,.svg"
-                  multiple={false}
-                  maxCount={1}
-                  showUploadList={false}
+              <p className="ant-upload-drag-icon">
+                <FileImageOutlined />
+              </p>
+              <p className="ant-upload-text">点击或拖拽上传图片</p>
+              <p className="ant-upload-hint">
+                JPEG / PNG / WebP · ≤20 MB · ≤4000 万像素
+              </p>
+            </Upload.Dragger>
+          ) : (
+            <>
+              <PreviewImage blob={task.original} title="原照" />
+              <p>{task.fileName}</p>
+              <Upload
+                accept="image/jpeg,image/png,image/webp,image/svg+xml,.svg"
+                multiple={false}
+                showUploadList={false}
+                disabled={locked}
+                beforeUpload={(file) => {
+                  void upload(file);
+                  return false;
+                }}
+              >
+                <Button
+                  icon={<UploadOutlined />}
+                  loading={uploading}
                   disabled={locked}
-                  beforeUpload={(file) => {
-                    void upload(file);
-                    return false;
-                  }}
                 >
-                  <p className="ant-upload-drag-icon">
-                    <FileImageOutlined />
-                  </p>
-                  <p className="ant-upload-text">点击或拖拽上传图片</p>
-                  <p className="ant-upload-hint">
-                    JPEG / PNG / WebP · ≤20 MB · ≤4000 万像素
-                  </p>
-                </Upload.Dragger>
-              ) : (
-                <>
-                  <PreviewImage blob={task.original} title="原照" />
-                  <p>{task.fileName}</p>
-                  <Upload
-                    accept="image/jpeg,image/png,image/webp,image/svg+xml,.svg"
-                    multiple={false}
-                    showUploadList={false}
-                    disabled={locked}
-                    beforeUpload={(file) => {
-                      void upload(file);
-                      return false;
-                    }}
-                  >
-                    <Button
-                      icon={<UploadOutlined />}
-                      loading={uploading}
-                      disabled={locked}
-                    >
-                      替换原图
-                    </Button>
-                  </Upload>
-                  <p>
-                    替换原图将开始独立任务；当前原照、结果和参数保留在任务历史中。
-                  </p>
-                </>
-              )}
-            </Card>
+                  替换原图
+                </Button>
+              </Upload>
+              <p>
+                替换原图将开始独立任务；当前原照、结果和参数保留在任务历史中。
+              </p>
+            </>
           )}
-          <Card className="workflow-card" title="主体与风格">
-            <Space orientation="vertical" style={{ width: "100%" }}>
+        </Card>
+      )}
+      <Card className="workflow-card" title="主体与风格">
+        <Space orientation="vertical" style={{ width: "100%" }}>
+          {" "}
+          <label hidden={!!sharedPreferences}>
+            保留主体
+            <Select
+              aria-label="保留主体"
+              disabled={locked}
+              value={preferences.subject}
+              onChange={(subject) => patchPreferences({ subject })}
+              options={[
+                ["auto", "自动识别"],
+                ["portrait", "人物"],
+                ["pet", "动物"],
+                ["group", "人和动物"],
+                ["horse", "骑马"],
+              ].map(([value, label]) => ({ value, label }))}
+            />
+          </label>
+          <label hidden={!!sharedPreferences}>
+            纹理风格
+            <Select
+              aria-label="纹理风格"
+              disabled={locked}
+              value={preferences.style}
+              onChange={(style) => patchPreferences({ style })}
+              options={[
+                { value: "natural", label: "细腻写实" },
+                { value: "strong", label: "强纹理雕刻" },
+              ]}
+            />
+          </label>
+          <label className="engraving-inline">
+            扩图补全主体
+            <Switch
+              aria-label="扩图补全主体"
+              disabled={locked}
+              checked={preferences.outpaint?.enabled === true}
+              onChange={(enabled) =>
+                patchPreferences({
+                  outpaint: {
+                    enabled,
+                    instructions: preferences.outpaint?.instructions || "",
+                  },
+                })
+              }
+            />
+          </label>
+          {preferences.outpaint?.enabled && (
+            <>
+              <Input.TextArea
+                aria-label="扩图要求"
+                disabled={locked}
+                maxLength={800}
+                showCount
+                value={preferences.outpaint.instructions}
+                placeholder="例如：向图片上/下/左/右侧扩图，补全人物手臂和手肘/腿部，保留安全边距"
+                onChange={(e) =>
+                  patchPreferences({
+                    outpaint: {
+                      enabled: true,
+                      instructions: e.target.value,
+                    },
+                  })
+                }
+              />
+              <small>
+                补全照片边缘被截断的主体，画面外细节由AI推测；开启自动优化可检查完整性。
+              </small>
+            </>
+          )}
+          {referenceControlsVisible ? (
+            <>
               {" "}
               <label>
-                保留主体
+                风格参考
                 <Select
-                  aria-label="保留主体"
+                  aria-label="风格参考"
                   disabled={locked}
-                  value={preferences.subject}
-                  onChange={(subject) => patchPreferences({ subject })}
+                  value={preferences.reference}
+                  onChange={(reference) => {
+                    patchPreferences({ reference });
+                    updateTask({
+                      ...taskRef.current,
+                      customReference: undefined,
+                    });
+                  }}
                   options={[
-                    ["auto", "自动识别"],
-                    ["portrait", "人物"],
-                    ["pet", "动物"],
-                    ["group", "人和动物"],
-                    ["horse", "骑马"],
-                  ].map(([value, label]) => ({ value, label }))}
-                />
-              </label>
-              <label>
-                纹理风格
-                <Select
-                  aria-label="纹理风格"
-                  disabled={locked}
-                  value={preferences.style}
-                  onChange={(style) => patchPreferences({ style })}
-                  options={[
-                    { value: "natural", label: "细腻写实" },
-                    { value: "strong", label: "强纹理雕刻" },
+                    { value: "portrait", label: "人物雕刻" },
+                    { value: "couple", label: "双人雕刻" },
+                    { value: "bouquet", label: "人物与花束" },
                   ]}
                 />
               </label>
-              <label className="engraving-inline">
-                扩图补全主体
-                <Switch
-                  aria-label="扩图补全主体"
+              <small>
+                用于 AI 风格对照，不复制参考人物。内置素材随网页公开分发。
+              </small>
+              <Image
+                src={
+                  customReferenceUrl ||
+                  `${import.meta.env.BASE_URL}engraving-references/${preferences.reference}-reference.jpg`
+                }
+                alt="当前风格参考图"
+                style={{ maxHeight: 200, objectFit: "contain" }}
+              />
+              <Upload
+                accept="image/jpeg,image/png,image/webp,image/svg+xml,.svg"
+                showUploadList={false}
+                disabled={locked}
+                beforeUpload={(file) => {
+                  setUploading(true);
+                  void processInWorker(file, undefined, undefined, true)
+                    .then((result) =>
+                      persist({
+                        ...taskRef.current,
+                        customReference: result.buffer,
+                      }),
+                    )
+                    .catch((e) => setError(e.message))
+                    .finally(() => setUploading(false));
+                  return false;
+                }}
+              >
+                <Button disabled={locked}>上传风格参考图</Button>
+              </Upload>
+              {task.customReference ? (
+                <Button
                   disabled={locked}
-                  checked={preferences.outpaint?.enabled === true}
-                  onChange={(enabled) =>
-                    patchPreferences({
-                      outpaint: {
-                        enabled,
-                        instructions: preferences.outpaint?.instructions || "",
-                      },
+                  onClick={() =>
+                    updateTask({
+                      ...taskRef.current,
+                      customReference: undefined,
                     })
                   }
-                />
-              </label>
-              {preferences.outpaint?.enabled && (
-                <>
-                  <Input.TextArea
-                    aria-label="扩图要求"
-                    disabled={locked}
-                    maxLength={800}
-                    showCount
-                    value={preferences.outpaint.instructions}
-                    placeholder="例如：向图片上/下/左/右侧扩图，补全人物手臂和手肘/腿部，保留安全边距"
-                    onChange={(e) =>
-                      patchPreferences({
-                        outpaint: {
-                          enabled: true,
-                          instructions: e.target.value,
-                        },
-                      })
-                    }
-                  />
-                  <small>
-                    补全照片边缘被截断的主体，画面外细节由AI推测；开启自动优化可检查完整性。
-                  </small>
-                </>
-              )}
-              {referenceControlsVisible ? (
-                <>
-                  {" "}
-                  <label>
-                    风格参考
-                    <Select
-                      aria-label="风格参考"
-                      disabled={locked}
-                      value={preferences.reference}
-                      onChange={(reference) => {
-                        patchPreferences({ reference });
-                        updateTask({
-                          ...taskRef.current,
-                          customReference: undefined,
-                        });
-                      }}
-                      options={[
-                        { value: "portrait", label: "人物雕刻" },
-                        { value: "couple", label: "双人雕刻" },
-                        { value: "bouquet", label: "人物与花束" },
-                      ]}
-                    />
-                  </label>
-                  <small>
-                    用于 AI 风格对照，不复制参考人物。内置素材随网页公开分发。
-                  </small>
-                  <Image
-                    src={
-                      customReferenceUrl ||
-                      `${import.meta.env.BASE_URL}engraving-references/${preferences.reference}-reference.jpg`
-                    }
-                    alt="当前风格参考图"
-                    style={{ maxHeight: 200, objectFit: "contain" }}
-                  />
-                  <Upload
-                    accept="image/jpeg,image/png,image/webp,image/svg+xml,.svg"
-                    showUploadList={false}
-                    disabled={locked}
-                    beforeUpload={(file) => {
-                      setUploading(true);
-                      void processInWorker(file, undefined, undefined, true)
-                        .then((result) =>
-                          persist({
-                            ...taskRef.current,
-                            customReference: result.buffer,
-                          }),
-                        )
-                        .catch((e) => setError(e.message))
-                        .finally(() => setUploading(false));
-                      return false;
-                    }}
-                  >
-                    <Button disabled={locked}>上传风格参考图</Button>
-                  </Upload>
-                  {task.customReference ? (
-                    <Button
-                      disabled={locked}
-                      onClick={() =>
-                        updateTask({
-                          ...taskRef.current,
-                          customReference: undefined,
-                        })
-                      }
-                    >
-                      恢复内置风格参考
-                    </Button>
-                  ) : null}
-                </>
-              ) : null}{" "}
-              <Input.TextArea
-                aria-label="主体保留要求"
-                disabled={locked}
-                value={preferences.instructions}
-                onChange={(e) =>
-                  patchPreferences({ instructions: e.target.value })
-                }
-                maxLength={1600}
-                showCount
-                rows={4}
-                placeholder="主体保留要求（最多 1600 字）"
-              />
+                >
+                  恢复内置风格参考
+                </Button>
+              ) : null}
+            </>
+          ) : null}{" "}
+          <Input.TextArea
+            aria-label="主体保留要求"
+            disabled={locked}
+            value={preferences.instructions}
+            onChange={(e) => patchPreferences({ instructions: e.target.value })}
+            maxLength={1600}
+            showCount
+            rows={4}
+            placeholder="例如：保留所有人物和宠物；保留手中的花束；保留骑手、马匹与缰绳；去掉桌椅等无关物体（最多1600字）"
+          />
+        </Space>
+      </Card>
+      {!embedded && (
+        <Card className="action-card">
+          <Flex justify="space-between" align="center" gap={12} wrap>
+            <div>
+              <h3>生成黑白 Logo</h3>
+              <small>保留主体细节，输出雕刻效果</small>
+            </div>
+            <Space wrap>
+              {" "}
+              <Button
+                type="primary"
+                disabled={locked || !task.original}
+                onClick={() => void startGeneration()}
+              >
+                生成黑白 Logo
+              </Button>
+              <Button
+                disabled={locked || !task.original || !results.length}
+                onClick={() => {
+                  setAdditionalPrompt("");
+                  setAdditionalOpen(true);
+                }}
+              >
+                补充提示词再生成一张
+              </Button>
+              {busy ? (
+                <Button danger onClick={stopGeneration}>
+                  停止后续步骤
+                </Button>
+              ) : null}
             </Space>
-          </Card>
-          {!embedded && <Card className="action-card">
-            <Flex justify="space-between" align="center" gap={12} wrap>
-              <div>
-                <h3>生成黑白 Logo</h3>
-                <small>保留主体细节，输出雕刻效果</small>
-              </div>
-              <Space wrap>
-                {" "}
-                <Button
-                  type="primary"
-                  disabled={locked || !task.original}
-                  onClick={() => void startGeneration()}
-                >
-                  生成黑白 Logo
-                </Button>
-                <Button
-                  disabled={locked || !task.original || !results.length}
-                  onClick={() => {
-                    setAdditionalPrompt("");
-                    setAdditionalOpen(true);
-                  }}
-                >
-                  补充提示词再生成一张
-                </Button>
-                {busy ? (
-                  <Button
-                    danger
-                    onClick={stopGeneration}
-                  >
-                    停止后续步骤
-                  </Button>
-                ) : null}
-              </Space>
-            </Flex>
-          </Card>}
-          {run ? (
-            <Card size="small">
-              <Space wrap>
-                <Tag>{run.status}</Tag>
-                <span>{run.phase}</span>
-                <span>耗时 {elapsed.toFixed(0)} 秒</span>
-                <span>
-                  生图 {run.generations} 次 · 审核 {run.checks} 次
-                </span>
-              </Space>
-              <Progress
-                percent={
-                  run.status === "completed"
-                    ? 100
-                    : Math.round((run.rounds.length / run.maxRounds) * 100)
-                }
-                status={
-                  busy
-                    ? "active"
-                    : run.status === "failed"
-                      ? "exception"
-                      : run.status === "completed"
-                        ? "success"
-                        : "normal"
-                }
-              />
-            </Card>
-          ) : null}
-          </div>);
+          </Flex>
+        </Card>
+      )}
+      {run && !sharedPreferences ? (
+        <Card size="small">
+          <Space wrap>
+            <Tag>{run.status}</Tag>
+            <span>{run.phase}</span>
+            <span>耗时 {elapsed.toFixed(0)} 秒</span>
+            <span>
+              生图 {run.generations} 次 · 审核 {run.checks} 次
+            </span>
+          </Space>
+          <Progress
+            percent={
+              run.status === "completed"
+                ? 100
+                : Math.round((run.rounds.length / run.maxRounds) * 100)
+            }
+            status={
+              busy
+                ? "active"
+                : run.status === "failed"
+                  ? "exception"
+                  : run.status === "completed"
+                    ? "success"
+                    : "normal"
+            }
+          />
+        </Card>
+      ) : null}
+    </div>
+  );
   return (
     <section className="custom-monochrome-logo">
       <header hidden={embedded || !workspaceActive}>
@@ -972,24 +1055,67 @@ export function EngravingTaskComposer({
       {notice ? <Alert type="info" title={notice} /> : null}
       <div className="engraving-layout">
         <main>
-          {embedded ? (controlsHost && createPortal(controlsPanel, controlsHost)) : controlsPanel}
-          {embedded && <Space wrap><h3>原照：{task.fileName || "待导入"} · {busy ? "生成中" : "生成结果"}</h3><Button disabled={locked} onClick={()=>void openHistory()}>任务历史</Button>{busy && <Button danger onClick={stopGeneration}>停止此任务</Button>}</Space>}
-          <EngravingGallery
-            pending={busy ? run?.phase || "准备生成图片…" : undefined}
-            onClear={() => setClearOpen(true)}
-            clearDisabled={locked}
-            results={results}
-            original={task.original}
-            onChange={(id, patch) => {
-              updateTask(changeResultParams(taskRef.current, id, patch));
-            }}
-          />
+          {embedded
+            ? !sharedPreferences &&
+              controlsHost &&
+              createPortal(controlsPanel, controlsHost)
+            : controlsPanel}
+          {embedded && task.original && (
+            <Space wrap>
+              <h3>
+                原照：{task.fileName || "待导入"} ·{" "}
+                {busy ? "生成中" : "生成结果"}
+              </h3>
+
+              {busy && (
+                <Button danger onClick={stopGeneration}>
+                  停止此任务
+                </Button>
+              )}
+            </Space>
+          )}
+          {(!embedded || task.original) && (
+            <EngravingGallery
+              compact={embedded}
+              completionLabel={
+                run?.status === "failed"
+                  ? "生成失败，已保留可用结果"
+                  : run?.status === "cancelled"
+                    ? "已停止"
+                    : run?.status === "interrupted"
+                      ? "已中断"
+                      : undefined
+              }
+              livePreview={livePreview?.blob}
+              pending={
+                busy
+                  ? livePreview?.label || run?.phase || "准备生成图片…"
+                  : undefined
+              }
+              onClear={() => setClearOpen(true)}
+              clearDisabled={locked}
+              results={results}
+              original={task.original}
+              onChange={(id, patch) => {
+                updateTask(changeResultParams(taskRef.current, id, patch));
+              }}
+            />
+          )}
         </main>
       </div>
       {settingsHost ? (
-        createPortal(settingsPanel, settingsHost)
+        createPortal(
+          <>
+            {settingsPanel}
+            {sharedPreferences && controlsPanel}
+          </>,
+          settingsHost,
+        )
       ) : settingsHost === undefined ? (
-        <aside className="logo-settings">{settingsPanel}</aside>
+        <aside className="logo-settings">
+          {settingsPanel}
+          {sharedPreferences && controlsPanel}
+        </aside>
       ) : null}
       <Modal
         open={clearOpen}

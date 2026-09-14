@@ -69,3 +69,28 @@ export function changeResultParams(
   // task.params belongs to the automatic pipeline, never to the result editor.
   return { ...task, results };
 }
+
+export function bestReview(result: StoredResult) {
+  return result.reviews.reduce<StoredResult["reviews"][number] | undefined>(
+    (best, review) => (!best || review.score > best.score ? review : best),
+    undefined,
+  );
+}
+export function preferredResult(result: StoredResult): StoredResult {
+  const review = bestReview(result);
+  return review
+    ? { ...result, params: { ...review.params, ...result.manualParams } }
+    : result;
+}
+export function bestResultIndex(results: StoredResult[]) {
+  let index = -1,
+    score = -1;
+  results.forEach((result, i) => {
+    const value = bestReview(result)?.score;
+    if (value !== undefined && value > score) {
+      index = i;
+      score = value;
+    }
+  });
+  return index < 0 ? results.length - 1 : index;
+}

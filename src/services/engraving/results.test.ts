@@ -1,6 +1,12 @@
 import { expect, it } from "vitest";
 import { DEFAULTS } from "./processing.mjs";
-import { taskResults, changeResultParams, mergeReviews } from "./results";
+import {
+  taskResults,
+  changeResultParams,
+  mergeReviews,
+  bestResultIndex,
+  preferredResult,
+} from "./results";
 import type { SavedTask, AutoRun, Round } from "./types";
 const job = (id: string) => ({
   id,
@@ -83,4 +89,31 @@ it("keeps previously generated results when merging a new run and preserves cust
   expect(selected.params.dpi).toBe(800);
   expect(selected.results?.[0].params.dpi).toBe(96);
   expect(selected.customReference).toBe(task.customReference);
+});
+
+it("selects best scoring parameter snapshot without counting local tuning as new generations", () => {
+  const results = taskResults({
+    version: 1,
+    fileName: "x",
+    params: { ...DEFAULTS },
+    job: job("a"),
+  });
+  results[0].reviews = [
+    { score: 92, params: { ...DEFAULTS, texture: 70 } },
+    { score: 80, params: { ...DEFAULTS, texture: 90 } },
+  ] as (typeof results)[0]["reviews"];
+  const second = {
+    ...results[0],
+    job: job("b"),
+    reviews: [
+      { score: 86, params: { ...DEFAULTS } },
+    ] as (typeof results)[0]["reviews"],
+  };
+  expect(bestResultIndex([...results, second])).toBe(0);
+  expect(preferredResult(results[0]).params.texture).toBe(70);
+  expect(results).toHaveLength(1);
+  expect(
+    preferredResult({ ...results[0], manualParams: { brightness: 60 } }).params
+      .brightness,
+  ).toBe(60);
 });

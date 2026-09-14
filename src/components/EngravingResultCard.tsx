@@ -1,3 +1,4 @@
+import { bestReview } from "../services/engraving/results";
 import EngravingTextEditor from "./EngravingTextEditor";
 import LaserPreview from "./LaserPreview";
 import { useEffect, useState } from "react";
@@ -58,7 +59,9 @@ export function DpiControl({
         aria-label="常用 DPI"
         disabled={disabled}
         value={
-          [72, 96, 150, 200, 300, 600, 800, 1200].includes(value) ? value : undefined
+          [72, 96, 150, 200, 300, 600, 800, 1200].includes(value)
+            ? value
+            : undefined
         }
         placeholder="常用 DPI"
         style={{ width: 110 }}
@@ -97,10 +100,10 @@ export function EngravingResultEditor({
   const url = useEngravingUrl(preview.blob),
     rawUrl = useEngravingUrl(result.job.blob);
   const [laserOpen, setLaserOpen] = useState(false);
-  const [textOpen,setTextOpen]=useState(false);
+  const [textOpen, setTextOpen] = useState(false);
   const [cropping, setCropping] = useState(false),
     [mask, setMask] = useState(false);
-  const latest = result.reviews.at(-1);
+  const latest = bestReview(result);
   return (
     <Modal
       open
@@ -116,8 +119,16 @@ export function EngravingResultEditor({
         </Space>
       }
     >
-      {textOpen && <EngravingTextEditor result={result} onApply={layout=>onChange({layout})} onClose={()=>setTextOpen(false)}/>}
-      {laserOpen && <LaserPreview result={result} onClose={() => setLaserOpen(false)} />}
+      {textOpen && (
+        <EngravingTextEditor
+          result={result}
+          onApply={(layout) => onChange({ layout })}
+          onClose={() => setTextOpen(false)}
+        />
+      )}
+      {laserOpen && (
+        <LaserPreview result={result} onClose={() => setLaserOpen(false)} />
+      )}
       <div className="engraving-editor-layout">
         <div className="engraving-editor-preview">
           {cropping && rawUrl ? (
@@ -148,7 +159,7 @@ export function EngravingResultEditor({
               </button>
               <Space wrap>
                 <Button onClick={() => setCropping(true)}>裁剪</Button>
-                <Button onClick={()=>setTextOpen(true)}>添加文字</Button>
+                <Button onClick={() => setTextOpen(true)}>添加文字</Button>
                 <Button
                   disabled={!result.params.crop}
                   onClick={() => onChange({ crop: null })}
@@ -263,7 +274,11 @@ export function EngravingResultEditor({
                       <div key={r.round}>
                         <p>
                           第 {r.round} 轮 · {r.score} 分 ·{" "}
-                          {r.action === "adjust" ? "本地调参" : r.editedFromRound ? `基于第 ${r.editedFromRound} 版继续优化` : "AI 生图"}
+                          {r.action === "adjust"
+                            ? "本地调参"
+                            : r.editedFromRound
+                              ? `基于第 ${r.editedFromRound} 版继续优化`
+                              : "AI 生图"}
                         </p>
                         <p>{r.suggestions || r.issueLabels.join("；")}</p>
                         <pre>
@@ -322,10 +337,12 @@ export default function EngravingResultCard({
   const [laserOpen, setLaserOpen] = useState(false);
   const preview = useEngravingPreview(result.job.blob, result.params, 400),
     url = useEngravingUrl(preview.blob);
-  const latest = result.reviews.at(-1);
+  const latest = bestReview(result);
   return (
     <Card className="engraving-result-card" size="small">
-      {laserOpen && <LaserPreview result={result} onClose={() => setLaserOpen(false)} />}
+      {laserOpen && (
+        <LaserPreview result={result} onClose={() => setLaserOpen(false)} />
+      )}
       <div className="engraving-result-heading">
         <Checkbox
           checked={selected}
@@ -363,4 +380,3 @@ export default function EngravingResultCard({
     </Card>
   );
 }
-

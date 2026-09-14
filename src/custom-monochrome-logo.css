@@ -285,3 +285,9 @@
 .laser-preview-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:20px; }
 .laser-preview-grid .ant-image { width:100%; background:#000; }
 @media(max-width:650px){.laser-preview-grid{grid-template-columns:1fr;}}
+
+.engraving-batch-results { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr)); gap:20px; margin-top:20px; align-items:start; }
+.engraving-batch-results > div { min-width:0; }
+.engraving-result-summary .ant-image { display:block; width:100%; background:#000; }
+.engraving-result-summary .ant-image img { display:block; height:300px; object-fit:contain; }
+.engraving-result-summary .ant-card-head-title { white-space:normal; }

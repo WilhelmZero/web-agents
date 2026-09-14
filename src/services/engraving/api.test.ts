@@ -109,57 +109,207 @@ describe("compatible image API", () => {
   });
 });
 
-it('sends edit candidate, style and identity original in explicit role order',async()=>{
- const fetcher=vi.fn(async()=>Response.json({data:[{b64_json:btoa('png')}]}));
- const normalize=vi.fn(async(buffer:Blob)=>({buffer,width:200,height:100,warnings:[]}));
- await createEngravingApi(fetcher as typeof fetch,normalize).generate({...input(),editMode:true,originalImage:new Blob(['identity'])});
- const body=vi.mocked(fetcher as typeof fetch).mock.calls[0][1]!.body as FormData;
- expect(body.getAll('image[]').map(v=>(v as File).name)).toEqual(['candidate.png','reference.png','identity-original.png']);
- expect(body.get('prompt')).toContain('Image 3 is the ONLY source');
- await expect(createEngravingApi(fetcher as typeof fetch,normalize).generate({...input(),editMode:true})).rejects.toThrow('缺少原照');
- expect(fetcher).toHaveBeenCalledTimes(1);
+it("sends edit candidate, style and identity original in explicit role order", async () => {
+  const fetcher = vi.fn(async () =>
+    Response.json({ data: [{ b64_json: btoa("png") }] }),
+  );
+  const normalize = vi.fn(async (buffer: Blob) => ({
+    buffer,
+    width: 200,
+    height: 100,
+    warnings: [],
+  }));
+  await createEngravingApi(fetcher as typeof fetch, normalize).generate({
+    ...input(),
+    editMode: true,
+    originalImage: new Blob(["identity"]),
+  });
+  const body = vi.mocked(fetcher as typeof fetch).mock.calls[0][1]!
+    .body as FormData;
+  expect(body.getAll("image[]").map((v) => (v as File).name)).toEqual([
+    "candidate.png",
+    "reference.png",
+    "identity-original.png",
+  ]);
+  expect(body.get("prompt")).toContain("Image 3 is the ONLY source");
+  await expect(
+    createEngravingApi(fetcher as typeof fetch, normalize).generate({
+      ...input(),
+      editMode: true,
+    }),
+  ).rejects.toThrow("缺少原照");
+  expect(fetcher).toHaveBeenCalledTimes(1);
 });
 
-it('sends an expanded edit canvas plus style and untouched identity anchor',async()=>{
- const padded=new Blob(['expanded'],{type:'image/png'}),draw=vi.fn();
- vi.stubGlobal('OffscreenCanvas',class{constructor(public width:number,public height:number){}getContext(){return {drawImage:draw};}convertToBlob(){return Promise.resolve(padded);}});
- const fetcher=vi.fn(async()=>Response.json({data:[{b64_json:btoa('png')}]}));
- const req={...input(),outpaint:{enabled:true,instructions:'右侧补全手臂'}};
- const normalize=vi.fn(async(buffer:Blob)=>({buffer,width:200,height:100,warnings:[]}));
- await createEngravingApi(fetcher as typeof fetch,normalize).generate(req);
- const form=(vi.mocked(fetcher as typeof fetch).mock.calls[0][1]!.body as FormData);
- expect(form.getAll('image[]')).toHaveLength(3);expect(draw).toHaveBeenCalled();expect(form.get('prompt')).toContain('OUTPAINTING IS ENABLED');expect(form.get('prompt')).toContain('Image 3 is the ONLY source');
- expect(startRequestConsoleEntry).toHaveBeenCalledWith(expect.objectContaining({inputImages:[padded,req.referenceImage,req.image]}));
+it("sends an expanded edit canvas plus style and untouched identity anchor", async () => {
+  const padded = new Blob(["expanded"], { type: "image/png" }),
+    draw = vi.fn();
+  vi.stubGlobal(
+    "OffscreenCanvas",
+    class {
+      constructor(
+        public width: number,
+        public height: number,
+      ) {}
+      getContext() {
+        return { drawImage: draw };
+      }
+      convertToBlob() {
+        return Promise.resolve(padded);
+      }
+    },
+  );
+  const fetcher = vi.fn(async () =>
+    Response.json({ data: [{ b64_json: btoa("png") }] }),
+  );
+  const req = {
+    ...input(),
+    outpaint: { enabled: true, instructions: "右侧补全手臂" },
+  };
+  const normalize = vi.fn(async (buffer: Blob) => ({
+    buffer,
+    width: 200,
+    height: 100,
+    warnings: [],
+  }));
+  await createEngravingApi(fetcher as typeof fetch, normalize).generate(req);
+  const form = vi.mocked(fetcher as typeof fetch).mock.calls[0][1]!
+    .body as FormData;
+  expect(form.getAll("image[]")).toHaveLength(3);
+  expect(draw).toHaveBeenCalled();
+  expect(form.get("prompt")).toContain("OUTPAINTING IS ENABLED");
+  expect(form.get("prompt")).toContain("Image 3 is the ONLY source");
+  expect(startRequestConsoleEntry).toHaveBeenCalledWith(
+    expect.objectContaining({
+      inputImages: [padded, req.referenceImage, req.image],
+    }),
+  );
 });
 
-it('aborts only the requested generation and does not retry',async()=>{
- const controller=new AbortController();
- const fetcher=vi.fn((_url:unknown,init?:RequestInit)=>new Promise<Response>((_,reject)=>init?.signal?.addEventListener('abort',()=>reject(new DOMException('stopped','AbortError')))));
- const api=createEngravingApi(fetcher as typeof fetch,undefined,controller.signal);
- const pending=api.generate(input());
- const assertion=expect(pending).rejects.toMatchObject({name:'AbortError'});
- await vi.waitFor(()=>expect(fetcher).toHaveBeenCalledTimes(1));controller.abort();await assertion;
- await expect(api.generate(input())).rejects.toMatchObject({name:'AbortError'});
- expect(fetcher).toHaveBeenCalledTimes(1);
+it("aborts only the requested generation and does not retry", async () => {
+  const controller = new AbortController();
+  const fetcher = vi.fn(
+    (_url: unknown, init?: RequestInit) =>
+      new Promise<Response>((_, reject) =>
+        init?.signal?.addEventListener("abort", () =>
+          reject(new DOMException("stopped", "AbortError")),
+        ),
+      ),
+  );
+  const api = createEngravingApi(
+    fetcher as typeof fetch,
+    undefined,
+    controller.signal,
+  );
+  const pending = api.generate(input());
+  const assertion = expect(pending).rejects.toMatchObject({
+    name: "AbortError",
+  });
+  await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
+  controller.abort();
+  await assertion;
+  await expect(api.generate(input())).rejects.toMatchObject({
+    name: "AbortError",
+  });
+  expect(fetcher).toHaveBeenCalledTimes(1);
 });
 
-it.each(["gpt-image-2.5-sunburst", "gpt-image-2.5-flare"])("supports %s edits and extended quality without legacy fidelity", async imageModel => {
- const fetcher=vi.fn(async()=>Response.json({data:[{b64_json:btoa("png")}]}));
- const normalize=vi.fn(async(buffer:Blob)=>({buffer,width:200,height:100,warnings:[]}));
- for (const quality of ["high", "xhigh", "max"] as const) {
-   await createEngravingApi(fetcher as typeof fetch,normalize).generate({...input(), config:{...config,imageModel,quality},editMode:true,originalImage:new Blob(["identity"])});
-   const body=vi.mocked(fetcher as typeof fetch).mock.lastCall![1]!.body as FormData;
-   expect(body.get("model")).toBe(imageModel);
-   expect(body.get("quality")).toBe(quality);
-   expect(body.get("background")).toBe("transparent");
-   expect(body.get("output_format")).toBe("png");
-   expect(body.get("input_fidelity")).toBeNull();
-   expect(body.getAll("image[]")).toHaveLength(3);
- }
- expect(fetcher).toHaveBeenCalledTimes(3);
+it.each(["gpt-image-2.5-sunburst", "gpt-image-2.5-flare"])(
+  "supports %s edits and extended quality without legacy fidelity",
+  async (imageModel) => {
+    const fetcher = vi.fn(async () =>
+      Response.json({ data: [{ b64_json: btoa("png") }] }),
+    );
+    const normalize = vi.fn(async (buffer: Blob) => ({
+      buffer,
+      width: 200,
+      height: 100,
+      warnings: [],
+    }));
+    for (const quality of ["high", "xhigh", "max"] as const) {
+      await createEngravingApi(fetcher as typeof fetch, normalize).generate({
+        ...input(),
+        config: { ...config, imageModel, quality },
+        editMode: true,
+        originalImage: new Blob(["identity"]),
+      });
+      const body = vi.mocked(fetcher as typeof fetch).mock.lastCall![1]!
+        .body as FormData;
+      expect(body.get("model")).toBe(imageModel);
+      expect(body.get("quality")).toBe(quality);
+      expect(body.get("background")).toBe("transparent");
+      expect(body.get("output_format")).toBe("png");
+      expect(body.get("input_fidelity")).toBeNull();
+      expect(body.getAll("image[]")).toHaveLength(3);
+    }
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  },
+);
+it("rejects unsupported legacy quality before making a billable request", async () => {
+  const fetcher = vi.fn();
+  await expect(
+    createEngravingApi(fetcher).generate({
+      ...input(),
+      config: { ...config, quality: "max" },
+    }),
+  ).rejects.toThrow("生成质量");
+  expect(fetcher).not.toHaveBeenCalled();
 });
-it("rejects unsupported legacy quality before making a billable request", async()=>{
- const fetcher=vi.fn();
- await expect(createEngravingApi(fetcher).generate({...input(),config:{...config,quality:"max"}})).rejects.toThrow("生成质量");
- expect(fetcher).not.toHaveBeenCalled();
+
+it("requests streaming once, publishes transient frames and normalizes only the final", async () => {
+  const events = ["image_edit.partial_image", "image_edit.completed"]
+    .map(
+      (type, i) =>
+        "data: " +
+        JSON.stringify({
+          type,
+          b64_json: btoa(i ? "final" : "partial"),
+          partial_image_index: 0,
+        }) +
+        "\n\n",
+    )
+    .join("");
+  const fetcher = vi.fn(
+    async () =>
+      new Response(events, {
+        headers: { "content-type": "text/event-stream" },
+      }),
+  );
+  const normalize = vi.fn(async (buffer: Blob) => ({
+      buffer,
+      width: 200,
+      height: 100,
+      warnings: [],
+    })),
+    onProgress = vi.fn();
+  await createEngravingApi(fetcher as typeof fetch, normalize).generate({
+    ...input(),
+    onProgress,
+  });
+  const body = (fetcher.mock.calls as unknown as [string, RequestInit][])[0][1]
+    .body as FormData;
+  expect(body.get("stream")).toBe("true");
+  expect(body.get("partial_images")).toBe("3");
+  expect(onProgress).toHaveBeenCalledTimes(2);
+  expect(normalize).toHaveBeenCalledTimes(1);
+  expect(fetcher).toHaveBeenCalledTimes(1);
+});
+it("omits streaming parameters when disabled and accepts JSON responses", async () => {
+  const fetcher = vi.fn(async () =>
+    Response.json({ data: [{ b64_json: btoa("png") }] }),
+  );
+  const normalize = vi.fn(async (buffer: Blob) => ({
+    buffer,
+    width: 200,
+    height: 100,
+    warnings: [],
+  }));
+  await createEngravingApi(fetcher as typeof fetch, normalize).generate({
+    ...input(),
+    config: { ...config, streamPreview: false },
+  });
+  const body = (fetcher.mock.calls as unknown as [string, RequestInit][])[0][1]
+    .body as FormData;
+  expect(body.get("stream")).toBeNull();
+  expect(body.get("partial_images")).toBeNull();
 });

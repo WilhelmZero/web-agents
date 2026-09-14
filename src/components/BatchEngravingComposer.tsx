@@ -1,4 +1,14 @@
-import { useState, useRef, useCallback, createRef } from "react";
+import {
+  listBatchHistory,
+  saveBatchHistory,
+  readBatchTasks,
+  deleteBatchHistory,
+  holdBatch,
+  releaseBatch,
+  archiveLegacyWorkspace,
+  type BatchHistory,
+} from "../services/engraving/batch-history";
+import { useState, useRef, useCallback, useEffect, createRef } from "react";
 import {
   Alert,
   Button,
@@ -8,9 +18,22 @@ import {
   Space,
   Upload,
   Tag,
+  Modal,
+  Popconfirm,
 } from "antd";
 import { EngravingTaskComposer } from "../CustomMonochromeLogoComposer";
-import type { SavedTask } from "../services/engraving/types";
+import {
+  FileImageOutlined,
+  PlusOutlined,
+  DeleteOutlined,
+} from "@ant-design/icons";
+import {
+  DEFAULT_PREFERENCES,
+  getTaskStorage,
+  loadPreferences,
+  savePreferences,
+} from "../services/engraving/storage";
+import type { Preferences, SavedTask } from "../services/engraving/types";
 import { useEngravingUrl } from "./EngravingResultCard";
 import { runTaskQueue } from "../services/engraving/task-queue";
 const KEY = "custom-monochrome-logo:workspace:v1";
@@ -23,10 +46,15 @@ type State = {
   importing: boolean;
 };
 type Controller = {
-  start: () => Promise<void>;
+  start: (preferences?: Preferences) => Promise<void>;
   stop: () => void;
   flush: () => Promise<void>;
+  getTaskId?: () => Promise<string>;
 };
+const DOCUMENT_ID = crypto.randomUUID();
+const DOCUMENT_KEY = KEY + ":document",
+  BATCH_KEY = KEY + ":batch";
+let legacyScopes: string[] = [];
 function initialSlots(): Slot[] {
   try {
     const data = JSON.parse(sessionStorage.getItem(KEY) || "null");
@@ -35,85 +63,70 @@ function initialSlots(): Slot[] {
       data.length &&
       data.length <= 20 &&
       data.every(
-        (x) => typeof x === "string" && /^(default|[a-f0-9-]{36})$/.test(x),
+        (id) => typeof id === "string" && /^(default|[0-9a-f-]{36})$/i.test(id),
       )
-    )
-      return [...new Set(data)].map((id) => ({ id }));
+    ) {
+      if (sessionStorage.getItem(DOCUMENT_KEY) === DOCUMENT_ID)
+        return data.map((id) => ({ id }));
+      if (!sessionStorage.getItem(DOCUMENT_KEY)) legacyScopes = data;
+    }
   } catch {}
-  return [{ id: "default" }];
+  const slots = [{ id: crypto.randomUUID() }];
+  sessionStorage.setItem(DOCUMENT_KEY, DOCUMENT_ID);
+  sessionStorage.setItem(BATCH_KEY, crypto.randomUUID());
+  sessionStorage.setItem(KEY, JSON.stringify(slots.map((s) => s.id)));
+  return slots;
+}
+function loadSharedPreferences(): Preferences {
+  const saved = loadPreferences("batch");
+  const initialized = sessionStorage.getItem(
+    "custom-monochrome-logo:shared-defaults:v1",
+  );
+
+  return {
+    ...saved,
+    subject: "auto",
+    style: "strong",
+    reference: "portrait",
+    outpaint: {
+      instructions: saved.outpaint?.instructions || "",
+      enabled: initialized ? saved.outpaint?.enabled !== false : true,
+    },
+  };
 }
 function Thumbnail({
   slot,
   state,
-  selected,
-  onSelect,
   onRemove,
   removeDisabled,
 }: {
   slot: Slot;
   state?: State;
-  selected: boolean;
-  onSelect: () => void;
   onRemove: () => void;
   removeDisabled: boolean;
 }) {
   const url = useEngravingUrl(state?.task.original || slot.file);
+  if (!url) return null;
   return (
-    <Card
-      size="small"
-      style={{ width: 150, borderColor: selected ? "#1677ff" : undefined }}
-    >
-      {url ? (
-        <Image
-          width={112}
-          height={86}
-          style={{ objectFit: "contain" }}
-          src={url}
-          alt={state?.task.fileName || slot.file?.name || "原照"}
-        />
-      ) : (
-        <div style={{ height: 86 }}>等待导入</div>
-      )}
+    <div className="replace-scene-card">
+      <Image
+        src={url}
+        alt={state?.task.fileName || slot.file?.name || "原照"}
+      />
       <Button
-        aria-label={
-          "切换任务 " + (state?.task.fileName || slot.file?.name || "当前任务")
-        }
-        type={selected ? "primary" : "default"}
-        size="small"
-        block
-        onClick={onSelect}
-        style={{ marginTop: 8 }}
-      >
-        <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-          {state?.task.fileName || slot.file?.name || "当前任务"}
-        </span>
-      </Button>
-      <small>
-        {state?.busy
-          ? "生成中"
-          : state?.task.run?.status === "failed"
-            ? "失败，可单独重试"
-            : state?.ready
-              ? "就绪"
-              : state?.loaded
-                ? "待导入"
-                : "读取中"}{" "}
-        · {state?.task.results?.length || 0} 张
-      </small>
-      <Button
+        type="text"
         danger
-        size="small"
         block
-        style={{ marginTop: 8 }}
+        icon={<DeleteOutlined />}
         disabled={removeDisabled}
         aria-label={
-          "删除原照 " + (state?.task.fileName || slot.file?.name || "当前任务")
+          "删除原照 " + (state?.task.fileName || slot.file?.name || "原照")
         }
         onClick={onRemove}
       >
         删除
       </Button>
-    </Card>
+    </div>
   );
 }
 export default function BatchEngravingComposer({
@@ -126,9 +139,17 @@ export default function BatchEngravingComposer({
   settingsHost?: HTMLElement | null;
 }) {
   const [slots, setSlots] = useState(initialSlots),
-    [selected, setSelected] = useState(() => slots[0].id),
     [states, setStates] = useState<Record<string, State>>({});
-  const [controlsHost,setControlsHost]=useState<HTMLDivElement|null>(null);
+  const [preferences, setPreferences] = useState(loadSharedPreferences);
+  const batchActive = useRef(false);
+  useEffect(() => {
+    try {
+      savePreferences(preferences, "batch");
+      sessionStorage.setItem("custom-monochrome-logo:shared-defaults:v1", "1");
+    } catch {
+      setError("整批设置无法保存，请检查浏览器存储权限。");
+    }
+  }, [preferences]);
   const slotsRef = useRef(slots);
   const statesRef = useRef(states);
   statesRef.current = states;
@@ -141,6 +162,157 @@ export default function BatchEngravingComposer({
     [deleting, setDeleting] = useState(false),
     [error, setError] = useState(""),
     [progress, setProgress] = useState("");
+  const batchId = useRef(
+    sessionStorage.getItem(BATCH_KEY) || crypto.randomUUID(),
+  );
+  const preferencesRef = useRef(preferences);
+  preferencesRef.current = preferences;
+  const [historyOpen, setHistoryOpen] = useState(false),
+    [history, setHistory] = useState<BatchHistory[]>([]),
+    [historyBusy, setHistoryBusy] = useState(false);
+  const saveChain = useRef(Promise.resolve());
+  const persistBatch = useCallback(() => {
+    const id = batchId.current,
+      prefs = structuredClone(preferencesRef.current);
+    const slotsNow = [...slotsRef.current],
+      statesNow = statesRef.current;
+    const capturedControls = new Map(
+      slotsNow.map((s) => [s.id, controls.current.get(s.id)?.current]),
+    );
+    const save = async () => {
+      await holdBatch(id);
+      const tasks = [];
+      for (const slot of slotsNow) {
+        const state = statesNow[slot.id],
+          control = capturedControls.get(slot.id);
+        if (!state?.task.original || !control?.getTaskId) continue;
+        await control.flush();
+        tasks.push({
+          id: await control.getTaskId(),
+          name: state.task.fileName,
+          count: state.task.results?.length || 0,
+        });
+      }
+      if (tasks.length)
+        await saveBatchHistory({
+          id,
+          name:
+            tasks[0].name +
+            (tasks.length > 1 ? " 等 " + tasks.length + " 张原照" : ""),
+          updatedAt: Date.now(),
+          preferences: prefs,
+          tasks,
+        });
+    };
+    saveChain.current = saveChain.current.catch(() => {}).then(save);
+    return saveChain.current;
+  }, []);
+  useEffect(() => {
+    const previousScopes = legacyScopes;
+    void holdBatch(batchId.current)
+      .then(() =>
+        archiveLegacyWorkspace(previousScopes, preferencesRef.current),
+      )
+      .catch((e) => setError(e.message));
+    legacyScopes = [];
+  }, []);
+  useEffect(() => {
+    const timer = setTimeout(
+      () =>
+        void persistBatch().catch(() =>
+          setError("整批历史保存失败，请及时下载结果。"),
+        ),
+      150,
+    );
+    return () => clearTimeout(timer);
+  }, [states, slots, preferences, persistBatch]);
+  useEffect(() => {
+    const save = () => {
+      void persistBatch().catch(() =>
+        setError("整批历史保存失败，请及时下载结果。"),
+      );
+    };
+    const hidden = () => {
+      if (document.visibilityState === "hidden") save();
+    };
+    window.addEventListener("pagehide", save);
+    document.addEventListener("visibilitychange", hidden);
+    return () => {
+      window.removeEventListener("pagehide", save);
+      document.removeEventListener("visibilitychange", hidden);
+      save();
+    };
+  }, [persistBatch]);
+  async function openHistory() {
+    setHistoryBusy(true);
+    try {
+      await persistBatch();
+      setHistory(await listBatchHistory());
+      setHistoryOpen(true);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setHistoryBusy(false);
+    }
+  }
+  async function rotateBatch() {
+    await persistBatch();
+    releaseBatch(batchId.current);
+    batchId.current = crypto.randomUUID();
+    sessionStorage.setItem(BATCH_KEY, batchId.current);
+    await holdBatch(batchId.current);
+  }
+  async function restoreHistory(entry: BatchHistory) {
+    if (batchActive.current) return;
+    setHistoryBusy(true);
+    try {
+      const tasks = await readBatchTasks(entry);
+      const next = [];
+      for (const task of tasks) {
+        const id = crypto.randomUUID();
+        await getTaskStorage(id).saveTask(task);
+        next.push({ id });
+      }
+      await rotateBatch();
+      slotsRef.current = next;
+      setSlots(next);
+      setStates({});
+      controls.current.clear();
+      callbacks.current.clear();
+      sessionStorage.setItem(KEY, JSON.stringify(next.map((s) => s.id)));
+      setPreferences({
+        ...DEFAULT_PREFERENCES,
+        ...entry.preferences,
+        subject: "auto",
+        style: "strong",
+        reference: "portrait",
+      });
+      setHistoryOpen(false);
+      setProgress("已恢复整批副本；再次生成会处理全部原照。");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setHistoryBusy(false);
+    }
+  }
+  async function removeHistory(entries: BatchHistory[]) {
+    setHistoryBusy(true);
+    try {
+      let skipped = 0;
+      for (const entry of entries)
+        if (!(await deleteBatchHistory(entry))) skipped++;
+      setHistory(await listBatchHistory());
+      setProgress(
+        skipped
+          ? "已清理可删除历史；跳过 " + skipped + " 个正在使用的任务。"
+          : "历史已清理。",
+      );
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setHistoryBusy(false);
+    }
+  }
   const cancelled = useRef(false);
   const deletingRef = useRef(false);
   const callback = useCallback((id: string) => {
@@ -161,10 +333,13 @@ export default function BatchEngravingComposer({
     return callbacks.current.get(id)!;
   }, []);
   const add = (file: File) => {
-    if (deletingRef.current) return false;
+    if (deletingRef.current || historyBusy || batchActive.current) return false;
     if (
       file.size > 20 * 1024 * 1024 ||
-      (!["image/png", "image/jpeg", "image/webp", "image/svg+xml"].includes(file.type) && !/\.svg$/i.test(file.name))
+      (!["image/png", "image/jpeg", "image/webp", "image/svg+xml"].includes(
+        file.type,
+      ) &&
+        !/\.svg$/i.test(file.name))
     ) {
       setError("请导入20MB以内的 JPEG、PNG、WebP 或 SVG 图片。");
       return false;
@@ -188,28 +363,55 @@ export default function BatchEngravingComposer({
       } catch {
         setError("无法保存工作区列表，请及时下载结果。");
       }
-      setSelected(id);
       slotsRef.current = next;
       setSlots(next);
     }
     return false;
   };
+  useEffect(() => {
+    const paste = (event: ClipboardEvent) => {
+      if (
+        (event.target as HTMLElement)?.closest(
+          "input,textarea,[contenteditable=true]",
+        )
+      )
+        return;
+      const files = Array.from(event.clipboardData?.files || []);
+      if (files.length) {
+        event.preventDefault();
+        files.forEach(add);
+      }
+    };
+    window.addEventListener("paste", paste);
+    return () => window.removeEventListener("paste", paste);
+  });
   const startAll = async () => {
-    if (deletingRef.current) return;
+    if (deletingRef.current || historyBusy || batchActive.current) return;
     if (!openAiApiKey.trim()) {
       onConfigureKey();
       return;
     }
-    const items = slots
-      .filter(
-        (s) => statesRef.current[s.id]?.ready && !statesRef.current[s.id]?.busy,
+    const uploaded = slotsRef.current.filter(
+      (s) => s.file || statesRef.current[s.id]?.task.original,
+    );
+    if (!uploaded.length) return;
+    if (
+      uploaded.some(
+        (s) =>
+          !statesRef.current[s.id]?.ready ||
+          statesRef.current[s.id]?.busy ||
+          !controls.current.get(s.id)?.current,
       )
-      .map((s) => ({
-        id: s.id,
-        run: () =>
-          controls.current.get(s.id)?.current?.start() || Promise.resolve(),
-      }));
-    if (!items.length) return;
+    ) {
+      setError("请等待全部原照导入完成；导入失败的图片请删除后重新添加。");
+      return;
+    }
+    const snapshot = structuredClone(preferences);
+    const items = uploaded.map((s) => ({
+      id: s.id,
+      run: () => controls.current.get(s.id)!.current!.start(snapshot),
+    }));
+    batchActive.current = true;
     cancelled.current = false;
     setBatch(true);
     setError("");
@@ -226,6 +428,7 @@ export default function BatchEngravingComposer({
         },
       );
     } finally {
+      batchActive.current = false;
       setBatch(false);
       setProgress(
         cancelled.current
@@ -259,15 +462,13 @@ export default function BatchEngravingComposer({
         if (!controller) throw new Error("任务尚未准备好");
         await controller.flush();
       }
+      await rotateBatch();
       const remaining = slotsRef.current.filter((s) => !ids.includes(s.id));
       // A fresh scope prevents the legacy default task reappearing after reload.
       const next = remaining.length ? remaining : [{ id: crypto.randomUUID() }];
       sessionStorage.setItem(KEY, JSON.stringify(next.map((s) => s.id)));
       slotsRef.current = next;
       setSlots(next);
-      setSelected((current) =>
-        next.some((s) => s.id === current) ? current : next[0].id,
-      );
       setStates((old) =>
         Object.fromEntries(
           Object.entries(old).filter(([id]) => !ids.includes(id)),
@@ -288,43 +489,130 @@ export default function BatchEngravingComposer({
   const anyBusy = Object.values(states).some((s) => s.busy);
   const removalLocked =
     deleting ||
+    historyBusy ||
     batch ||
     anyBusy ||
     slots.some((s) => !states[s.id]?.loaded || states[s.id]?.importing);
   return (
     <section>
-      <header><h2>客户定制黑白 Logo</h2><p>照片雕刻工作台 · 保留主体细节，输出适合黑色涂层的灰度或点阵 PNG</p></header>
-      <Card title="导入原照 · 多图独立任务" className="workflow-card">
-        <Upload.Dragger
-          accept="image/jpeg,image/png,image/webp,image/svg+xml,.svg"
-          multiple
-          showUploadList={false}
-          disabled={
-            deleting || batch || slots.some((s) => !states[s.id]?.loaded)
-          }
-          beforeUpload={add}
+      <section className="hero-strip logo-replace-hero">
+        <div>
+          <span className="eyebrow">PHOTO ENGRAVING</span>
+          <h2>客户定制黑白 Logo</h2>
+          <p className="hero-description">
+            批量提取照片主体，生成可编辑的激光雕刻效果。
+          </p>
+        </div>
+        <div className="hero-orb" />
+      </section>
+      <Space style={{ marginBottom: 12 }}>
+        <Button
+          disabled={batch || anyBusy || historyBusy}
+          onClick={() => void openHistory()}
         >
-          <p>点击或拖拽导入多张原照</p>
-          <small>
-            每张
-            ≤20MB、≤4000万像素；最多20个任务。点击缩略图放大，点击文件名切换任务。
-          </small>
-        </Upload.Dragger>
-        <Space wrap style={{ marginTop: 12, alignItems: "flex-start" }}>
-          {slots.map((slot) => (
-            <Thumbnail
-              key={slot.id}
-              slot={slot}
-              state={states[slot.id]}
-              selected={selected === slot.id}
-              onSelect={() => setSelected(slot.id)}
-              onRemove={() => void removeSlots([slot.id])}
-              removeDisabled={
-                removalLocked || !(slot.file || states[slot.id]?.task.original)
-              }
-            />
-          ))}
-        </Space>
+          任务历史
+        </Button>
+      </Space>
+      <Modal
+        title="整批任务历史"
+        open={historyOpen}
+        onCancel={() => !historyBusy && setHistoryOpen(false)}
+        footer={null}
+        width={760}
+      >
+        <p>
+          刷新默认新建空白任务；已保存原照、结果和设置可在这里恢复。使用中的批次不会被删除。
+        </p>
+        <Popconfirm
+          title="清空全部可删除历史？此操作不能撤销。"
+          onConfirm={() => removeHistory(history)}
+        >
+          <Button danger disabled={historyBusy || !history.length}>
+            清空历史
+          </Button>
+        </Popconfirm>
+        {!history.length && <p>暂无保存的历史。</p>}
+        {history.map((entry) => (
+          <Card
+            key={entry.id}
+            size="small"
+            style={{ marginTop: 10 }}
+            title={entry.name || "未命名批次"}
+          >
+            <p>
+              {entry.tasks.length} 张原照 ·{" "}
+              {entry.tasks.reduce((n, t) => n + t.count, 0)} 张结果 ·{" "}
+              {new Date(entry.updatedAt).toLocaleString()}
+            </p>
+            <Space>
+              <Button
+                disabled={historyBusy}
+                onClick={() => void restoreHistory(entry)}
+              >
+                恢复整批副本
+              </Button>
+              <Popconfirm
+                title="删除这条历史和不再被引用的图片？"
+                onConfirm={() => removeHistory([entry])}
+              >
+                <Button danger disabled={historyBusy}>
+                  删除历史
+                </Button>
+              </Popconfirm>
+            </Space>
+          </Card>
+        ))}
+      </Modal>
+      <Card title="导入原照" className="workflow-card">
+        {!slots.some((s) => s.file || states[s.id]?.task.original) ? (
+          <Upload.Dragger
+            accept="image/jpeg,image/png,image/webp,image/svg+xml,.svg"
+            multiple
+            showUploadList={false}
+            disabled={
+              deleting || batch || slots.some((s) => !states[s.id]?.loaded)
+            }
+            beforeUpload={add}
+          >
+            <p className="ant-upload-drag-icon">
+              <FileImageOutlined />
+            </p>
+            <p className="ant-upload-text">点击或拖拽导入原照</p>
+            <p className="ant-upload-hint">
+              支持多张 JPEG / PNG / WebP / SVG，每张不超过20MB，最多20张
+            </p>
+          </Upload.Dragger>
+        ) : (
+          <Image.PreviewGroup>
+            <div className="replace-scene-grid">
+              {slots.map((slot) => (
+                <Thumbnail
+                  key={slot.id}
+                  slot={slot}
+                  state={states[slot.id]}
+                  onRemove={() => void removeSlots([slot.id])}
+                  removeDisabled={removalLocked}
+                />
+              ))}
+              <Upload
+                accept="image/jpeg,image/png,image/webp,image/svg+xml,.svg"
+                multiple
+                showUploadList={false}
+                disabled={deleting || historyBusy || batch}
+                beforeUpload={add}
+              >
+                <button
+                  type="button"
+                  className="replace-logo-add"
+                  disabled={deleting || batch}
+                >
+                  <PlusOutlined />
+                  <span>继续添加原照</span>
+                </button>
+              </Upload>
+            </div>
+          </Image.PreviewGroup>
+        )}
         <Space wrap style={{ marginTop: 12, display: "flex" }}>
           <span>同时处理</span>
           <InputNumber
@@ -340,6 +628,7 @@ export default function BatchEngravingComposer({
             type="primary"
             disabled={
               deleting ||
+              historyBusy ||
               batch ||
               anyBusy ||
               slots.some(
@@ -356,7 +645,8 @@ export default function BatchEngravingComposer({
           </Button>
           <Button
             danger
-            aria-label="全部删除" loading={deleting}
+            aria-label="全部删除"
+            loading={deleting}
             disabled={
               removalLocked ||
               !slots.some((s) => s.file || states[s.id]?.task.original)
@@ -365,7 +655,7 @@ export default function BatchEngravingComposer({
           >
             全部删除
           </Button>
-          <Tag>每张图独立计费 · 设置按图分别配置</Tag>
+          <Tag>设置整批共用 · 每次生成全部原照</Tag>
         </Space>
         <p>
           <small>
@@ -375,28 +665,30 @@ export default function BatchEngravingComposer({
         {progress && <p role="status">{progress}</p>}
         {error && <Alert type="error" title={error} />}
       </Card>
-      <div ref={setControlsHost} aria-label="当前原照设置" />
-      {slots.map((slot) => {
-        if (!controls.current.has(slot.id))
-          controls.current.set(slot.id, createRef<Controller>());
-        return (
-          <div key={slot.id}>
-            <EngravingTaskComposer
-              scope={slot.id === "default" ? undefined : slot.id}
-              embedded
-              workspaceActive={selected === slot.id}
-              controlsHost={selected === slot.id ? controlsHost : null}
-              initialFile={slot.file}
-              onTaskState={callback(slot.id)}
-              controllerRef={controls.current.get(slot.id)}
-              openAiApiKey={openAiApiKey}
-              onConfigureKey={onConfigureKey}
-              settingsHost={selected === slot.id ? settingsHost : null}
-              batchLocked={batch || deleting}
-            />
-          </div>
-        );
-      })}
+      <div className="engraving-batch-results">
+        {slots.map((slot, index) => {
+          if (!controls.current.has(slot.id))
+            controls.current.set(slot.id, createRef<Controller>());
+          return (
+            <div key={slot.id}>
+              <EngravingTaskComposer
+                scope={slot.id === "default" ? undefined : slot.id}
+                embedded
+                workspaceActive={index === 0}
+                sharedPreferences={preferences}
+                onSharedPreferencesChange={setPreferences}
+                initialFile={slot.file}
+                onTaskState={callback(slot.id)}
+                controllerRef={controls.current.get(slot.id)}
+                openAiApiKey={openAiApiKey}
+                onConfigureKey={onConfigureKey}
+                settingsHost={index === 0 ? settingsHost : null}
+                batchLocked={batch || deleting || anyBusy || historyBusy}
+              />
+            </div>
+          );
+        })}
+      </div>
     </section>
   );
 }

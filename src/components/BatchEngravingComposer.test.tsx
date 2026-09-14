@@ -1,4 +1,3 @@
-import {createPortal} from "react-dom";
 import { useEffect, useImperativeHandle, useMemo } from "react";
 import {
   render,
@@ -9,7 +8,7 @@ import {
 } from "@testing-library/react";
 import { it, expect, vi, afterEach } from "vitest";
 import BatchEngravingComposer from "./BatchEngravingComposer";
-import type { SavedTask } from "../services/engraving/types";
+import type { Preferences, SavedTask } from "../services/engraving/types";
 import { DEFAULTS } from "../services/engraving/processing.mjs";
 const calls = vi.hoisted(() => ({
   start: vi.fn(),
@@ -24,14 +23,18 @@ vi.mock("../CustomMonochromeLogoComposer", () => ({
     controllerRef,
     scope,
     workspaceActive,
-    controlsHost,
+    sharedPreferences,
+    onSharedPreferencesChange,
+    batchLocked,
   }: {
     initialFile?: File;
     onTaskState: (v: unknown) => void;
     controllerRef: React.Ref<unknown>;
     scope?: string;
     workspaceActive?: boolean;
-    controlsHost?: HTMLElement|null;
+    sharedPreferences: Preferences;
+    onSharedPreferencesChange: (value: Preferences) => void;
+    batchLocked?: boolean;
   }) => {
     const task = useMemo<SavedTask>(
       () => ({
@@ -54,13 +57,30 @@ vi.mock("../CustomMonochromeLogoComposer", () => ({
       [task, onTaskState],
     );
     useImperativeHandle(controllerRef, () => ({
-      start: async () => {
-        calls.start(scope || "default");
+      start: async (preferences: Preferences) => {
+        calls.start(scope || "default", preferences);
       },
       flush: () => calls.flush(),
       stop: () => calls.stop(scope || "default"),
     }));
-    return <>{!controlsHost && <div hidden>编辑任务：{initialFile?.name || "空"}</div>}{controlsHost && createPortal(<div hidden={!workspaceActive}>编辑任务：{initialFile?.name || "空"}</div>,controlsHost)}<div>结果分组：{initialFile?.name || "空"}</div></>;
+    return (
+      <>
+        {workspaceActive && (
+          <input
+            aria-label="整批主体保留要求"
+            value={sharedPreferences.instructions}
+            disabled={batchLocked}
+            onChange={(e) =>
+              onSharedPreferencesChange({
+                ...sharedPreferences,
+                instructions: e.target.value,
+              })
+            }
+          />
+        )}
+        <div>结果分组：{initialFile?.name || "空"}</div>
+      </>
+    );
   },
 }));
 afterEach(() => {
@@ -91,15 +111,26 @@ it("imports multiple files into distinct mounted tasks and starts each once", as
       ],
     },
   });
-  await screen.findByRole("button", { name: "切换任务 A.png" });
-  await screen.findByRole("button", { name: "切换任务 B.png" });
-  expect(screen.getByText("编辑任务：B.png")).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "切换任务 A.png" }));
-  expect(screen.getByText("编辑任务：A.png")).toBeVisible();
-  expect(screen.getByText("编辑任务：B.png")).not.toBeVisible();
+  await screen.findByRole("button", { name: "删除原照 A.png" });
+  await screen.findByRole("button", { name: "删除原照 B.png" });
+  expect(screen.queryByRole("button", { name: /切换任务/ })).toBeNull();
+  fireEvent.change(screen.getByLabelText("整批主体保留要求"), {
+    target: { value: "保留全部人物" },
+  });
   fireEvent.click(screen.getByRole("button", { name: "全部生成" }));
   await waitFor(() => expect(calls.start).toHaveBeenCalledTimes(2));
   expect(new Set(calls.start.mock.calls.map((c) => c[0])).size).toBe(2);
+  expect(
+    calls.start.mock.calls.every((c) => c[1].instructions === "保留全部人物"),
+  ).toBe(true);
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "全部生成" })).toBeEnabled(),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "全部生成" }));
+  await waitFor(() => expect(calls.start).toHaveBeenCalledTimes(4));
+  expect(calls.start.mock.calls.slice(2).map((c) => c[0])).toEqual(
+    calls.start.mock.calls.slice(0, 2).map((c) => c[0]),
+  );
   expect(
     JSON.parse(sessionStorage.getItem("custom-monochrome-logo:workspace:v1")!),
   ).toHaveLength(2);
@@ -135,15 +166,19 @@ it("removes selected photo, clears all into a fresh scope, and stays empty after
   const originalIds = JSON.parse(sessionStorage.getItem(key)!);
   fireEvent.click(screen.getByRole("button", { name: "删除原照 B.png" }));
   await waitFor(() =>
-    expect(screen.queryByRole("button", { name: "切换任务 B.png" })).toBeNull(),
+    expect(screen.queryByRole("button", { name: "删除原照 B.png" })).toBeNull(),
   );
-  expect(screen.getByText("编辑任务：A.png")).toBeVisible();
+  expect(screen.getByLabelText("整批主体保留要求")).toBeVisible();
   expect(calls.flush).toHaveBeenCalledTimes(1);
-  await waitFor(() => expect(screen.getByRole("button", {name:"全部删除"})).not.toHaveClass("ant-btn-loading"));
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "全部删除" })).not.toHaveClass(
+      "ant-btn-loading",
+    ),
+  );
   expect(JSON.parse(sessionStorage.getItem(key)!)).toEqual([originalIds[0]]);
   fireEvent.click(screen.getByRole("button", { name: "全部删除" }));
   await waitFor(() =>
-    expect(screen.queryByRole("button", { name: "切换任务 A.png" })).toBeNull(),
+    expect(screen.queryByRole("button", { name: "删除原照 A.png" })).toBeNull(),
   );
   const emptyIds = JSON.parse(sessionStorage.getItem(key)!);
   expect(emptyIds).toHaveLength(1);
@@ -153,14 +188,14 @@ it("removes selected photo, clears all into a fresh scope, and stays empty after
   const again = render(
     <BatchEngravingComposer openAiApiKey="test" onConfigureKey={vi.fn()} />,
   );
-  expect(screen.getByText("编辑任务：空")).toBeVisible();
+  expect(screen.getByLabelText("整批主体保留要求")).toBeVisible();
   expect(screen.getByRole("button", { name: "全部删除" })).toBeDisabled();
   const input = again.container.querySelector("input[type=file]")!;
   await waitFor(() => expect(input).not.toBeDisabled());
   fireEvent.change(input, {
     target: { files: [new File(["c"], "C.png", { type: "image/png" })] },
   });
-  await screen.findByRole("button", { name: "切换任务 C.png" });
+  await screen.findByRole("button", { name: "删除原照 C.png" });
   expect(JSON.parse(sessionStorage.getItem(key)!)).toEqual(emptyIds);
 }, 20000);
 it("keeps photos and workspace when saving before deletion fails", async () => {
@@ -169,8 +204,8 @@ it("keeps photos and workspace when saving before deletion fails", async () => {
   calls.flush.mockRejectedValueOnce(new Error("storage failed"));
   fireEvent.click(screen.getByRole("button", { name: "全部删除" }));
   await screen.findByText("未能保存任务或工作区列表，图片尚未删除，请重试。");
-  expect(screen.getByRole("button", { name: "切换任务 A.png" })).toBeVisible();
-  expect(screen.getByRole("button", { name: "切换任务 B.png" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "删除原照 A.png" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "删除原照 B.png" })).toBeVisible();
   expect(sessionStorage.getItem("custom-monochrome-logo:workspace:v1")).toBe(
     before,
   );
@@ -183,4 +218,15 @@ it("disables removal while a task is generating", async () => {
   expect(calls.flush).not.toHaveBeenCalled();
 }, 20000);
 
-it('keeps heading and selected controls before every result group after switching photos',async()=>{await uploadPair();const title=screen.getByRole('heading',{name:'客户定制黑白 Logo'});const controls=screen.getByLabelText('当前原照设置');const a=screen.getByText('结果分组：A.png');expect(title.compareDocumentPosition(controls)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();expect(controls.compareDocumentPosition(a)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();fireEvent.click(screen.getByRole('button',{name:'切换任务 A.png'}));expect(screen.getByText('编辑任务：A.png')).toBeVisible();expect(controls.compareDocumentPosition(a)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();expect(screen.getByRole('spinbutton',{name:'同时处理任务数'})).toHaveAttribute('aria-valuemax','20');},20000);
+it("has one shared settings form and retains every result group", async () => {
+  await uploadPair();
+  expect(screen.getAllByLabelText("整批主体保留要求")).toHaveLength(1);
+  expect(screen.getByText("结果分组：A.png")).toBeVisible();
+  expect(screen.getByText("结果分组：B.png")).toBeVisible();
+  expect(
+    screen.queryByRole("button", { name: /切换任务|当前任务/ }),
+  ).toBeNull();
+  expect(
+    screen.getByRole("spinbutton", { name: "同时处理任务数" }),
+  ).toHaveAttribute("aria-valuemax", "20");
+}, 20000);

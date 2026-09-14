@@ -1,3 +1,4 @@
+import { readImageStream, imageBlob } from "./image-stream";
 import { supportsQuality } from "./models";
 import { prepareOutpaint } from "./outpaint";
 import {
@@ -54,7 +55,9 @@ async function request(
     response = await fetchImpl(`${apiBase(config.baseUrl)}${path}`, {
       ...init,
       redirect: "error",
-      signal: init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout),
+      signal: init.signal
+        ? AbortSignal.any([init.signal, AbortSignal.timeout(timeout)])
+        : AbortSignal.timeout(timeout),
       headers: {
         ...init.headers,
         Authorization: `Bearer ${config.apiKey.trim()}`,
@@ -144,15 +147,33 @@ export function createEngravingApi(
     async generate(input: GenerateInput) {
       signal?.throwIfAborted();
       const { config: suppliedConfig, referenceImage } = input;
-      const config = { ...suppliedConfig, imageModel: suppliedConfig.imageModel.trim() };
+      const config = {
+        ...suppliedConfig,
+        imageModel: suppliedConfig.imageModel.trim(),
+      };
       if (!config.imageModel) throw new AppError("请输入图片模型名称。");
-      if (!supportsQuality(config.imageModel, config.quality)) throw new AppError("当前模型不支持此生成质量，请选择 high 或更低档位。");
-      if(input.outpaint?.enabled && (typeof input.outpaint.instructions !== "string" || input.outpaint.instructions.length>800)) throw new AppError("扩图要求最多800字。");
-      const image = input.editMode ? input.image : await prepareOutpaint(input.image, input.outpaint);
+      if (!supportsQuality(config.imageModel, config.quality))
+        throw new AppError(
+          "当前模型不支持此生成质量，请选择 high 或更低档位。",
+        );
+      if (
+        input.outpaint?.enabled &&
+        (typeof input.outpaint.instructions !== "string" ||
+          input.outpaint.instructions.length > 800)
+      )
+        throw new AppError("扩图要求最多800字。");
+      const image = input.editMode
+        ? input.image
+        : await prepareOutpaint(input.image, input.outpaint);
       const useAnchor = input.editMode || input.outpaint?.enabled;
       const originalAnchor = input.originalImage || input.image;
-      if (input.editMode && !input.originalImage) throw new AppError("持续优化缺少原照参考。");
-      const prompt = buildPrompt({ ...input, editMode: !!useAnchor, hasReference: true });
+      if (input.editMode && !input.originalImage)
+        throw new AppError("持续优化缺少原照参考。");
+      const prompt = buildPrompt({
+        ...input,
+        editMode: !!useAnchor,
+        hasReference: true,
+      });
       const bitmap = await createImageBitmap(image);
       const ratio = bitmap.width / bitmap.height;
       bitmap.close();
@@ -167,17 +188,30 @@ export function createEngravingApi(
         background: "transparent",
         output_format: "png",
       }).forEach(([key, value]) => form.append(key, value));
-      form.append("image[]", image, input.editMode ? "candidate.png" : "original.png");
+      form.append(
+        "image[]",
+        image,
+        input.editMode ? "candidate.png" : "original.png",
+      );
       form.append("image[]", referenceImage, "reference.png");
-      if (useAnchor) form.append("image[]", originalAnchor, "identity-original.png");
+      if (useAnchor)
+        form.append("image[]", originalAnchor, "identity-original.png");
       if (["gpt-image-1", "gpt-image-1.5"].includes(config.imageModel))
         form.append("input_fidelity", "high");
+      if (config.streamPreview) {
+        form.append("stream", "true");
+        form.append("partial_images", "3");
+      }
       const id = startRequestConsoleEntry({
         model: config.imageModel,
         connection: "direct",
-        requestSummary: input.editMode ? "客户定制黑白 Logo · 持续优化（生成图 + 风格参考 + 原照）" : "客户定制黑白 Logo · 生成（原照 + 风格参考）",
+        requestSummary: input.editMode
+          ? "客户定制黑白 Logo · 持续优化（生成图 + 风格参考 + 原照）"
+          : "客户定制黑白 Logo · 生成（原照 + 风格参考）",
         requestPrompt: prompt,
-        inputImages: useAnchor ? [image, referenceImage, originalAnchor] : [image, referenceImage],
+        inputImages: useAnchor
+          ? [image, referenceImage, originalAnchor]
+          : [image, referenceImage],
       });
       const start = Date.now();
       try {
@@ -188,22 +222,21 @@ export function createEngravingApi(
           300_000,
           fetchImpl,
         );
-        const json = (await boundedJson(response, 90 * 1024 * 1024)) as {
-          data?: { b64_json?: string }[];
-        };
+        let blobs: Blob[];
         if (
-          !json.data?.length ||
-          json.data.some((v) => typeof v.b64_json !== "string")
-        )
-          throw new AppError(
-            "图片编辑接口未返回 b64_json PNG 图片。请使用支持 output_format 的兼容服务。",
-          );
-        const blobs = json.data.map((value) => {
-          const raw = atob(value.b64_json!);
-          return new Blob([Uint8Array.from(raw, (c) => c.charCodeAt(0))], {
-            type: "image/png",
-          });
-        });
+          response.headers.get("content-type")?.includes("text/event-stream")
+        ) {
+          blobs = [await readImageStream(response, signal, input.onProgress)];
+        } else {
+          const json = (await boundedJson(response, 90 * 1024 * 1024)) as {
+            data?: { b64_json?: string }[];
+          };
+          if (!json.data?.length)
+            throw new AppError(
+              "图片编辑接口未返回最终图片。若服务商不支持流式，请关闭生成过程预览后手动重试。",
+            );
+          blobs = json.data.map((value) => imageBlob(value.b64_json));
+        }
         // Count actual returned images even if a later local render/save fails.
         updateRequestConsoleEntry(id, {
           status: "success",
@@ -218,12 +251,27 @@ export function createEngravingApi(
           message: error instanceof Error ? error.message : "生成失败",
           durationMs: Date.now() - start,
         });
+        if (
+          config.streamPreview &&
+          error instanceof AppError &&
+          error.status === 400
+        )
+          throw new AppError(
+            error.message +
+              " 若服务商不支持流式参数，请关闭生成过程预览后手动重试。",
+            400,
+            error.code,
+          );
         throw error;
       }
     },
     async review(input: ReviewInput) {
       signal?.throwIfAborted();
-      const prompt = buildReviewPrompt(input.params, input.instructions, input.outpaint);
+      const prompt = buildReviewPrompt(
+        input.params,
+        input.instructions,
+        input.outpaint,
+      );
       const images = await Promise.all(
         [input.original, input.reference, input.rendered].map(async (blob) => ({
           type: "input_image",

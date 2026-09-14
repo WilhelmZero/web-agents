@@ -1,4 +1,4 @@
-import type {EngravingLayout} from "./layout-types";
+import type { EngravingLayout } from "./layout-types";
 export interface CropRect {
   x: number;
   y: number;
@@ -27,13 +27,17 @@ export interface RenderParams {
 export type Subject = "auto" | "portrait" | "pet" | "group" | "horse";
 export type Style = "strong" | "natural";
 export interface Config {
+  streamPreview?: boolean;
   baseUrl: string;
   imageModel: string;
   reviewModel: string;
   quality: "low" | "medium" | "high" | "xhigh" | "max" | "auto";
   apiKey: string;
 }
-export interface OutpaintOptions { enabled: boolean; instructions: string; }
+export interface OutpaintOptions {
+  enabled: boolean;
+  instructions: string;
+}
 export interface Preferences extends Omit<Config, "apiKey"> {
   subject: Subject;
   style: Style;
@@ -100,6 +104,7 @@ export interface Rendered {
   warnings: string[];
 }
 export interface GenerateInput {
+  onProgress?: (event: import("./image-stream").ImageProgress) => void;
   outpaint?: OutpaintOptions;
   editMode?: boolean;
   originalImage?: Blob;
@@ -129,7 +134,11 @@ export interface AutoDependencies {
   instructions: string;
   style: Style;
   params: RenderParams;
-  options: { maxRounds: number; targetScore: number; continueOnGenerated?: boolean };
+  options: {
+    maxRounds: number;
+    targetScore: number;
+    continueOnGenerated?: boolean;
+  };
   generate: (
     input: GenerateInput,
   ) => Promise<{ buffer: Blob; warnings: string[] }>;

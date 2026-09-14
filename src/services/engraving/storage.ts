@@ -4,6 +4,7 @@ import { OPENAI_ROOT } from "../openAiEndpoint";
 export const DEFAULT_OUTPAINT_INSTRUCTIONS =
   "向图片上/下/左/右侧扩图，补全人物手臂和手肘/腿部，保留安全边距";
 export const DEFAULT_PREFERENCES: Preferences = {
+  streamPreview: true,
   baseUrl: OPENAI_ROOT,
   imageModel: "gpt-image-2",
   reviewModel: "gpt-5.4-mini",
@@ -29,6 +30,8 @@ export function loadPreferences(scope = ""): Preferences {
     if (![1, SETTINGS_VERSION].includes(p?.version) || !p.settings)
       return { ...DEFAULT_PREFERENCES };
     const out = { ...DEFAULT_PREFERENCES };
+    if (typeof p.settings.streamPreview === "boolean")
+      out.streamPreview = p.settings.streamPreview;
     if (typeof p.settings.continueOnGenerated === "boolean")
       out.continueOnGenerated = p.settings.continueOnGenerated;
     for (const key of ["imageModel", "reviewModel", "instructions"] as const)
@@ -41,7 +44,11 @@ export function loadPreferences(scope = ""): Preferences {
       out.style = p.settings.style;
     if (["portrait", "couple", "bouquet"].includes(p.settings.reference))
       out.reference = p.settings.reference;
-    if (["low", "medium", "high", "xhigh", "max", "auto"].includes(p.settings.quality))
+    if (
+      ["low", "medium", "high", "xhigh", "max", "auto"].includes(
+        p.settings.quality,
+      )
+    )
       out.quality = p.settings.quality;
     if (typeof p.settings.auto === "boolean") out.auto = p.settings.auto;
     if (
@@ -263,6 +270,10 @@ export function createTaskStorage(scope = "") {
   }
 
   return {
+    getTaskId: async () => {
+      await ensureReady();
+      return currentId;
+    },
     loadTask,
     saveTask,
     startNewTask,
@@ -274,6 +285,7 @@ export function createTaskStorage(scope = "") {
 }
 const defaultStore = createTaskStorage();
 export const {
+  getTaskId,
   loadTask,
   saveTask,
   startNewTask,
