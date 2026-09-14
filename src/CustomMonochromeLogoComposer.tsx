@@ -966,6 +966,7 @@ export function EngravingTaskComposer({
           {embedded ? (controlsHost && createPortal(controlsPanel, controlsHost)) : controlsPanel}
           {embedded && <Space wrap><h3>原照：{task.fileName || "待导入"} · {busy ? "生成中" : "生成结果"}</h3><Button disabled={locked} onClick={()=>void openHistory()}>任务历史</Button>{busy && <Button danger onClick={stopGeneration}>停止此任务</Button>}</Space>}
           <EngravingGallery
+            pending={busy ? run?.phase || "准备生成图片…" : undefined}
             onClear={() => setClearOpen(true)}
             clearDisabled={locked}
             results={results}

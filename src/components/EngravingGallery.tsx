@@ -1,6 +1,6 @@
 import { cloneElement, useEffect, useState } from "react";
 import type { ImgHTMLAttributes, ReactElement } from "react";
-import { Button, Image, Space } from "antd";
+import { Button, Image, Space, Card, Spin } from "antd";
 import type { StoredResult, RenderParams } from "../services/engraving/types";
 import { useEngravingPreview } from "../services/engraving/preview";
 import EngravingResultCard, {
@@ -79,12 +79,14 @@ export default function EngravingGallery({
   onChange,
   onClear,
   clearDisabled = false,
+  pending,
 }: {
   results: StoredResult[];
   original?: Blob;
   onChange: (id: string, patch: Partial<RenderParams>) => void;
   onClear?: () => void;
   clearDisabled?: boolean;
+  pending?: string;
 }) {
   const [selected, setSelected] = useState<string[]>([]),
     [editing, setEditing] = useState<string>(),
@@ -123,6 +125,24 @@ export default function EngravingGallery({
         </Button>
       </Space>
       <div className="engraving-results-list">
+        {pending && (
+          <Card
+            aria-label="正在生成的图片"
+            style={{
+              minHeight: 220,
+              background: "#111",
+              color: "#fff",
+              display: "grid",
+              placeItems: "center",
+            }}
+          >
+            <div role="status" style={{ textAlign: "center", padding: 32 }}>
+              <Spin />
+              <p>{pending}</p>
+              <small>图片完成后将在此显示，已有结果仍可查看。</small>
+            </div>
+          </Card>
+        )}
         {results.map((result, index) => (
           <EngravingResultCard
             key={result.job.id}
@@ -142,7 +162,7 @@ export default function EngravingGallery({
           />
         ))}
       </div>
-      {!results.length ? (
+      {!results.length && !pending ? (
         <p>生成的图片将在这里显示。生成过程中也可调参和下载已有结果。</p>
       ) : null}
       {editor ? (
