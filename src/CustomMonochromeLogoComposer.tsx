@@ -134,6 +134,7 @@ export function EngravingTaskComposer({
   batchLocked = false,
   workspaceActive = true,
   controlsHost,
+  resultSelection,
   sharedPreferences,
   onSharedPreferencesChange,
 }: {
@@ -146,6 +147,7 @@ export function EngravingTaskComposer({
   batchLocked?: boolean;
   workspaceActive?: boolean;
   controlsHost?: HTMLElement | null;
+  resultSelection?: React.ReactNode;
   sharedPreferences?: Preferences;
   onSharedPreferencesChange?: (value: Preferences) => void;
   controllerRef?: React.Ref<{
@@ -1068,23 +1070,18 @@ export function EngravingTaskComposer({
               controlsHost &&
               createPortal(controlsPanel, controlsHost)
             : controlsPanel}
-          {embedded && task.original && (
-            <Space wrap>
-              <h3>
-                原照：{task.fileName || "待导入"} ·{" "}
-                {busy ? "生成中" : "生成结果"}
-              </h3>
-
-              {busy && (
-                <Button danger onClick={stopGeneration}>
-                  停止此任务
-                </Button>
-              )}
-            </Space>
-          )}
           {(!embedded || task.original) && (
             <EngravingGallery
               compact={embedded}
+              selection={resultSelection}
+              generationNumber={Math.max(1, run?.generations || 0)}
+              headerActions={
+                embedded && busy ? (
+                  <Button size="small" danger onClick={stopGeneration}>
+                    停止此任务
+                  </Button>
+                ) : undefined
+              }
               coverJobId={task.coverJobId}
               onAdopt={(id) => {
                 if (taskResults(taskRef.current).some((r) => r.job.id === id))

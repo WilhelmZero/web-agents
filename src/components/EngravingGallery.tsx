@@ -98,7 +98,8 @@ function CoverImage({
         maxHeight: 330,
         objectFit: "contain",
         cursor: "pointer",
-        background: "repeating-conic-gradient(#e4e7eb 0% 25%, #fff 0% 50%) 0 / 16px 16px",
+        background:
+          "repeating-conic-gradient(#e4e7eb 0% 25%, #fff 0% 50%) 0 / 16px 16px",
         width: "100%",
       }}
     />
@@ -115,7 +116,8 @@ function ProgressImage({ blob, onOpen }: { blob: Blob; onOpen?: () => void }) {
       style={{
         maxHeight: 330,
         objectFit: "contain",
-        background: "repeating-conic-gradient(#e4e7eb 0% 25%, #fff 0% 50%) 0 / 16px 16px",
+        background:
+          "repeating-conic-gradient(#e4e7eb 0% 25%, #fff 0% 50%) 0 / 16px 16px",
         width: "100%",
       }}
     />
@@ -126,6 +128,9 @@ export default function EngravingGallery({
   original,
   onChange,
   onClear,
+  selection,
+  generationNumber = 1,
+  headerActions,
   clearDisabled = false,
   pending,
   compact = false,
@@ -137,6 +142,9 @@ export default function EngravingGallery({
   results: StoredResult[];
   original?: Blob;
   onChange: (id: string, patch: Partial<RenderParams>) => void;
+  selection?: React.ReactNode;
+  generationNumber?: number;
+  headerActions?: React.ReactNode;
   onClear?: () => void;
   clearDisabled?: boolean;
   pending?: string;
@@ -164,9 +172,33 @@ export default function EngravingGallery({
         <Card
           className="engraving-result-summary"
           title={
-            best
-              ? `第 ${index + 1} 张 · ${score === undefined ? "未评分" : score + " 分"} · 共 ${results.length} 张`
-              : completionLabel || (pending ? "生成中" : "等待生成")
+            <Space size={8}>
+              {selection}
+              <span>
+                {best
+                  ? `第 ${index + 1} 张 · ${score === undefined ? "未评分" : score + " 分"} · 共 ${results.length} 张`
+                  : "生成结果"}
+              </span>
+            </Space>
+          }
+          extra={
+            <Space size={4}>
+              <Tag
+                role="status"
+                color={
+                  pending
+                    ? "processing"
+                    : best && !completionLabel
+                      ? "success"
+                      : undefined
+                }
+              >
+                {pending
+                  ? `第 ${generationNumber} 次生成中`
+                  : completionLabel || (best ? "已完成" : "等待生成")}
+              </Tag>
+              {headerActions}
+            </Space>
           }
         >
           <div
@@ -199,10 +231,7 @@ export default function EngravingGallery({
               </div>
             )}
           </div>
-          <p role="status">
-            {pending || completionLabel || (best ? "已完成" : "等待生成")}
-          </p>
-          {pending && <Tag color="processing">生成中</Tag>}
+          {pending && <p aria-live="polite">{pending}</p>}
           {best?.manualParams && <small>原审核分数，调整后未重新审核</small>}
           <Button
             block

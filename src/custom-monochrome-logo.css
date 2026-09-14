@@ -303,3 +303,6 @@
   background: repeating-conic-gradient(#e4e7eb 0% 25%, #fff 0% 50%) 0 / 16px 16px;
   color: #566171;
 }
+.engraving-result-summary .ant-card-head-wrapper { align-items:flex-start; gap:8px; }
+.engraving-result-summary .ant-card-extra > .ant-space { flex-direction:column; align-items:flex-end; }
+.engraving-result-summary .ant-card-extra .ant-tag { margin-inline-end:0; }

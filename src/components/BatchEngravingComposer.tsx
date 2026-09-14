@@ -777,28 +777,28 @@ export default function BatchEngravingComposer({
               controls.current.set(slot.id, createRef<Controller>());
             return (
               <div key={slot.id}>
-                {(slot.file || states[slot.id]?.task.original) && (
-                  <Checkbox
-                    aria-label={
-                      "选择结果 " +
-                      (states[slot.id]?.task.fileName ||
-                        slot.file?.name ||
-                        "原照")
-                    }
-                    disabled={!covers.some((c) => c.id === slot.id)}
-                    checked={selectedResults.includes(slot.id)}
-                    onChange={(e) =>
-                      setSelectedResults((prev) =>
-                        e.target.checked
-                          ? [...new Set([...prev, slot.id])]
-                          : prev.filter((id) => id !== slot.id),
-                      )
-                    }
-                  >
-                    选择结果
-                  </Checkbox>
-                )}
                 <EngravingTaskComposer
+                  resultSelection={
+                    (slot.file || states[slot.id]?.task.original) && (
+                      <Checkbox
+                        aria-label={
+                          "选择结果 " +
+                          (states[slot.id]?.task.fileName ||
+                            slot.file?.name ||
+                            "原照")
+                        }
+                        disabled={!covers.some((c) => c.id === slot.id)}
+                        checked={selectedResults.includes(slot.id)}
+                        onChange={(e) =>
+                          setSelectedResults((prev) =>
+                            e.target.checked
+                              ? [...new Set([...prev, slot.id])]
+                              : prev.filter((id) => id !== slot.id),
+                          )
+                        }
+                      />
+                    )
+                  }
                   scope={slot.id === "default" ? undefined : slot.id}
                   embedded
                   workspaceActive={index === 0}
