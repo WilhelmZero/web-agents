@@ -174,13 +174,14 @@ export function createEngravingApi(
         ? input.image
         : await prepareOutpaint(input.image, input.outpaint);
       const useAnchor = input.editMode || input.outpaint?.enabled;
+      const hasReference = input.styleReference !== false;
       const originalAnchor = input.originalImage || input.image;
       if (input.editMode && !input.originalImage)
         throw new AppError("持续优化缺少原照参考。");
       const prompt = buildPrompt({
         ...input,
         editMode: input.editMode === true,
-        hasReference: true,
+        hasReference,
       });
       const bitmap = await createImageBitmap(image);
       const ratio = bitmap.width / bitmap.height;
@@ -201,7 +202,7 @@ export function createEngravingApi(
         image,
         input.editMode ? "candidate.png" : "original.png",
       );
-      form.append("image[]", referenceImage, "reference.png");
+      if (hasReference) form.append("image[]", referenceImage, "reference.png");
       if (useAnchor)
         form.append("image[]", originalAnchor, "identity-original.png");
       if (["gpt-image-1", "gpt-image-1.5"].includes(config.imageModel))
@@ -213,13 +214,17 @@ export function createEngravingApi(
       const id = startRequestConsoleEntry({
         model: config.imageModel,
         connection: "direct",
-        requestSummary: input.editMode
-          ? "客户定制黑白 Logo · 持续优化（生成图 + 风格参考 + 原照）"
-          : "客户定制黑白 Logo · 生成（原照 + 风格参考）",
-        requestPrompt: prompt,
-        inputImages: useAnchor
-          ? [image, referenceImage, originalAnchor]
-          : [image, referenceImage],
+        requestSummary:
+          "客户定制黑白 Logo · " +
+          (input.editMode ? "持续优化" : "生成") +
+          (hasReference
+            ? "（编辑底图 + 风格参考" + (useAnchor ? " + 原照）" : "）")
+            : "（客户原图 / 生成图，无人物参考图）"),
+        inputImages: [
+          image,
+          ...(hasReference ? [referenceImage] : []),
+          ...(useAnchor ? [originalAnchor] : []),
+        ],
       });
       const start = Date.now();
       try {
@@ -235,9 +240,14 @@ export function createEngravingApi(
           response.headers.get("content-type")?.includes("text/event-stream")
         ) {
           blobs = [
-            await readImageStream(response, signal, input.onProgress, [
-              config.apiKey.trim(),
-            ]),
+            await readImageStream(
+              response,
+              signal,
+              (event) => {
+                if (event.kind === "partial") input.onProgress?.(event);
+              },
+              [config.apiKey.trim()],
+            ),
           ];
         } else {
           const json = (await boundedJson(response, 90 * 1024 * 1024)) as {
@@ -262,6 +272,7 @@ export function createEngravingApi(
         });
         const result = await normalize(blobs[0]);
         await rejectReferenceOutput(result.buffer, referenceImage, signal);
+        input.onProgress?.({ kind: "complete", blob: result.buffer });
         return { buffer: result.buffer, warnings: result.warnings };
       } catch (error) {
         updateRequestConsoleEntry(id, {
@@ -293,7 +304,7 @@ export function createEngravingApi(
         connection: "direct",
         requestSummary: "客户定制黑白 Logo · 质量审核（不计生图）",
         requestPrompt: prompt,
-        inputImages: [input.original, input.rendered],
+        inputImages: [input.original, input.reference, input.rendered],
       });
       const start = Date.now();
       try {

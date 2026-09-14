@@ -372,3 +372,82 @@ it("keeps non-photographic subjects authoritative in initial and continuing-edit
     );
   }
 });
+
+it("omits portrait reference for SVG in first, outpaint and continuing-edit requests with matching image roles", async () => {
+  vi.stubGlobal(
+    "OffscreenCanvas",
+    class {
+      getContext() {
+        return { drawImage: vi.fn() };
+      }
+      convertToBlob() {
+        return Promise.resolve(new Blob(["expanded"], { type: "image/png" }));
+      }
+    },
+  );
+  const source = input().image;
+  for (const mode of ["first", "outpaint", "edit"]) {
+    const fetcher = vi.fn(async () =>
+      Response.json({ data: [{ b64_json: btoa("result") }] }),
+    );
+    const normalize = vi.fn(async (buffer: Blob) => ({
+      buffer,
+      width: 200,
+      height: 100,
+      warnings: [],
+    }));
+    await createEngravingApi(fetcher as typeof fetch, normalize).generate({
+      ...input(),
+      styleReference: false,
+      editMode: mode === "edit",
+      originalImage: mode === "edit" ? source : undefined,
+      outpaint: { enabled: mode === "outpaint", instructions: "" },
+    });
+    const body = fetcher.mock.calls[0] as unknown as [string, RequestInit];
+    const form = body[1].body as FormData;
+    const names = form.getAll("image[]").map((f) => (f as File).name);
+    expect(names).not.toContain("reference.png");
+    expect(names).toHaveLength(mode === "first" ? 1 : 2);
+    const prompt = String(form.get("prompt"));
+    expect(prompt).not.toContain("Image 3");
+    expect(prompt).toContain(
+      mode === "first"
+        ? "Image 1 is the ONLY source"
+        : "Image 2 is the ONLY source",
+    );
+    expect(prompt).toContain("No style-reference image is attached");
+    expect(fetcher).toHaveBeenCalledOnce();
+  }
+});
+it("does not publish a copied reference as a completed preview", async () => {
+  vi.mocked(rejectReferenceOutput).mockRejectedValueOnce(
+    new Error("参考图被当作输出"),
+  );
+  const onProgress = vi.fn();
+  const fetcher = vi.fn(
+    async () =>
+      new Response(
+        "data: " +
+          JSON.stringify({
+            type: "image_edit.completed",
+            b64_json: btoa("copy"),
+          }) +
+          "\n\n",
+        { headers: { "content-type": "text/event-stream" } },
+      ),
+  );
+  const normalize = vi.fn(async (buffer: Blob) => ({
+    buffer,
+    width: 200,
+    height: 100,
+    warnings: [],
+  }));
+  await expect(
+    createEngravingApi(fetcher as typeof fetch, normalize).generate({
+      ...input(),
+      onProgress,
+    }),
+  ).rejects.toThrow("参考图被当作输出");
+  expect(onProgress).not.toHaveBeenCalled();
+  expect(fetcher).toHaveBeenCalledOnce();
+});

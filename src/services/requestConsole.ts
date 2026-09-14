@@ -15,6 +15,7 @@ export interface RequestConsoleEntry {
   requestSummary: string;
   requestPrompt?: string;
   inputImages?: Blob[];
+  inputImageCount?: number;
   resultSummary?: string;
   message?: string;
   outputImages?: Blob[];
@@ -25,6 +26,7 @@ const listeners = new Set<(items: RequestConsoleEntry[]) => void>();
 const MAX_OUTPUT_IMAGES = 8;
 const MAX_INPUT_IMAGES = 8;
 const MAX_IMAGES_PER_ENTRY = 2;
+const MAX_INPUT_IMAGES_PER_ENTRY = 4;
 const countedGenerationEntryIds = new Set<string>();
 const requestModelsById = new Map<string, string>();
 
@@ -67,7 +69,8 @@ export function startRequestConsoleEntry(input: Pick<RequestConsoleEntry, 'model
     connection: input.connection,
     requestSummary: input.requestSummary,
     requestPrompt: input.requestPrompt?.trim() || undefined,
-    inputImages: input.inputImages?.filter((image) => image.type.startsWith('image/')).slice(0, MAX_IMAGES_PER_ENTRY),
+    inputImageCount: input.inputImages?.length,
+    inputImages: input.inputImages?.filter((image) => image.type.startsWith('image/')).slice(0, MAX_INPUT_IMAGES_PER_ENTRY),
     status: 'running',
     attempt: 1,
   };
@@ -93,7 +96,8 @@ export function updateRequestConsoleEntry(id: string, patch: Partial<Omit<Reques
     return;
   }
   const outputImages = validOutputImages?.slice(0, MAX_IMAGES_PER_ENTRY);
-  const inputImages = patch.inputImages?.filter((image) => image.type.startsWith('image/')).slice(0, MAX_IMAGES_PER_ENTRY);
+  const inputImages = patch.inputImages?.filter((image) => image.type.startsWith('image/')).slice(0, MAX_INPUT_IMAGES_PER_ENTRY);
+  if (patch.inputImages) entry.inputImageCount = patch.inputImages.length;
   Object.assign(entry, patch, outputImages ? { outputImages } : {}, inputImages ? { inputImages } : {}, { updatedAt: Date.now() });
   trimRetainedImages('inputImages', MAX_INPUT_IMAGES);
   trimRetainedImages('outputImages', MAX_OUTPUT_IMAGES);

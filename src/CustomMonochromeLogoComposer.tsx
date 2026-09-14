@@ -435,16 +435,18 @@ export function EngravingTaskComposer({
       const usedReference = reference;
       let lastPrompt = "";
       const api = createEngravingApi(undefined, undefined, controller.signal);
+      const styleReference = !/\.svg$/i.test(initial.fileName);
       const generate: typeof api.generate = async (input) => {
         lastPrompt = buildPrompt({
           ...input,
           editMode: input.editMode === true,
-          hasReference: true,
+          hasReference: styleReference,
         });
         const requestId = ++previewRequest.current;
         setLivePreview(undefined);
         return api.generate({
           ...input,
+          styleReference,
           onProgress: (event) => {
             if (
               controller.signal.aborted ||

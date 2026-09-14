@@ -132,9 +132,9 @@ it("portals only settings while keeping source, subject and actions in the cente
   host.remove();
 });
 
-it.each([false, true])(
-  "uses portrait despite saved custom references, including supplemental generation (auto=%s)",
-  async (auto) => {
+it.each([["png", false], ["png", true], ["svg", false], ["svg", true]] as const)(
+  "uses portrait despite saved custom references, including supplemental generation (format=%s, auto=%s)",
+  async (format, auto) => {
     const { loadTask } = await import("./services/engraving/storage");
     const { processInWorker } =
       await import("./services/engraving/workerClient");
@@ -144,7 +144,7 @@ it.each([false, true])(
     const portrait = new Blob(["portrait"]);
     vi.mocked(loadTask).mockResolvedValueOnce({
       version: 1,
-      fileName: "saved.png",
+      fileName: "saved." + format,
       original,
       customReference,
       params: { ...DEFAULTS },
@@ -215,6 +215,7 @@ it.each([false, true])(
     );
     expect(generate).toHaveBeenCalledTimes(1);
     expect(generate.mock.calls[0][0].referenceImage).toBe(portrait);
+    expect(generate.mock.calls[0][0].styleReference).toBe(format !== "svg");
     if (auto) expect(review.mock.calls[0][0].reference).toBe(portrait);
     fireEvent.click(
       screen.getByRole("button", { name: "补充提示词再生成一张" }),
@@ -230,6 +231,7 @@ it.each([false, true])(
     await waitFor(() => expect(generate).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(button).toBeEnabled());
     expect(generate.mock.calls[1][0].referenceImage).toBe(portrait);
+    expect(generate.mock.calls[1][0].styleReference).toBe(format !== "svg");
     expect(
       fetchMock.mock.calls.every((call) =>
         String(call[0]).endsWith("engraving-references/portrait-reference.jpg"),

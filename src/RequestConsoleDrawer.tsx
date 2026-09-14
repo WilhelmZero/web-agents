@@ -71,12 +71,12 @@ export default function RequestConsoleDrawer({ open, onClose }: { open: boolean;
               {entry.resultSummary && <Descriptions.Item label="结果" span={2}>{entry.resultSummary}</Descriptions.Item>}
               {entry.message && <Descriptions.Item label="信息" span={2}><Text type={entry.status === 'failed' ? 'danger' : 'secondary'}>{entry.message}</Text></Descriptions.Item>}
             </Descriptions>
-            {(entry.requestPrompt || entry.inputImages?.length) ? <Collapse size="small" style={{ marginTop: 10 }} items={[{ key: 'request', label: `请求详情${entry.inputImages?.length ? ` · ${entry.inputImages.length} 张输入图` : ''}`, children: <Space direction="vertical" style={{ width: '100%' }} size={10}>{entry.requestPrompt && <Typography.Paragraph copyable style={{ whiteSpace: 'pre-wrap', maxHeight: 260, overflow: 'auto', marginBottom: 0 }}>{entry.requestPrompt}</Typography.Paragraph>}{open && entry.inputImages?.length ? <RequestThumbnails images={entry.inputImages} label="输入图片" /> : null}</Space> }]} /> : null}
+            {(entry.requestPrompt || entry.inputImages?.length) ? <Collapse size="small" style={{ marginTop: 10 }} items={[{ key: 'request', label: `请求详情${(entry.inputImageCount ?? entry.inputImages?.length) ? ` · ${entry.inputImageCount ?? entry.inputImages?.length} 张输入图` : ''}`, children: <Space direction="vertical" style={{ width: '100%' }} size={10}>{entry.requestPrompt && <Typography.Paragraph copyable style={{ whiteSpace: 'pre-wrap', maxHeight: 260, overflow: 'auto', marginBottom: 0 }}>{entry.requestPrompt}</Typography.Paragraph>}{open && entry.inputImages?.length ? <RequestThumbnails images={entry.inputImages} label="输入图片（按请求顺序）" /> : null}{(entry.inputImageCount || 0) > (entry.inputImages?.length || 0) && <Text type="secondary">部分缩略图已省略以节省内存，实际发送数量以上方记录为准。</Text>}</Space> }]} /> : null}
             {open && entry.outputImages?.length ? <RequestThumbnails images={entry.outputImages} label="输出缩略图" /> : null}
           </div>
         </List.Item>;
       }}
     /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="发起 Gemini 或 GPT 请求后，状态和结果会显示在这里" />}
-    <Text type="secondary" style={{ display: 'block', marginTop: 16 }}>控制台不会记录 API Key 或 Base64 请求正文；提示词与缩略图详情默认收起，输入和输出图片各最多保留最近 24 张，日志仅保留在当前页面会话。</Text>
+    <Text type="secondary" style={{ display: 'block', marginTop: 16 }}>控制台不会记录 API Key 或 Base64 请求正文；提示词与缩略图详情默认收起，输入和输出图片各最多保留最近 8 张；每次最多显示 4 张输入、2 张输出，日志仅保留在当前页面会话。</Text>
   </Drawer>;
 }

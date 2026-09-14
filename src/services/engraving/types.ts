@@ -104,6 +104,8 @@ export interface Rendered {
   warnings: string[];
 }
 export interface GenerateInput {
+  /** Vector artwork uses textual engraving guidance without portrait image input. */
+  styleReference?: boolean;
   onProgress?: (event: import("./image-stream").ImageProgress) => void;
   outpaint?: OutpaintOptions;
   editMode?: boolean;

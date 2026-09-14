@@ -18,7 +18,8 @@ describe('request console', () => {
     startRequestConsoleEntry({ model: 'gpt-image-2', connection: 'direct', requestSummary: 'scene edit', requestPrompt: '  replace the background  ', inputImages: Array.from({ length: 6 }, () => new Blob(['x'], { type: 'image/png' })) });
     unsubscribe();
     expect(latest[0].requestPrompt).toBe('replace the background');
-    expect(latest[0].inputImages).toHaveLength(2);
+    expect(latest[0].inputImages).toHaveLength(4);
+    expect(latest[0].inputImageCount).toBe(6);
   });
 
   it('publishes request status updates', () => {
