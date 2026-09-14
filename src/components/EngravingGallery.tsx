@@ -98,7 +98,7 @@ function CoverImage({
         maxHeight: 330,
         objectFit: "contain",
         cursor: "pointer",
-        background: "#000",
+        background: "repeating-conic-gradient(#e4e7eb 0% 25%, #fff 0% 50%) 0 / 16px 16px",
         width: "100%",
       }}
     />
@@ -115,7 +115,7 @@ function ProgressImage({ blob, onOpen }: { blob: Blob; onOpen?: () => void }) {
       style={{
         maxHeight: 330,
         objectFit: "contain",
-        background: "#000",
+        background: "repeating-conic-gradient(#e4e7eb 0% 25%, #fff 0% 50%) 0 / 16px 16px",
         width: "100%",
       }}
     />

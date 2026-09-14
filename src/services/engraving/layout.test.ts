@@ -189,3 +189,148 @@ describe("automatic text layers", () => {
     expect(reorderTextLayers(texts, "image", "c")).toBe(texts);
   });
 });
+
+it("validates optional paint data and preserves it across result history", () => {
+  const painted: EngravingLayout = {
+    ...layout,
+    strokes: [{ color: "#000000", size: 25, points: [{ x: 10, y: 20 }] }],
+  };
+  expect(validateLayout(painted)).toBe(painted);
+  expect(() =>
+    validateLayout({
+      ...painted,
+      strokes: [{ ...painted.strokes![0], size: NaN }],
+    }),
+  ).toThrow("画笔数据无效");
+  expect(() =>
+    validateLayout({
+      ...painted,
+      strokes: [{ ...painted.strokes![0], points: [] }],
+    }),
+  ).toThrow();
+  const result: StoredResult = {
+    job: {
+      id: "paint",
+      blob: new Blob(),
+      width: 600,
+      height: 600,
+      warnings: [],
+    },
+    params: { ...DEFAULTS, layout: painted },
+    initialParams: { ...DEFAULTS },
+    reviews: [],
+    createdAt: 1,
+  };
+  const restored = restoreTask({
+    version: 1,
+    fileName: "paint.png",
+    params: { ...DEFAULTS },
+    results: [result],
+  });
+  expect(restored.results![0].params.layout?.strokes).toEqual(painted.strokes);
+});
+
+it("renders black and white strokes after text with round tips, including a single click", async () => {
+  const operations: string[] = [];
+  const ctx = {
+    save: vi.fn(),
+    restore: vi.fn(),
+    beginPath: vi.fn(),
+    rect: vi.fn(),
+    clip: vi.fn(),
+    fillRect: vi.fn(),
+    drawImage: vi.fn(),
+    measureText: (s: string) => ({ width: s.length * 10 }),
+    strokeText: vi.fn(),
+    fillText: () => operations.push("text"),
+    arc: vi.fn(),
+    fill() {
+      operations.push(this.fillStyle);
+    },
+    fillStyle: "",
+    moveTo: vi.fn(),
+    lineTo: vi.fn(),
+    stroke: vi.fn(),
+  };
+  const painted: EngravingLayout = {
+    ...layout,
+    strokes: [
+      { color: "#000000", size: 10, points: [{ x: 1, y: 2 }] },
+      {
+        color: "#ffffff",
+        size: 20,
+        points: [
+          { x: 3, y: 4 },
+          { x: 5, y: 6 },
+        ],
+      },
+    ],
+  };
+  await drawLayout(ctx as unknown as CanvasRenderingContext2D, painted, {
+    width: 600,
+    height: 600,
+  } as CanvasImageSource);
+  expect(operations).toEqual(["text", "#000000", "#ffffff"]);
+  expect(ctx.arc).toHaveBeenCalledWith(1, 2, 5, 0, Math.PI * 2);
+  expect(ctx.lineTo).toHaveBeenCalledWith(5, 6);
+  expect(ctx.stroke).toHaveBeenCalledTimes(1);
+});
+
+it("isolates erasing from photo and text and preserves the output transform", async () => {
+  const { drawBrushStrokes } = await import("./layout-draw");
+  const transform = { a: 2, b: 0, c: 0, d: 2, e: 10, f: 10 };
+  const operations: string[] = [];
+  const paint = {
+    save: vi.fn(),
+    restore: vi.fn(),
+    beginPath: vi.fn(),
+    rect: vi.fn(),
+    clip: vi.fn(),
+    arc: vi.fn(),
+    fill() {
+      operations.push(this.globalCompositeOperation);
+    },
+    globalCompositeOperation: "",
+    setTransform: vi.fn(),
+  };
+  const parent = {
+    canvas: { width: 1200, height: 1800 },
+    getTransform: () => transform,
+    save: vi.fn(),
+    restore: vi.fn(),
+    resetTransform: vi.fn(),
+    drawImage: vi.fn(),
+  };
+  class Surface {
+    getContext() {
+      return paint;
+    }
+  }
+  vi.stubGlobal("OffscreenCanvas", Surface);
+  try {
+    drawBrushStrokes(parent as unknown as CanvasRenderingContext2D, {
+      ...layout,
+      strokes: [
+        { color: "#ffffff", size: 20, points: [{ x: 10, y: 10 }] },
+        {
+          mode: "erase",
+          color: "#ffffff",
+          size: 10,
+          points: [{ x: 10, y: 10 }],
+        },
+        { color: "#000000", size: 5, points: [{ x: 10, y: 10 }] },
+      ],
+    });
+    expect(operations).toEqual([
+      "source-over",
+      "destination-out",
+      "source-over",
+    ]);
+    expect(paint.setTransform).toHaveBeenCalledWith(transform);
+    expect(parent.resetTransform).toHaveBeenCalledOnce();
+    expect(parent.drawImage).toHaveBeenCalledWith(expect.any(Surface), 0, 0);
+    expect(parent).not.toHaveProperty("globalCompositeOperation");
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});

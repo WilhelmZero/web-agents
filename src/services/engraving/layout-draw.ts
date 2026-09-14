@@ -105,6 +105,7 @@ export async function drawLayout(
   ctx: Context,
   layout: EngravingLayout,
   photo: CanvasImageSource,
+  includeBrush = true,
 ) {
   const families = await Promise.all(
     layout.texts.map((t) => ensureLayoutFont(t.font)),
@@ -185,6 +186,59 @@ export async function drawLayout(
     paint(false);
     ctx.restore();
   });
+  if (includeBrush) drawBrushStrokes(ctx, layout);
   ctx.restore();
   return overflow;
+}
+
+/** Paint is a non-destructive overlay above the photo and text. Coordinates are design pixels. */
+export function drawBrushStrokes(
+  ctx: Context,
+  layout: EngravingLayout,
+  isolated = false,
+) {
+  if (!layout.strokes?.length) return;
+  // Erase only on a separate transparent paint surface, never on the underlying composition.
+  if (!isolated && layout.strokes.some((stroke) => stroke.mode === "erase")) {
+    const surface =
+      typeof OffscreenCanvas !== "undefined"
+        ? new OffscreenCanvas(ctx.canvas.width, ctx.canvas.height)
+        : Object.assign(document.createElement("canvas"), {
+            width: ctx.canvas.width,
+            height: ctx.canvas.height,
+          });
+    const paint = surface.getContext("2d") as Context;
+    paint.setTransform(ctx.getTransform());
+    drawBrushStrokes(paint, layout, true);
+    ctx.save();
+    ctx.resetTransform();
+    ctx.drawImage(surface, 0, 0);
+    ctx.restore();
+    return;
+  }
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, layout.width, layout.height);
+  ctx.clip();
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  for (const stroke of layout.strokes) {
+    const first = stroke.points[0];
+    if (!first) continue;
+    ctx.globalCompositeOperation =
+      stroke.mode === "erase" ? "destination-out" : "source-over";
+    ctx.strokeStyle = stroke.color;
+    ctx.fillStyle = stroke.color;
+    ctx.lineWidth = stroke.size;
+    ctx.beginPath();
+    ctx.arc(first.x, first.y, stroke.size / 2, 0, Math.PI * 2);
+    ctx.fill();
+    if (stroke.points.length > 1) {
+      ctx.beginPath();
+      ctx.moveTo(first.x, first.y);
+      for (const point of stroke.points.slice(1)) ctx.lineTo(point.x, point.y);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
 }

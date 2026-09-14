@@ -296,3 +296,10 @@
 .engraving-batch-results { min-width:720px; }
 .engraving-versions-modal .ant-modal-body { overflow-x:auto; }
 .engraving-versions-modal .engraving-results-list { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; min-width:720px; }
+
+/* Checkerboard belongs to the preview container; exported pixels remain unchanged. */
+.engraving-result-card .engraving-preview-button,
+.engraving-result-summary .ant-image {
+  background: repeating-conic-gradient(#e4e7eb 0% 25%, #fff 0% 50%) 0 / 16px 16px;
+  color: #566171;
+}

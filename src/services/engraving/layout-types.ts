@@ -16,7 +16,14 @@ export interface TextBlock {
   strokeWidth: number;
   strokeColor: string;
 }
+export interface BrushStroke {
+  mode?: "paint" | "erase";
+  color: "#000000" | "#ffffff";
+  size: number;
+  points: { x: number; y: number }[];
+}
 export interface EngravingLayout {
+  strokes?: BrushStroke[];
   version: 1;
   width: number;
   height: number;
@@ -85,6 +92,35 @@ export function validateLayout(value: EngravingLayout): EngravingLayout {
     )
       throw new Error("文字参数无效。");
     ids.add(t.id);
+  }
+  if (value.strokes !== undefined) {
+    if (!Array.isArray(value.strokes) || value.strokes.length > 2000)
+      throw new Error("最多保存2000笔，请撤销部分笔迹。");
+    let points = 0;
+    for (const stroke of value.strokes) {
+      if (
+        !stroke ||
+        (stroke.mode !== undefined &&
+          !["paint", "erase"].includes(stroke.mode)) ||
+        !["#000000", "#ffffff"].includes(stroke.color) ||
+        !finite(stroke.size) ||
+        stroke.size < 1 ||
+        stroke.size > 1000 ||
+        !Array.isArray(stroke.points) ||
+        !stroke.points.length ||
+        stroke.points.some(
+          (p) =>
+            !p ||
+            !finite(p.x) ||
+            !finite(p.y) ||
+            Math.abs(p.x) > 32768 ||
+            Math.abs(p.y) > 32768,
+        )
+      )
+        throw new Error("画笔数据无效。");
+      points += stroke.points.length;
+    }
+    if (points > 100000) throw new Error("笔迹过多，请撤销部分笔迹。");
   }
   return value;
 }

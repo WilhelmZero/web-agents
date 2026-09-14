@@ -150,4 +150,121 @@
   align-items: center;
 }
 
-.text-layer-delete { flex-shrink: 0; align-self: center; margin-right: 4px; }
+.text-layer-delete {
+  flex-shrink: 0;
+  align-self: center;
+  margin-right: 4px;
+}
+
+.text-layout-stage {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 8px;
+  margin-top: 12px;
+}
+.text-layout-stage .text-layout-viewport {
+  margin-top: 0;
+}
+.text-layout-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 5px 3px;
+  background: #eef0f3;
+  border-radius: 8px;
+  align-self: start;
+}
+.text-layout-tools .ant-btn {
+  width: 34px;
+  padding: 0;
+}
+.text-layout-paint {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.text-layout-viewport.is-painting {
+  cursor: crosshair;
+}
+.text-layout-viewport.is-painting .text-layout-box {
+  pointer-events: none;
+  border-color: transparent;
+}
+.text-layout-viewport.is-painting .text-layout-handle {
+  display: none;
+}
+.text-layout-bottom {
+  margin: 12px 0 0 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.text-layout-color {
+  position: relative;
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  font-size: 17px;
+  cursor: pointer;
+}
+.text-layout-color > span:not(.anticon) {
+  position: absolute;
+  bottom: 3px;
+  height: 3px;
+  width: 20px;
+  border: 1px solid #bbb;
+}
+.text-layout-color input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+}
+.text-layout-color:focus-within {
+  outline: 2px solid #1677ff;
+}
+
+.text-layout-layers {
+  border: 1px solid #bcc6d4;
+  border-radius: 8px;
+  padding: 8px;
+  background: #f0f3f7;
+  box-shadow: inset 0 1px 3px #1522380a;
+  min-height: 64px;
+}
+.text-layout-layers .text-layout-layer {
+  background: #fff;
+  border-color: #d9e0e9;
+  min-height: 40px;
+}
+.text-layout-layers .text-layout-layer.active {
+  background: #e6f4ff;
+  border-color: #1677ff;
+  box-shadow: inset 3px 0 #1677ff;
+}
+
+.text-layout-text-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.text-layout-text-row .text-layout-content-input {
+  width: 350px;
+  max-width: 100%;
+  flex: 0 1 350px;
+  height: 32px;
+  min-height: 32px;
+  resize: none;
+}
+.text-layout-text-tools {
+  flex-shrink: 0;
+}
