@@ -128,6 +128,7 @@ export default function BatchEngravingComposer({
   const [slots, setSlots] = useState(initialSlots),
     [selected, setSelected] = useState(() => slots[0].id),
     [states, setStates] = useState<Record<string, State>>({});
+  const [controlsHost,setControlsHost]=useState<HTMLDivElement|null>(null);
   const slotsRef = useRef(slots);
   const statesRef = useRef(states);
   statesRef.current = states;
@@ -292,6 +293,7 @@ export default function BatchEngravingComposer({
     slots.some((s) => !states[s.id]?.loaded || states[s.id]?.importing);
   return (
     <section>
+      <header><h2>客户定制黑白 Logo</h2><p>照片雕刻工作台 · 保留主体细节，输出适合黑色涂层的灰度或点阵 PNG</p></header>
       <Card title="导入原照 · 多图独立任务" className="workflow-card">
         <Upload.Dragger
           accept="image/jpeg,image/png,image/webp,image/svg+xml,.svg"
@@ -328,7 +330,7 @@ export default function BatchEngravingComposer({
           <InputNumber
             aria-label="同时处理任务数"
             min={1}
-            max={4}
+            max={20}
             precision={0}
             value={parallel}
             disabled={deleting || batch || anyBusy}
@@ -373,6 +375,7 @@ export default function BatchEngravingComposer({
         {progress && <p role="status">{progress}</p>}
         {error && <Alert type="error" title={error} />}
       </Card>
+      <div ref={setControlsHost} aria-label="当前原照设置" />
       {slots.map((slot) => {
         if (!controls.current.has(slot.id))
           controls.current.set(slot.id, createRef<Controller>());
@@ -382,6 +385,7 @@ export default function BatchEngravingComposer({
               scope={slot.id === "default" ? undefined : slot.id}
               embedded
               workspaceActive={selected === slot.id}
+              controlsHost={selected === slot.id ? controlsHost : null}
               initialFile={slot.file}
               onTaskState={callback(slot.id)}
               controllerRef={controls.current.get(slot.id)}

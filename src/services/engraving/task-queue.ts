@@ -22,7 +22,7 @@ export async function runTaskQueue(
       {
         length: Math.min(
           items.length,
-          Math.max(1, Math.min(4, Math.floor(concurrency) || 1)),
+          Math.max(1, Math.min(20, Math.floor(concurrency) || 1)),
         ),
       },
       worker,

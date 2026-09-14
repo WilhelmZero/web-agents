@@ -276,7 +276,8 @@ it.each([false, true])('keeps both real task results visible when concurrent res
  type Control={start:()=>Promise<void>;stop:()=>void;flush:()=>Promise<void>};
  const refs=[createRef<Control>(),createRef<Control>()];
  const view=render(<>{[0,1].map(i=><CustomMonochromeLogoComposer key={i} embedded workspaceActive={i===0} settingsHost={null} controllerRef={refs[i]} openAiApiKey="mock" onConfigureKey={vi.fn()}/>)}</>);
- await waitFor(()=>expect(screen.getByRole('button',{name:'生成黑白 Logo'})).toBeEnabled(), {timeout:10000});
+ await waitFor(()=>expect(screen.getAllByRole('button',{name:'任务历史'}).every(b=>!b.hasAttribute('disabled'))).toBe(true), {timeout:10000});
+ expect(screen.queryByRole('button',{name:'生成黑白 Logo'})).toBeNull();
  let running:Promise<void>[]=[];
  await act(async()=>{running=refs.map(ref=>ref.current!.start());});
  await waitFor(()=>expect(generate).toHaveBeenCalledTimes(2), {timeout:10000});

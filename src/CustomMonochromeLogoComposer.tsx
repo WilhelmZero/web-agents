@@ -126,6 +126,7 @@ export function EngravingTaskComposer({
   controllerRef,
   batchLocked = false,
   workspaceActive = true,
+  controlsHost,
 }: {
   openAiApiKey: string;
   onConfigureKey: () => void;
@@ -135,6 +136,7 @@ export function EngravingTaskComposer({
   initialFile?: File;
   batchLocked?: boolean;
   workspaceActive?: boolean;
+  controlsHost?: HTMLElement | null;
   controllerRef?: React.Ref<{ start: () => Promise<void>; stop: () => void; flush: () => Promise<void> }>;
   onTaskState?: (state: {
     task: SavedTask;
@@ -633,56 +635,7 @@ export function EngravingTaskComposer({
       </Space>
     </div>
   );
-  return (
-    <section className="custom-monochrome-logo">
-      <header hidden={!workspaceActive}>
-        <div>
-          <h2>客户定制黑白 Logo</h2>
-          <p>照片雕刻工作台 · 保留主体细节，输出适合黑色涂层的灰度或点阵 PNG</p>
-        </div>
-        <Button disabled={locked} onClick={() => void openHistory()}>
-          任务历史
-        </Button>
-      </header>
-      <Modal
-        open={historyOpen}
-        title="任务历史"
-        onCancel={() => !historyBusy && setHistoryOpen(false)}
-        footer={null}
-      >
-        <p>
-          各标签独立保存。恢复会创建副本，当前任务仍保留在历史中；历史仅保存在此浏览器。
-        </p>
-        {!history.length && <p>暂无保存的任务。</p>}
-        <Space orientation="vertical" style={{ width: "100%" }}>
-          {history.map((entry) => (
-            <Card key={entry.id} size="small">
-              <Space wrap>
-                <span>
-                  {entry.fileName || "未命名任务"} · {entry.count} 张 ·{" "}
-                  {new Date(entry.updatedAt).toLocaleString()}
-                </span>
-                <Button
-                  disabled={historyBusy}
-                  onClick={() => void restoreHistory(entry.id)}
-                >
-                  恢复副本
-                </Button>
-              </Space>
-            </Card>
-          ))}
-        </Space>
-      </Modal>
-      {storageWarning ? (
-        <Alert type="warning" showIcon title={storageWarning} />
-      ) : null}
-      {error || run?.error ? (
-        <Alert type="error" showIcon title={error || run?.error} />
-      ) : null}
-      {notice ? <Alert type="info" title={notice} /> : null}
-      <div className="engraving-layout">
-        <main>
-          <div hidden={!workspaceActive}>
+  const controlsPanel = (<div hidden={!workspaceActive}>
           {!embedded && (
             <Card
               className="workflow-card"
@@ -897,7 +850,7 @@ export function EngravingTaskComposer({
               />
             </Space>
           </Card>
-          <Card className="action-card">
+          {!embedded && <Card className="action-card">
             <Flex justify="space-between" align="center" gap={12} wrap>
               <div>
                 <h3>生成黑白 Logo</h3>
@@ -931,7 +884,7 @@ export function EngravingTaskComposer({
                 ) : null}
               </Space>
             </Flex>
-          </Card>
+          </Card>}
           {run ? (
             <Card size="small">
               <Space wrap>
@@ -960,8 +913,58 @@ export function EngravingTaskComposer({
               />
             </Card>
           ) : null}
-          </div>
-          {embedded && task.original && <h3>原照：{task.fileName} · {busy ? "生成中" : "生成结果"}</h3>}
+          </div>);
+  return (
+    <section className="custom-monochrome-logo">
+      <header hidden={embedded || !workspaceActive}>
+        <div>
+          <h2>客户定制黑白 Logo</h2>
+          <p>照片雕刻工作台 · 保留主体细节，输出适合黑色涂层的灰度或点阵 PNG</p>
+        </div>
+        <Button disabled={locked} onClick={() => void openHistory()}>
+          任务历史
+        </Button>
+      </header>
+      <Modal
+        open={historyOpen}
+        title="任务历史"
+        onCancel={() => !historyBusy && setHistoryOpen(false)}
+        footer={null}
+      >
+        <p>
+          各标签独立保存。恢复会创建副本，当前任务仍保留在历史中；历史仅保存在此浏览器。
+        </p>
+        {!history.length && <p>暂无保存的任务。</p>}
+        <Space orientation="vertical" style={{ width: "100%" }}>
+          {history.map((entry) => (
+            <Card key={entry.id} size="small">
+              <Space wrap>
+                <span>
+                  {entry.fileName || "未命名任务"} · {entry.count} 张 ·{" "}
+                  {new Date(entry.updatedAt).toLocaleString()}
+                </span>
+                <Button
+                  disabled={historyBusy}
+                  onClick={() => void restoreHistory(entry.id)}
+                >
+                  恢复副本
+                </Button>
+              </Space>
+            </Card>
+          ))}
+        </Space>
+      </Modal>
+      {storageWarning ? (
+        <Alert type="warning" showIcon title={storageWarning} />
+      ) : null}
+      {error || run?.error ? (
+        <Alert type="error" showIcon title={error || run?.error} />
+      ) : null}
+      {notice ? <Alert type="info" title={notice} /> : null}
+      <div className="engraving-layout">
+        <main>
+          {embedded ? (controlsHost && createPortal(controlsPanel, controlsHost)) : controlsPanel}
+          {embedded && <Space wrap><h3>原照：{task.fileName || "待导入"} · {busy ? "生成中" : "生成结果"}</h3><Button disabled={locked} onClick={()=>void openHistory()}>任务历史</Button>{busy && <Button danger onClick={stopGeneration}>停止此任务</Button>}</Space>}
           <EngravingGallery
             onClear={() => setClearOpen(true)}
             clearDisabled={locked}

@@ -13,7 +13,7 @@ export function validateAutoOptions(value = {}) {
 
 function assessed(review, target, outpaint) {
   const score = Math.round(SCORE_KEYS.reduce((sum, key) => sum + review.scores[key], 0) / SCORE_KEYS.length);
-  const passed = score >= target && (!outpaint?.enabled || (review.scores.subjects >= 90 && review.scores.identity >= 90 && !review.issues.some(k => ['subjects','identity','artifacts'].includes(k))));
+  const passed = score >= target;
   return { ...review, score, passed, issueLabels: review.issues.map(key => ISSUES[key]) };
 }
 
@@ -74,7 +74,7 @@ export async function runAutoTune({ original, reference, config, subject, instru
       if (!best || rank(entry) > rank(best)) best = entry;
       await publish(state('running', `第 ${round}/${maxRounds} 轮：${assessment.passed ? '检查通过' : '发现待改进项'}`));
       if (cancelled()) return state('cancelled', '已停止，保留最好的一版');
-      if (assessment.passed) { best = entry; return state('completed', '自动检查通过，请人工确认后雕刻'); }
+      if (assessment.passed) { best = entry; return state('completed', '已达目标评分，已停止优化；请人工确认后雕刻'); }
       if (round === maxRounds) break;
       tried.add(JSON.stringify(ADJUST_KEYS.map(key => params[key])));
       const proposed = { ...params, ...assessment.adjustments };

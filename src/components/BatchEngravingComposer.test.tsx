@@ -1,3 +1,4 @@
+import {createPortal} from "react-dom";
 import { useEffect, useImperativeHandle, useMemo } from "react";
 import {
   render,
@@ -23,12 +24,14 @@ vi.mock("../CustomMonochromeLogoComposer", () => ({
     controllerRef,
     scope,
     workspaceActive,
+    controlsHost,
   }: {
     initialFile?: File;
     onTaskState: (v: unknown) => void;
     controllerRef: React.Ref<unknown>;
     scope?: string;
     workspaceActive?: boolean;
+    controlsHost?: HTMLElement|null;
   }) => {
     const task = useMemo<SavedTask>(
       () => ({
@@ -57,7 +60,7 @@ vi.mock("../CustomMonochromeLogoComposer", () => ({
       flush: () => calls.flush(),
       stop: () => calls.stop(scope || "default"),
     }));
-    return <div hidden={!workspaceActive}>编辑任务：{initialFile?.name || "空"}</div>;
+    return <>{!controlsHost && <div hidden>编辑任务：{initialFile?.name || "空"}</div>}{controlsHost && createPortal(<div hidden={!workspaceActive}>编辑任务：{initialFile?.name || "空"}</div>,controlsHost)}<div>结果分组：{initialFile?.name || "空"}</div></>;
   },
 }));
 afterEach(() => {
@@ -179,3 +182,5 @@ it("disables removal while a task is generating", async () => {
   expect(screen.getByRole("button", { name: "全部删除" })).toBeDisabled();
   expect(calls.flush).not.toHaveBeenCalled();
 }, 20000);
+
+it('keeps heading and selected controls before every result group after switching photos',async()=>{await uploadPair();const title=screen.getByRole('heading',{name:'客户定制黑白 Logo'});const controls=screen.getByLabelText('当前原照设置');const a=screen.getByText('结果分组：A.png');expect(title.compareDocumentPosition(controls)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();expect(controls.compareDocumentPosition(a)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();fireEvent.click(screen.getByRole('button',{name:'切换任务 A.png'}));expect(screen.getByText('编辑任务：A.png')).toBeVisible();expect(controls.compareDocumentPosition(a)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();expect(screen.getByRole('spinbutton',{name:'同时处理任务数'})).toHaveAttribute('aria-valuemax','20');},20000);

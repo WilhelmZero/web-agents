@@ -22,3 +22,5 @@ it('creates real directional padding and closes image resources',async()=>{
  const prompt=buildPrompt({hasReference:true,editMode:true,outpaint:{enabled:true,instructions:'右侧'}});expect(prompt).toContain('original frame is NOT a crop boundary');expect(prompt).toContain('Do not merely shrink');
  expect(buildReviewPrompt(DEFAULTS,'',{enabled:true,instructions:'右侧'})).toContain('set subjects below 60');
 });
+
+it('allows twenty simultaneous tasks and clamps higher values to twenty',async()=>{let count=0,cancel=false;const release:(()=>void)[]=[];const run=runTaskQueue(Array.from({length:25},(_,i)=>({id:String(i),run:async()=>{count++;await new Promise<void>(r=>release.push(r));}})),99,()=>cancel,()=>{});expect(count).toBe(20);cancel=true;release.forEach(r=>r());await run;expect(count).toBe(20);});
