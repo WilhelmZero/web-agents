@@ -1,4 +1,6 @@
 export interface TextBlock {
+  bold?: boolean;
+  autoSize?: boolean;
   id: string;
   text: string;
   x: number;
@@ -49,6 +51,8 @@ export function validateLayout(value: EngravingLayout): EngravingLayout {
   const ids = new Set<string>();
   for (const t of value.texts) {
     if (
+      (t.bold !== undefined && typeof t.bold !== "boolean") ||
+      (t.autoSize !== undefined && typeof t.autoSize !== "boolean") ||
       !t.id ||
       ids.has(t.id) ||
       typeof t.text !== "string" ||

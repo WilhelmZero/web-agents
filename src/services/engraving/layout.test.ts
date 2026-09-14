@@ -48,7 +48,8 @@ describe("editable engraving layout", () => {
   it("uses the expanded aspect ratio for export and retains layout in result history", () => {
     const result: StoredResult = {
       job: { id: "a", blob: new Blob(), width: 600, height: 600, warnings: [] },
-      params: { ...DEFAULTS }, initialParams: { ...DEFAULTS },
+      params: { ...DEFAULTS },
+      initialParams: { ...DEFAULTS },
       reviews: [],
       createdAt: 1,
     };
@@ -124,5 +125,67 @@ describe("editable engraving layout", () => {
         { width: 600, height: 600 } as CanvasImageSource,
       ),
     ).toEqual(["t"]);
+  });
+});
+
+describe("automatic text layers", () => {
+  it("fits manual lines, outlines and bold metrics without wrapping to the old width", async () => {
+    const { fitLayoutTexts, setTextFont, autoTextMetrics } =
+      await import("./layout-draw");
+    const ctx = {
+      font: "",
+      measureText(this: { font: string }, s: string) {
+        return {
+          width: s.length * (this.font.startsWith("bold") ? 15 : 10),
+          actualBoundingBoxAscent: 40,
+          actualBoundingBoxDescent: 10,
+          actualBoundingBoxLeft: 3,
+          actualBoundingBoxRight:
+            s.length * (this.font.startsWith("bold") ? 15 : 10) + 5,
+        };
+      },
+    } as unknown as CanvasRenderingContext2D;
+    const t = {
+      ...layout.texts[0],
+      text: "Memory\n2026",
+      autoSize: true,
+      width: 5,
+    };
+    expect(textLines(ctx, t).lines).toEqual(["Memory", "2026"]);
+    const normal = await fitLayoutTexts(ctx, { ...layout, texts: [t] });
+    const bold = await fitLayoutTexts(ctx, {
+      ...layout,
+      texts: [{ ...t, bold: true }],
+    });
+    expect(bold.texts[0].width).toBeGreaterThan(normal.texts[0].width);
+    expect(normal.texts[0].height).toBe(120);
+    expect(await fitLayoutTexts(ctx, bold)).toBe(bold);
+    setTextFont(ctx, { ...t, bold: true }, "font");
+    expect(ctx.font).toBe('bold 50px "font"');
+    expect(
+      autoTextMetrics(ctx, { ...t, letterSpacing: -100 }).width,
+    ).toBeGreaterThan(1);
+  });
+  it("resizes via font size and reorders layers without mutating the source", async () => {
+    const { resizeText, reorderTextLayers } = await import("./layout-edit");
+    expect(resizeText(layout.texts[0], 2)).toMatchObject({
+      fontSize: 100,
+      width: 1120,
+      height: 300,
+      autoSize: true,
+    });
+    expect(resizeText(layout.texts[0], -1).fontSize).toBe(1);
+    const texts = [
+      layout.texts[0],
+      { ...layout.texts[0], id: "b" },
+      { ...layout.texts[0], id: "c" },
+    ];
+    expect(reorderTextLayers(texts, "t", "c").map((t) => t.id)).toEqual([
+      "b",
+      "c",
+      "t",
+    ]);
+    expect(texts.map((t) => t.id)).toEqual(["t", "b", "c"]);
+    expect(reorderTextLayers(texts, "image", "c")).toBe(texts);
   });
 });

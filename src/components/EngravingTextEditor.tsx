@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Button,
@@ -6,6 +6,8 @@ import {
   InputNumber,
   Modal,
   Select,
+  Slider,
+  Switch,
   Space,
   Upload,
 } from "antd";
@@ -21,7 +23,11 @@ import {
   importFont,
   localFonts,
 } from "../services/engraving/layout-fonts";
-import { drawLayout } from "../services/engraving/layout-draw";
+import {
+  resizeText,
+  reorderTextLayers,
+} from "../services/engraving/layout-edit";
+import { drawLayout, fitLayoutTexts } from "../services/engraving/layout-draw";
 import { useEngravingPreview } from "../services/engraving/preview";
 import { cropPixels } from "../services/engraving/processing.mjs";
 import "./EngravingTextEditor.css";
@@ -87,6 +93,9 @@ export default function EngravingTextEditor({
       },
     );
   });
+  const [renderedLayout, setRenderedLayout] = useState<EngravingLayout | null>(
+    null,
+  );
   const [selected, setSelected] = useState("image"),
     [error, setError] = useState(""),
     [overflow, setOverflow] = useState<string[]>([]),
@@ -102,8 +111,24 @@ export default function EngravingTextEditor({
     [category, setCategory] = useState("all");
   const canvas = useRef<HTMLCanvasElement>(null),
     viewport = useRef<HTMLDivElement>(null);
+  const [viewportNode, setViewportNode] = useState<HTMLDivElement | null>(null);
+  const initialBounds = useRef({ width: layout.width, height: layout.height });
+  const attachViewport = useCallback((el: HTMLDivElement | null) => {
+    viewport.current = el;
+    setViewportNode(el);
+    if (el && el.clientWidth && el.clientHeight) {
+      const { width, height } = initialBounds.current;
+      const z =
+        Math.min(el.clientWidth / width, el.clientHeight / height) * 0.9;
+      setZoom(z);
+      setPan({
+        x: (el.clientWidth - width * z) / 2,
+        y: (el.clientHeight - height * z) / 2,
+      });
+    }
+  }, []);
   useEffect(() => {
-    const el = viewport.current;
+    const el = viewportNode;
     if (!el) return;
     const wheel = (e: WheelEvent) => {
       e.preventDefault();
@@ -119,7 +144,7 @@ export default function EngravingTextEditor({
     };
     el.addEventListener("wheel", wheel, { passive: false });
     return () => el.removeEventListener("wheel", wheel);
-  }, [zoom, pan]);
+  }, [viewportNode, zoom, pan]);
   const latest = useRef(layout);
   latest.current = layout;
   const baseParams = useMemo(
@@ -134,6 +159,15 @@ export default function EngravingTextEditor({
   const preview = useEngravingPreview(result.job.blob, baseParams);
   const text = layout.texts.find((t) => t.id === selected);
   useEffect(() => {
+    if (text && !text.autoSize)
+      setLayout((l) => ({
+        ...l,
+        texts: l.texts.map((t) =>
+          t.id === selected ? { ...t, autoSize: true } : t,
+        ),
+      }));
+  }, [selected, text?.autoSize]);
+  useEffect(() => {
     void localFonts()
       .then(setExtra)
       .catch((e) => setError(e.message));
@@ -145,6 +179,13 @@ export default function EngravingTextEditor({
     setError("");
     const timer = setTimeout(() => {
       void (async () => {
+        const measure = document.createElement("canvas").getContext("2d")!;
+        const fitted = await fitLayoutTexts(measure, layout);
+        if (!alive) return;
+        if (fitted !== layout) {
+          setLayout((current) => (current === layout ? fitted : current));
+          return;
+        }
         validateLayout(layout);
         const image = await createImageBitmap(preview.blob!);
         const ratio = Math.min(1, 1200 / Math.max(layout.width, layout.height));
@@ -164,6 +205,7 @@ export default function EngravingTextEditor({
           canvas.current.height = off.height;
           canvas.current.getContext("2d")!.drawImage(off, 0, 0);
           setOverflow(over);
+          setRenderedLayout(layout);
         }
       })()
         .catch((e) => alive && setError(e.message))
@@ -177,7 +219,9 @@ export default function EngravingTextEditor({
   const patch = (value: Partial<TextBlock>) =>
     setLayout((l) => ({
       ...l,
-      texts: l.texts.map((t) => (t.id === selected ? { ...t, ...value } : t)),
+      texts: l.texts.map((t) =>
+        t.id === selected ? { ...t, autoSize: true, ...value } : t,
+      ),
     }));
   const num = (
     label: string,
@@ -185,18 +229,30 @@ export default function EngravingTextEditor({
     onChange: (v: number) => void,
     min = -32768,
     max = 32768,
+    sliderMin = min,
+    sliderMax = max,
   ) => (
-    <label>
-      {label}
-      <InputNumber
-        precision={2}
-        aria-label={label}
-        value={value}
-        min={min}
-        max={max}
-        onChange={(v) => v !== null && onChange(v)}
-      />
-    </label>
+    <div className="text-layout-number">
+      <span>{label}</span>
+      <div className="text-layout-number-controls">
+        <Slider
+          ariaLabelForHandle={label + "滑动条"}
+          min={sliderMin}
+          max={sliderMax}
+          step={0.01}
+          value={Math.max(sliderMin, Math.min(sliderMax, value))}
+          onChange={onChange}
+        />
+        <InputNumber
+          precision={2}
+          aria-label={label}
+          value={value}
+          min={min}
+          max={max}
+          onChange={(v) => v !== null && Number.isFinite(v) && onChange(v)}
+        />
+      </div>
+    </div>
   );
   const fit = () => {
     const w = viewport.current?.clientWidth || 700,
@@ -255,9 +311,12 @@ export default function EngravingTextEditor({
             ? t
             : d.kind === "resize"
               ? {
-                  ...b,
-                  width: Math.max(1, b.width + dx),
-                  height: Math.max(1, b.height + dy),
+                  ...resizeText(
+                    b,
+                    1 +
+                      (dx * b.width + dy * b.height) /
+                        (b.width * b.width + b.height * b.height),
+                  ),
                 }
               : { ...b, x: b.x + dx, y: b.y + dy },
         ),
@@ -296,6 +355,91 @@ export default function EngravingTextEditor({
   const fonts = [...FONT_CATALOG, ...extra].filter(
     (f) => category === "all" || f.group === category,
   );
+  const layerDrag = useRef<string | null>(null);
+  const [layerTarget, setLayerTarget] = useState<string | null>(null);
+  const reorder = (source: string, target: string) =>
+    setLayout((l) => ({
+      ...l,
+      texts: reorderTextLayers(l.texts, source, target),
+    }));
+  const targetLayer = (e: React.PointerEvent) =>
+    document
+      .elementFromPoint(e.clientX, e.clientY)
+      ?.closest<HTMLElement>("[data-text-layer]")?.dataset.textLayer;
+  const layers = (
+    <div className="text-layout-layers" aria-label="图层列表">
+      {[...layout.texts].reverse().map((t) => (
+        <div
+          key={t.id}
+          data-text-layer={t.id}
+          className={
+            "text-layout-layer " +
+            (selected === t.id ? "active " : "") +
+            (layerTarget === t.id ? "drop-target" : "")
+          }
+        >
+          <button
+            type="button"
+            className="text-layer-grip"
+            aria-label={"拖动图层 " + (t.text || "空文字")}
+            title="上下拖动排序，也可用方向键调整"
+            onPointerDown={(e) => {
+              e.preventDefault();
+              layerDrag.current = t.id;
+              setSelected(t.id);
+              e.currentTarget.setPointerCapture(e.pointerId);
+            }}
+            onPointerMove={(e) => {
+              if (layerDrag.current) setLayerTarget(targetLayer(e) || null);
+            }}
+            onPointerUp={(e) => {
+              const target = targetLayer(e);
+              if (layerDrag.current && target)
+                reorder(layerDrag.current, target);
+              layerDrag.current = null;
+              setLayerTarget(null);
+            }}
+            onPointerCancel={() => {
+              layerDrag.current = null;
+              setLayerTarget(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+              e.preventDefault();
+              const index = layout.texts.findIndex((b) => b.id === t.id),
+                target = layout.texts[index + (e.key === "ArrowUp" ? 1 : -1)];
+              if (target) reorder(t.id, target.id);
+            }}
+          >
+            ⠿
+          </button>
+          <button
+            type="button"
+            className="text-layer-select"
+            aria-pressed={selected === t.id}
+            onClick={() => setSelected(t.id)}
+          >
+            <span aria-hidden="true">T</span>
+            <span>{t.text || "空文字"}</span>
+          </button>
+        </div>
+      ))}
+      <div
+        className={
+          "text-layout-layer " + (selected === "image" ? "active" : "")
+        }
+      >
+        <button
+          type="button"
+          className="text-layer-select"
+          aria-pressed={selected === "image"}
+          onClick={() => setSelected("image")}
+        >
+          图片图层 <small>底层</small>
+        </button>
+      </div>
+    </div>
+  );
   const overlay = (
     id: string,
     b: { x: number; y: number; width: number; height: number },
@@ -315,6 +459,7 @@ export default function EngravingTextEditor({
     >
       {selected === id && (
         <span
+          aria-label={id === "image" ? "缩放图片" : "缩放文字"}
           className="text-layout-handle"
           style={{ width: 12 / zoom, height: 12 / zoom }}
           onPointerDown={(e) => start(e, id, "resize")}
@@ -347,6 +492,7 @@ export default function EngravingTextEditor({
             type="primary"
             disabled={
               busy ||
+              renderedLayout !== layout ||
               !!error ||
               !!preview.error ||
               !preview.blob ||
@@ -384,11 +530,14 @@ export default function EngravingTextEditor({
             >
               拖动画布
             </Button>
-            <span>{Math.round(zoom * 100)}% · 尺寸单位：设计像素</span>
+            <span data-testid="layout-zoom">
+              {Math.round(zoom * 100)}% · 尺寸单位：设计像素
+            </span>
           </Space>
           <div
             className="text-layout-viewport"
-            ref={viewport}
+            ref={attachViewport}
+            aria-label="排版画布"
             onPointerDown={(e) => start(e, "image", "pan")}
             onPointerMove={move}
             onPointerUp={() => (drag.current = null)}
@@ -436,51 +585,61 @@ export default function EngravingTextEditor({
               layout.width,
               (v) => setLayout((l) => ({ ...l, width: v })),
               1,
-              8192,
+              Number.POSITIVE_INFINITY,
+              100,
+              4096,
             )}
             {num(
               "画布高度",
               layout.height,
               (v) => setLayout((l) => ({ ...l, height: v })),
               1,
-              8192,
+              Number.POSITIVE_INFINITY,
+              100,
+              4096,
             )}
           </div>
-          <h4>图片</h4>
-          <Button onClick={() => setSelected("image")}>选择图片</Button>
-          <div className="text-layout-grid">
-            {num("图片 X", layout.image.x, (x) =>
-              setLayout((l) => ({ ...l, image: { ...l.image, x } })),
-            )}
-            {num("图片 Y", layout.image.y, (y) =>
-              setLayout((l) => ({ ...l, image: { ...l.image, y } })),
-            )}
-            {num(
-              "图片宽度",
-              layout.image.width,
-              (width) =>
-                setLayout((l) => ({
-                  ...l,
-                  image: {
-                    ...l.image,
-                    width,
-                    height: (l.image.height * width) / l.image.width,
-                  },
-                })),
-              1,
-            )}
-          </div>
-          <Button
-            onClick={() =>
-              setLayout((l) => ({
-                ...l,
-                image: { ...l.image, x: (l.width - l.image.width) / 2 },
-              }))
-            }
-          >
-            图片水平居中
-          </Button>
-          <h4>文字块</h4>
+          <h4>图层</h4>
+          <small>从上到下为从前到后；拖动文字图层左侧手柄排序。</small>
+          {layers}
+          {selected === "image" && (
+            <>
+              <h4>图片参数</h4>
+              <div className="text-layout-grid">
+                {num("图片 X", layout.image.x, (x) =>
+                  setLayout((l) => ({ ...l, image: { ...l.image, x } })),
+                )}
+                {num("图片 Y", layout.image.y, (y) =>
+                  setLayout((l) => ({ ...l, image: { ...l.image, y } })),
+                )}
+                {num(
+                  "图片宽度",
+                  layout.image.width,
+                  (width) =>
+                    setLayout((l) => ({
+                      ...l,
+                      image: {
+                        ...l.image,
+                        width,
+                        height: (l.image.height * width) / l.image.width,
+                      },
+                    })),
+                  1,
+                )}
+              </div>
+              <Button
+                onClick={() =>
+                  setLayout((l) => ({
+                    ...l,
+                    image: { ...l.image, x: (l.width - l.image.width) / 2 },
+                  }))
+                }
+              >
+                图片水平居中
+              </Button>
+            </>
+          )}
+          <h4>{text ? "文字参数" : "添加文字"}</h4>
           <Space wrap>
             <Button
               onClick={() => {
@@ -496,6 +655,8 @@ export default function EngravingTextEditor({
                       y: l.height * 0.8,
                       width: l.width * 0.9,
                       height: l.height * 0.18,
+                      autoSize: true,
+                      bold: false,
                       font: "great-vibes",
                       fontSize: Math.max(12, l.width * 0.07),
                       color: "#ffffff",
@@ -547,17 +708,6 @@ export default function EngravingTextEditor({
               </>
             )}
           </Space>
-          <Select
-            aria-label="选择文字块"
-            value={text?.id}
-            placeholder="选择文字块"
-            style={{ width: "100%", marginTop: 8 }}
-            options={layout.texts.map((t, i) => ({
-              value: t.id,
-              label: `${i + 1}. ${t.text || "空文字"}`,
-            }))}
-            onChange={setSelected}
-          />
           {text && (
             <>
               <Input.TextArea
@@ -568,13 +718,37 @@ export default function EngravingTextEditor({
                 onChange={(e) => patch({ text: e.target.value })}
               />
               <div className="text-layout-grid">
-                {num("文字 X", text.x, (x) => patch({ x }))}
-                {num("文字 Y", text.y, (y) => patch({ y }))}
-                {num("文本框宽度", text.width, (width) => patch({ width }), 1)}
                 {num(
-                  "文本框高度",
+                  "文字 X",
+                  text.x,
+                  (x) => patch({ x }),
+                  -32768,
+                  32768,
+                  -layout.width,
+                  layout.width,
+                )}
+                {num(
+                  "文字 Y",
+                  text.y,
+                  (y) => patch({ y }),
+                  -32768,
+                  32768,
+                  -layout.height,
+                  layout.height,
+                )}
+                {num(
+                  "文字宽度",
+                  text.width,
+                  (width) => patch(resizeText(text, width / text.width)),
+                  1,
+                  32768,
+                  1,
+                  2000,
+                )}
+                {num(
+                  "文字高度",
                   text.height,
-                  (height) => patch({ height }),
+                  (height) => patch(resizeText(text, height / text.height)),
                   1,
                 )}
                 {num(
@@ -583,6 +757,8 @@ export default function EngravingTextEditor({
                   (fontSize) => patch({ fontSize }),
                   1,
                   4096,
+                  1,
+                  300,
                 )}
                 {num(
                   "行距倍数",
@@ -597,6 +773,8 @@ export default function EngravingTextEditor({
                   (letterSpacing) => patch({ letterSpacing }),
                   -200,
                   200,
+                  -20,
+                  50,
                 )}
                 {num(
                   "描边宽度",
@@ -604,6 +782,8 @@ export default function EngravingTextEditor({
                   (strokeWidth) => patch({ strokeWidth }),
                   0,
                   500,
+                  0,
+                  50,
                 )}
                 <label>
                   文字颜色
@@ -624,49 +804,22 @@ export default function EngravingTextEditor({
                   />
                 </label>
               </div>
-              <Select
-                aria-label="内部对齐"
-                value={text.align}
-                options={[
-                  { value: "left", label: "左对齐" },
-                  { value: "center", label: "居中对齐" },
-                  { value: "right", label: "右对齐" },
-                ]}
-                onChange={(align) => patch({ align })}
-              />
+              <label className="text-layout-bold">
+                加粗{" "}
+                <Switch
+                  aria-label="文字加粗"
+                  checked={!!text.bold}
+                  onChange={(bold) => patch({ bold })}
+                />
+              </label>
+              <small>
+                文本框自动适应文字，拖动右下角同步调整字号；回车可换行。
+              </small>
               <Button
                 onClick={() => patch({ x: (layout.width - text.width) / 2 })}
               >
                 文字水平居中
               </Button>
-              <Space>
-                <Button
-                  onClick={() =>
-                    setLayout((l) => ({
-                      ...l,
-                      texts: [
-                        ...l.texts.filter((t) => t.id !== selected),
-                        text,
-                      ],
-                    }))
-                  }
-                >
-                  移到最前
-                </Button>
-                <Button
-                  onClick={() =>
-                    setLayout((l) => ({
-                      ...l,
-                      texts: [
-                        text,
-                        ...l.texts.filter((t) => t.id !== selected),
-                      ],
-                    }))
-                  }
-                >
-                  移到最后
-                </Button>
-              </Space>
               <h4>字体</h4>
               <Select
                 aria-label="字体分类"

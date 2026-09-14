@@ -3,8 +3,11 @@ import { ensureLayoutFont } from "./layout-fonts";
 type Context = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 export function textLines(ctx: Context, t: TextBlock) {
   const measure = (s: string) =>
-    ctx.measureText(s).width +
+    (t.letterSpacing
+      ? Array.from(s).reduce((sum, ch) => sum + ctx.measureText(ch).width, 0)
+      : ctx.measureText(s).width) +
     Math.max(0, Array.from(s).length - 1) * t.letterSpacing;
+  if (t.autoSize) return { lines: t.text.split("\n"), measure };
   const lines: string[] = [];
   for (const paragraph of t.text.split("\n")) {
     let line = "";
@@ -29,6 +32,74 @@ export function textLines(ctx: Context, t: TextBlock) {
     lines.push(line.trimEnd());
   }
   return { lines, measure };
+}
+export function setTextFont(ctx: Context, t: TextBlock, family: string) {
+  ctx.font = `${t.bold ? "bold " : ""}${t.fontSize}px "${family}"`;
+}
+// Shared by editor, main-thread preview and the export worker. Include script
+// overhang and outlines so automatic boxes don't cut off swashes or bold ink.
+export function autoTextMetrics(ctx: Context, t: TextBlock) {
+  const { lines, measure } = textLines(ctx, { ...t, autoSize: true });
+  let ascent = 0,
+    descent = 0,
+    left = 0,
+    right = 0,
+    width = 0;
+  for (const line of lines) {
+    const m = ctx.measureText(line || "Mg");
+    ascent = Math.max(ascent, m.actualBoundingBoxAscent || t.fontSize * 0.8);
+    descent = Math.max(descent, m.actualBoundingBoxDescent || t.fontSize * 0.2);
+    width = Math.max(width, measure(line));
+    if (t.letterSpacing) {
+      let cursor = 0;
+      for (const ch of line) {
+        const ink = ctx.measureText(ch);
+        left = Math.max(left, (ink.actualBoundingBoxLeft || 0) - cursor);
+        right = Math.max(
+          right,
+          cursor + (ink.actualBoundingBoxRight || ink.width) - measure(line),
+        );
+        cursor += ink.width + t.letterSpacing;
+      }
+    } else {
+      left = Math.max(left, m.actualBoundingBoxLeft || 0);
+      right = Math.max(right, (m.actualBoundingBoxRight || m.width) - m.width);
+    }
+  }
+  const pad = t.strokeWidth + 1;
+  return {
+    width: Math.max(1, Math.ceil(width + left + right + pad * 2)),
+    height: Math.max(
+      1,
+      Math.ceil(
+        ascent +
+          descent +
+          (lines.length - 1) * t.fontSize * t.lineHeight +
+          pad * 2,
+      ),
+    ),
+    left: left + pad,
+    right: right + pad,
+    top: ascent + pad,
+  };
+}
+export async function fitLayoutTexts(
+  ctx: Context,
+  layout: EngravingLayout,
+): Promise<EngravingLayout> {
+  const families = await Promise.all(
+    layout.texts.map((t) => ensureLayoutFont(t.font)),
+  );
+  let changed = false;
+  const texts = layout.texts.map((t, i) => {
+    if (!t.autoSize) return t;
+    setTextFont(ctx, t, families[i]);
+    const { width, height } = autoTextMetrics(ctx, t);
+    if (width === t.width && height === t.height) return t;
+    changed = true;
+    return { ...t, width, height };
+  });
+  return changed ? { ...layout, texts } : layout;
 }
 export async function drawLayout(
   ctx: Context,
@@ -57,7 +128,9 @@ export async function drawLayout(
   const overflow: string[] = [];
   layout.texts.forEach((t, index) => {
     ctx.save();
-    ctx.font = `${t.fontSize}px "${families[index]}"`;
+    setTextFont(ctx, t, families[index]);
+    const auto = t.autoSize ? autoTextMetrics(ctx, t) : undefined;
+    if (auto) t = { ...t, width: auto.width, height: auto.height };
     ctx.textBaseline = "alphabetic";
     ctx.lineJoin = "round";
     ctx.miterLimit = 2;
@@ -66,12 +139,13 @@ export async function drawLayout(
     const ascent = metrics.actualBoundingBoxAscent || t.fontSize * 0.8,
       descent = metrics.actualBoundingBoxDescent || t.fontSize * 0.2;
     if (
-      (lines.length - 1) * t.fontSize * t.lineHeight +
+      !auto &&
+      ((lines.length - 1) * t.fontSize * t.lineHeight +
         ascent +
         descent +
         t.strokeWidth >
         t.height ||
-      lines.some((l) => measure(l) + t.strokeWidth > t.width)
+        lines.some((l) => measure(l) + t.strokeWidth > t.width))
     )
       overflow.push(t.id);
     ctx.beginPath();
@@ -87,14 +161,16 @@ export async function drawLayout(
     ctx.fillStyle = t.color;
     const paint = (stroke: boolean) =>
       lines.forEach((line, i) => {
+        const innerWidth = t.width - (auto ? auto.left + auto.right : 0);
         let x =
           t.x +
+          (auto?.left || 0) +
           (t.align === "center"
-            ? (t.width - measure(line)) / 2
+            ? (innerWidth - measure(line)) / 2
             : t.align === "right"
-              ? t.width - measure(line)
+              ? innerWidth - measure(line)
               : 0);
-        const y = t.y + ascent + i * t.fontSize * t.lineHeight;
+        const y = t.y + (auto?.top || ascent) + i * t.fontSize * t.lineHeight;
         if (!t.letterSpacing) {
           if (stroke) ctx.strokeText(line, x, y);
           else ctx.fillText(line, x, y);
