@@ -1,3 +1,4 @@
+import { providerError } from "./provider-error";
 import { AppError } from "./errors.mjs";
 
 export interface ImageProgress {
@@ -25,6 +26,7 @@ export async function readImageStream(
   response: Response,
   signal?: AbortSignal,
   progress?: (event: ImageProgress) => void,
+  secrets: string[] = [],
 ): Promise<Blob> {
   const reader = response.body?.getReader();
   if (!reader) throw new AppError("图像服务返回空响应。");
@@ -53,7 +55,12 @@ export async function readImageStream(
     if (!value || typeof value !== "object")
       throw new AppError("图像流事件格式无效，未自动重试。");
     if (value.type === "error" || value.error)
-      throw new AppError("图像服务在生成过程中返回错误，未自动重试。");
+      throw providerError(
+        value,
+        "图像服务在生成过程中返回错误，未自动重试。",
+        502,
+        secrets,
+      );
     if (value.type === "image_edit.partial_image" && !final) {
       const index = value.partial_image_index;
       if (!Number.isInteger(index) || index < 0 || index <= lastIndex) return;

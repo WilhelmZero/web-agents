@@ -338,3 +338,37 @@ it("rejects a copied reference without retrying or returning a candidate", async
   ).rejects.toThrow("参考图被当作输出");
   expect(fetcher).toHaveBeenCalledTimes(1);
 });
+
+it("surfaces HTTP provider diagnostics without leaking the key or blaming streaming", async () => {
+  const fetcher = vi.fn(async () =>
+    Response.json(
+      {
+        error: {
+          message: "Quota exhausted for " + config.apiKey,
+          code: "insufficient_quota",
+        },
+      },
+      { status: 429 },
+    ),
+  );
+  await expect(
+    createEngravingApi(fetcher as typeof fetch).generate(input()),
+  ).rejects.toMatchObject({
+    status: 429,
+    code: "insufficient_quota",
+    message: expect.stringContaining("Quota exhausted for [已隐藏]"),
+  });
+  expect(fetcher).toHaveBeenCalledOnce();
+});
+it("keeps non-photographic subjects authoritative in initial and continuing-edit prompts", () => {
+  for (const editMode of [false, true]) {
+    const prompt = buildPrompt({ editMode, hasReference: true });
+    expect(prompt).toContain("vector illustration");
+    expect(prompt).toContain(
+      "do not turn an illustrated character into a real person",
+    );
+    expect(prompt).toContain(
+      editMode ? "Image 3 is the ONLY source" : "Image 1 is the ONLY source",
+    );
+  }
+});

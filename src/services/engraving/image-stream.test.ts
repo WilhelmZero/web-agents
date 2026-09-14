@@ -89,3 +89,25 @@ it("keeps simultaneous requests isolated", async () => {
   expect(a).toHaveBeenCalledTimes(2);
   expect(b).toHaveBeenCalledTimes(1);
 });
+
+it("preserves SSE provider error details and redacts credentials", async () => {
+  const value = {
+    type: "error",
+    error: {
+      message: "quota exceeded for test-secret",
+      code: "insufficient_quota",
+    },
+  };
+  await expect(
+    readImageStream(
+      response("data: " + JSON.stringify(value) + "\n\n"),
+      undefined,
+      undefined,
+      ["test-secret"],
+    ),
+  ).rejects.toMatchObject({
+    status: 502,
+    code: "insufficient_quota",
+    message: expect.stringContaining("quota exceeded for [已隐藏]"),
+  });
+});

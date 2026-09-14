@@ -1,3 +1,4 @@
+import { providerError } from "./provider-error";
 import { rejectReferenceOutput } from "./reference-guard";
 import { readImageStream, imageBlob } from "./image-stream";
 import { supportsQuality } from "./models";
@@ -82,11 +83,17 @@ async function request(
       429: "额度不足或限流",
       503: "模型暂不可用",
     };
-    await response.body?.cancel();
-    throw new AppError(
+    let details: unknown;
+    try {
+      details = await boundedJson(response, 64 * 1024);
+    } catch {
+      /* Keep the HTTP status if the response is not JSON. */
+    }
+    throw providerError(
+      details,
       `API 返回 HTTP ${response.status}：${label[response.status] || "请求失败"}。未自动重试，请检查服务配置。`,
       response.status,
-      "API_ERROR",
+      [config.apiKey.trim()],
     );
   }
   return response;
@@ -227,14 +234,23 @@ export function createEngravingApi(
         if (
           response.headers.get("content-type")?.includes("text/event-stream")
         ) {
-          blobs = [await readImageStream(response, signal, input.onProgress)];
+          blobs = [
+            await readImageStream(response, signal, input.onProgress, [
+              config.apiKey.trim(),
+            ]),
+          ];
         } else {
           const json = (await boundedJson(response, 90 * 1024 * 1024)) as {
             data?: { b64_json?: string }[];
+            error?: unknown;
           };
+          if (json.error)
+            throw providerError(json, "图像服务返回错误，未自动重试。", 502, [
+              config.apiKey.trim(),
+            ]);
           if (!json.data?.length)
             throw new AppError(
-              "图片编辑接口未返回最终图片。若服务商不支持流式，请关闭生成过程预览后手动重试。",
+              "图片编辑接口未返回最终图片，未自动重试。请查看服务返回详情。",
             );
           blobs = json.data.map((value) => imageBlob(value.b64_json));
         }
@@ -253,17 +269,6 @@ export function createEngravingApi(
           message: error instanceof Error ? error.message : "生成失败",
           durationMs: Date.now() - start,
         });
-        if (
-          config.streamPreview &&
-          error instanceof AppError &&
-          error.status === 400
-        )
-          throw new AppError(
-            error.message +
-              " 若服务商不支持流式参数，请关闭生成过程预览后手动重试。",
-            400,
-            error.code,
-          );
         throw error;
       }
     },
