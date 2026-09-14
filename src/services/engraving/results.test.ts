@@ -5,6 +5,8 @@ import {
   changeResultParams,
   mergeReviews,
   bestResultIndex,
+  coverResultIndex,
+  clearTaskResults,
   preferredResult,
 } from "./results";
 import type { SavedTask, AutoRun, Round } from "./types";
@@ -116,4 +118,33 @@ it("selects best scoring parameter snapshot without counting local tuning as new
     preferredResult({ ...results[0], manualParams: { brightness: 60 } }).params
       .brightness,
   ).toBe(60);
+});
+
+it("adopts a selected source independent of later higher scores and clears stale cover IDs", () => {
+  const list = taskResults({
+    version: 1,
+    fileName: "test",
+    params: { ...DEFAULTS },
+    job: job("a"),
+  });
+  const b = {
+    ...list[0],
+    job: job("b"),
+    reviews: [
+      { score: 95, params: { ...DEFAULTS } },
+    ] as (typeof list)[0]["reviews"],
+  };
+  const all = [...list, b];
+  expect(coverResultIndex(all)).toBe(1);
+  expect(coverResultIndex(all, "a")).toBe(0);
+  expect(coverResultIndex(all, "missing")).toBe(1);
+  expect(
+    clearTaskResults({
+      version: 1,
+      fileName: "test",
+      params: { ...DEFAULTS },
+      coverJobId: "a",
+      results: all,
+    }).coverJobId,
+  ).toBeUndefined();
 });

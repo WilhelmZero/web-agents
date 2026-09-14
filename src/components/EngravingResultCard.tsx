@@ -322,6 +322,8 @@ export default function EngravingResultCard({
   index,
   selected,
   onSelect,
+  onAdopt,
+  adopted,
   onEdit,
   onDownload,
   onPreview,
@@ -329,6 +331,8 @@ export default function EngravingResultCard({
   result: StoredResult;
   index: number;
   selected: boolean;
+  adopted?: boolean;
+  onAdopt?: () => void;
   onSelect: (value: boolean) => void;
   onEdit: () => void;
   onDownload: () => void;
@@ -351,9 +355,21 @@ export default function EngravingResultCard({
         >
           #{index + 1}
         </Checkbox>
-        <Tag color={latest?.passed ? "green" : undefined}>
-          {latest ? `${latest.score} 分` : "未审核"}
-        </Tag>
+        <Space size={4}>
+          {onAdopt && (
+            <Button
+              size="small"
+              type={adopted ? "primary" : "default"}
+              disabled={adopted}
+              onClick={onAdopt}
+            >
+              {adopted ? "已采用" : "采用此图"}
+            </Button>
+          )}
+          <Tag color={latest?.passed ? "green" : undefined}>
+            {latest ? `${latest.score} 分` : "未审核"}
+          </Tag>
+        </Space>
       </div>
       <button
         className="engraving-preview-button"
@@ -368,7 +384,7 @@ export default function EngravingResultCard({
       </button>
       <Space wrap size={4}>
         <Button size="small" onClick={onEdit}>
-          调节参数
+          编辑图片
         </Button>
         <Button size="small" onClick={() => setLaserOpen(true)}>
           3D预览

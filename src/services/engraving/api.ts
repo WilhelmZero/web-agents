@@ -1,3 +1,4 @@
+import { rejectReferenceOutput } from "./reference-guard";
 import { readImageStream, imageBlob } from "./image-stream";
 import { supportsQuality } from "./models";
 import { prepareOutpaint } from "./outpaint";
@@ -171,7 +172,7 @@ export function createEngravingApi(
         throw new AppError("持续优化缺少原照参考。");
       const prompt = buildPrompt({
         ...input,
-        editMode: !!useAnchor,
+        editMode: input.editMode === true,
         hasReference: true,
       });
       const bitmap = await createImageBitmap(image);
@@ -244,6 +245,7 @@ export function createEngravingApi(
           durationMs: Date.now() - start,
         });
         const result = await normalize(blobs[0]);
+        await rejectReferenceOutput(result.buffer, referenceImage, signal);
         return { buffer: result.buffer, warnings: result.warnings };
       } catch (error) {
         updateRequestConsoleEntry(id, {

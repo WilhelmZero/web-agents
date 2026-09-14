@@ -1,3 +1,9 @@
+import EngravingExportModal from "./EngravingExportModal";
+import {
+  taskResults,
+  coverResultIndex,
+  preferredResult,
+} from "../services/engraving/results";
 import {
   listBatchHistory,
   saveBatchHistory,
@@ -11,6 +17,7 @@ import {
 import { useState, useRef, useCallback, useEffect, createRef } from "react";
 import {
   Alert,
+  Checkbox,
   Button,
   Card,
   Image,
@@ -50,6 +57,7 @@ type Controller = {
   stop: () => void;
   flush: () => Promise<void>;
   getTaskId?: () => Promise<string>;
+  clearResults?: () => Promise<void>;
 };
 const DOCUMENT_ID = crypto.randomUUID();
 const DOCUMENT_KEY = KEY + ":document",
@@ -142,6 +150,10 @@ export default function BatchEngravingComposer({
     [states, setStates] = useState<Record<string, State>>({});
   const [preferences, setPreferences] = useState(loadSharedPreferences);
   const batchActive = useRef(false);
+  const [selectedResults, setSelectedResults] = useState<string[]>([]);
+  const [exportResults, setExportResults] =
+    useState<import("../services/engraving/types").StoredResult[]>();
+  const [clearingResults, setClearingResults] = useState(false);
   useEffect(() => {
     try {
       savePreferences(preferences, "batch");
@@ -333,7 +345,13 @@ export default function BatchEngravingComposer({
     return callbacks.current.get(id)!;
   }, []);
   const add = (file: File) => {
-    if (deletingRef.current || historyBusy || batchActive.current) return false;
+    if (
+      deletingRef.current ||
+      clearingResults ||
+      historyBusy ||
+      batchActive.current
+    )
+      return false;
     if (
       file.size > 20 * 1024 * 1024 ||
       (!["image/png", "image/jpeg", "image/webp", "image/svg+xml"].includes(
@@ -386,7 +404,13 @@ export default function BatchEngravingComposer({
     return () => window.removeEventListener("paste", paste);
   });
   const startAll = async () => {
-    if (deletingRef.current || historyBusy || batchActive.current) return;
+    if (
+      deletingRef.current ||
+      clearingResults ||
+      historyBusy ||
+      batchActive.current
+    )
+      return;
     if (!openAiApiKey.trim()) {
       onConfigureKey();
       return;
@@ -487,7 +511,36 @@ export default function BatchEngravingComposer({
     }
   };
   const anyBusy = Object.values(states).some((s) => s.busy);
+  const covers = slots.flatMap((slot) => {
+    const results = states[slot.id] ? taskResults(states[slot.id].task) : [];
+    const best =
+      results[coverResultIndex(results, states[slot.id]?.task.coverJobId)];
+    return best ? [{ id: slot.id, result: preferredResult(best) }] : [];
+  });
+  const chosenCovers = covers.filter((c) => selectedResults.includes(c.id));
+  async function clearAllResults() {
+    if (batchActive.current || anyBusy || clearingResults) return;
+    setClearingResults(true);
+    try {
+      for (const slot of slotsRef.current) {
+        const controller = controls.current.get(slot.id)?.current;
+        if (
+          statesRef.current[slot.id]?.task.results?.length &&
+          !controller?.clearResults
+        )
+          throw new Error("结果尚未准备好，请稍后重试。");
+        await controller?.clearResults?.();
+      }
+      setSelectedResults([]);
+      setProgress("已清空当前批次的生成结果，保留原照与设置。");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setClearingResults(false);
+    }
+  }
   const removalLocked =
+    clearingResults ||
     deleting ||
     historyBusy ||
     batch ||
@@ -507,7 +560,7 @@ export default function BatchEngravingComposer({
       </section>
       <Space style={{ marginBottom: 12 }}>
         <Button
-          disabled={batch || anyBusy || historyBusy}
+          disabled={batch || anyBusy || historyBusy || clearingResults}
           onClick={() => void openHistory()}
         >
           任务历史
@@ -628,6 +681,7 @@ export default function BatchEngravingComposer({
             type="primary"
             disabled={
               deleting ||
+              clearingResults ||
               historyBusy ||
               batch ||
               anyBusy ||
@@ -665,29 +719,109 @@ export default function BatchEngravingComposer({
         {progress && <p role="status">{progress}</p>}
         {error && <Alert type="error" title={error} />}
       </Card>
-      <div className="engraving-batch-results">
-        {slots.map((slot, index) => {
-          if (!controls.current.has(slot.id))
-            controls.current.set(slot.id, createRef<Controller>());
-          return (
-            <div key={slot.id}>
-              <EngravingTaskComposer
-                scope={slot.id === "default" ? undefined : slot.id}
-                embedded
-                workspaceActive={index === 0}
-                sharedPreferences={preferences}
-                onSharedPreferencesChange={setPreferences}
-                initialFile={slot.file}
-                onTaskState={callback(slot.id)}
-                controllerRef={controls.current.get(slot.id)}
-                openAiApiKey={openAiApiKey}
-                onConfigureKey={onConfigureKey}
-                settingsHost={index === 0 ? settingsHost : null}
-                batchLocked={batch || deleting || anyBusy || historyBusy}
-              />
-            </div>
-          );
-        })}
+      <Space
+        wrap
+        className="engraving-gallery-toolbar"
+        style={{ marginTop: 20 }}
+      >
+        <strong>生成结果</strong>
+        <Popconfirm
+          title="清空当前批次的全部生成结果？请先下载需要的图片。"
+          onConfirm={clearAllResults}
+        >
+          <Button danger disabled={removalLocked || !covers.length}>
+            清空结果
+          </Button>
+        </Popconfirm>
+        <Button
+          disabled={!covers.length}
+          onClick={() => setSelectedResults(covers.map((c) => c.id))}
+        >
+          全选
+        </Button>
+        <Button
+          disabled={!chosenCovers.length}
+          onClick={() => setSelectedResults([])}
+        >
+          取消选择
+        </Button>
+        <Button
+          disabled={!chosenCovers.length}
+          onClick={() => setExportResults(chosenCovers.map((c) => c.result))}
+        >
+          下载选中
+        </Button>
+        <Button
+          disabled={!covers.length}
+          onClick={() => setExportResults(covers.map((c) => c.result))}
+        >
+          下载全部
+        </Button>
+        <span>已选 {chosenCovers.length} 张</span>
+      </Space>
+      <p>
+        <small>
+          按当前封面下载，默认采用最高分；可在图片弹窗手动采用或下载全部版本。
+        </small>
+      </p>
+      {exportResults && (
+        <EngravingExportModal
+          results={exportResults}
+          onClose={() => setExportResults(undefined)}
+        />
+      )}
+      <div className="engraving-batch-scroll">
+        <div className="engraving-batch-results">
+          {slots.map((slot, index) => {
+            if (!controls.current.has(slot.id))
+              controls.current.set(slot.id, createRef<Controller>());
+            return (
+              <div key={slot.id}>
+                {(slot.file || states[slot.id]?.task.original) && (
+                  <Checkbox
+                    aria-label={
+                      "选择结果 " +
+                      (states[slot.id]?.task.fileName ||
+                        slot.file?.name ||
+                        "原照")
+                    }
+                    disabled={!covers.some((c) => c.id === slot.id)}
+                    checked={selectedResults.includes(slot.id)}
+                    onChange={(e) =>
+                      setSelectedResults((prev) =>
+                        e.target.checked
+                          ? [...new Set([...prev, slot.id])]
+                          : prev.filter((id) => id !== slot.id),
+                      )
+                    }
+                  >
+                    选择结果
+                  </Checkbox>
+                )}
+                <EngravingTaskComposer
+                  scope={slot.id === "default" ? undefined : slot.id}
+                  embedded
+                  workspaceActive={index === 0}
+                  sharedPreferences={preferences}
+                  onSharedPreferencesChange={setPreferences}
+                  initialFile={slot.file}
+                  onTaskState={callback(slot.id)}
+                  controllerRef={controls.current.get(slot.id)}
+                  openAiApiKey={openAiApiKey}
+                  onConfigureKey={onConfigureKey}
+                  settingsHost={index === 0 ? settingsHost : null}
+                  batchLocked={
+                    batch ||
+                    deleting ||
+                    anyBusy ||
+                    historyBusy ||
+                    clearingResults
+                  }
+                />
+              </div>
+            );
+          })}
+        </div>
       </div>
     </section>
   );

@@ -71,7 +71,7 @@ it("renders compact cards, selects only existing results, and opens size selecti
   expect(
     screen.getByRole("checkbox", { name: "选择图片 3" }),
   ).not.toBeChecked();
-  fireEvent.click(screen.getByRole("button", { name: "下载所选" }));
+  fireEvent.click(screen.getByRole("button", { name: "下载选中" }));
   const dialog = await screen.findByRole("dialog");
   expect(within(dialog).getByText("选择输出尺寸 · 2 张")).toBeInTheDocument();
   expect(
@@ -86,7 +86,7 @@ it("opens per-image controls without a run lock and sends edits only to that ima
       onChange={onChange}
     />,
   );
-  fireEvent.click(screen.getAllByRole("button", { name: "调节参数" })[1]);
+  fireEvent.click(screen.getAllByRole("button", { name: "编辑图片" })[1]);
   const dialog = await screen.findByRole("dialog");
   expect(
     within(dialog).getByRole("slider", { name: "单张纹理" }),
@@ -109,4 +109,22 @@ it("opens per-image controls without a run lock and sends edits only to that ima
   await waitFor(() =>
     expect(screen.getByText("选择输出尺寸 · 1 张")).toBeInTheDocument(),
   );
+});
+
+it("adopts a version from its score row and updates the cover", async () => {
+  const a = result("a"),
+    b = result("b");
+  const onAdopt = vi.fn();
+  const props = { results: [a, b], onChange: vi.fn(), onAdopt, compact: true };
+  const view = render(<EngravingGallery {...props} />);
+  expect(screen.getByText("第 2 张 · 未评分 · 共 2 张")).toBeInTheDocument();
+  fireEvent.click(
+    screen.getByRole("button", { name: "查看全部生成图片（2）" }),
+  );
+  const dialog = await screen.findByRole("dialog");
+  fireEvent.click(within(dialog).getByRole("button", { name: "采用此图" }));
+  expect(onAdopt).toHaveBeenCalledWith("a");
+  view.rerender(<EngravingGallery {...props} coverJobId="a" />);
+  expect(screen.getByText("第 1 张 · 未评分 · 共 2 张")).toBeInTheDocument();
+  expect(within(dialog).getByRole("button", { name: "已采用" })).toBeDisabled();
 });

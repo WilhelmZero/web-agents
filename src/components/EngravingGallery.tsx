@@ -1,5 +1,5 @@
 import {
-  bestResultIndex,
+  coverResultIndex,
   bestReview,
   preferredResult,
 } from "../services/engraving/results";
@@ -92,7 +92,7 @@ function CoverImage({
     <Image
       preview={false}
       src={url || raw}
-      alt="最高分生成结果"
+      alt="封面生成结果"
       onClick={onOpen}
       style={{
         maxHeight: 330,
@@ -131,6 +131,8 @@ export default function EngravingGallery({
   compact = false,
   completionLabel,
   livePreview,
+  coverJobId,
+  onAdopt,
 }: {
   results: StoredResult[];
   original?: Blob;
@@ -141,6 +143,8 @@ export default function EngravingGallery({
   compact?: boolean;
   completionLabel?: string;
   livePreview?: Blob;
+  coverJobId?: string;
+  onAdopt?: (id: string) => void;
 }) {
   const [allOpen, setAllOpen] = useState(false);
   const displayed = useMemo(() => results.map(preferredResult), [results]);
@@ -152,7 +156,7 @@ export default function EngravingGallery({
   const chosen = results.filter((r) => selected.includes(r.job.id)),
     editor = results.find((r) => r.job.id === editing);
   if (compact) {
-    const index = bestResultIndex(results),
+    const index = coverResultIndex(results, coverJobId),
       best = results[index],
       score = best && bestReview(best)?.score;
     return (
@@ -162,9 +166,7 @@ export default function EngravingGallery({
           title={
             best
               ? `第 ${index + 1} 张 · ${score === undefined ? "未评分" : score + " 分"} · 共 ${results.length} 张`
-              : pending
-                ? "生成中"
-                : "等待生成"
+              : completionLabel || (pending ? "生成中" : "等待生成")
           }
         >
           <div
@@ -193,7 +195,7 @@ export default function EngravingGallery({
                   color: "white",
                 }}
               >
-                {pending ? <Spin /> : "等待生成"}
+                {pending ? <Spin /> : completionLabel || "等待生成"}
               </div>
             )}
           </div>
@@ -212,6 +214,7 @@ export default function EngravingGallery({
         </Card>
         <Modal
           title="全部生成图片"
+          className="custom-monochrome-logo engraving-versions-modal"
           width={1200}
           open={allOpen}
           onCancel={() => setAllOpen(false)}
@@ -220,6 +223,8 @@ export default function EngravingGallery({
         >
           <EngravingGallery
             results={results}
+            coverJobId={coverJobId}
+            onAdopt={onAdopt}
             original={original}
             pending={pending}
             livePreview={livePreview}
@@ -246,7 +251,7 @@ export default function EngravingGallery({
             disabled={clearDisabled || !results.length}
             onClick={onClear}
           >
-            清空历史结果
+            清空结果
           </Button>
         ) : null}
         <Button
@@ -260,10 +265,16 @@ export default function EngravingGallery({
         </Button>
         <span>已选 {chosen.length} 张</span>
         <Button
+          disabled={!results.length}
+          onClick={() => setExportIds(results.map((r) => r.job.id))}
+        >
+          下载全部
+        </Button>
+        <Button
           disabled={!chosen.length}
           onClick={() => setExportIds(chosen.map((r) => r.job.id))}
         >
-          下载所选
+          下载选中
         </Button>
       </Space>
       <div className="engraving-results-list">
@@ -290,6 +301,8 @@ export default function EngravingGallery({
             key={result.job.id}
             result={result}
             index={index}
+            adopted={index === coverResultIndex(results, coverJobId)}
+            onAdopt={onAdopt ? () => onAdopt(result.job.id) : undefined}
             selected={selected.includes(result.job.id)}
             onSelect={(checked) =>
               setSelected((prev) =>

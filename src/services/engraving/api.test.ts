@@ -1,3 +1,7 @@
+import { rejectReferenceOutput } from "./reference-guard";
+vi.mock("./reference-guard", () => ({
+  rejectReferenceOutput: vi.fn(async () => {}),
+}));
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { apiBase, createEngravingApi, testConnection } from "./api";
 import { DEFAULT_PREFERENCES } from "./storage";
@@ -178,6 +182,8 @@ it("sends an expanded edit canvas plus style and untouched identity anchor", asy
   expect(form.getAll("image[]")).toHaveLength(3);
   expect(draw).toHaveBeenCalled();
   expect(form.get("prompt")).toContain("OUTPAINTING IS ENABLED");
+  expect(form.get("prompt")).toContain("NOT an existing engraving candidate");
+  expect(form.get("prompt")).not.toContain("Make targeted improvements");
   expect(form.get("prompt")).toContain("Image 3 is the ONLY source");
   expect(startRequestConsoleEntry).toHaveBeenCalledWith(
     expect.objectContaining({
@@ -312,4 +318,23 @@ it("omits streaming parameters when disabled and accepts JSON responses", async 
     .body as FormData;
   expect(body.get("stream")).toBeNull();
   expect(body.get("partial_images")).toBeNull();
+});
+
+it("rejects a copied reference without retrying or returning a candidate", async () => {
+  vi.mocked(rejectReferenceOutput).mockRejectedValueOnce(
+    new Error("参考图被当作输出"),
+  );
+  const fetcher = vi.fn(async () =>
+    Response.json({ data: [{ b64_json: btoa("reference-copy") }] }),
+  );
+  const normalize = vi.fn(async (buffer: Blob) => ({
+    buffer,
+    width: 200,
+    height: 100,
+    warnings: [],
+  }));
+  await expect(
+    createEngravingApi(fetcher as typeof fetch, normalize).generate(input()),
+  ).rejects.toThrow("参考图被当作输出");
+  expect(fetcher).toHaveBeenCalledTimes(1);
 });

@@ -9,7 +9,7 @@ it("shows a pending card without counting it as an exportable result, and remove
   expect(screen.getByLabelText("正在生成的图片")).toBeVisible();
   expect(screen.getByText("正在生成图片")).toBeVisible();
   expect(screen.getByText("生成结果 · 0 张")).toBeVisible();
-  expect(screen.getByRole("button", { name: "下载所选" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "下载选中" })).toBeDisabled();
   view.rerender(<EngravingGallery results={[]} onChange={vi.fn()} />);
   expect(screen.queryByLabelText("正在生成的图片")).toBeNull();
 });

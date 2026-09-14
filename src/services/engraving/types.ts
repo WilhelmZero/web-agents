@@ -149,6 +149,7 @@ export interface AutoDependencies {
   cancelled: () => boolean;
 }
 export interface SavedTask {
+  coverJobId?: string;
   version: 1;
   original?: Blob;
   fileName: string;

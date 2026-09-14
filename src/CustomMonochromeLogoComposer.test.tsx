@@ -55,7 +55,7 @@ describe("customer monochrome page", () => {
     expect(
       screen.queryByRole("combobox", { name: "常用 DPI" }),
     ).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "下载所选" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "下载选中" })).toBeDisabled();
     expect(screen.queryByText("雕刻结果")).not.toBeInTheDocument();
     expect(screen.getByRole("switch", {name:"自动优化"})).toBeChecked();
     const continuous = screen.getByRole("switch", {name:"在生成图上持续优化"});

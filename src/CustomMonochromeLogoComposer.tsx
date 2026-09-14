@@ -153,6 +153,7 @@ export function EngravingTaskComposer({
     stop: () => void;
     flush: () => Promise<void>;
     getTaskId?: () => Promise<string>;
+    clearResults?: () => Promise<void>;
   }>;
   onTaskState?: (state: {
     task: SavedTask;
@@ -437,7 +438,7 @@ export function EngravingTaskComposer({
       const generate: typeof api.generate = async (input) => {
         lastPrompt = buildPrompt({
           ...input,
-          editMode: input.editMode || input.outpaint?.enabled,
+          editMode: input.editMode === true,
           hasReference: true,
         });
         const requestId = ++previewRequest.current;
@@ -591,6 +592,14 @@ export function EngravingTaskComposer({
     });
   }, [task, busy, loaded, uploading, onTaskState, initialImported]);
   useImperativeHandle(controllerRef, () => ({
+    clearResults: async () => {
+      if (active.current || uploading || !loaded)
+        throw new Error("请先停止生成并等待图片导入完成。");
+      const next = clearTaskResults(taskRef.current);
+      await writeTask(next);
+      updateTask(next);
+      setError("");
+    },
     flush: () => writeTask(taskRef.current),
     getTaskId: () => store.getTaskId(),
     start: (snapshot?: Preferences) => startGeneration(undefined, snapshot),
@@ -1049,9 +1058,6 @@ export function EngravingTaskComposer({
       {storageWarning ? (
         <Alert type="warning" showIcon title={storageWarning} />
       ) : null}
-      {error || run?.error ? (
-        <Alert type="error" showIcon title={error || run?.error} />
-      ) : null}
       {notice ? <Alert type="info" title={notice} /> : null}
       <div className="engraving-layout">
         <main>
@@ -1077,9 +1083,16 @@ export function EngravingTaskComposer({
           {(!embedded || task.original) && (
             <EngravingGallery
               compact={embedded}
+              coverJobId={task.coverJobId}
+              onAdopt={(id) => {
+                if (taskResults(taskRef.current).some((r) => r.job.id === id))
+                  updateTask({ ...taskRef.current, coverJobId: id });
+              }}
               completionLabel={
                 run?.status === "failed"
-                  ? "生成失败，已保留可用结果"
+                  ? results.length
+                    ? "生成失败，已保留可用结果"
+                    : "生成失败"
                   : run?.status === "cancelled"
                     ? "已停止"
                     : run?.status === "interrupted"
@@ -1100,6 +1113,9 @@ export function EngravingTaskComposer({
                 updateTask(changeResultParams(taskRef.current, id, patch));
               }}
             />
+          )}
+          {(error || run?.error) && (
+            <Alert type="error" showIcon title={error || run?.error} />
           )}
         </main>
       </div>

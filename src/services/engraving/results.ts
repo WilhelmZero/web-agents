@@ -3,6 +3,7 @@ export function clearTaskResults(task: SavedTask): SavedTask {
   return {
     ...task,
     results: [],
+    coverJobId: undefined,
     job: undefined,
     run: undefined,
     startedAt: undefined,
@@ -93,4 +94,9 @@ export function bestResultIndex(results: StoredResult[]) {
     }
   });
   return index < 0 ? results.length - 1 : index;
+}
+
+export function coverResultIndex(results: StoredResult[], coverJobId?: string) {
+  const selected = coverJobId ? results.findIndex(r => r.job.id === coverJobId) : -1;
+  return selected >= 0 ? selected : bestResultIndex(results);
 }
