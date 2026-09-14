@@ -1,3 +1,4 @@
+import type {EngravingLayout} from "./layout-types";
 export interface CropRect {
   x: number;
   y: number;
@@ -5,6 +6,7 @@ export interface CropRect {
   height: number;
 }
 export interface RenderParams {
+  layout?: EngravingLayout;
   crop?: CropRect | null;
   pixelWidth?: number;
   pixelMargin?: number;

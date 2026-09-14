@@ -47,8 +47,8 @@ export function exportDimensions(
     result.params.crop,
   );
   return outputDimensions(
-    crop.width,
-    crop.height,
+    result.params.layout?.width ?? crop.width,
+    result.params.layout?.height ?? crop.height,
     exportParams(result.params, settings),
   );
 }

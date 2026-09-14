@@ -1,0 +1,77 @@
+.text-layout-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 330px;
+  gap: 20px;
+}
+.text-layout-viewport {
+  position: relative;
+  height: 540px;
+  overflow: hidden;
+  background: #202329;
+  border-radius: 8px;
+  margin-top: 12px;
+  touch-action: none;
+  overscroll-behavior: contain;
+}
+.text-layout-box {
+  position: absolute;
+  border: 1px dashed transparent;
+  cursor: move;
+  box-sizing: border-box;
+  touch-action: none;
+}
+.text-layout-box:hover {
+  border-color: #91caff;
+}
+.text-layout-box.selected {
+  border-color: #1677ff;
+}
+.text-layout-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  background: #1677ff;
+  cursor: nwse-resize;
+}
+.text-layout-settings {
+  max-height: 650px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-right: 8px;
+}
+.text-layout-settings h4 {
+  margin: 6px 0;
+}
+.text-layout-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.text-layout-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+.text-layout-grid .ant-input-number {
+  width: 100%;
+}
+.text-layout-settings small {
+  color: #666;
+}
+@media (max-width: 800px) {
+  .text-layout-editor {
+    grid-template-columns: 1fr;
+  }
+  .text-layout-viewport {
+    height: 350px;
+  }
+  .text-layout-settings {
+    max-height: none;
+  }
+  .text-layout-editor {
+    gap: 12px;
+  }
+}

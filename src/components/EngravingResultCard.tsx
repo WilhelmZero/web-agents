@@ -1,3 +1,4 @@
+import EngravingTextEditor from "./EngravingTextEditor";
 import LaserPreview from "./LaserPreview";
 import { useEffect, useState } from "react";
 import {
@@ -96,6 +97,7 @@ export function EngravingResultEditor({
   const url = useEngravingUrl(preview.blob),
     rawUrl = useEngravingUrl(result.job.blob);
   const [laserOpen, setLaserOpen] = useState(false);
+  const [textOpen,setTextOpen]=useState(false);
   const [cropping, setCropping] = useState(false),
     [mask, setMask] = useState(false);
   const latest = result.reviews.at(-1);
@@ -114,6 +116,7 @@ export function EngravingResultEditor({
         </Space>
       }
     >
+      {textOpen && <EngravingTextEditor result={result} onApply={layout=>onChange({layout})} onClose={()=>setTextOpen(false)}/>}
       {laserOpen && <LaserPreview result={result} onClose={() => setLaserOpen(false)} />}
       <div className="engraving-editor-layout">
         <div className="engraving-editor-preview">
@@ -145,6 +148,7 @@ export function EngravingResultEditor({
               </button>
               <Space wrap>
                 <Button onClick={() => setCropping(true)}>裁剪</Button>
+                <Button onClick={()=>setTextOpen(true)}>添加文字</Button>
                 <Button
                   disabled={!result.params.crop}
                   onClick={() => onChange({ crop: null })}

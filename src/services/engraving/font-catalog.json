@@ -1,0 +1,202 @@
+[
+  {
+    "id": "great-vibes",
+    "name": "Great Vibes",
+    "group": "Handwriting"
+  },
+  {
+    "id": "lobster",
+    "name": "Lobster",
+    "group": "Handwriting"
+  },
+  {
+    "id": "pacifico",
+    "name": "Pacifico",
+    "group": "Handwriting"
+  },
+  {
+    "id": "dancing-script",
+    "name": "Dancing Script",
+    "group": "Handwriting"
+  },
+  {
+    "id": "allura",
+    "name": "Allura",
+    "group": "Handwriting"
+  },
+  {
+    "id": "alex-brush",
+    "name": "Alex Brush",
+    "group": "Handwriting"
+  },
+  {
+    "id": "sacramento",
+    "name": "Sacramento",
+    "group": "Handwriting"
+  },
+  {
+    "id": "parisienne",
+    "name": "Parisienne",
+    "group": "Handwriting"
+  },
+  {
+    "id": "satisfy",
+    "name": "Satisfy",
+    "group": "Handwriting"
+  },
+  {
+    "id": "kaushan-script",
+    "name": "Kaushan Script",
+    "group": "Handwriting"
+  },
+  {
+    "id": "libre-baskerville",
+    "name": "Libre Baskerville",
+    "group": "Serif"
+  },
+  {
+    "id": "playfair-display",
+    "name": "Playfair Display",
+    "group": "Serif"
+  },
+  {
+    "id": "cormorant-garamond",
+    "name": "Cormorant Garamond",
+    "group": "Serif"
+  },
+  {
+    "id": "cinzel",
+    "name": "Cinzel",
+    "group": "Serif"
+  },
+  {
+    "id": "bodoni-moda",
+    "name": "Bodoni Moda",
+    "group": "Serif"
+  },
+  {
+    "id": "lora",
+    "name": "Lora",
+    "group": "Serif"
+  },
+  {
+    "id": "merriweather",
+    "name": "Merriweather",
+    "group": "Serif"
+  },
+  {
+    "id": "eb-garamond",
+    "name": "EB Garamond",
+    "group": "Serif"
+  },
+  {
+    "id": "bitter",
+    "name": "Bitter",
+    "group": "Serif"
+  },
+  {
+    "id": "dm-serif-display",
+    "name": "DM Serif Display",
+    "group": "Serif"
+  },
+  {
+    "id": "montserrat",
+    "name": "Montserrat",
+    "group": "Sans"
+  },
+  {
+    "id": "open-sans",
+    "name": "Open Sans",
+    "group": "Sans"
+  },
+  {
+    "id": "lato",
+    "name": "Lato",
+    "group": "Sans"
+  },
+  {
+    "id": "raleway",
+    "name": "Raleway",
+    "group": "Sans"
+  },
+  {
+    "id": "poppins",
+    "name": "Poppins",
+    "group": "Sans"
+  },
+  {
+    "id": "nunito",
+    "name": "Nunito",
+    "group": "Sans"
+  },
+  {
+    "id": "quicksand",
+    "name": "Quicksand",
+    "group": "Sans"
+  },
+  {
+    "id": "josefin-sans",
+    "name": "Josefin Sans",
+    "group": "Sans"
+  },
+  {
+    "id": "oswald",
+    "name": "Oswald",
+    "group": "Sans"
+  },
+  {
+    "id": "barlow",
+    "name": "Barlow",
+    "group": "Sans"
+  },
+  {
+    "id": "anton",
+    "name": "Anton",
+    "group": "Display"
+  },
+  {
+    "id": "bebas-neue",
+    "name": "Bebas Neue",
+    "group": "Display"
+  },
+  {
+    "id": "abril-fatface",
+    "name": "Abril Fatface",
+    "group": "Display"
+  },
+  {
+    "id": "alfa-slab-one",
+    "name": "Alfa Slab One",
+    "group": "Display"
+  },
+  {
+    "id": "righteous",
+    "name": "Righteous",
+    "group": "Display"
+  },
+  {
+    "id": "monoton",
+    "name": "Monoton",
+    "group": "Display"
+  },
+  {
+    "id": "roboto-mono",
+    "name": "Roboto Mono",
+    "group": "Mono"
+  },
+  {
+    "id": "space-mono",
+    "name": "Space Mono",
+    "group": "Mono"
+  },
+  {
+    "id": "ibm-plex-mono",
+    "name": "IBM Plex Mono",
+    "group": "Mono"
+  },
+  {
+    "id": "inconsolata",
+    "name": "Inconsolata",
+    "group": "Mono"
+  }
+]

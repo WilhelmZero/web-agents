@@ -1,3 +1,4 @@
+import {renderLayout} from "./layout-render";
 import {
   outputDimensions,
   preparePixels,
@@ -189,7 +190,7 @@ export function withPngDpi(bytes: Uint8Array, dpi: number): Uint8Array {
   return output;
 }
 
-export async function renderImage(
+async function renderPhoto(
   blob: Blob,
   options: RenderParams,
 ): Promise<Rendered> {
@@ -341,4 +342,10 @@ export function blobDataUrl(blob: Blob): Promise<string> {
     reader.onerror = () => reject(new Error("无法读取图片。"));
     reader.readAsDataURL(blob);
   });
+}
+
+export async function renderImage(blob:Blob,options:RenderParams):Promise<Rendered>{
+ validateOptions(options);
+ if(options.layout)return renderLayout(blob,options,renderPhoto);
+ return renderPhoto(blob,options);
 }
