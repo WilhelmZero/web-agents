@@ -777,7 +777,7 @@ export function EngravingTaskComposer({
           ) : (
             <>
               <PreviewImage blob={task.original} title="原照" />
-              <p>{task.fileName}</p>
+              <p translate="no">{task.fileName}</p>
               <Upload
                 accept="image/jpeg,image/png,image/webp,image/svg+xml,.svg"
                 multiple={false}

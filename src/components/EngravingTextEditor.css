@@ -268,3 +268,8 @@
 .text-layout-text-tools {
   flex-shrink: 0;
 }
+/* Keep translated controls and the canvas within narrow dialog widths. */
+.text-layout-editor > *, .text-layout-stage > * { min-width: 0; }
+@media (max-width: 800px) {
+  .text-layout-editor { grid-template-columns: minmax(0, 1fr); }
+}

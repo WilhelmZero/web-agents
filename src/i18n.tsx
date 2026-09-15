@@ -1,3 +1,4 @@
+import { translateEngravingText } from "./engraving-i18n";
 import { XProvider } from "@ant-design/x";
 import enUSX from "@ant-design/x/locale/en_US";
 import zhCNX from "@ant-design/x/locale/zh_CN";
@@ -18,29 +19,31 @@ export type AppLanguage = "zh-CN" | "en-US";
 const LANGUAGE_KEY = "scene-studio-language";
 
 const translations: Record<string, string> = {
-  "萌宠字母贴纸": "Pet letter stickers",
-  "完整萌宠、互动姿势与高清 A–Z 字母排版": "Complete pets, interactive poses and high-resolution A–Z layouts",
-  "字母选择": "Letters",
-  "文字样式": "Letter style",
-  "换一版排布": "Shuffle layout",
-  "贴纸素材库": "Sticker library",
-  "上传替换贴纸": "Upload replacement sheet",
-  "验证五字母": "Five-letter sample",
-  "随机种子": "Random seed",
-  "角色密度": "Character density",
-  "疏松": "Sparse",
-  "适中": "Balanced",
-  "密集": "Dense",
+  萌宠字母贴纸: "Pet letter stickers",
+  "完整萌宠、互动姿势与高清 A–Z 字母排版":
+    "Complete pets, interactive poses and high-resolution A–Z layouts",
+  字母选择: "Letters",
+  文字样式: "Letter style",
+  换一版排布: "Shuffle layout",
+  贴纸素材库: "Sticker library",
+  上传替换贴纸: "Upload replacement sheet",
+  验证五字母: "Five-letter sample",
+  随机种子: "Random seed",
+  角色密度: "Character density",
+  疏松: "Sparse",
+  适中: "Balanced",
+  密集: "Dense",
   "客户定制黑白 Logo": "Custom monochrome logo",
-  "照片雕刻、自动审核优化与黑白 PNG 输出": "Photo engraving, automatic review and monochrome PNG export",
-  "工具设置": "Tool settings",
-  "上传客户照片": "Upload customer photo",
+  "照片雕刻、自动审核优化与黑白 PNG 输出":
+    "Photo engraving, automatic review and monochrome PNG export",
+  工具设置: "Tool settings",
+  上传客户照片: "Upload customer photo",
   "生成黑白 Logo": "Generate monochrome logo",
-  "停止后续步骤": "Stop subsequent steps",
-  "完整尺寸导出": "Export at full resolution",
-  "背景擦除校正": "Background erasure correction",
-  "自动优化": "Automatic optimization",
-  "各轮评分与候选结果": "Round scores and candidate results",
+  停止后续步骤: "Stop subsequent steps",
+  完整尺寸导出: "Export at full resolution",
+  背景擦除校正: "Background erasure correction",
+  自动优化: "Automatic optimization",
+  各轮评分与候选结果: "Round scores and candidate results",
   杯子大小精确调整: "Precise cup resizing",
   精确调整场景里的杯子大小: "Precisely resize a cup in a scene",
   "先按像素确定杯子的位置、尺寸和白底画布，再让 AI 只完成自然融合。":
@@ -1299,8 +1302,14 @@ const phraseTranslations: Array<[string, string]> = [
 ];
 
 function translateText(value: string): string {
+  const engraving = translateEngravingText(value);
+  if (engraving !== undefined) return engraving;
   const trimmed = value.trim();
-  const exact = translations[trimmed];
+  const exact =
+    translations[trimmed] ||
+    translations[
+      trimmed.replace(/(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])/g, "")
+    ];
   if (exact) return value.replace(trimmed, exact);
   const regexTranslations: Array<[RegExp, string]> = [
     [/^准备替换 (\d+) 张图片$/, "Ready to replace $1 images"],
@@ -1376,6 +1385,9 @@ function DomTranslator({
     const root = document.body;
 
     const visit = (node: Node) => {
+      const element = node instanceof Element ? node : node.parentElement;
+      if (element?.closest('[translate="no"], script, style, pre, code'))
+        return;
       if (node.nodeType === Node.TEXT_NODE) {
         const textNode = node as Text;
         const lastApplied = appliedText.current.get(textNode);
@@ -1389,7 +1401,7 @@ function DomTranslator({
         return;
       }
       if (!(node instanceof Element)) return;
-      ["placeholder", "title", "aria-label"].forEach((attribute) => {
+      ["placeholder", "title", "aria-label", "alt"].forEach((attribute) => {
         const current = node.getAttribute(attribute);
         if (!current) return;
         let saved = attributeOriginals.current.get(node);
@@ -1409,13 +1421,14 @@ function DomTranslator({
         applied.set(attribute, next);
         if (current !== next) node.setAttribute(attribute, next);
       });
-      node.childNodes.forEach(visit);
+      if (!node.matches("input, textarea")) node.childNodes.forEach(visit);
     };
 
     visit(root);
     const observer = new MutationObserver((mutations) => {
       mutations.forEach((mutation) => {
-        if (mutation.type === "characterData") visit(mutation.target);
+        if (mutation.type === "characterData" || mutation.type === "attributes")
+          visit(mutation.target);
         mutation.addedNodes.forEach(visit);
       });
     });
@@ -1423,6 +1436,8 @@ function DomTranslator({
       childList: true,
       subtree: true,
       characterData: true,
+      attributes: true,
+      attributeFilter: ["placeholder", "title", "aria-label", "alt"],
     });
     return () => observer.disconnect();
   }, [language]);

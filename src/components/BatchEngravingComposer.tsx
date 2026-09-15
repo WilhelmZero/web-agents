@@ -590,7 +590,7 @@ export default function BatchEngravingComposer({
             key={entry.id}
             size="small"
             style={{ marginTop: 10 }}
-            title={entry.name || "未命名批次"}
+            title={entry.name ? <span translate="no">{entry.name}</span> : "未命名批次"}
           >
             <p>
               {entry.tasks.length} 张原照 ·{" "}

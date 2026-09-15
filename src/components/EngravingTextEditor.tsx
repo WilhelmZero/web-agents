@@ -78,7 +78,7 @@ function FontExample({
     <span ref={ref}>
       <small>{name}</small>
       <br />
-      <span style={{ fontFamily: family || "inherit", fontSize: 22 }}>
+      <span translate={family ? "no" : undefined} style={{ fontFamily: family || "inherit", fontSize: 22 }}>
         {family ? (text || "Memory 2026").slice(0, 35) : "加载字体样例…"}
       </span>
     </span>
@@ -574,7 +574,7 @@ export default function EngravingTextEditor({
             }}
           >
             <span aria-hidden="true">T</span>
-            <span>{t.text || "空文字"}</span>
+            <span translate={t.text ? "no" : undefined}>{t.text || "空文字"}</span>
           </button>
           <Button
             className="text-layer-delete"
