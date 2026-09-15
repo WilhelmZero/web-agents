@@ -138,6 +138,8 @@ export default function EngravingGallery({
   livePreview,
   coverJobId,
   onAdopt,
+  onRetry,
+  retryDisabled = false,
 }: {
   results: StoredResult[];
   original?: Blob;
@@ -153,6 +155,8 @@ export default function EngravingGallery({
   livePreview?: Blob;
   coverJobId?: string;
   onAdopt?: (id: string) => void;
+  onRetry?: () => void;
+  retryDisabled?: boolean;
 }) {
   const [allOpen, setAllOpen] = useState(false);
   const displayed = useMemo(() => results.map(preferredResult), [results]);
@@ -254,6 +258,15 @@ export default function EngravingGallery({
               description="已保留疑似结果，可查看全部图片、编辑或下载；请人工确认后使用。"
             />
           )}
+          {onRetry && (
+            <Button
+              disabled={retryDisabled}
+              onClick={onRetry}
+              style={{ marginTop: 12 }}
+            >
+              重试
+            </Button>
+          )}
           {pending && <p aria-live="polite">{pending}</p>}
           {best?.manualParams && <small>原审核分数，调整后未重新审核</small>}
           <Button
@@ -277,6 +290,8 @@ export default function EngravingGallery({
             results={results}
             coverJobId={coverJobId}
             onAdopt={onAdopt}
+            onRetry={onRetry}
+            retryDisabled={retryDisabled}
             original={original}
             pending={pending}
             livePreview={livePreview}
@@ -363,6 +378,8 @@ export default function EngravingGallery({
                   : prev.filter((id) => id !== result.job.id),
               )
             }
+            onRetry={onRetry}
+            retryDisabled={retryDisabled}
             onEdit={() => setEditing(result.job.id)}
             onPreview={() => setViewing(result.job.id)}
             onDownload={() => setExportIds([result.job.id])}

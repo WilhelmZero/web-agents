@@ -239,9 +239,19 @@ it.each([["png", false], ["png", true], ["svg", false], ["svg", true]] as const)
     ).toBe(true);
     expect(review).toHaveBeenCalledTimes(auto ? 1 : 0);
     expect(api.mock.results[0].value.analyze).toHaveBeenCalledTimes(1);
+    const storage = await import('./services/engraving/storage');
+    const before = vi.mocked(storage.saveTask).mock.calls.at(-1)![0].results!;
+    fireEvent.click(screen.getAllByRole('button',{name:/重\s*试/})[0]);
+    await waitFor(()=>expect(generate).toHaveBeenCalledTimes(3));
+    await waitFor(()=>expect(button).toBeEnabled());
+    const after = vi.mocked(storage.saveTask).mock.calls.at(-1)![0].results!;
+    expect(after).toHaveLength(before.length+1);
+    expect(after.slice(0,-1).map(r=>r.job.id)).toEqual(before.map(r=>r.job.id));
+    expect(generate.mock.calls[2][0].image).toBe(generate.mock.calls[0][0].image);
+    expect(review).toHaveBeenCalledTimes(auto ? 1 : 0);
     api.mockRestore();
   },
-  15000,
+  30000,
 );
 
 it("restores history as a copy without starting generation",async()=>{

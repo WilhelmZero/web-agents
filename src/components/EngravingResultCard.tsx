@@ -341,6 +341,8 @@ export default function EngravingResultCard({
   onEdit,
   onDownload,
   onPreview,
+  onRetry,
+  retryDisabled = false,
 }: {
   result: StoredResult;
   index: number;
@@ -351,6 +353,8 @@ export default function EngravingResultCard({
   onEdit: () => void;
   onDownload: () => void;
   onPreview: () => void;
+  onRetry?: () => void;
+  retryDisabled?: boolean;
 }) {
   const [laserOpen, setLaserOpen] = useState(false);
   const preview = useEngravingPreview(result.job.blob, result.params, 400),
@@ -398,6 +402,11 @@ export default function EngravingResultCard({
       </button>
       {result.job.referenceSuspect && <Tag color="warning">疑似误用参考图</Tag>}
       <Space wrap size={4}>
+        {onRetry && (
+          <Button size="small" disabled={retryDisabled} onClick={onRetry}>
+            重试
+          </Button>
+        )}
         <Button size="small" onClick={onEdit}>
           编辑图片
         </Button>

@@ -1,5 +1,6 @@
 // UI-only translations. Source images, prompts and generated artwork are never translated.
 const messages: Record<string, string> = {
+  重试: "Retry",
   疑似误用参考图: "Possible reference-image copy",
   "疑似误用参考图，图片已保留，等待人工确认":
     "Possible reference-image copy. Image retained for manual review.",

@@ -157,3 +157,5 @@ it("shows a flagged image even when no automatic cover qualifies and retains edi
     within(dialog).getByRole("button", { name: "采用此图" }),
   ).toBeEnabled();
 });
+
+it('offers retry on a task card and each version, and disables all retry buttons while busy',async()=>{const retry=vi.fn();const props={compact:true,results:[result('a'),result('b')],onChange:vi.fn(),onRetry:retry};const view=render(<EngravingGallery {...props}/>);fireEvent.click(screen.getByRole('button',{name:/重\s*试/}));expect(retry).toHaveBeenCalledTimes(1);fireEvent.click(screen.getByRole('button',{name:'查看全部生成图片（2）'}));const dialog=await screen.findByRole('dialog');const buttons=within(dialog).getAllByRole('button',{name:/重\s*试/});expect(buttons).toHaveLength(2);fireEvent.click(buttons[1]);expect(retry).toHaveBeenCalledTimes(2);view.rerender(<EngravingGallery {...props} retryDisabled/>);screen.getAllByRole('button',{name:/重\s*试/}).forEach(b=>expect(b).toBeDisabled());});

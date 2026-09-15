@@ -1137,6 +1137,8 @@ export function EngravingTaskComposer({
           {(!embedded || task.original) && (
             <EngravingGallery
               compact={embedded}
+              onRetry={() => { if (!locked) void startGeneration(""); }}
+              retryDisabled={locked || !task.original}
               selection={resultSelection}
               generationNumber={Math.max(1, run?.generations || 0)}
               headerActions={
