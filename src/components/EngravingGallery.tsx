@@ -261,7 +261,7 @@ export default function EngravingGallery({
             onClick={() => setAllOpen(true)}
             style={{ marginTop: 12 }}
           >
-            查看全部生成图片（{results.length}）
+            {`查看全部生成图片（${results.length}）`}
           </Button>
         </Card>
         <Modal

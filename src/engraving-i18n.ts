@@ -158,6 +158,7 @@ const messages: Record<string, string> = {
   下载全部: "Download all",
   取消选择: "Deselect all",
   全部生成图片: "All generated images",
+  查看全部生成图片: "View all generated images",
   生成结果放大: "Enlarged result",
   原照对比: "Source comparison",
   封面生成结果: "Cover result",
@@ -514,6 +515,10 @@ export function translateEngravingText(value: string): string | undefined {
     messages[text.replace(/(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])/g, "")];
   if (exact) return value.replace(value.trim(), exact);
   const patterns: [RegExp, string][] = [
+    [
+      /^查看全部生成图片\s*[（(]\s*(\d+)\s*[）)]$/,
+      "View all generated images ($1)",
+    ],
     [/^已生成 (\d+) 张$/, "Generated $1 images"],
     [/^第 (\d+) 次生成中$/, "Generating · attempt $1"],
     [

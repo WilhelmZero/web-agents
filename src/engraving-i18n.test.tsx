@@ -26,6 +26,7 @@ function Fixture() {
       </button>
       <button onClick={() => setRound((v) => v + 1)}>next</button>
       <h2>雕刻设置</h2>
+      <button>{`查看全部生成图片（${round}）`}</button>
       <p role="status">{"第 " + round + " 次生成中"}</p>
       <input
         aria-label="主体保留要求"
@@ -57,6 +58,9 @@ it("translates dynamic progress, portals and attributes and restores Chinese wit
     screen.getByRole("textbox", { name: "Subject preservation instructions" }),
   ).toHaveValue("生成结果");
   expect(screen.getByText("生成结果")).toHaveAttribute("translate", "no");
+  expect(
+    screen.getByRole("button", { name: "View all generated images (1)" }),
+  ).toBeVisible();
   fireEvent.click(screen.getByText("next"));
   await waitFor(() =>
     expect(screen.getByRole("status")).toHaveTextContent(
@@ -69,12 +73,18 @@ it("translates dynamic progress, portals and attributes and restores Chinese wit
       "Subject preservation instructions",
     ),
   );
+  expect(
+    screen.getByRole("button", { name: "View all generated images (2)" }),
+  ).toBeVisible();
   fireEvent.click(screen.getByText("switch"));
   expect(
     await screen.findByRole("heading", { name: "雕刻设置" }),
   ).toBeVisible();
   expect(screen.getByRole("status")).toHaveTextContent("第 2 次生成中");
   expect(screen.getByRole("dialog")).toHaveTextContent("添加文字与画布排版");
+  expect(
+    screen.getByRole("button", { name: "查看全部生成图片（2）" }),
+  ).toBeVisible();
   expect(localStorage.getItem("scene-studio-language")).toBe("zh-CN");
 });
 it("translates score, round and export size while retaining user filename text", () => {
