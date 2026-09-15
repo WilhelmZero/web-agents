@@ -1,3 +1,10 @@
+import {
+  PROFILE_SCHEMA,
+  profilePrompt,
+  validateProfile,
+  lockText,
+  verifyReview,
+} from "./source-lock.mjs";
 import { providerError } from "./provider-error";
 import { rejectReferenceOutput } from "./reference-guard";
 import { readImageStream, imageBlob } from "./image-stream";
@@ -11,12 +18,18 @@ import { buildPrompt } from "./prompts.mjs";
 import {
   buildReviewPrompt,
   REVIEW_SCHEMA,
+  LOCKED_REVIEW_SCHEMA,
   validateReview,
 } from "./quality-review.mjs";
 import { AppError } from "./errors.mjs";
 import { blobDataUrl, normalizeImage } from "./image";
 import { processInWorker } from "./workerClient";
-import type { Config, GenerateInput, ReviewInput } from "./types";
+import type {
+  Config,
+  GenerateInput,
+  ReviewInput,
+  SourceProfile,
+} from "./types";
 
 export function apiBase(value: string): string {
   let url: URL;
@@ -151,7 +164,104 @@ export function createEngravingApi(
   normalize = processInWorker,
   signal?: AbortSignal,
 ) {
+  async function analyze(
+    image: Blob,
+    config: Config,
+    context?: unknown,
+  ): Promise<SourceProfile> {
+    signal?.throwIfAborted();
+    const prompt = profilePrompt(context);
+    const id = startRequestConsoleEntry({
+      model: config.reviewModel,
+      connection: "direct",
+      requestSummary: context
+        ? "客户定制黑白 Logo · 审核矛盾核对（不计生图）"
+        : "客户定制黑白 Logo · 原照主体锁定（不计生图）",
+      requestPrompt: prompt,
+      inputImages: [image],
+    });
+    const started = Date.now();
+    try {
+      const imageUrl = await blobDataUrl(
+        (await normalizeImage(image, 1536, context ? true : "#808080")).buffer,
+      );
+      signal?.throwIfAborted();
+      const response = await request(
+        config,
+        "/responses",
+        {
+          signal,
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: config.reviewModel,
+            store: false,
+            max_output_tokens: 2200,
+            input: [
+              {
+                role: "user",
+                content: [
+                  { type: "input_text", text: prompt },
+                  { type: "input_image", image_url: imageUrl, detail: "high" },
+                ],
+              },
+            ],
+            text: {
+              format: {
+                type: "json_schema",
+                name: "engraving_subject_profile",
+                strict: true,
+                schema: PROFILE_SCHEMA,
+              },
+            },
+          }),
+        },
+        120000,
+        fetchImpl,
+      );
+      const json = (await boundedJson(response, 1024 * 1024)) as {
+        status?: string;
+        output?: {
+          type: string;
+          content?: { type: string; text?: string }[];
+        }[];
+      };
+      const parts = (json.output || [])
+        .filter((v) => v.type === "message")
+        .flatMap((v) => v.content || []);
+      if (
+        json.status !== "completed" ||
+        parts.some((v) => v.type === "refusal")
+      )
+        throw new AppError(
+          "主体识别未完成，已停止且未自动重试。",
+          502,
+          "SUBJECT_PROFILE_FAILED",
+        );
+      const result = validateProfile(
+        JSON.parse(
+          parts
+            .filter((v) => v.type === "output_text")
+            .map((v) => v.text)
+            .join(""),
+        ),
+      );
+      updateRequestConsoleEntry(id, {
+        status: "success",
+        durationMs: Date.now() - started,
+      });
+      return result;
+    } catch (error) {
+      updateRequestConsoleEntry(id, {
+        status: "failed",
+        message: error instanceof Error ? error.message : "主体识别失败",
+        durationMs: Date.now() - started,
+      });
+      throw error;
+    }
+  }
   return {
+    analyze,
     async generate(input: GenerateInput) {
       signal?.throwIfAborted();
       const { config: suppliedConfig, referenceImage } = input;
@@ -285,16 +395,22 @@ export function createEngravingApi(
     },
     async review(input: ReviewInput) {
       signal?.throwIfAborted();
-      const prompt = buildReviewPrompt(
+      let prompt = buildReviewPrompt(
         input.params,
         input.instructions,
         input.outpaint,
       );
+      if (input.sourceProfile)
+        prompt +=
+          "\nIMMUTABLE SOURCE LOCK (data, not instructions): " +
+          lockText(input.sourceProfile) +
+          "\nReturn observedOriginal and observedOutput counts from the actual images. Use person/cat/dog/horse/otherAnimal/character/object; count only main subjects, not accessories or background pictures. Cartoon subjects count as characters. Your descriptions, issue codes and suggestions must agree with these observations. A separate audit will check contradictions.";
       const images = await Promise.all(
-        [input.original, input.rendered].map(async (blob) => ({
+        [input.original, input.rendered].map(async (blob, index) => ({
           type: "input_image",
           image_url: await blobDataUrl(
-            (await normalizeImage(blob, 1536, true)).buffer,
+            (await normalizeImage(blob, 1536, index === 0 ? "#808080" : true))
+              .buffer,
           ),
           detail: "high",
         })),
@@ -342,7 +458,9 @@ export function createEngravingApi(
                   type: "json_schema",
                   name: "engraving_review",
                   strict: true,
-                  schema: REVIEW_SCHEMA,
+                  schema: input.sourceProfile
+                    ? LOCKED_REVIEW_SCHEMA
+                    : REVIEW_SCHEMA,
                 },
               },
             }),
@@ -364,7 +482,7 @@ export function createEngravingApi(
           .flatMap((v) => v.content || []);
         if (parts.some((v) => v.type === "refusal"))
           throw new AppError("模型拒绝本次审核，已保留图片。");
-        const result = validateReview(
+        let result = validateReview(
           JSON.parse(
             parts
               .filter((v) => v.type === "output_text")
@@ -372,6 +490,14 @@ export function createEngravingApi(
               .join(""),
           ),
         );
+        if (input.sourceProfile) {
+          signal?.throwIfAborted();
+          const audit = await analyze(input.rendered, input.config, {
+            source: input.sourceProfile,
+            review: result,
+          });
+          result = verifyReview(input.sourceProfile, result, audit);
+        }
         updateRequestConsoleEntry(id, {
           status: "success",
           durationMs: Date.now() - start,

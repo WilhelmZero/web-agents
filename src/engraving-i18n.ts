@@ -1,5 +1,26 @@
 // UI-only translations. Source images, prompts and generated artwork are never translated.
 const messages: Record<string, string> = {
+  "生成的图片将在这里显示。生成过程中也可调参和下载已有结果。":
+    "Generated images will appear here. You can edit and download existing results while generation continues.",
+  下次生成重新识别主体: "Identify subjects again on next generation",
+  暂无主体审核通过的版本: "No version has passed the subject check",
+
+  识别并锁定原照主体: "Identifying and locking source subjects",
+  原照主体锁定: "Locked source subjects",
+  主体未通过审核: "Subject integrity check failed",
+  "主体信息已锁定，后续审核不能修改原照主体。":
+    "Source subjects are locked and cannot be changed by later reviews.",
+  "识别不确定，使用通用方案；自动审核需要人工确认。":
+    "Identification uncertain. Using general guidance; automatic review requires manual confirmation.",
+  "首次生成识别并锁定原照主体，同一任务复用；每轮审核增加一次独立矛盾核对，按审核模型 Token 计费。矛盾时停止，不自动重试。":
+    "The first generation identifies and locks source subjects for reuse in this task. Each review adds an independent consistency check, billed as review-model tokens. Contradictions stop optimization without retrying.",
+  "审核意见与图片主体识别矛盾或证据不足，已停止优化并保留图片。请人工检查后再生成。":
+    "Review statements contradict subject identification or lack sufficient evidence. Optimization stopped and images were preserved. Inspect manually before generating again.",
+  "主体识别返回无效结果，已停止并保留图片。":
+    "Subject identification returned invalid data. Processing stopped; images preserved.",
+  "主体识别未完成，已停止且未自动重试。":
+    "Subject identification did not complete. Stopped without automatic retry.",
+
   任务历史: "Task history",
   全选: "Select all",
   "场景 + Logo 一次替换": "Replace scene and logo",

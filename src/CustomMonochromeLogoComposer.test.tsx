@@ -198,7 +198,7 @@ it.each([["png", false], ["png", true], ["svg", false], ["svg", true]] as const)
     );
     const api = vi
       .spyOn(engravingApi, "createEngravingApi")
-      .mockReturnValue({ generate, review });
+      .mockReturnValue({ generate, review, analyze:vi.fn(async()=>({version:1 as const,medium:'photo' as const,confidence:0.95,description:'两位人物',counts:{person:2,cat:0,dog:0,horse:0,otherAnimal:0,character:0,object:0},reviewConsistent:true,reason:''})) });
     render(
       <CustomMonochromeLogoComposer
         openAiApiKey="fake-key"
@@ -215,7 +215,7 @@ it.each([["png", false], ["png", true], ["svg", false], ["svg", true]] as const)
     );
     expect(generate).toHaveBeenCalledTimes(1);
     expect(generate.mock.calls[0][0].referenceImage).toBe(portrait);
-    expect(generate.mock.calls[0][0].styleReference).toBe(format !== "svg");
+    expect(generate.mock.calls[0][0].styleReference).toBe(true);
     if (auto) expect(review.mock.calls[0][0].reference).toBe(portrait);
     fireEvent.click(
       screen.getByRole("button", { name: "补充提示词再生成一张" }),
@@ -231,13 +231,14 @@ it.each([["png", false], ["png", true], ["svg", false], ["svg", true]] as const)
     await waitFor(() => expect(generate).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(button).toBeEnabled());
     expect(generate.mock.calls[1][0].referenceImage).toBe(portrait);
-    expect(generate.mock.calls[1][0].styleReference).toBe(format !== "svg");
+    expect(generate.mock.calls[1][0].styleReference).toBe(true);
     expect(
       fetchMock.mock.calls.every((call) =>
         String(call[0]).endsWith("engraving-references/portrait-reference.jpg"),
       ),
     ).toBe(true);
     expect(review).toHaveBeenCalledTimes(auto ? 1 : 0);
+    expect(api.mock.results[0].value.analyze).toHaveBeenCalledTimes(1);
     api.mockRestore();
   },
   15000,
@@ -274,7 +275,7 @@ it.each([false, true])('keeps both real task results visible when concurrent res
  vi.mocked(processInWorker).mockImplementation(async(blob)=>({buffer:blob,width:400,height:600,warnings:[]}));
  const complete:((v:{buffer:Blob;warnings:string[]})=>void)[]=[];
  const generate=vi.fn((input:import('./services/engraving/types').GenerateInput)=>new Promise<{buffer:Blob;warnings:string[]}>(resolve=>{complete[originals.indexOf(input.image)]=resolve;}));
- const api=vi.spyOn(engravingApi,'createEngravingApi').mockReturnValue({generate,review:vi.fn()});
+ const api=vi.spyOn(engravingApi,'createEngravingApi').mockReturnValue({generate,review:vi.fn(),analyze:vi.fn(async()=>({version:1 as const,medium:'photo' as const,confidence:0.95,description:'两位人物',counts:{person:2,cat:0,dog:0,horse:0,otherAnimal:0,character:0,object:0},reviewConsistent:true,reason:''}))});
  type Control={start:()=>Promise<void>;stop:()=>void;flush:()=>Promise<void>};
  const refs=[createRef<Control>(),createRef<Control>()];
  const view=render(<>{[0,1].map(i=><CustomMonochromeLogoComposer key={i} embedded workspaceActive={i===0} settingsHost={null} controllerRef={refs[i]} openAiApiKey="mock" onConfigureKey={vi.fn()}/>)}</>);

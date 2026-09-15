@@ -275,7 +275,7 @@ describe("ported automatic optimization state machine", () => {
       expect(call[0].referenceImage).toBe(d.reference);
     }
     expect(vi.mocked(d.generate).mock.calls[1][0].feedback).toContain(
-      "Restore the exact original faces",
+      "Restore the exact original subject identity",
     );
     expect(result.best).not.toBeNull();
     expect(vi.mocked(d.generate).mock.calls[1][0].feedback).toContain(

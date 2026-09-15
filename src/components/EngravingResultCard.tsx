@@ -235,7 +235,13 @@ export function EngravingResultEditor({
           {latest ? (
             <Alert
               type={latest.passed ? "success" : "warning"}
-              title={latest.passed ? "达到目标评分" : "审核修改意见"}
+              title={
+                latest.integrity === "mismatch"
+                  ? "主体未通过审核"
+                  : latest.passed
+                    ? "达到目标评分"
+                    : "审核修改意见"
+              }
               description={
                 latest.suggestions ||
                 latest.issueLabels.join("；") ||

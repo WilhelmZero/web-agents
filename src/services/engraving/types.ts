@@ -1,3 +1,15 @@
+export interface SourceProfile {
+  version: 1;
+  medium: "photo" | "cartoon" | "graphic" | "unknown";
+  confidence: number;
+  description: string;
+  counts: Record<
+    "person" | "cat" | "dog" | "horse" | "otherAnimal" | "character" | "object",
+    number
+  >;
+  reviewConsistent: boolean;
+  reason: string;
+}
 import type { EngravingLayout } from "./layout-types";
 export interface CropRect {
   x: number;
@@ -57,6 +69,9 @@ export interface ImageJob {
   warnings: string[];
 }
 export interface Review {
+  integrity?: "verified" | "mismatch";
+  observedOriginal?: SourceProfile["counts"];
+  observedOutput?: SourceProfile["counts"];
   suggestions?: string;
   scores: Record<
     "identity" | "subjects" | "hair" | "texture" | "background" | "tones",
@@ -104,6 +119,7 @@ export interface Rendered {
   warnings: string[];
 }
 export interface GenerateInput {
+  sourceProfile?: SourceProfile;
   /** Vector artwork uses textual engraving guidance without portrait image input. */
   styleReference?: boolean;
   onProgress?: (event: import("./image-stream").ImageProgress) => void;
@@ -119,6 +135,7 @@ export interface GenerateInput {
   feedback?: string;
 }
 export interface ReviewInput {
+  sourceProfile?: SourceProfile;
   outpaint?: OutpaintOptions;
   original: Blob;
   reference: Blob;
@@ -128,6 +145,7 @@ export interface ReviewInput {
   instructions: string;
 }
 export interface AutoDependencies {
+  sourceProfile?: SourceProfile;
   outpaint?: OutpaintOptions;
   original: Blob;
   reference: Blob;
@@ -151,6 +169,7 @@ export interface AutoDependencies {
   cancelled: () => boolean;
 }
 export interface SavedTask {
+  sourceProfile?: SourceProfile;
   coverJobId?: string;
   version: 1;
   original?: Blob;

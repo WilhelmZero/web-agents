@@ -195,7 +195,12 @@ export default function EngravingGallery({
               >
                 {pending
                   ? `第 ${generationNumber} 次生成中`
-                  : completionLabel || (best ? "已完成" : "等待生成")}
+                  : completionLabel ||
+                    (best
+                      ? "已完成"
+                      : results.length
+                        ? "暂无主体审核通过的版本"
+                        : "等待生成")}
               </Tag>
               {headerActions}
             </Space>
@@ -227,7 +232,12 @@ export default function EngravingGallery({
                   color: "white",
                 }}
               >
-                {pending ? <Spin /> : completionLabel || "等待生成"}
+                {pending ? (
+                  <Spin />
+                ) : (
+                  completionLabel ||
+                  (results.length ? "暂无主体审核通过的版本" : "等待生成")
+                )}
               </div>
             )}
           </div>

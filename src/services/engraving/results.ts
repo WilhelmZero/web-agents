@@ -73,7 +73,13 @@ export function changeResultParams(
 
 export function bestReview(result: StoredResult) {
   return result.reviews.reduce<StoredResult["reviews"][number] | undefined>(
-    (best, review) => (!best || review.score > best.score ? review : best),
+    (best, review) =>
+      !best ||
+      (best.integrity === "mismatch" && review.integrity === "verified") ||
+      (!(best.integrity === "verified" && review.integrity === "mismatch") &&
+        review.score > best.score)
+        ? review
+        : best,
     undefined,
   );
 }
@@ -87,16 +93,23 @@ export function bestResultIndex(results: StoredResult[]) {
   let index = -1,
     score = -1;
   results.forEach((result, i) => {
-    const value = bestReview(result)?.score;
+    const review = bestReview(result);
+    if (review?.integrity === "mismatch") return;
+    const value = review?.score;
     if (value !== undefined && value > score) {
       index = i;
       score = value;
     }
   });
-  return index < 0 ? results.length - 1 : index;
+  if (index >= 0) return index;
+  for (let i = results.length - 1; i >= 0; i--)
+    if (bestReview(results[i])?.integrity !== "mismatch") return i;
+  return -1;
 }
 
 export function coverResultIndex(results: StoredResult[], coverJobId?: string) {
-  const selected = coverJobId ? results.findIndex(r => r.job.id === coverJobId) : -1;
+  const selected = coverJobId
+    ? results.findIndex((r) => r.job.id === coverJobId)
+    : -1;
   return selected >= 0 ? selected : bestResultIndex(results);
 }

@@ -9,3 +9,5 @@ export function buildReviewPrompt(
   instructions?: string,
   outpaint?: import("./types").OutpaintOptions,
 ): string;
+
+export const LOCKED_REVIEW_SCHEMA: object;

@@ -1,3 +1,4 @@
+import {COUNT_SCHEMA} from './source-lock.mjs';
 import { AppError } from './errors.mjs';
 export const SCORE_KEYS = ['identity', 'subjects', 'hair', 'texture', 'background', 'tones'];
 export const ISSUES = Object.freeze({
@@ -20,6 +21,7 @@ export const REVIEW_SCHEMA = {
   }, required: ['scores', 'issues', 'action', 'adjustments', 'suggestions'],
 };
 
+export const LOCKED_REVIEW_SCHEMA = {...REVIEW_SCHEMA, properties:{...REVIEW_SCHEMA.properties,observedOriginal:COUNT_SCHEMA,observedOutput:COUNT_SCHEMA},required:[...REVIEW_SCHEMA.required,'observedOriginal','observedOutput']};
 export function validateReview(value) {
   const invalid = () => { throw new AppError('自动检查返回了无效结果，已停止调试并保留现有图片。', 502, 'REVIEW_INVALID'); };
   if (!value || typeof value !== 'object' || !value.scores || !value.adjustments) invalid();
@@ -28,7 +30,7 @@ export function validateReview(value) {
   if (!['accept', 'adjust', 'regenerate'].includes(value.action)) invalid();
   if (value.suggestions !== undefined && (typeof value.suggestions !== 'string' || value.suggestions.length > 3000)) invalid();
   for (const key of ADJUST_KEYS) if (typeof value.adjustments[key] !== 'number' || !Number.isFinite(value.adjustments[key]) || value.adjustments[key] < 0 || value.adjustments[key] > (key === 'blackPoint' ? 40 : 100)) invalid();
-  return { scores: Object.fromEntries(SCORE_KEYS.map(k => [k, value.scores[k]])),
+  return { ...(value.integrity ? {integrity:value.integrity} : {}), ...(value.observedOriginal ? {observedOriginal:value.observedOriginal,observedOutput:value.observedOutput} : {}), scores: Object.fromEntries(SCORE_KEYS.map(k => [k, value.scores[k]])),
     issues: [...new Set(value.issues)], action: value.action, suggestions: value.suggestions || '',
     adjustments: Object.fromEntries(ADJUST_KEYS.map(k => [k, Math.round(value.adjustments[k])])) };
 }

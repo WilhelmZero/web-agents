@@ -88,7 +88,7 @@ function context(canvas: OffscreenCanvas) {
 export async function normalizeImage(
   blob: Blob,
   maxEdge = 4096,
-  flatten = false,
+  flatten: boolean | string = false,
   upload = false,
 ): Promise<Rendered> {
   if (upload && blob.size > 20 * 1024 * 1024)
@@ -113,7 +113,7 @@ export async function normalizeImage(
     const canvas = new OffscreenCanvas(width, height),
       ctx = context(canvas);
     if (flatten) {
-      ctx.fillStyle = "#000";
+      ctx.fillStyle = typeof flatten === "string" ? flatten : "#000";
       ctx.fillRect(0, 0, width, height);
     }
     ctx.imageSmoothingEnabled = true;

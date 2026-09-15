@@ -1,4 +1,8 @@
 import {
+  profileRoute,
+  validateProfile,
+} from "./services/engraving/source-lock.mjs";
+import {
   IMAGE_MODEL_OPTIONS,
   IMAGE_QUALITIES,
   supportsQuality,
@@ -23,6 +27,7 @@ import {
   Form,
   Button,
   Card,
+  Collapse,
   Image,
   Input,
   InputNumber,
@@ -44,6 +49,7 @@ import { runAutoTune } from "./services/engraving/auto-tune.mjs";
 import { createEngravingApi, apiBase } from "./services/engraving/api";
 import {
   getTaskId,
+  DEFAULT_OUTPAINT_INSTRUCTIONS,
   loadPreferences,
   savePreferences,
   loadTask,
@@ -399,7 +405,7 @@ export function EngravingTaskComposer({
     const config = { ...snapshot, baseUrl: OPENAI_ROOT, apiKey: openAiApiKey };
     let run: AutoRun = {
       status: "running",
-      phase: "准备风格参考",
+      phase: "识别并锁定原照主体",
       maxRounds: snapshot.auto ? snapshot.maxRounds : 1,
       targetScore: snapshot.targetScore,
       generations: 0,
@@ -423,24 +429,59 @@ export function EngravingTaskComposer({
       });
     };
     try {
-      let reference = referenceControlsVisible
-        ? initial.customReference
-        : undefined;
-      if (!reference) {
+      const api = createEngravingApi(undefined, undefined, controller.signal);
+      let sourceProfile = initial.sourceProfile;
+      try {
+        sourceProfile =
+          sourceProfile?.version === 1
+            ? validateProfile(sourceProfile)
+            : undefined;
+      } catch {
+        sourceProfile = undefined;
+      }
+      if (!sourceProfile) {
+        sourceProfile = await api.analyze(original, config);
+        controller.signal.throwIfAborted();
+        await persist({ ...taskRef.current, sourceProfile });
+      }
+      const route = profileRoute(sourceProfile);
+      const routedSubject =
+        route === "portrait"
+          ? snapshot.subject
+          : route === "cat" || route === "dog"
+            ? "pet"
+            : "auto";
+      const outpaint = snapshot.outpaint && {
+        ...snapshot.outpaint,
+        instructions:
+          route !== "portrait" &&
+          snapshot.outpaint.instructions === DEFAULT_OUTPAINT_INSTRUCTIONS
+            ? ""
+            : snapshot.outpaint.instructions,
+      };
+      const styleReference = route !== "generic";
+      let reference = new Blob([], { type: "image/png" });
+      if (styleReference) {
+        const path =
+          route === "cartoon"
+            ? "cartoon-reference.png"
+            : route + "-reference.jpg";
         const response = await fetch(
-          `${import.meta.env.BASE_URL}engraving-references/${referenceControlsVisible ? snapshot.reference : "portrait"}-reference.jpg`,
+          import.meta.env.BASE_URL + "engraving-references/" + path,
           { signal: controller.signal },
         );
         if (!response.ok) throw new Error("风格参考加载失败");
         reference = (await processInWorker(await response.blob())).buffer;
       }
-      const usedReference = reference;
+      controller.signal.throwIfAborted();
+      const usedReference = styleReference ? reference : undefined;
       let lastPrompt = "";
-      const api = createEngravingApi(undefined, undefined, controller.signal);
-      const styleReference = !/\.svg$/i.test(initial.fileName);
       const generate: typeof api.generate = async (input) => {
         lastPrompt = buildPrompt({
           ...input,
+          sourceProfile,
+          subject: routedSubject,
+          outpaint,
           editMode: input.editMode === true,
           hasReference: styleReference,
         });
@@ -448,6 +489,9 @@ export function EngravingTaskComposer({
         setLivePreview(undefined);
         return api.generate({
           ...input,
+          sourceProfile,
+          subject: routedSubject,
+          outpaint,
           styleReference,
           onProgress: (event) => {
             if (
@@ -508,13 +552,14 @@ export function EngravingTaskComposer({
         run = { ...run, status: "cancelled", phase: "已停止，未提交生成请求" };
       else if (snapshot.auto)
         run = await runAutoTune({
+          sourceProfile,
           original,
           reference,
           config,
           subject: snapshot.subject,
           instructions: snapshot.instructions,
           style: snapshot.style,
-          outpaint: snapshot.outpaint,
+          outpaint,
           params: initial.params,
           options: snapshot,
           ...api,
@@ -534,7 +579,7 @@ export function EngravingTaskComposer({
           subject: snapshot.subject,
           instructions: snapshot.instructions,
           style: snapshot.style,
-          outpaint: snapshot.outpaint,
+          outpaint,
           feedback: additional,
         });
         const job = await saveCandidate(result.buffer, result.warnings);
@@ -685,6 +730,10 @@ export function EngravingTaskComposer({
         最多接收3张中间预览，可能增加输出Token费用；不支持流式的服务可关闭。失败不自动重试。
       </small>
       <Divider />
+      <small>
+        首次生成识别并锁定原照主体，同一任务复用；每轮审核增加一次独立矛盾核对，按审核模型
+        Token 计费。矛盾时停止，不自动重试。
+      </small>
       <h4>自动优化</h4>
       <Space orientation="vertical" style={{ width: "100%" }}>
         {" "}
@@ -1111,6 +1160,44 @@ export function EngravingTaskComposer({
               onChange={(id, patch) => {
                 updateTask(changeResultParams(taskRef.current, id, patch));
               }}
+            />
+          )}
+          {task.sourceProfile && (
+            <Collapse
+              size="small"
+              items={[
+                {
+                  key: "source-lock",
+                  label: "原照主体锁定",
+                  children: (
+                    <>
+                      <p translate="no">{task.sourceProfile.description}</p>
+                      <Button
+                        size="small"
+                        style={{
+                          height: "auto",
+                          whiteSpace: "normal",
+                          maxWidth: "100%",
+                        }}
+                        disabled={locked}
+                        onClick={() =>
+                          updateTask({
+                            ...taskRef.current,
+                            sourceProfile: undefined,
+                          })
+                        }
+                      >
+                        下次生成重新识别主体
+                      </Button>
+                      <small style={{ display: "block", marginTop: 8 }}>
+                        {task.sourceProfile.confidence < 0.8
+                          ? "识别不确定，使用通用方案；自动审核需要人工确认。"
+                          : "主体信息已锁定，后续审核不能修改原照主体。"}
+                      </small>
+                    </>
+                  ),
+                },
+              ]}
             />
           )}
           {(error || run?.error) && (
