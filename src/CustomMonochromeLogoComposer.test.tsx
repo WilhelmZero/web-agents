@@ -57,9 +57,11 @@ describe("customer monochrome page", () => {
     ).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "下载选中" })).toBeDisabled();
     expect(screen.queryByText("雕刻结果")).not.toBeInTheDocument();
-    expect(screen.getByRole("switch", {name:"自动优化"})).toBeChecked();
+    expect(screen.getByRole("switch", {name:"自动优化"})).not.toBeChecked();
     const continuous = screen.getByRole("switch", {name:"在生成图上持续优化"});
     expect(continuous).not.toBeChecked();
+    expect(continuous).toBeDisabled();
+    fireEvent.click(screen.getByRole("switch", {name:"自动优化"}));
     fireEvent.click(continuous);
     expect(continuous).toBeChecked();
     fireEvent.click(screen.getByRole("switch", {name:"自动优化"}));

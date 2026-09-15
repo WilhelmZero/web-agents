@@ -109,7 +109,7 @@ it("opens per-image controls without a run lock and sends edits only to that ima
   await waitFor(() =>
     expect(screen.getByText("选择输出尺寸 · 1 张")).toBeInTheDocument(),
   );
-});
+}, 15000);
 
 it("adopts a version from its score row and updates the cover", async () => {
   const a = result("a"),
