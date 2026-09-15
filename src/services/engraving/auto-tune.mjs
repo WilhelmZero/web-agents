@@ -18,20 +18,20 @@ function assessed(review, target, outpaint) {
 }
 
 const FIXES = {
-  identity: 'Restore the exact original faces, facial geometry, expressions, anatomy and pose from image 1. Do not beautify or change identities.',
+  identity: 'Restore the exact original faces, facial geometry, expressions, anatomy and pose from the ORIGINAL_CUSTOMER_SOURCE. Do not beautify or change identities.',
   subjects: 'Restore ALL original subjects and associated objects without recropping or omissions.',
   hair_dark: 'Make dense, brighter etched strands throughout the black hair/fur interior and silhouette, following original hair direction. Avoid a black featureless mass or white cap.',
   texture_weak: 'Increase directional hair, fur and fabric microtexture to match the engraving reference. Do not invent random noise.',
   background: 'Remove ALL scenery and haze. Keep every non-subject region transparent with clean negative spaces, no shadow or glow.',
   highlights: 'Restore tonal gradients in skin and folds in white clothing; reduce flat clipped white areas.',
   shadows: 'Restore readable midtone detail inside subject shadows while retaining black gaps and anchors.',
-  artifacts: 'Remove fabricated details and repair original anatomy and lettering using only image 1.',
+  artifacts: 'Remove fabricated details and repair original anatomy and lettering using only the ORIGINAL_CUSTOMER_SOURCE.',
 };
 
 
 function correctionFeedback(assessment, targetScore, editMode = false) {
   const issues = [...assessment.issues, ...SCORE_KEYS.filter(k => assessment.scores[k] < (['identity', 'subjects'].includes(k) ? Math.max(90, targetScore) : targetScore)).map(k => ({ hair: 'hair_dark', texture: 'texture_weak', tones: 'highlights' }[k] || k))];
-  return [editMode ? 'Scores for this edit target: ' + JSON.stringify(assessment.scores) : '', assessment.suggestions?.slice(0, 1600), ...[...new Set(issues)].map(issue => editMode ? FIXES[issue]?.replaceAll('image 1', 'image 3') : FIXES[issue])].filter(Boolean).join('\n').slice(0, 3000);
+  return [editMode ? 'Scores for this edit target: ' + JSON.stringify(assessment.scores) : '', assessment.suggestions?.slice(0, 1600).replace(/(?:image\s*1|图\s*[1一])/gi, 'ORIGINAL_CUSTOMER_SOURCE').replace(/(?:image\s*2|图\s*[2二])/gi, 'REVIEWED_OUTPUT'), ...[...new Set(issues)].map(issue => FIXES[issue])].filter(Boolean).join('\n').slice(0, 3000);
 }
 
 // Each round is one candidate render + review, including the first generation.

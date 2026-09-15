@@ -291,7 +291,7 @@ export function createEngravingApi(
         input.outpaint,
       );
       const images = await Promise.all(
-        [input.original, input.reference, input.rendered].map(async (blob) => ({
+        [input.original, input.rendered].map(async (blob) => ({
           type: "input_image",
           image_url: await blobDataUrl(
             (await normalizeImage(blob, 1536, true)).buffer,
@@ -304,7 +304,7 @@ export function createEngravingApi(
         connection: "direct",
         requestSummary: "客户定制黑白 Logo · 质量审核（不计生图）",
         requestPrompt: prompt,
-        inputImages: [input.original, input.reference, input.rendered],
+        inputImages: [input.original, input.rendered],
       });
       const start = Date.now();
       try {
@@ -322,7 +322,19 @@ export function createEngravingApi(
               input: [
                 {
                   role: "user",
-                  content: [{ type: "input_text", text: prompt }, ...images],
+                  content: [
+                    { type: "input_text", text: prompt },
+                    {
+                      type: "input_text",
+                      text: "Image 1 — ORIGINAL_CUSTOMER_SOURCE. This is the customer subject to preserve, never a style example.",
+                    },
+                    images[0],
+                    {
+                      type: "input_text",
+                      text: "Image 2 — REVIEWED_OUTPUT. Evaluate this candidate against ORIGINAL_CUSTOMER_SOURCE. No style-reference image is attached.",
+                    },
+                    images[1],
+                  ],
                 },
               ],
               text: {
