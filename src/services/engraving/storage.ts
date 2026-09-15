@@ -14,7 +14,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   reference: "portrait",
   instructions: "",
   outpaint: { enabled: false, instructions: DEFAULT_OUTPAINT_INSTRUCTIONS },
-  auto: true,
+  auto: false,
   continueOnGenerated: false,
   maxRounds: 5,
   targetScore: 85,
