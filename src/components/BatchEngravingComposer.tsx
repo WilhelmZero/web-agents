@@ -1,3 +1,8 @@
+import {
+  reportTaskProgress,
+  clearTaskProgress,
+} from "../services/taskProgress";
+import { engravingProgress } from "../services/engraving/progress";
 import EngravingExportModal from "./EngravingExportModal";
 import {
   taskResults,
@@ -169,6 +174,7 @@ export default function BatchEngravingComposer({
     new Map<string, React.RefObject<Controller | null>>(),
   );
   const callbacks = useRef(new Map<string, (state: State) => void>());
+  const [finishedIds, setFinishedIds] = useState<string[]>([]);
   const [parallel, setParallel] = useState(2),
     [batch, setBatch] = useState(false),
     [deleting, setDeleting] = useState(false),
@@ -437,6 +443,7 @@ export default function BatchEngravingComposer({
     }));
     batchActive.current = true;
     cancelled.current = false;
+    setFinishedIds([]);
     setBatch(true);
     setError("");
     let finished = 0;
@@ -447,7 +454,10 @@ export default function BatchEngravingComposer({
         parallel,
         () => cancelled.current,
         (_id, state) => {
-          if (state !== "running") finished++;
+          if (state !== "running") {
+            finished++;
+            setFinishedIds((ids) => [...ids, _id]);
+          }
           setProgress("已处理 " + finished + " / " + items.length + " 个任务");
         },
       );
@@ -511,6 +521,16 @@ export default function BatchEngravingComposer({
     }
   };
   const anyBusy = Object.values(states).some((s) => s.busy);
+  useEffect(() => {
+    reportTaskProgress(
+      engravingProgress(
+        slots.map((slot) => ({ id: slot.id, ...states[slot.id] })),
+        batch,
+        finishedIds,
+      ),
+    );
+  }, [slots, states, batch, finishedIds]);
+  useEffect(() => () => clearTaskProgress("custom-monochrome-logo"), []);
   const covers = slots.flatMap((slot) => {
     const results = states[slot.id] ? taskResults(states[slot.id].task) : [];
     const best =
@@ -590,7 +610,13 @@ export default function BatchEngravingComposer({
             key={entry.id}
             size="small"
             style={{ marginTop: 10 }}
-            title={entry.name ? <span translate="no">{entry.name}</span> : "未命名批次"}
+            title={
+              entry.name ? (
+                <span translate="no">{entry.name}</span>
+              ) : (
+                "未命名批次"
+              )
+            }
           >
             <p>
               {entry.tasks.length} 张原照 ·{" "}

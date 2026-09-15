@@ -328,6 +328,7 @@ export function createEngravingApi(
         form.append("partial_images", "3");
       }
       const id = startRequestConsoleEntry({
+        requestPrompt: prompt,
         model: config.imageModel,
         connection: "direct",
         requestSummary:

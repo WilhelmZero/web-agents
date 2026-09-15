@@ -48,7 +48,10 @@ describe("compatible image API", () => {
       height: 100,
       warnings: [],
     }));
-    const request = input();
+    const request = {
+      ...input(),
+      config: { ...config, imageModel: "gpt-image-2.5-flare" },
+    };
     await createEngravingApi(fetcher as typeof fetch, normalize).generate(
       request,
     );
@@ -67,6 +70,12 @@ describe("compatible image API", () => {
     expect(body.get("n")).toBe("1");
     expect(body.get("quality")).toBe("high");
     expect(startRequestConsoleEntry).toHaveBeenCalledTimes(1);
+    expect(startRequestConsoleEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "gpt-image-2.5-flare",
+        requestPrompt: body.get("prompt"),
+      }),
+    );
     expect(updateRequestConsoleEntry).toHaveBeenCalledWith(
       "request",
       expect.objectContaining({
