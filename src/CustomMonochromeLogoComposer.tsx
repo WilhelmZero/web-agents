@@ -514,6 +514,7 @@ export function EngravingTaskComposer({
       const saveCandidate = async (
         blob: Blob,
         warnings: string[],
+        referenceSuspect = false,
       ): Promise<ImageJob> => {
         const image = await createImageBitmap(blob);
         const job = {
@@ -522,6 +523,7 @@ export function EngravingTaskComposer({
           width: image.width,
           height: image.height,
           warnings,
+          referenceSuspect,
         };
         image.close();
         await persist({
@@ -582,13 +584,26 @@ export function EngravingTaskComposer({
           outpaint,
           feedback: additional,
         });
-        const job = await saveCandidate(result.buffer, result.warnings);
+        const job = await saveCandidate(
+          result.buffer,
+          result.warnings,
+          result.referenceSuspect,
+        );
         run = {
           ...run,
-          status: stop.current ? "cancelled" : "completed",
+          status: stop.current
+            ? "cancelled"
+            : result.referenceSuspect
+              ? "failed"
+              : "completed",
+          error: result.referenceSuspect
+            ? result.warnings.join("；")
+            : undefined,
           phase: stop.current
             ? "已停止，已返回图片已保存"
-            : "生成完成，请人工检查",
+            : result.referenceSuspect
+              ? "疑似误用参考图，图片已保留，等待人工确认"
+              : "生成完成，请人工检查",
           fallback: {
             job,
             params: { ...initial.params, eraseMask: undefined, crop: null },

@@ -112,8 +112,13 @@ describe("engraving browser pixel engine", () => {
     ).toBeLessThanOrEqual(2);
   });
   it("exports 80 mm at 300 DPI as 945 px and bounds extreme output", () => {
-    expect(outputDimensions(1000, 1000, { ...DEFAULTS, dpi: 300 }).width).toBe(945);
-    expect(outputDimensions(1000, 1000, DEFAULTS)).toMatchObject({width:2520,margin:0});
+    expect(outputDimensions(1000, 1000, { ...DEFAULTS, dpi: 300 }).width).toBe(
+      945,
+    );
+    expect(outputDimensions(1000, 1000, DEFAULTS)).toMatchObject({
+      width: 2520,
+      margin: 0,
+    });
     expect(() =>
       outputDimensions(100, 2000, { ...DEFAULTS, widthMm: 300, dpi: 1200 }),
     ).toThrow(/过大/);
@@ -367,28 +372,118 @@ describe("isolated settings and recovery", () => {
 });
 type PreferencesWithKey = typeof DEFAULT_PREFERENCES & { apiKey: string };
 
-it('continues from best raw candidate with matching feedback and original anchor after regression', async()=>{
- const d=dependencies(); d.options={maxRounds:3,targetScore:95,continueOnGenerated:true};
- const sources=[new Blob(['first']),new Blob(['worse']),new Blob(['third'])]; let n=0, r=0;
- d.generate=vi.fn(async()=>({buffer:sources[n++],warnings:[]}));
- d.review=vi.fn(async()=>assessment({scores:{identity:90,subjects:90,hair:++r===2?20:70,texture:70,background:90,tones:70},action:'regenerate',issues:['hair_dark'],suggestions:r===2?'worse advice':'best advice'}));
- const run=await runAutoTune(d); const calls=vi.mocked(d.generate).mock.calls;
- expect(calls[0][0].image).toBe(d.original); expect(calls[0][0].editMode).toBeUndefined();
- for(const index of [1,2]) { expect(calls[index][0].image).toBe(sources[0]); expect(calls[index][0].originalImage).toBe(d.original); expect(calls[index][0].referenceImage).toBe(d.reference); expect(calls[index][0].feedback).toContain('best advice'); expect(calls[index][0].feedback).not.toContain('worse advice'); }
- expect(run.rounds[2].editedFromRound).toBe(1); expect(run.status).toBe('limit');
- for(const call of vi.mocked(d.review).mock.calls) expect(call[0].original).toBe(d.original);
+it("continues from best raw candidate with matching feedback and original anchor after regression", async () => {
+  const d = dependencies();
+  d.options = { maxRounds: 3, targetScore: 95, continueOnGenerated: true };
+  const sources = [
+    new Blob(["first"]),
+    new Blob(["worse"]),
+    new Blob(["third"]),
+  ];
+  let n = 0,
+    r = 0;
+  d.generate = vi.fn(async () => ({ buffer: sources[n++], warnings: [] }));
+  d.review = vi.fn(async () =>
+    assessment({
+      scores: {
+        identity: 90,
+        subjects: 90,
+        hair: ++r === 2 ? 20 : 70,
+        texture: 70,
+        background: 90,
+        tones: 70,
+      },
+      action: "regenerate",
+      issues: ["hair_dark"],
+      suggestions: r === 2 ? "worse advice" : "best advice",
+    }),
+  );
+  const run = await runAutoTune(d);
+  const calls = vi.mocked(d.generate).mock.calls;
+  expect(calls[0][0].image).toBe(d.original);
+  expect(calls[0][0].editMode).toBeUndefined();
+  for (const index of [1, 2]) {
+    expect(calls[index][0].image).toBe(sources[0]);
+    expect(calls[index][0].originalImage).toBe(d.original);
+    expect(calls[index][0].referenceImage).toBe(d.reference);
+    expect(calls[index][0].feedback).toContain("best advice");
+    expect(calls[index][0].feedback).not.toContain("worse advice");
+  }
+  expect(run.rounds[2].editedFromRound).toBe(1);
+  expect(run.status).toBe("limit");
+  for (const call of vi.mocked(d.review).mock.calls)
+    expect(call[0].original).toBe(d.original);
 });
-it('persists the opt-in switch and assigns distinct edit image roles',()=>{
- (localStorage.clear(), sessionStorage.clear()); expect(loadPreferences().continueOnGenerated).toBe(false);
- savePreferences({...DEFAULT_PREFERENCES,continueOnGenerated:true}); expect(loadPreferences().continueOnGenerated).toBe(true);
- expect(()=>validateAutoOptions({continueOnGenerated:'yes' as unknown as boolean})).toThrow();
- const prompt=buildPrompt({hasReference:true,editMode:true,feedback:'Improve hair'});
- expect(prompt).toContain('Image 1 is the EDIT TARGET'); expect(prompt).toContain('Image 3 is the ONLY source'); expect(prompt).not.toContain('Image 1 is the ONLY source');
+it("persists the opt-in switch and assigns distinct edit image roles", () => {
+  (localStorage.clear(), sessionStorage.clear());
+  expect(loadPreferences().continueOnGenerated).toBe(false);
+  savePreferences({ ...DEFAULT_PREFERENCES, continueOnGenerated: true });
+  expect(loadPreferences().continueOnGenerated).toBe(true);
+  expect(() =>
+    validateAutoOptions({ continueOnGenerated: "yes" as unknown as boolean }),
+  ).toThrow();
+  const prompt = buildPrompt({
+    hasReference: true,
+    editMode: true,
+    feedback: "Improve hair",
+  });
+  expect(prompt).toContain("Image 1 is the EDIT TARGET");
+  expect(prompt).toContain("Image 3 is the ONLY source");
+  expect(prompt).not.toContain("Image 1 is the ONLY source");
 });
 
-it('stops outpainting at the displayed target while retaining issues for manual review',async()=>{
- const d=dependencies();d.outpaint={enabled:true,instructions:'右侧补全手臂'};d.options.maxRounds=2;
- let n=0;d.review=vi.fn(async()=>++n===1?assessment({scores:{identity:99,subjects:59,hair:99,texture:99,background:99,tones:99},issues:['subjects'],action:'adjust'}):assessment());
- const result=await runAutoTune(d);expect(result.generations).toBe(1);expect(result.status).toBe('completed');expect(result.rounds[0].passed).toBe(true);expect(d.review).toHaveBeenCalledTimes(1);
- expect(d.generate).toHaveBeenCalledWith(expect.objectContaining({outpaint:d.outpaint}));expect(d.review).toHaveBeenCalledWith(expect.objectContaining({original:d.original,outpaint:d.outpaint}));
+it("stops outpainting at the displayed target while retaining issues for manual review", async () => {
+  const d = dependencies();
+  d.outpaint = { enabled: true, instructions: "右侧补全手臂" };
+  d.options.maxRounds = 2;
+  let n = 0;
+  d.review = vi.fn(async () =>
+    ++n === 1
+      ? assessment({
+          scores: {
+            identity: 99,
+            subjects: 59,
+            hair: 99,
+            texture: 99,
+            background: 99,
+            tones: 99,
+          },
+          issues: ["subjects"],
+          action: "adjust",
+        })
+      : assessment(),
+  );
+  const result = await runAutoTune(d);
+  expect(result.generations).toBe(1);
+  expect(result.status).toBe("completed");
+  expect(result.rounds[0].passed).toBe(true);
+  expect(d.review).toHaveBeenCalledTimes(1);
+  expect(d.generate).toHaveBeenCalledWith(
+    expect.objectContaining({ outpaint: d.outpaint }),
+  );
+  expect(d.review).toHaveBeenCalledWith(
+    expect.objectContaining({ original: d.original, outpaint: d.outpaint }),
+  );
+});
+
+it("retains reference suspects and stops before audit or another generation", async () => {
+  const d = dependencies();
+  const blob = new Blob(["suspect"]);
+  d.generate = vi.fn(async () => ({
+    buffer: blob,
+    warnings: ["reference warning"],
+    referenceSuspect: true,
+  }));
+  const run = await runAutoTune(d);
+  expect(d.saveCandidate).toHaveBeenCalledWith(
+    blob,
+    ["reference warning"],
+    true,
+  );
+  expect(run.fallback?.job.blob).toBe(blob);
+  expect(run.best).toBeNull();
+  expect(run.status).toBe("failed");
+  expect(d.generate).toHaveBeenCalledTimes(1);
+  expect(d.review).not.toHaveBeenCalled();
+  expect(d.render).not.toHaveBeenCalled();
 });

@@ -94,7 +94,7 @@ export function bestResultIndex(results: StoredResult[]) {
     score = -1;
   results.forEach((result, i) => {
     const review = bestReview(result);
-    if (review?.integrity === "mismatch") return;
+    if (result.job.referenceSuspect || review?.integrity === "mismatch") return;
     const value = review?.score;
     if (value !== undefined && value > score) {
       index = i;
@@ -103,7 +103,11 @@ export function bestResultIndex(results: StoredResult[]) {
   });
   if (index >= 0) return index;
   for (let i = results.length - 1; i >= 0; i--)
-    if (bestReview(results[i])?.integrity !== "mismatch") return i;
+    if (
+      !results[i].job.referenceSuspect &&
+      bestReview(results[i])?.integrity !== "mismatch"
+    )
+      return i;
   return -1;
 }
 

@@ -1,3 +1,4 @@
+import { AppError } from "./errors.mjs";
 import { rejectReferenceOutput } from "./reference-guard";
 vi.mock("./reference-guard", () => ({
   rejectReferenceOutput: vi.fn(async () => {}),
@@ -320,9 +321,9 @@ it("omits streaming parameters when disabled and accepts JSON responses", async 
   expect(body.get("partial_images")).toBeNull();
 });
 
-it("rejects a copied reference without retrying or returning a candidate", async () => {
+it("retains a flagged reference copy without retrying", async () => {
   vi.mocked(rejectReferenceOutput).mockRejectedValueOnce(
-    new Error("参考图被当作输出"),
+    new AppError("参考图被当作输出", 502, "REFERENCE_OUTPUT"),
   );
   const fetcher = vi.fn(async () =>
     Response.json({ data: [{ b64_json: btoa("reference-copy") }] }),
@@ -335,7 +336,10 @@ it("rejects a copied reference without retrying or returning a candidate", async
   }));
   await expect(
     createEngravingApi(fetcher as typeof fetch, normalize).generate(input()),
-  ).rejects.toThrow("参考图被当作输出");
+  ).resolves.toMatchObject({
+    referenceSuspect: true,
+    warnings: ["参考图被当作输出"],
+  });
   expect(fetcher).toHaveBeenCalledTimes(1);
 });
 
@@ -419,9 +423,9 @@ it("omits portrait reference for SVG in first, outpaint and continuing-edit requ
     expect(fetcher).toHaveBeenCalledOnce();
   }
 });
-it("does not publish a copied reference as a completed preview", async () => {
+it("retains a streamed reference copy with a completed preview and warning", async () => {
   vi.mocked(rejectReferenceOutput).mockRejectedValueOnce(
-    new Error("参考图被当作输出"),
+    new AppError("参考图被当作输出", 502, "REFERENCE_OUTPUT"),
   );
   const onProgress = vi.fn();
   const fetcher = vi.fn(
@@ -447,7 +451,12 @@ it("does not publish a copied reference as a completed preview", async () => {
       ...input(),
       onProgress,
     }),
-  ).rejects.toThrow("参考图被当作输出");
-  expect(onProgress).not.toHaveBeenCalled();
+  ).resolves.toMatchObject({
+    referenceSuspect: true,
+    warnings: ["参考图被当作输出"],
+  });
+  expect(onProgress).toHaveBeenCalledWith(
+    expect.objectContaining({ kind: "complete", blob: expect.any(Blob) }),
+  );
   expect(fetcher).toHaveBeenCalledOnce();
 });

@@ -262,7 +262,13 @@ export function createEngravingApi(
   }
   return {
     analyze,
-    async generate(input: GenerateInput) {
+    async generate(
+      input: GenerateInput,
+    ): Promise<{
+      buffer: Blob;
+      warnings: string[];
+      referenceSuspect?: boolean;
+    }> {
       signal?.throwIfAborted();
       const { config: suppliedConfig, referenceImage } = input;
       const config = {
@@ -381,9 +387,20 @@ export function createEngravingApi(
           durationMs: Date.now() - start,
         });
         const result = await normalize(blobs[0]);
-        await rejectReferenceOutput(result.buffer, referenceImage, signal);
+        let referenceSuspect = false;
+        const warnings = [...result.warnings];
+        try {
+          if (input.styleReference !== false && referenceImage.size)
+            await rejectReferenceOutput(result.buffer, referenceImage, signal);
+        } catch (error) {
+          if (!(error instanceof AppError) || error.code !== "REFERENCE_OUTPUT")
+            throw error;
+          referenceSuspect = true;
+          warnings.push(error.message);
+          updateRequestConsoleEntry(id, { message: error.message });
+        }
         input.onProgress?.({ kind: "complete", blob: result.buffer });
-        return { buffer: result.buffer, warnings: result.warnings };
+        return { buffer: result.buffer, warnings, referenceSuspect };
       } catch (error) {
         updateRequestConsoleEntry(id, {
           status: "failed",

@@ -212,3 +212,14 @@ it("does not accept a high average with failed integrity or continue editing a w
   expect(inputs[1].image).toBe(original);
   expect(inputs[1].editMode).toBeUndefined();
 });
+
+it("does not auto-adopt a reference suspect even with no review", () => {
+  const suspect: any = {
+    job: { id: "suspect", referenceSuspect: true },
+    reviews: [],
+  };
+  expect(bestResultIndex([suspect])).toBe(-1);
+  expect(
+    bestResultIndex([{ job: { id: "ok" }, reviews: [] }, suspect] as any),
+  ).toBe(0);
+});

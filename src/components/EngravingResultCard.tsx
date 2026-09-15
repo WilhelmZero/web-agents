@@ -249,6 +249,14 @@ export function EngravingResultEditor({
               }
             />
           ) : null}
+          {result.job.referenceSuspect && (
+            <Alert
+              type="warning"
+              showIcon
+              title="疑似误用参考图"
+              description="已保留原始返回图片，请人工确认后使用。"
+            />
+          )}
           {result.job.warnings.map((warning, i) => (
             <Alert key={i} type="warning" title={warning} />
           ))}
@@ -388,6 +396,7 @@ export default function EngravingResultCard({
           <span>{preview.error ? "预览失败，点击查看" : "正在计算预览…"}</span>
         )}
       </button>
+      {result.job.referenceSuspect && <Tag color="warning">疑似误用参考图</Tag>}
       <Space wrap size={4}>
         <Button size="small" onClick={onEdit}>
           编辑图片

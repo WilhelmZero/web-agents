@@ -1,5 +1,14 @@
 // UI-only translations. Source images, prompts and generated artwork are never translated.
 const messages: Record<string, string> = {
+  疑似误用参考图: "Possible reference-image copy",
+  "疑似误用参考图，图片已保留，等待人工确认":
+    "Possible reference-image copy. Image retained for manual review.",
+  "已保留疑似结果，可查看全部图片、编辑或下载；请人工确认后使用。":
+    "Flagged images are retained. View all images, edit or download, and confirm before use.",
+  "已保留原始返回图片，请人工确认后使用。":
+    "The returned image has been retained. Please confirm before use.",
+  "图像服务返回的图片与风格参考图高度相似，可能误把参考图当成了输出。图片已保留并标记为待人工确认；未自动重试，请核对原照后决定是否使用。":
+    "The image closely resembles the style reference. It has been retained and flagged for manual review without retrying. Compare it with the original before use.",
   "生成的图片将在这里显示。生成过程中也可调参和下载已有结果。":
     "Generated images will appear here. You can edit and download existing results while generation continues.",
   下次生成重新识别主体: "Identify subjects again on next generation",

@@ -55,8 +55,9 @@ export async function runAutoTune({ sourceProfile, original, reference, config, 
         if (cancelled()) { generations--; return state('cancelled', '已停止，未提交下一次生图'); }
         const result = await generate({ sourceProfile, image: base ? base.job.blob : original, referenceImage: reference, config, subject, instructions, style, outpaint, feedback: base ? correctionFeedback(base, targetScore, true) : feedback, ...(base ? { editMode: true, originalImage: original } : {}) });
         source = result.buffer;
-        job = await saveCandidate(source, result.warnings || []);
+        job = await saveCandidate(source, result.warnings || [], result.referenceSuspect);
         fallback = { job, editedFromRound, editedFromJobId, params: { ...params }, round, assessed: false };
+        if (result.referenceSuspect) return state('failed', '疑似误用参考图，图片已保留，等待人工确认', {error: result.warnings.join('；'),errorCode:'REFERENCE_OUTPUT'});
         tried.clear();
         // Save before cancellation, so an already-billed result is not discarded.
         await publish(state('running', `第 ${round}/${maxRounds} 轮：图片已保存`));

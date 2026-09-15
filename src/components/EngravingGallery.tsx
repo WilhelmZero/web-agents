@@ -5,7 +5,7 @@ import {
 } from "../services/engraving/results";
 import { cloneElement, useEffect, useMemo, useState } from "react";
 import type { ImgHTMLAttributes, ReactElement } from "react";
-import { Button, Image, Space, Card, Spin, Modal, Tag } from "antd";
+import { Alert, Button, Image, Space, Card, Spin, Modal, Tag } from "antd";
 import type { StoredResult, RenderParams } from "../services/engraving/types";
 import { useEngravingPreview } from "../services/engraving/preview";
 import EngravingResultCard, {
@@ -222,6 +222,11 @@ export default function EngravingGallery({
               <ProgressImage blob={livePreview} />
             ) : best ? (
               <CoverImage result={best} onOpen={() => setAllOpen(true)} />
+            ) : results.some((r) => r.job.referenceSuspect) ? (
+              <CoverImage
+                result={results.filter((r) => r.job.referenceSuspect).at(-1)!}
+                onOpen={() => setAllOpen(true)}
+              />
             ) : (
               <div
                 style={{
@@ -241,6 +246,14 @@ export default function EngravingGallery({
               </div>
             )}
           </div>
+          {results.some((r) => r.job.referenceSuspect) && (
+            <Alert
+              type="warning"
+              showIcon
+              title="疑似误用参考图"
+              description="已保留疑似结果，可查看全部图片、编辑或下载；请人工确认后使用。"
+            />
+          )}
           {pending && <p aria-live="polite">{pending}</p>}
           {best?.manualParams && <small>原审核分数，调整后未重新审核</small>}
           <Button

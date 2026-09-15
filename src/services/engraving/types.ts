@@ -62,6 +62,7 @@ export interface Preferences extends Omit<Config, "apiKey"> {
   targetScore: number;
 }
 export interface ImageJob {
+  referenceSuspect?: boolean;
   id: string;
   blob: Blob;
   width: number;
@@ -161,10 +162,18 @@ export interface AutoDependencies {
   };
   generate: (
     input: GenerateInput,
-  ) => Promise<{ buffer: Blob; warnings: string[] }>;
+  ) => Promise<{
+    buffer: Blob;
+    warnings: string[];
+    referenceSuspect?: boolean;
+  }>;
   review: (input: ReviewInput) => Promise<Review>;
   render: (source: Blob, params: RenderParams) => Promise<Rendered>;
-  saveCandidate: (source: Blob, warnings: string[]) => Promise<ImageJob>;
+  saveCandidate: (
+    source: Blob,
+    warnings: string[],
+    referenceSuspect?: boolean,
+  ) => Promise<ImageJob>;
   publish: (run: AutoRun) => Promise<void>;
   cancelled: () => boolean;
 }

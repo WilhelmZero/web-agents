@@ -112,7 +112,7 @@ export async function rejectReferenceOutput(
   signal?.throwIfAborted();
   if (a.some((left) => b.some((right) => isNearReference(left, right))))
     throw new AppError(
-      "图像服务返回的图片与风格参考图高度相似，可能误把参考图当成了输出。本次结果未加入成品；未自动重试，请核对原照后手动重新生成。",
+      "图像服务返回的图片与风格参考图高度相似，可能误把参考图当成了输出。图片已保留并标记为待人工确认；未自动重试，请核对原照后决定是否使用。",
       502,
       "REFERENCE_OUTPUT",
     );

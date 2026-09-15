@@ -128,3 +128,32 @@ it("adopts a version from its score row and updates the cover", async () => {
   expect(screen.getByText("第 1 张 · 未评分 · 共 2 张")).toBeInTheDocument();
   expect(within(dialog).getByRole("button", { name: "已采用" })).toBeDisabled();
 });
+
+it("shows a flagged image even when no automatic cover qualifies and retains edit/download access", async () => {
+  const suspect = result("flagged");
+  suspect.job.referenceSuspect = true;
+  render(
+    <EngravingGallery
+      compact
+      results={[suspect]}
+      onChange={vi.fn()}
+      onAdopt={vi.fn()}
+    />,
+  );
+  expect(screen.getByAltText("封面生成结果")).toBeInTheDocument();
+  expect(screen.getByText("疑似误用参考图")).toBeInTheDocument();
+  fireEvent.click(
+    screen.getByRole("button", { name: "查看全部生成图片（1）" }),
+  );
+  const dialog = await screen.findByRole("dialog");
+  expect(within(dialog).getByText("疑似误用参考图")).toBeInTheDocument();
+  expect(
+    within(dialog).getByRole("button", { name: "编辑图片" }),
+  ).toBeEnabled();
+  expect(
+    within(dialog).getByRole("button", { name: "下载全部" }),
+  ).toBeEnabled();
+  expect(
+    within(dialog).getByRole("button", { name: "采用此图" }),
+  ).toBeEnabled();
+});
