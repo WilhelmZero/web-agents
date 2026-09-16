@@ -473,7 +473,7 @@ export default function SpotColorTiffComposer() {
           </Form>
           <div className="spot-tiff-channel-summary">
             <Text strong>固定输出结构</Text>
-            <Text>背景图层 + 智能对象 A</Text>
+            <Text>背景图层（默认隐藏）+ 智能对象 A</Text>
             <Text>专色 1 拷贝（灰度细节）</Text>
             <Text>专色 1 拷贝 2（实心覆盖）</Text>
           </div>

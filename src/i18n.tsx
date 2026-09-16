@@ -39,7 +39,7 @@ const translations: Record<string, string> = {
   "相对附件默认尺寸": "Relative to reference size",
   "恢复 A.tif 默认版式": "Restore A.tif default layout",
   "固定输出结构": "Fixed output structure",
-  "背景图层 + 智能对象 A": "Background layer + Smart Object A",
+  "背景图层（默认隐藏）+ 智能对象 A": "Hidden background layer + Smart Object A",
   "专色 1 拷贝（灰度细节）": "Spot Color 1 copy (grayscale detail)",
   "专色 1 拷贝 2（实心覆盖）": "Spot Color 1 copy 2 (solid coverage)",
   "选择文件夹并批量导出": "Choose folder and export batch",

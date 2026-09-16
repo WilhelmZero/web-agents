@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import sharp from "sharp";
 import {
   DEFAULT_SPOT_PLACEMENT,
+  HIDDEN_BACKGROUND_LAYER_FLAGS,
   clampSpotPlacement,
   containSpotLayer,
   encodeSpotColorTiff,
@@ -58,6 +59,9 @@ describe("spot color TIFF", () => {
 
     const bytes = new Uint8Array(buffer);
     const source = tags.get(37724)!;
+    // Header and NUL (36) + 8BIM/Layr header (12) + layer count (2) + the flags
+    // offset within the first layer record (46).
+    expect(bytes[source.value + 96]).toBe(HIDDEN_BACKGROUND_LAYER_FLAGS);
     const header = new TextDecoder().decode(bytes.subarray(source.value, source.value + 35));
     expect(header).toBe("Adobe Photoshop Document Data Block");
     const sourceText = new TextDecoder("latin1").decode(

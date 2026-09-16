@@ -3,6 +3,9 @@ import { writePsd, type Layer, type Psd } from "ag-psd";
 export const SPOT_TIFF_WIDTH = 7717;
 export const SPOT_TIFF_HEIGHT = 4346;
 export const SPOT_TIFF_DPI = 800;
+// Photoshop layer flags: bit 3 marks the flags as meaningful and bit 1 hides
+// the layer. The flattened RGB composite still contains the white backdrop.
+export const HIDDEN_BACKGROUND_LAYER_FLAGS = 0x0a;
 export const DEFAULT_SPOT_PLACEMENT = {
   centerX: (2491 + 5227) / 2,
   centerY: (743 + 3603) / 2,
@@ -196,7 +199,7 @@ function backgroundLayerRecord(width: number, height: number, channelLength: num
   record.signature("norm");
   record.u8(255);
   record.u8(0);
-  record.u8(0);
+  record.u8(HIDDEN_BACKGROUND_LAYER_FLAGS);
   record.u8(0);
   record.u32(extraBytes.byteLength);
   record.push(extraBytes);
