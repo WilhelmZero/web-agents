@@ -16,6 +16,10 @@ export interface WrapDesign {
   originalSource?: Blob;
   adopted?: Blob;
   aiResults: Blob[];
+  aiFrames?: ({ cupKey: string; transparent: boolean } | null)[];
+  adoptedFrame?: { cupKey: string; transparent: boolean };
+  transparentOutput?: boolean;
+  backgroundColor?: string;
   fit: "contain" | "cover" | "tile";
   scale: number;
   x: number;

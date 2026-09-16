@@ -12,6 +12,7 @@ export async function adaptArtwork(
   guide: Blob,
   prompt: string,
   signal: AbortSignal,
+  options?: { transparent: boolean; size?: string },
 ): Promise<Blob> {
   const gemini = model.startsWith("gemini-"),
     key = gemini ? settings.apiKey : settings.openAiApiKey;
@@ -58,10 +59,14 @@ export async function adaptArtwork(
       form.append("prompt", prompt);
       form.append("image[]", source, "source.png");
       form.append("image[]", guide, "guide.png");
-      form.append("size", "auto");
+      form.append("size", options?.size || "auto");
       form.append("quality", "high");
       form.append("n", "1");
       form.append("output_format", "png");
+      form.append(
+        "background",
+        options?.transparent ? "transparent" : "opaque",
+      );
       response = await fetch(`${OPENAI_ROOT}/images/edits`, {
         method: "POST",
         headers: { Authorization: `Bearer ${key}` },

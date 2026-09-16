@@ -42,6 +42,11 @@ import type { AppSettings } from "./types";
 import { arrangeLayers } from "./services/cupWrap/artwork";
 import { inside } from "./services/cupWrap/geometry";
 import { containFit } from "./services/cupWrap/fitting";
+import {
+  adaptationPrompt,
+  framePlacement,
+} from "./services/cupWrap/adaptation";
+const SHOW_MANUAL_ARTWORK_TOOLS = false;
 function BlobPreview({ blob }: { blob: Blob }) {
   const [url, setUrl] = useState("");
   useEffect(() => {
@@ -119,7 +124,7 @@ const fresh = (): WrapDesign => ({
   layers: [],
   quantity: 1,
   prompt:
-    "第一张是原始图案，第二张是目标展开轮廓引导图。输出画布构图对应第二张图，不要把红色轮廓线或其他辅助标记画进结果。保持文字内容和角色身份，不拉伸文字与角色。根据目标展开范围调整完整角色的位置、等比大小和间距，在空白区域补充风格一致的小装饰，保持脸部、眼睛和肢体完整。",
+    "保持各个角色及文字大小不变，只调整间距与位置，沿刀模轮廓重新排布；空白过大时复制原图中的小装饰填补。",
 });
 function download(blob: Blob, name: string) {
   const url = URL.createObjectURL(blob),
@@ -140,7 +145,9 @@ export default function CupWrapPrintComposer({
 }) {
   const [editor, setEditor] = useState(false),
     [model, setModel] = useState(
-      () => localStorage.getItem("cup-wrap-print:model:v1") || "gpt-image-2",
+      () =>
+        localStorage.getItem("cup-wrap-print:model:v2") ||
+        "gpt-image-2.5-flare",
     );
   const [sourceSize, setSourceSize] = useState<{
     width: number;
@@ -148,7 +155,7 @@ export default function CupWrapPrintComposer({
   }>();
   useEffect(() => {
     try {
-      localStorage.setItem("cup-wrap-print:model:v1", model);
+      localStorage.setItem("cup-wrap-print:model:v2", model);
     } catch {}
   }, [model]);
   const [tileOpen, setTileOpen] = useState(false),
@@ -210,7 +217,17 @@ export default function CupWrapPrintComposer({
   useEffect(() => {
     loadDesigns()
       .then((v) => {
-        if (v.length) setDesigns(v);
+        if (v.length)
+          setDesigns(
+            v.map((item) => ({
+              ...item,
+              prompt:
+                item.prompt ===
+                "第一张是原始图案，第二张是目标展开轮廓引导图。输出画布构图对应第二张图，不要把红色轮廓线或其他辅助标记画进结果。保持文字内容和角色身份，不拉伸文字与角色。根据目标展开范围调整完整角色的位置、等比大小和间距，在空白区域补充风格一致的小装饰，保持脸部、眼睛和肢体完整。"
+                  ? fresh().prompt
+                  : item.prompt,
+            })),
+          );
       })
       .catch((e) => setError(`恢复失败：${e}`))
       .finally(() => setReady(true));
@@ -290,12 +307,34 @@ export default function CupWrapPrintComposer({
       model,
       snapshot.source!,
       guide,
-      snapshot.prompt,
+      adaptationPrompt(
+        snapshot.cup,
+        snapshot.prompt.replace("位置、等比大小和间距", "位置和间距"),
+        snapshot.transparentOutput,
+      ),
       signal,
+      {
+        transparent: !!snapshot.transparentOutput,
+        size: model.startsWith("gpt-image-2.5-")
+          ? `${Math.max(16, Math.round((2048 * g.width) / Math.max(g.width, g.height) / 16) * 16)}x${Math.max(16, Math.round((2048 * g.height) / Math.max(g.width, g.height) / 16) * 16)}`
+          : undefined,
+      },
     );
     setDesigns((all) =>
       all.map((v) =>
-        v.id === snapshot.id ? { ...v, aiResults: [...v.aiResults, raw] } : v,
+        v.id === snapshot.id
+          ? {
+              ...v,
+              aiResults: [...v.aiResults, raw],
+              aiFrames: [
+                ...v.aiResults.map((_, i) => v.aiFrames?.[i] ?? null),
+                {
+                  cupKey: JSON.stringify(snapshot.cup),
+                  transparent: !!snapshot.transparentOutput,
+                },
+              ],
+            }
+          : v,
       ),
     );
   }
@@ -333,6 +372,8 @@ export default function CupWrapPrintComposer({
         adopted: undefined,
         layers: [],
         aiResults: [],
+        aiFrames: [],
+        adoptedFrame: undefined,
         name: file.name.replace(/\.[^.]+$/, ""),
       });
     } catch (e) {
@@ -409,130 +450,181 @@ export default function CupWrapPrintComposer({
         0,
         10,
       )}
-      <h3>图案 · 不拉伸</h3>
-      <Select
-        aria-label="图案适配"
-        value={d.fit}
-        onChange={(fit) => update({ fit })}
-        options={[
-          { value: "contain", label: "完整放入（允许留白）" },
-          { value: "cover", label: "等比铺满（裁切越界）" },
-          { value: "tile", label: "等比平铺" },
-        ]}
-      />
-      {number("等比缩放", d.scale, (v) => update({ scale: v }), 0.05, 10)}
-      {number("水平移动 mm", d.x, (v) => update({ x: v }), -1000)}
-      {number("垂直移动 mm", d.y, (v) => update({ y: v }), -1000)}
-      {number("旋转 °", d.rotation, (v) => update({ rotation: v }), -180, 180)}
-      <h3>独立素材／保护图层</h3>
-      <Button
-        disabled={!d.layers.length || !!busy}
-        onClick={() =>
-          run("正在重排素材", async () => {
-            const result = await arrangeLayers(d);
-            update({ layers: result.layers });
-            if (result.unplaced)
-              setError(
-                `${result.unplaced} 个素材未找到完整放置位置，保留原位置，请手动调整。`,
-              );
-          })
-        }
-      >
-        自动排列已确认素材
-      </Button>
-      <Button disabled={!d.source} onClick={() => setEditor(true)}>
-        提取素材／修正背景
-      </Button>
-      {d.originalSource && (
-        <Button
-          onClick={() =>
-            update({ source: d.originalSource, adopted: undefined, layers: [] })
-          }
-        >
-          恢复原始上传图
-        </Button>
-      )}
-      {d.layers.map((layer, i) => (
-        <div key={layer.id}>
-          <strong>
-            图层 {i + 1}
-            {layer.locked ? " · 已保护" : ""}
-          </strong>
+      {SHOW_MANUAL_ARTWORK_TOOLS && (
+        <>
+          <h3>图案 · 不拉伸</h3>
+          <Select
+            aria-label="图案适配"
+            value={d.fit}
+            onChange={(fit) => update({ fit })}
+            options={[
+              { value: "contain", label: "完整放入（允许留白）" },
+              { value: "cover", label: "等比铺满（裁切越界）" },
+              { value: "tile", label: "等比平铺" },
+            ]}
+          />
+          {number("等比缩放", d.scale, (v) => update({ scale: v }), 0.05, 10)}
+          {number("水平移动 mm", d.x, (v) => update({ x: v }), -1000)}
+          {number("垂直移动 mm", d.y, (v) => update({ y: v }), -1000)}
           {number(
-            "X mm",
-            layer.x,
-            (x) =>
-              update({
-                layers: d.layers.map((v) =>
-                  v.id === layer.id ? { ...v, x } : v,
-                ),
-              }),
-            -1000,
-          )}
-          {number(
-            "Y mm",
-            layer.y,
-            (y) =>
-              update({
-                layers: d.layers.map((v) =>
-                  v.id === layer.id ? { ...v, y } : v,
-                ),
-              }),
-            -1000,
-          )}
-          {number(
-            "宽度 mm",
-            layer.width,
-            (width) =>
-              update({
-                layers: d.layers.map((v) =>
-                  v.id === layer.id ? { ...v, width } : v,
-                ),
-              }),
-            0.1,
-          )}
-          {number(
-            "角度 °",
-            layer.rotation,
-            (rotation) =>
-              update({
-                layers: d.layers.map((v) =>
-                  v.id === layer.id ? { ...v, rotation } : v,
-                ),
-              }),
+            "旋转 °",
+            d.rotation,
+            (v) => update({ rotation: v }),
             -180,
             180,
           )}
+          <h3>独立素材／保护图层</h3>
           <Button
-            danger
-            size="small"
+            disabled={!d.layers.length || !!busy}
             onClick={() =>
-              update({ layers: d.layers.filter((v) => v.id !== layer.id) })
+              run("正在重排素材", async () => {
+                const result = await arrangeLayers(d);
+                update({ layers: result.layers });
+                if (result.unplaced)
+                  setError(
+                    `${result.unplaced} 个素材未找到完整放置位置，保留原位置，请手动调整。`,
+                  );
+              })
             }
           >
-            删除图层
+            自动排列已确认素材
           </Button>
-        </div>
-      ))}
-      <h3>AI 适配（可选）</h3>
+          <Button disabled={!d.source} onClick={() => setEditor(true)}>
+            提取素材／修正背景
+          </Button>
+          {d.originalSource && (
+            <Button
+              onClick={() =>
+                update({
+                  source: d.originalSource,
+                  adopted: undefined,
+                  layers: [],
+                })
+              }
+            >
+              恢复原始上传图
+            </Button>
+          )}
+          {d.layers.map((layer, i) => (
+            <div key={layer.id}>
+              <strong>
+                图层 {i + 1}
+                {layer.locked ? " · 已保护" : ""}
+              </strong>
+              {number(
+                "X mm",
+                layer.x,
+                (x) =>
+                  update({
+                    layers: d.layers.map((v) =>
+                      v.id === layer.id ? { ...v, x } : v,
+                    ),
+                  }),
+                -1000,
+              )}
+              {number(
+                "Y mm",
+                layer.y,
+                (y) =>
+                  update({
+                    layers: d.layers.map((v) =>
+                      v.id === layer.id ? { ...v, y } : v,
+                    ),
+                  }),
+                -1000,
+              )}
+              {number(
+                "宽度 mm",
+                layer.width,
+                (width) =>
+                  update({
+                    layers: d.layers.map((v) =>
+                      v.id === layer.id ? { ...v, width } : v,
+                    ),
+                  }),
+                0.1,
+              )}
+              {number(
+                "角度 °",
+                layer.rotation,
+                (rotation) =>
+                  update({
+                    layers: d.layers.map((v) =>
+                      v.id === layer.id ? { ...v, rotation } : v,
+                    ),
+                  }),
+                -180,
+                180,
+              )}
+              <Button
+                danger
+                size="small"
+                onClick={() =>
+                  update({ layers: d.layers.filter((v) => v.id !== layer.id) })
+                }
+              >
+                删除图层
+              </Button>
+            </div>
+          ))}
+        </>
+      )}
+      <h3>AI 适配</h3>
       <Select
         value={model}
         onChange={setModel}
         options={[
+          "gpt-image-2.5-flare",
           "gpt-image-2",
           "gpt-image-2.5-sunburst",
           "gemini-3-pro-image",
           "gemini-3.1-flash-image",
         ].map((value) => ({ value, label: value }))}
       />
+      <Checkbox
+        checked={!!d.transparentOutput}
+        onChange={(e) => update({ transparentOutput: e.target.checked })}
+      >
+        请求透明背景（默认沿用原图背景）
+      </Checkbox>
+      <Checkbox
+        checked={!!d.backgroundColor}
+        disabled={!d.transparentOutput && !d.adoptedFrame?.transparent}
+        onChange={(e) =>
+          update({ backgroundColor: e.target.checked ? "#ffffff" : undefined })
+        }
+      >
+        透明结果填充自定义底色
+      </Checkbox>
+      {d.backgroundColor && (
+        <input
+          aria-label="自定义背景颜色"
+          type="color"
+          value={d.backgroundColor}
+          onChange={(e) => update({ backgroundColor: e.target.value })}
+        />
+      )}
       <Input.TextArea
         aria-label="AI 适配提示词"
         rows={5}
         value={d.prompt}
         onChange={(e) => update({ prompt: e.target.value })}
       />
+      <details>
+        <summary>查看最终提交提示词</summary>
+        <Input.TextArea
+          readOnly
+          rows={12}
+          value={adaptationPrompt(
+            d.cup,
+            d.prompt.replace("位置、等比大小和间距", "位置和间距"),
+            d.transparentOutput,
+          )}
+        />
+      </details>
       <p>
-        输入顺序：原图、目标轮廓引导图。返回后请检查文字和身体结构再采用；受保护图层会叠加在结果上。
+        输入顺序：原图、精确刀模引导图。仅调整间距，不改变主体大小。采用后按整幅刀模画布对齐，不再缩入矩形或叠加旧图层。AI
+        仍可能偏离要求，请检查后采用。自定义底色仅填充透明区域；若服务返回不透明图，请重新生成，不会删除白色角色。
       </p>
       <Button
         disabled={!d.source || !!busy || !d.prompt.trim()}
@@ -1073,16 +1165,37 @@ export default function CupWrapPrintComposer({
               <div key={i}>
                 <BlobPreview blob={blob} />
                 <Button
-                  onClick={() =>
+                  onClick={async () => {
+                    const frame = d.aiFrames?.[i];
+                    if (frame) {
+                      const image = await createImageBitmap(blob);
+                      try {
+                        if (frame.cupKey !== JSON.stringify(d.cup))
+                          throw new Error("候选图属于旧刀模尺寸，请重新生成。");
+                        const g = geometry(d.cup);
+                        framePlacement(
+                          image.width,
+                          image.height,
+                          g.width,
+                          g.height,
+                        );
+                      } catch (e) {
+                        setError(String(e));
+                        return;
+                      } finally {
+                        image.close();
+                      }
+                    }
                     update({
                       adopted: blob,
+                      adoptedFrame: frame ?? undefined,
                       fit: "contain",
                       scale: 1,
                       x: 0,
                       y: 0,
                       rotation: 0,
-                    })
-                  }
+                    });
+                  }}
                 >
                   采用第 {i + 1} 张
                 </Button>

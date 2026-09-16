@@ -1,6 +1,7 @@
 import { geometry, pathData } from "./geometry";
 import type { WrapDesign } from "./types";
 import { containFit } from "./fitting";
+import { framePlacement } from "./adaptation";
 export async function renderDesign(
   d: WrapDesign,
   dpi: number,
@@ -45,7 +46,23 @@ export async function renderDesign(
     }
   };
   const source = d.adopted || d.source;
-  if (source) {
+  if (d.adopted && d.adoptedFrame) {
+    if (d.adoptedFrame.cupKey !== JSON.stringify(d.cup))
+      throw new Error(
+        "刀模尺寸已改变，请重新生成匹配当前刀模的候选图或切回原图。",
+      );
+    const img = await createImageBitmap(d.adopted);
+    try {
+      const box = framePlacement(img.width, img.height, g.width, g.height);
+      if (d.adoptedFrame.transparent && d.backgroundColor) {
+        ctx.fillStyle = d.backgroundColor;
+        ctx.fillRect(-b, -b, g.width + b * 2, g.height + b * 2);
+      }
+      ctx.drawImage(img, box.x, box.y, box.width, box.height);
+    } finally {
+      img.close();
+    }
+  } else if (source) {
     const img = await createImageBitmap(source);
     const fit = d.fit === "cover" ? Math.max : Math.min;
     const contained = containFit(g, img.width, img.height);
@@ -75,7 +92,7 @@ export async function renderDesign(
     ctx.restore();
     img.close();
   }
-  for (const layer of d.layers)
+  for (const layer of d.adopted && d.adoptedFrame ? [] : d.layers)
     await draw(layer.blob, layer.x, layer.y, layer.width, layer.rotation);
   // Mask after drawing, keeping guide strokes out of production output.
   const mask = new OffscreenCanvas(width, height),
