@@ -50,6 +50,7 @@ import {
   framePlacement,
 } from "./services/cupWrap/adaptation";
 const SHOW_MANUAL_ARTWORK_TOOLS = false;
+const PRINT_SETTINGS_KEY = "cup-wrap-print:settings:v2";
 const DEFAULT_AI_ADJUSTMENT: ImageAdjustment = {
   scale: 1,
   x: 0,
@@ -193,16 +194,21 @@ export default function CupWrapPrintComposer({
     [error, setError] = useState(""),
     [preview, setPreview] = useState(""),
     [busy, setBusy] = useState(""),
+    [layoutBusy, setLayoutBusy] = useState(false),
     [layout, setLayout] = useState<PrintLayout>(),
     [tab, setTab] = useState("design"),
-    [guide, setGuide] = useState(false);
+    [guide, setGuide] = useState(true);
   const [print, setPrint] = useState<PrintSettings>(() => {
     try {
+      const saved = localStorage.getItem(PRINT_SETTINGS_KEY);
+      if (saved) return { ...DEFAULT_PRINT, ...JSON.parse(saved) };
+      const legacy = JSON.parse(
+        localStorage.getItem("cup-wrap-print:settings:v1") || "{}",
+      );
       return {
         ...DEFAULT_PRINT,
-        ...JSON.parse(
-          localStorage.getItem("cup-wrap-print:settings:v1") || "{}",
-        ),
+        ...legacy,
+        mode: DEFAULT_PRINT.mode,
       };
     } catch {
       return DEFAULT_PRINT;
@@ -270,11 +276,44 @@ export default function CupWrapPrintComposer({
   }, [designs, ready]);
   useEffect(() => {
     try {
-      localStorage.setItem("cup-wrap-print:settings:v1", JSON.stringify(print));
+      localStorage.setItem(PRINT_SETTINGS_KEY, JSON.stringify(print));
     } catch (e) {
       setError(`设置保存失败：${e}`);
     }
   }, [print]);
+  useEffect(() => {
+    const printable = designs.filter((design) => design.source);
+    if (!printable.length) {
+      setLayout(undefined);
+      setLayoutBusy(false);
+      return;
+    }
+    const controller = new AbortController();
+    setLayout(undefined);
+    setLayoutBusy(true);
+    const timer = setTimeout(() => {
+      work<PrintLayout>(
+        {
+          kind: "pack",
+          designs: printable,
+          settings: print,
+        },
+        controller.signal,
+      )
+        .then(setLayout)
+        .catch((e) => {
+          if (e.name !== "AbortError")
+            setError(`A4 自动排版失败：${e.message}`);
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setLayoutBusy(false);
+        });
+    }, 350);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [designs, print]);
   useEffect(() => {
     if (!active || !geo.g) return;
     const controller = new AbortController();
@@ -1050,26 +1089,7 @@ export default function CupWrapPrintComposer({
           1:1 PDF
         </Button>
         <Button
-          disabled={!!busy || designs.every((v) => !v.source)}
-          onClick={() =>
-            run("正在搜索 A4 排版", async (signal) => {
-              const result = await work<PrintLayout>(
-                {
-                  kind: "pack",
-                  designs: designs.filter((v) => v.source),
-                  settings: print,
-                },
-                signal,
-              );
-              setLayout(result);
-              setTab("a4");
-            })
-          }
-        >
-          计算 A4 混排
-        </Button>
-        <Button
-          disabled={!layout || !!busy}
+          disabled={!layout || layoutBusy || !!busy}
           onClick={() =>
             run("正在导出 A4", async (signal) =>
               download(
@@ -1112,7 +1132,7 @@ export default function CupWrapPrintComposer({
               { key: "design", label: "展开预览" },
               {
                 key: "a4",
-                label: `A4 排版${layout ? ` · ${layout.pages.length} 页` : ""}`,
+                label: `A4 排版${layoutBusy ? " · 自动计算中" : layout ? ` · ${layout.pages.length} 页` : ""}`,
               },
             ]}
           />
@@ -1205,8 +1225,13 @@ export default function CupWrapPrintComposer({
           )}
           {tab === "a4" && (
             <>
-              {!layout ? (
-                <p>请上传设计后计算排版。修改设计或设置会使旧排版失效。</p>
+              {layoutBusy ? (
+                <Space>
+                  <Spin size="small" />
+                  正在根据最新设计与设置自动混排…
+                </Space>
+              ) : !layout ? (
+                <p>上传设计后将自动生成 A4 混排。</p>
               ) : (
                 <>
                   <p>

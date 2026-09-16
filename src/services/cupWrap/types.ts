@@ -80,5 +80,5 @@ export const DEFAULT_PRINT: PrintSettings = {
   gap: 2,
   landscape: false,
   rotate: true,
-  mode: "quantity",
+  mode: "fill",
 };

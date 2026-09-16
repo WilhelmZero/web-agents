@@ -135,8 +135,9 @@ describe("packing", () => {
   it("packs repeatably without changing physical dimensions", () => {
     const d = design();
     d.quantity = 3;
-    const a = pack([d], DEFAULT_PRINT),
-      b = pack([d], DEFAULT_PRINT);
+    const settings = { ...DEFAULT_PRINT, mode: "quantity" as const },
+      a = pack([d], settings),
+      b = pack([d], settings);
     expect(a).toEqual(b);
     expect(a.pages.flat()).toHaveLength(3);
     expect(a.omitted).toEqual([]);
