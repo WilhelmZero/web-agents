@@ -3,6 +3,8 @@ export const NATIVE_HEIGHT = 2160;
 export const HIGH_RES_WIDTH = 7717;
 export const HIGH_RES_HEIGHT = 4346;
 
+export interface ImageDimensions { width: number; height: number }
+
 export interface CropSettings { cropZoom: number; cropX: number; cropY: number }
 
 function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
@@ -37,6 +39,37 @@ export function loadBitmap(source: Blob | string): Promise<ImageBitmap> {
     if (!response.ok) throw new Error("默认素材加载失败");
     return response.blob();
   }).then(createImageBitmap);
+}
+
+export async function readImageDimensions(source: Blob | string): Promise<ImageDimensions> {
+  const bitmap = await loadBitmap(source);
+  try { return { width: bitmap.width, height: bitmap.height }; }
+  finally { bitmap.close(); }
+}
+
+export function constrainDimensions(
+  dimensions: ImageDimensions,
+  maxLongEdge = NATIVE_WIDTH,
+  allowUpscale = false,
+): ImageDimensions {
+  const width = Math.max(1, Math.round(dimensions.width));
+  const height = Math.max(1, Math.round(dimensions.height));
+  const longest = Math.max(width, height);
+  if (!allowUpscale && longest <= maxLongEdge) return { width, height };
+  const scale = maxLongEdge / longest;
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
+  };
+}
+
+export function referenceDownloadDimensions(
+  reference: ImageDimensions,
+  size: "native" | "high-res",
+): ImageDimensions {
+  return size === "native"
+    ? constrainDimensions(reference)
+    : constrainDimensions(reference, Math.max(HIGH_RES_WIDTH, Math.max(reference.width, reference.height)), true);
 }
 
 function coverRect(width: number, height: number, targetRatio: number, crop: CropSettings) {
@@ -233,22 +266,20 @@ export async function fingerprintBlob(blob: Blob): Promise<string> {
   return Array.from(new Uint8Array(digest)).slice(0, 12).map((value) => value.toString(16).padStart(2, "0")).join("");
 }
 
-export async function resizeForDownload(blob: Blob, size: "native" | "high-res"): Promise<Blob> {
-  if (size === "native") return blob;
+export async function resizeForDownload(blob: Blob, size: "native" | "high-res", reference?: ImageDimensions): Promise<Blob> {
   const bitmap = await loadBitmap(blob);
   try {
-    const sourceRect = coverRect(bitmap.width, bitmap.height, HIGH_RES_WIDTH / HIGH_RES_HEIGHT, { cropZoom: 1, cropX: 0, cropY: 0 });
-    const sourceCanvas = document.createElement("canvas");
-    sourceCanvas.width = Math.max(1, Math.round(sourceRect.w)); sourceCanvas.height = Math.max(1, Math.round(sourceRect.h));
-    const context = sourceCanvas.getContext("2d", { alpha: false });
-    if (!context) throw new Error("浏览器不支持高清 Canvas");
-    context.imageSmoothingEnabled = true;
-    context.imageSmoothingQuality = "high";
-    context.drawImage(bitmap, sourceRect.x, sourceRect.y, sourceRect.w, sourceRect.h, 0, 0, sourceCanvas.width, sourceCanvas.height);
+    const target = referenceDownloadDimensions(reference || { width: bitmap.width, height: bitmap.height }, size);
+    if (bitmap.width === target.width && bitmap.height === target.height) return blob;
     const targetCanvas = document.createElement("canvas");
-    targetCanvas.width = HIGH_RES_WIDTH; targetCanvas.height = HIGH_RES_HEIGHT;
+    targetCanvas.width = target.width; targetCanvas.height = target.height;
     const { default: createResizer } = await import("pica");
     const resizer = createResizer();
+    const sourceCanvas = document.createElement("canvas");
+    sourceCanvas.width = bitmap.width; sourceCanvas.height = bitmap.height;
+    const context = sourceCanvas.getContext("2d", { alpha: true });
+    if (!context) throw new Error("浏览器不支持高清 Canvas");
+    context.drawImage(bitmap, 0, 0);
     await resizer.resize(sourceCanvas, targetCanvas);
     return await resizer.toBlob(targetCanvas, "image/png", 1);
   } finally { bitmap.close(); }

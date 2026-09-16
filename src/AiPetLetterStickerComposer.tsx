@@ -3,9 +3,9 @@ import { Alert, App, Button, Card, Checkbox, Collapse, ColorPicker, Empty, Image
 import JSZip from "jszip";
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { editAiPetLetter, AiPetLetterApiError, optimizeAiPetLetterPrompts } from "./services/aiPetLetters/api";
-import { colorizeTransparentResult, downloadBlob, fingerprintBlob, normalizeHexColor, normalizeReference, resizeForDownload } from "./services/aiPetLetters/image";
-import { adaptPromptOutputMode, createDefaultPrompts, defaultPromptForLetter, promptOptimizerInstruction, validateOptimizedPrompt } from "./services/aiPetLetters/prompts";
+import { editAiPetLetter, AiPetLetterApiError, optimizeAiPetLetterPrompts, regenerateAiPetLetterPromptsFromReference } from "./services/aiPetLetters/api";
+import { colorizeTransparentResult, constrainDimensions, downloadBlob, fingerprintBlob, normalizeHexColor, normalizeReference, readImageDimensions, referenceDownloadDimensions, resizeForDownload, type ImageDimensions } from "./services/aiPetLetters/image";
+import { adaptPromptOutputMode, createDefaultPrompts, defaultPromptForLetter, promptOptimizerInstruction, validateReferenceGeneratedPrompt } from "./services/aiPetLetters/prompts";
 import { loadAiPetLetterPrompts, loadAiPetLetterSettings, loadAiPetLetterWorkspace, saveAiPetLetterPrompts, saveAiPetLetterSettings, saveAiPetLetterWorkspace } from "./services/aiPetLetters/storage";
 import { normalizeQuality, qualityOptions, type AiPetLetterPrompt, type AiPetLetterSettings, type AiPetLetterTask } from "./services/aiPetLetters/types";
 import type { AppSettings } from "./types";
@@ -52,6 +52,8 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
   const [normalizedPreviewBlob, setNormalizedPreviewBlob] = useState<Blob>();
   const [referenceName, setReferenceName] = useState("默认 A 字母参考图");
   const [referenceFingerprint, setReferenceFingerprint] = useState("");
+  const [referenceDimensions, setReferenceDimensions] = useState<ImageDimensions>({ width: 3840, height: 2160 });
+  const [promptsReferenceFingerprint, setPromptsReferenceFingerprint] = useState("");
   const [tasks, setTasks] = useState<AiPetLetterTask[]>([]);
   const [hydrated, setHydrated] = useState(false);
   const [preview, setPreview] = useState<{ kind: "reference" | "raw"; letter?: string }>({ kind: "reference" });
@@ -59,6 +61,9 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
   const [enlarged, setEnlarged] = useState<{ letter: string; current: number }>();
   const [selectedResults, setSelectedResults] = useState<string[]>([]);
   const [optimizingAll, setOptimizingAll] = useState(false);
+  const [regeneratingPrompts, setRegeneratingPrompts] = useState(false);
+  const [optimizationSource, setOptimizationSource] = useState<"optimize" | "reference">("optimize");
+  const [pendingPromptFingerprint, setPendingPromptFingerprint] = useState("");
   const [optimizationDiff, setOptimizationDiff] = useState<Array<{ letter: string; before: string; after: string }>>([]);
   const [running, setRunning] = useState(false);
   const [startedAt, setStartedAt] = useState<number>();
@@ -66,13 +71,19 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
   const [retryCount, setRetryCount] = useState(0);
   const controllers = useRef(new Map<string, AbortController>());
   const stopAll = useRef(false);
+  const outputModeRef = useRef(settings.outputMode);
+  outputModeRef.current = settings.outputMode;
 
   useEffect(() => {
     if (!referenceBlob) return;
-    const id = window.setTimeout(() => void normalizeReference(referenceBlob, settings, 960, 540).then(setNormalizedPreviewBlob).catch(() => setNormalizedPreviewBlob(referenceBlob)), 120);
+    const previewDimensions = constrainDimensions(referenceDimensions, 960);
+    const id = window.setTimeout(() => void normalizeReference(referenceBlob, settings, previewDimensions.width, previewDimensions.height).then(setNormalizedPreviewBlob).catch(() => setNormalizedPreviewBlob(referenceBlob)), 120);
     return () => clearTimeout(id);
-  }, [referenceBlob, settings.cropX, settings.cropY, settings.cropZoom]);
+  }, [referenceBlob, referenceDimensions, settings.cropX, settings.cropY, settings.cropZoom]);
   const currentReferenceFingerprint = useMemo(() => `${referenceFingerprint}:${settings.cropZoom.toFixed(3)}:${settings.cropX.toFixed(3)}:${settings.cropY.toFixed(3)}`, [referenceFingerprint, settings.cropX, settings.cropY, settings.cropZoom]);
+  const generationDimensions = useMemo(() => constrainDimensions(referenceDimensions), [referenceDimensions]);
+  const highResDimensions = useMemo(() => referenceDownloadDimensions(referenceDimensions, "high-res"), [referenceDimensions]);
+  const promptsStale = Boolean(referenceFingerprint && promptsReferenceFingerprint !== currentReferenceFingerprint);
   const referenceCompareUrl = useBlobUrl(normalizedPreviewBlob || referenceBlob);
   const previewTask = tasks.find((item) => item.letter === preview.letter);
   const previewBlob = preview.kind === "reference" ? (normalizedPreviewBlob || referenceBlob) : previewTask?.result?.compositeBlob;
@@ -82,11 +93,16 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
   const detailResultUrl = useBlobUrl(detailTask?.result?.compositeBlob);
   const detailRawUrl = useBlobUrl(detailTask?.result?.rawBlob);
 
-  const loadDefault = useCallback(async () => {
+  const loadDefault = useCallback(async (resetPrompts = false) => {
     const referenceResponse = await fetch(`${asset("default-reference.png")}?v=3`);
     const ref = await referenceResponse.blob();
-    setReferenceBlob(ref); setReferenceName("默认 A 字母参考图"); setReferenceFingerprint(await fingerprintBlob(ref));
+    const [fingerprint, dimensions] = await Promise.all([fingerprintBlob(ref), readImageDimensions(ref)]);
+    setReferenceBlob(ref); setReferenceName("默认 A 字母参考图"); setReferenceFingerprint(fingerprint); setReferenceDimensions(dimensions);
     setSettings((value) => ({ ...value, cropZoom: 1, cropX: 0, cropY: 0 }));
+    if (resetPrompts) {
+      setPrompts(createDefaultPrompts().map((item) => ({ ...item, defaultPrompt: adaptPromptOutputMode(item.defaultPrompt, outputModeRef.current), currentPrompt: adaptPromptOutputMode(item.currentPrompt, outputModeRef.current) })));
+      setPromptsReferenceFingerprint(`${fingerprint}:1.000:0.000:0.000`);
+    } else setPromptsReferenceFingerprint((value) => value || `${fingerprint}:1.000:0.000:0.000`);
   }, []);
 
   useEffect(() => {
@@ -96,14 +112,16 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
         if (workspace?.referenceBlob) {
           setReferenceBlob(workspace.referenceBlob); setReferenceName(workspace.referenceName || "已恢复参考图");
           setReferenceFingerprint(workspace.referenceFingerprint || await fingerprintBlob(workspace.referenceBlob));
+          setReferenceDimensions(await readImageDimensions(workspace.referenceBlob));
+          setPromptsReferenceFingerprint(workspace.promptsReferenceFingerprint || "");
           const restored = workspace.tasks.map((task): AiPetLetterTask => task.status === "running" || task.status === "waiting" ? { ...task, status: "interrupted", error: "页面刷新时任务尚未完成" } : task);
           setTasks(restored);
           setRequestCount(restored.reduce((sum, task) => sum + (task.startedAt ? 1 + task.retries : 0), 0));
           setRetryCount(restored.reduce((sum, task) => sum + task.retries, 0));
           setStartedAt(restored.reduce<number | undefined>((min, task) => task.startedAt && (!min || task.startedAt < min) ? task.startedAt : min, undefined));
-          if ((workspace.referenceName || "").startsWith("默认 A 字母参考图")) await loadDefault();
-        } else await loadDefault();
-      } catch { await loadDefault(); }
+          if ((workspace.referenceName || "").startsWith("默认 A 字母参考图")) await loadDefault(false);
+        } else await loadDefault(true);
+      } catch { await loadDefault(true); }
       setHydrated(true);
     })();
   }, [loadDefault]);
@@ -112,9 +130,9 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
   useEffect(() => saveAiPetLetterPrompts(prompts), [prompts]);
   useEffect(() => {
     if (!hydrated) return;
-    const id = window.setTimeout(() => void saveAiPetLetterWorkspace({ referenceBlob, referenceFingerprint, referenceName, tasks, updatedAt: Date.now() }), 400);
+    const id = window.setTimeout(() => void saveAiPetLetterWorkspace({ referenceBlob, referenceFingerprint, referenceName, promptsReferenceFingerprint, tasks, updatedAt: Date.now() }), 400);
     return () => clearTimeout(id);
-  }, [hydrated, referenceBlob, referenceFingerprint, referenceName, tasks]);
+  }, [hydrated, promptsReferenceFingerprint, referenceBlob, referenceFingerprint, referenceName, tasks]);
 
   const updateTask = useCallback((letter: string, patch: Partial<AiPetLetterTask>) => setTasks((items) => items.map((item) => item.letter === letter ? { ...item, ...patch } : item)), []);
 
@@ -122,6 +140,7 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
     if (!letters.length) { message.warning("请至少选择一个字母"); return; }
     if (!globalSettings.openAiApiKey) { message.warning("请先在右上角配置 OpenAI API Key"); onConfigure(); return; }
     if (!referenceBlob) { message.warning("请先准备参考图"); return; }
+    if (promptsStale) { message.warning("参考图已变化，请先根据参考图重新生成全部提示词"); return; }
     const promptSnapshot = new Map(prompts.map((item) => [item.letter, item.currentPrompt.trim()]));
     const invalid = letters.find((letter) => !promptSnapshot.get(letter));
     if (invalid) { message.warning(`${invalid} 的提示词为空`); return; }
@@ -134,7 +153,7 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
       const target = new Set(letters); return [...current.filter((item) => !target.has(item.letter)), ...queued].sort((a, b) => a.letter.localeCompare(b.letter));
     });
     try {
-      const normalizedReference = await normalizeReference(referenceBlob, snapshot);
+      const normalizedReference = await normalizeReference(referenceBlob, snapshot, generationDimensions.width, generationDimensions.height);
       if (normalizedReference.size >= 50 * 1024 * 1024) throw new Error("规范化后的参考图超过 50 MB，请换用更简单的参考图");
       let index = 0;
       const worker = async () => {
@@ -147,9 +166,9 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
             while (true) {
               try {
                 setRequestCount((value) => value + 1);
-                const rawBlob = await editAiPetLetter({ apiKey: globalSettings.openAiApiKey, image: normalizedReference, prompt: promptSnapshot.get(letter)!, model: snapshot.model, quality: snapshot.quality, background: snapshot.outputMode === "transparent-colorize" ? "transparent" : undefined, signal: controller.signal, attempt: retries + 1 });
+                const rawBlob = await editAiPetLetter({ apiKey: globalSettings.openAiApiKey, image: normalizedReference, prompt: promptSnapshot.get(letter)!, model: snapshot.model, quality: snapshot.quality, background: snapshot.outputMode === "transparent-colorize" ? "transparent" : undefined, signal: controller.signal, attempt: retries + 1, width: generationDimensions.width, height: generationDimensions.height });
                 const compositeBlob = snapshot.outputMode === "transparent-colorize" ? await colorizeTransparentResult(rawBlob, snapshot.backgroundColor) : rawBlob;
-                updateTask(letter, { status: "success", retries, endedAt: Date.now(), result: { letter, rawBlob, compositeBlob, outputMode: snapshot.outputMode, backgroundColor: snapshot.backgroundColor, referenceFingerprint: currentReferenceFingerprint, width: 3840, height: 2160, createdAt: Date.now() } });
+                updateTask(letter, { status: "success", retries, endedAt: Date.now(), result: { letter, rawBlob, compositeBlob, outputMode: snapshot.outputMode, backgroundColor: snapshot.backgroundColor, referenceFingerprint: currentReferenceFingerprint, width: generationDimensions.width, height: generationDimensions.height, createdAt: Date.now() } });
                 break;
               } catch (error) {
                 if (controller.signal.aborted || stopAll.current) { updateTask(letter, { status: "stopped", retries, endedAt: Date.now() }); break; }
@@ -170,7 +189,7 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
       message.error(error instanceof Error ? error.message : "准备图片失败");
       setTasks((items) => items.map((item) => item.status === "waiting" ? { ...item, status: "failed", error: "准备图片失败", endedAt: Date.now() } : item));
     } finally { setRunning(false); }
-  }, [currentReferenceFingerprint, globalSettings.openAiApiKey, message, onConfigure, prompts, referenceBlob, settings, updateTask]);
+  }, [currentReferenceFingerprint, generationDimensions, globalSettings.openAiApiKey, message, onConfigure, prompts, promptsStale, referenceBlob, settings, updateTask]);
 
   const stop = () => { stopAll.current = true; controllers.current.forEach((controller) => controller.abort()); };
   const optimizeOne = async (letter: string) => {
@@ -179,7 +198,7 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
     setPrompts((values) => values.map((value) => value.letter === letter ? { ...value, optimizing: true } : value));
     try {
       const optimized = await optimizeAiPetLetterPrompts({ apiKey: globalSettings.openAiApiKey, input: promptOptimizerInstruction(letter, item.currentPrompt) });
-      const error = validateOptimizedPrompt(letter, optimized); if (error) throw new Error(error);
+      const error = validateReferenceGeneratedPrompt(letter, optimized); if (error) throw new Error(error);
       setPrompts((values) => values.map((value) => value.letter === letter ? { ...value, currentPrompt: optimized, optimizing: false } : value));
     } catch (error) { message.error(error instanceof Error ? error.message : "优化失败"); setPrompts((values) => values.map((value) => value.letter === letter ? { ...value, optimizing: false } : value)); }
   };
@@ -187,22 +206,53 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
     if (!globalSettings.openAiApiKey) { onConfigure(); return; }
     setOptimizingAll(true);
     try {
-      const input = `一次性优化 A-Z 的整幅图片编辑提示词。返回 JSON 对象，键必须为 A 到 Z，值为对应完整中文提示词。每项必须明确目标大写字母，保留橙色渐变和黑色描边，要求整幅图统一生成且没有拼接接缝，所有角色完整可见、互不遮挡重叠、不被裁切。A–Z 必须有计划地轮换直接趴靠或抱住字母的萌宠，避免相邻成品顶部重复同一只猫；替换后若有明显空白，只能用少量参考图已有的小贴纸自然填充且不能遮挡字母或角色。禁止其他文字。\n\n${JSON.stringify(Object.fromEntries(prompts.map((item) => [item.letter, item.currentPrompt])))}`;
+      const input = `一次性优化 A-Z 的整幅图片编辑提示词。返回 JSON 对象，键必须为 A 到 Z，值为对应完整中文提示词。逐项保留现有提示词对当前参考图字形、材质、配色、背景、构图、主体、装饰、空间关系和输出背景模式的描述；不得套用现有文字中没有的宠物、节日、颜色或贴纸预设。每项必须明确目标大写字母，要求整幅图统一生成、没有局部贴片或拼接接缝，主体完整、互不遮挡且不被裁切，禁止其他文字。\n\n${JSON.stringify(Object.fromEntries(prompts.map((item) => [item.letter, item.currentPrompt])))}`;
       const response = await optimizeAiPetLetterPrompts({ apiKey: globalSettings.openAiApiKey, input, batch: true });
       const parsed = JSON.parse(response) as Record<string, string>;
       const next = prompts.map((item) => ({ letter: item.letter, before: item.currentPrompt, after: parsed[item.letter]?.trim() || "" }));
-      const invalid = next.find((item) => validateOptimizedPrompt(item.letter, item.after));
+      const invalid = next.find((item) => validateReferenceGeneratedPrompt(item.letter, item.after));
       if (invalid) throw new Error(`${invalid.letter} 的优化结果不完整，已拒绝整批应用`);
+      setOptimizationSource("optimize");
       setOptimizationDiff(next);
     } catch (error) { message.error(error instanceof Error ? error.message : "批量优化失败"); }
     finally { setOptimizingAll(false); }
+  };
+
+  const regenerateAllPrompts = async () => {
+    if (!globalSettings.openAiApiKey) { message.warning("请先在右上角配置 OpenAI API Key"); onConfigure(); return; }
+    if (!referenceBlob) { message.warning("请先准备参考图"); return; }
+    setRegeneratingPrompts(true);
+    try {
+      const analysisDimensions = constrainDimensions(referenceDimensions, 1536);
+      const normalizedReference = await normalizeReference(referenceBlob, settings, analysisDimensions.width, analysisDimensions.height);
+      const parsed = await regenerateAiPetLetterPromptsFromReference({
+        apiKey: globalSettings.openAiApiKey,
+        image: normalizedReference,
+        outputMode: settings.outputMode,
+        width: generationDimensions.width,
+        height: generationDimensions.height,
+      });
+      const next = prompts.map((item) => ({
+        letter: item.letter,
+        before: item.currentPrompt,
+        after: adaptPromptOutputMode(parsed[item.letter]?.trim() || "", settings.outputMode),
+      }));
+      const invalid = next.find((item) => validateReferenceGeneratedPrompt(item.letter, item.after));
+      if (invalid) throw new Error(`${invalid.letter} 的参考图提示词不完整，已拒绝整批应用`);
+      setOptimizationSource("reference");
+      setPendingPromptFingerprint(currentReferenceFingerprint);
+      setOptimizationDiff(next);
+    } catch (error) { message.error(error instanceof Error ? error.message : "根据参考图重建提示词失败"); }
+    finally { setRegeneratingPrompts(false); }
   };
 
   const uploadReference = async (file: File) => {
     if (![/^image\/(png|jpeg|webp)$/].some((pattern) => pattern.test(file.type))) { message.error("仅支持 PNG、JPEG、WebP"); return false; }
     if (file.size > 50 * 1024 * 1024) { message.error("参考图不能超过 50 MB"); return false; }
     const fp = await fingerprintBlob(file);
-    setReferenceBlob(file); setReferenceName(file.name); setReferenceFingerprint(fp);
+    const dimensions = await readImageDimensions(file);
+    setReferenceBlob(file); setReferenceName(file.name); setReferenceFingerprint(fp); setReferenceDimensions(dimensions);
+    setOptimizationDiff([]); setPendingPromptFingerprint("");
     setSettings((value) => ({ ...value, cropZoom: 1, cropX: 0, cropY: 0 })); setPreview({ kind: "reference" }); return false;
   };
 
@@ -210,7 +260,7 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
     if (!task.result) return;
     message.loading({ content: `正在准备 ${task.letter}.png`, key: "ai-pet-download", duration: 0 });
     const useTransparent = settings.downloadVariant === "transparent" && task.result.outputMode === "transparent-colorize";
-    try { downloadBlob(await resizeForDownload(useTransparent ? task.result.rawBlob : task.result.compositeBlob, settings.downloadSize), `${task.letter}${useTransparent ? "_透明" : ""}.png`); message.success({ content: "下载已开始", key: "ai-pet-download" }); }
+    try { downloadBlob(await resizeForDownload(useTransparent ? task.result.rawBlob : task.result.compositeBlob, settings.downloadSize, { width: task.result.width, height: task.result.height }), `${task.letter}${useTransparent ? "_透明" : ""}.png`); message.success({ content: "下载已开始", key: "ai-pet-download" }); }
     catch (error) { message.error({ content: error instanceof Error ? error.message : "导出失败", key: "ai-pet-download" }); }
   };
   const downloadSelected = async () => {
@@ -219,7 +269,7 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
     const zip = new JSZip();
     for (const task of selected) {
       const useTransparent = settings.downloadVariant === "transparent" && task.result!.outputMode === "transparent-colorize";
-      zip.file(`${task.letter}${useTransparent ? "_透明" : ""}.png`, await resizeForDownload(useTransparent ? task.result!.rawBlob : task.result!.compositeBlob, settings.downloadSize));
+      zip.file(`${task.letter}${useTransparent ? "_透明" : ""}.png`, await resizeForDownload(useTransparent ? task.result!.rawBlob : task.result!.compositeBlob, settings.downloadSize, { width: task.result!.width, height: task.result!.height }));
     }
     downloadBlob(await zip.generateAsync({ type: "blob" }), "AI萌宠字母贴纸.zip");
   };
@@ -248,8 +298,8 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
       <label>下载内容</label><Segmented block value={settings.downloadVariant} options={[{ label: "上色成品", value: "colorized" }, { label: "AI 透明原图", value: "transparent" }]} onChange={(downloadVariant) => setSettings((value) => ({ ...value, downloadVariant: downloadVariant as AiPetLetterSettings["downloadVariant"] }))} />
       <Alert type="info" showIcon message="AI 生成透明 PNG，页面再用所选颜色铺底；透明原图与上色成品都会保留。" />
     </> : <Alert type="info" showIcon message="当前模式由 AI 直接生成包含背景底色的完整图片。" />}
-    <label>下载尺寸</label><Segmented block value={settings.downloadSize} onChange={(downloadSize) => setSettings((value) => ({ ...value, downloadSize: downloadSize as "native" | "high-res" }))} options={[{ label: "AI 原生 3840×2160", value: "native" }, { label: "高清 7717×4346", value: "high-res" }]} />
-    <Alert type="info" showIcon message="高清档为本地高质量放大，不会增加 AI 原生细节。费用按 OpenAI 实际账单计费。" />
+    <label>生成与下载尺寸</label><Segmented block value={settings.downloadSize} onChange={(downloadSize) => setSettings((value) => ({ ...value, downloadSize: downloadSize as "native" | "high-res" }))} options={[{ label: `参考图比例 ${generationDimensions.width}×${generationDimensions.height}`, value: "native" }, { label: `同比例高清 ${highResDimensions.width}×${highResDimensions.height}`, value: "high-res" }]} />
+    <Alert type="info" showIcon title={`生成按参考图 ${referenceDimensions.width}×${referenceDimensions.height} 的比例进行；高清档等比本地放大，不裁切画面，也不会增加 AI 原生细节。`} />
     <label>参考图裁切缩放：{settings.cropZoom.toFixed(2)}×</label><Slider min={1} max={2} step={0.01} value={settings.cropZoom} onChange={(cropZoom) => setSettings((value) => ({ ...value, cropZoom }))} />
     <label>水平位置</label><Slider min={-1} max={1} step={0.01} value={settings.cropX} onChange={(cropX) => setSettings((value) => ({ ...value, cropX }))} />
     <label>垂直位置</label><Slider min={-1} max={1} step={0.01} value={settings.cropY} onChange={(cropY) => setSettings((value) => ({ ...value, cropY }))} />
@@ -263,11 +313,13 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
       <div><Tag color="purple">整幅 AI 生成</Tag><Title level={2}>AI 萌宠字母贴纸</Title><Text type="secondary">整幅画面统一交给 AI 重新生成，不做局部拼接；支持直接生成底色，或生成透明 PNG 后在本地上色。</Text></div>
       <Space wrap>
         <Upload showUploadList={false} beforeUpload={uploadReference} accept="image/png,image/jpeg,image/webp"><Button icon={<CloudUploadOutlined />}>替换参考图</Button></Upload>
-        <Button onClick={() => void loadDefault()}>恢复默认图</Button>
+        <Button onClick={() => void loadDefault(true)}>恢复默认图</Button>
+        <Button icon={<ReloadOutlined />} loading={regeneratingPrompts} onClick={() => void regenerateAllPrompts()}>根据参考图重新生成全部提示词</Button>
         <Button icon={<ThunderboltOutlined />} loading={optimizingAll} onClick={() => void optimizeAll()}>AI 优化全部提示词</Button>
-        {running ? <Button danger icon={<StopOutlined />} onClick={stop}>停止全部</Button> : <Button type="primary" icon={<CheckOutlined />} disabled={!prompts.some((item) => item.selected)} onClick={() => void processLetters(prompts.filter((item) => item.selected).map((item) => item.letter))}>生成已选字母</Button>}
+        {running ? <Button danger icon={<StopOutlined />} onClick={stop}>停止全部</Button> : <Button type="primary" icon={<CheckOutlined />} disabled={promptsStale || !prompts.some((item) => item.selected)} onClick={() => void processLetters(prompts.filter((item) => item.selected).map((item) => item.letter))}>生成已选字母</Button>}
       </Space>
     </section>
+    {promptsStale && <Alert type="warning" showIcon title="参考图或裁切已变化，旧提示词已停用" description="请点击“根据参考图重新生成全部提示词”，审核并应用新提示词后再生成图片。" />}
     {oldReference && <Alert type="warning" showIcon message="部分结果属于旧参考图；重新生成前请按结果指纹区分。" />}
     <section className="ai-pet-letter-stats">
       <Statistic title="总体进度" value={tasks.length ? `${finished}/${tasks.length}` : "0/0"} />
@@ -285,11 +337,11 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
         {previewUrl ? <Image src={previewUrl} preview={preview.kind === "reference" ? { mask: "点击放大" } : false} onClick={preview.kind === "raw" && preview.letter ? () => setEnlarged({ letter: preview.letter!, current: 0 }) : undefined} /> : <Empty description="暂无可预览图片" />}
       </Card>
     </section>
-    <Card title="A–Z 最终提示词" extra={<Space wrap><Text type="secondary">界面文字会逐字提交，不追加隐藏提示词</Text><Button size="small" onClick={() => setPrompts((items) => items.map((item) => ({ ...item, selected: true })))}>全选</Button><Button size="small" onClick={() => setPrompts((items) => items.map((item) => ({ ...item, selected: false })))}>取消全选</Button></Space>}>
-      <Collapse items={prompts.map((item) => ({ key: item.letter, label: <Space><Checkbox checked={item.selected} onClick={(event) => event.stopPropagation()} onChange={(event) => setPrompts((items) => items.map((value) => value.letter === item.letter ? { ...value, selected: event.target.checked } : value))} /><Tag color="blue">{item.letter}</Tag><Text type="secondary">{statusLabel(tasks.find((task) => task.letter === item.letter)?.status)}</Text></Space>, children: <><Input.TextArea autoSize={{ minRows: 4, maxRows: 10 }} maxLength={3000} showCount value={item.currentPrompt} onChange={(event) => setPrompts((items) => items.map((value) => value.letter === item.letter ? { ...value, currentPrompt: event.target.value } : value))} /><Space className="ai-pet-prompt-actions"><Button icon={<ReloadOutlined />} onClick={() => setPrompts((items) => items.map((value) => value.letter === item.letter ? { ...value, currentPrompt: adaptPromptOutputMode(defaultPromptForLetter(item.letter), settings.outputMode) } : value))}>恢复默认</Button><Button loading={item.optimizing} icon={<ThunderboltOutlined />} onClick={() => void optimizeOne(item.letter)}>AI 优化</Button>{tasks.find((task) => task.letter === item.letter)?.status === "running" && <Button danger onClick={() => controllers.current.get(item.letter)?.abort()}>停止此图</Button>}<Button onClick={() => void processLetters([item.letter], true)}>重新生成</Button></Space></> }))} />
+    <Card title="A–Z 最终提示词" extra={<Space wrap>{promptsStale ? <Tag color="warning">等待按参考图重建</Tag> : <Tag color="success">匹配当前参考图</Tag>}<Text type="secondary">界面文字会逐字提交，不追加隐藏提示词</Text><Button size="small" onClick={() => setPrompts((items) => items.map((item) => ({ ...item, selected: true })))}>全选</Button><Button size="small" onClick={() => setPrompts((items) => items.map((item) => ({ ...item, selected: false })))}>取消全选</Button></Space>}>
+      <Collapse items={prompts.map((item) => ({ key: item.letter, label: <Space><Checkbox checked={item.selected} onClick={(event) => event.stopPropagation()} onChange={(event) => setPrompts((items) => items.map((value) => value.letter === item.letter ? { ...value, selected: event.target.checked } : value))} /><Tag color="blue">{item.letter}</Tag><Text type="secondary">{statusLabel(tasks.find((task) => task.letter === item.letter)?.status)}</Text></Space>, children: <><Input.TextArea autoSize={{ minRows: 4, maxRows: 10 }} maxLength={3000} showCount value={item.currentPrompt} onChange={(event) => setPrompts((items) => items.map((value) => value.letter === item.letter ? { ...value, currentPrompt: event.target.value } : value))} /><Space className="ai-pet-prompt-actions"><Button icon={<ReloadOutlined />} onClick={() => setPrompts((items) => items.map((value) => value.letter === item.letter ? { ...value, currentPrompt: adaptPromptOutputMode(defaultPromptForLetter(item.letter), settings.outputMode) } : value))}>恢复默认</Button><Button loading={item.optimizing} icon={<ThunderboltOutlined />} onClick={() => void optimizeOne(item.letter)}>AI 优化</Button>{tasks.find((task) => task.letter === item.letter)?.status === "running" && <Button danger onClick={() => controllers.current.get(item.letter)?.abort()}>停止此图</Button>}<Button disabled={promptsStale} onClick={() => void processLetters([item.letter], true)}>重新生成</Button></Space></> }))} />
     </Card>
-    <Card title="生成结果" extra={<Space><Checkbox checked={successful.length > 0 && successful.every((item) => selectedResults.includes(item.letter))} onChange={(event) => setSelectedResults(event.target.checked ? successful.map((item) => item.letter) : [])}>全选已有结果</Checkbox><Button icon={<DownloadOutlined />} onClick={() => void downloadSelected()}>下载所选（{selectedResults.length}）</Button><Button disabled={!tasks.some((task) => task.status === "failed" || task.status === "interrupted")} onClick={() => void processLetters(tasks.filter((task) => task.status === "failed" || task.status === "interrupted").map((task) => task.letter), true)}>重试失败</Button><Popconfirm title="清空所有生成任务和结果？" onConfirm={() => { stop(); setTasks([]); setSelectedResults([]); setPreview({ kind: "reference" }); }}><Button danger icon={<DeleteOutlined />}>清空结果</Button></Popconfirm></Space>}>
-      {tasks.length ? <div className="ai-pet-letter-gallery">{tasks.map((task) => <Card key={`${task.letter}-${task.result?.createdAt || 0}`} size="small" className="ai-pet-letter-result" cover={task.result ? <ResultCover blob={task.result.compositeBlob} letter={task.letter} onOpen={() => setEnlarged({ letter: task.letter, current: 0 })} /> : <div className="ai-pet-letter-placeholder"><strong>{task.letter}</strong><span>{task.status === "running" ? "生成中…" : task.error || statusLabel(task.status)}</span></div>} actions={task.result ? [<Button type="text" key="view" onClick={() => { setPreview({ kind: "raw", letter: task.letter }); setCompareLetter(task.letter); }}>对比</Button>, <Button type="text" key="download" onClick={() => void downloadTask(task)}>下载</Button>, <Button type="text" key="retry" onClick={() => void processLetters([task.letter], true)}>重生</Button>] : undefined}><Card.Meta title={<Space><Checkbox checked={selectedResults.includes(task.letter)} disabled={!task.result} onChange={(event) => setSelectedResults((items) => event.target.checked ? [...new Set([...items, task.letter])] : items.filter((letter) => letter !== task.letter))} />{task.letter}<Tag color={task.status === "success" ? "success" : task.status === "failed" ? "error" : "default"}>{statusLabel(task.status)}</Tag></Space>} description={task.result && task.result.referenceFingerprint !== currentReferenceFingerprint ? "旧参考图" : task.result?.outputMode === "transparent-colorize" ? `透明原图 · ${task.result.backgroundColor || "#00aeff"} 上色` : task.retries ? `重试 ${task.retries} 次` : ""} /></Card>)}</div> : <Empty description="尚未生成；可以先编辑 26 条提示词" />}
+    <Card title="生成结果" extra={<Space><Checkbox checked={successful.length > 0 && successful.every((item) => selectedResults.includes(item.letter))} onChange={(event) => setSelectedResults(event.target.checked ? successful.map((item) => item.letter) : [])}>全选已有结果</Checkbox><Button icon={<DownloadOutlined />} onClick={() => void downloadSelected()}>下载所选（{selectedResults.length}）</Button><Button disabled={promptsStale || !tasks.some((task) => task.status === "failed" || task.status === "interrupted")} onClick={() => void processLetters(tasks.filter((task) => task.status === "failed" || task.status === "interrupted").map((task) => task.letter), true)}>重试失败</Button><Popconfirm title="清空所有生成任务和结果？" onConfirm={() => { stop(); setTasks([]); setSelectedResults([]); setPreview({ kind: "reference" }); }}><Button danger icon={<DeleteOutlined />}>清空结果</Button></Popconfirm></Space>}>
+      {tasks.length ? <div className="ai-pet-letter-gallery">{tasks.map((task) => <Card key={`${task.letter}-${task.result?.createdAt || 0}`} size="small" className="ai-pet-letter-result" cover={task.result ? <ResultCover blob={task.result.compositeBlob} letter={task.letter} onOpen={() => setEnlarged({ letter: task.letter, current: 0 })} /> : <div className="ai-pet-letter-placeholder"><strong>{task.letter}</strong><span>{task.status === "running" ? "生成中…" : task.error || statusLabel(task.status)}</span></div>} actions={task.result ? [<Button type="text" key="view" onClick={() => { setPreview({ kind: "raw", letter: task.letter }); setCompareLetter(task.letter); }}>对比</Button>, <Button type="text" key="download" onClick={() => void downloadTask(task)}>下载</Button>, <Button type="text" key="retry" disabled={promptsStale} onClick={() => void processLetters([task.letter], true)}>重生</Button>] : undefined}><Card.Meta title={<Space><Checkbox checked={selectedResults.includes(task.letter)} disabled={!task.result} onChange={(event) => setSelectedResults((items) => event.target.checked ? [...new Set([...items, task.letter])] : items.filter((letter) => letter !== task.letter))} />{task.letter}<Tag color={task.status === "success" ? "success" : task.status === "failed" ? "error" : "default"}>{statusLabel(task.status)}</Tag></Space>} description={task.result && task.result.referenceFingerprint !== currentReferenceFingerprint ? "旧参考图" : task.result?.outputMode === "transparent-colorize" ? `透明原图 · ${task.result.backgroundColor || "#00aeff"} 上色` : task.retries ? `重试 ${task.retries} 次` : ""} /></Card>)}</div> : <Empty description="尚未生成；可以先编辑 26 条提示词" />}
     </Card>
     {enlarged && detailResultUrl && referenceCompareUrl ? <Image.PreviewGroup
       items={[{ src: detailResultUrl, alt: `${enlarged.letter} 生成结果` }, { src: referenceCompareUrl, alt: "本次参考图" }, ...(detailTask?.result?.outputMode === "transparent-colorize" && detailRawUrl ? [{ src: detailRawUrl, alt: `${enlarged.letter} AI 透明原图` }] : [])]}
@@ -311,7 +363,7 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
       {detailTask?.result?.outputMode === "transparent-colorize" && detailRawUrl ? <Alert className="ai-pet-letter-transparent-note" type="info" showIcon message="此结果同时保留 AI 透明原图；可在右侧将下载内容切换为“AI 透明原图”。" /> : null}
     </Modal>
     {settingsHost ? createPortal(inspector, settingsHost) : null}
-    <Modal width={920} title="批量提示词优化对比" open={optimizationDiff.length > 0} onCancel={() => setOptimizationDiff([])} onOk={() => { const byLetter = new Map(optimizationDiff.map((item) => [item.letter, item.after])); setPrompts((items) => items.map((item) => ({ ...item, currentPrompt: byLetter.get(item.letter) || item.currentPrompt }))); setOptimizationDiff([]); }} okText="应用全部">
+    <Modal width={920} title={optimizationSource === "reference" ? "根据参考图重建提示词 · 应用前对比" : "批量提示词优化对比"} open={optimizationDiff.length > 0} onCancel={() => { setOptimizationDiff([]); setPendingPromptFingerprint(""); }} onOk={() => { if (optimizationSource === "reference" && pendingPromptFingerprint !== currentReferenceFingerprint) { message.error("参考图或裁切在分析后发生了变化，请重新生成提示词"); setOptimizationDiff([]); setPendingPromptFingerprint(""); return; } const byLetter = new Map(optimizationDiff.map((item) => [item.letter, item.after])); setPrompts((items) => items.map((item) => ({ ...item, currentPrompt: byLetter.get(item.letter) || item.currentPrompt }))); if (optimizationSource === "reference") setPromptsReferenceFingerprint(currentReferenceFingerprint); setOptimizationDiff([]); setPendingPromptFingerprint(""); }} okText={optimizationSource === "reference" ? "应用并启用新提示词" : "应用全部"}>
       <div className="ai-pet-optimization-diff">{optimizationDiff.map((item) => <Collapse key={item.letter} items={[{ key: item.letter, label: `${item.letter} · 查看修改`, children: <div className="ai-pet-diff-columns"><div><Text strong>修改前</Text><p>{item.before}</p></div><div><Text strong>修改后</Text><p>{item.after}</p></div></div> }]} />)}</div>
     </Modal>
   </div>;

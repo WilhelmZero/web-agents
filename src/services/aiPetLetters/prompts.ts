@@ -70,6 +70,16 @@ export function validateOptimizedPrompt(letter: string, prompt: string): string 
   return null;
 }
 
+export function validateReferenceGeneratedPrompt(letter: string, prompt: string): string | null {
+  const value = prompt.trim();
+  if (value.length < 40) return "根据参考图生成的提示词过短";
+  const targetPattern = new RegExp(`(?:大写|字母|uppercase|letter)[\\s“"']*${letter}[\\s”"']*`, "i");
+  if (!targetPattern.test(value)) return `结果没有明确目标字母 ${letter}`;
+  if (!value.includes("参考图")) return "结果没有明确以当前参考图为准";
+  if (!/(整幅|完整画面)/.test(value)) return "结果没有明确整幅统一生成";
+  return null;
+}
+
 export function promptOptimizerInstruction(letter: string, prompt: string): string {
-  return `优化下面用于整幅图片编辑的中文提示词。必须保留目标大写字母 ${letter}、橙色渐变、黑色描边、整幅图统一重绘、无矩形边界或拼接痕迹、角色身份与完整肢体、角色之间不得遮挡重叠或裁切、A–Z 轮换与字母互动的萌宠、明显空白处仅用少量参考图已有小贴纸填充且不得遮挡主体、背景保持一致、禁止其他文字这些约束。只返回优化后的完整提示词，不要解释。\n\n原提示词：\n${prompt}`;
+  return `优化下面用于整幅图片编辑的中文提示词。必须保留目标大写字母 ${letter}，并严格保留原提示词对当前参考图字形、材质、配色、背景、构图、主体、装饰、空间关系和输出背景模式的全部描述；整幅统一重绘，无局部贴片或拼接痕迹，主体完整且不得被遮挡或裁切，禁止其他文字。不得擅自套用宠物、节日、橙色、蓝色等原提示词没有的预设风格。只返回优化后的完整提示词，不要解释。\n\n原提示词：\n${prompt}`;
 }

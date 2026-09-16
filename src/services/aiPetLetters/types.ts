@@ -82,6 +82,7 @@ export interface AiPetLetterWorkspace {
   referenceBlob?: Blob;
   referenceFingerprint?: string;
   referenceName?: string;
+  promptsReferenceFingerprint?: string;
   mask?: AiPetLetterMask;
   tasks: AiPetLetterTask[];
   updatedAt: number;

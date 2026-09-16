@@ -1,8 +1,8 @@
 import "fake-indexeddb/auto";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { editAiPetLetter, AiPetLetterApiError } from "./api";
-import { HIGH_RES_HEIGHT, HIGH_RES_WIDTH, NATIVE_HEIGHT, NATIVE_WIDTH, normalizeHexColor, strictCompositePixels } from "./image";
-import { adaptPromptOutputMode, createDefaultPrompts, validateOptimizedPrompt } from "./prompts";
+import { editAiPetLetter, AiPetLetterApiError, regenerateAiPetLetterPromptsFromReference } from "./api";
+import { HIGH_RES_HEIGHT, HIGH_RES_WIDTH, NATIVE_HEIGHT, NATIVE_WIDTH, constrainDimensions, normalizeHexColor, referenceDownloadDimensions, strictCompositePixels } from "./image";
+import { adaptPromptOutputMode, createDefaultPrompts, validateOptimizedPrompt, validateReferenceGeneratedPrompt } from "./prompts";
 import { loadAiPetLetterPrompts, loadAiPetLetterSettings, loadAiPetLetterWorkspace, saveAiPetLetterPrompts, saveAiPetLetterSettings, saveAiPetLetterWorkspace } from "./storage";
 import { AI_PET_LETTERS, DEFAULT_AI_PET_LETTER_SETTINGS, normalizeQuality, qualityOptions } from "./types";
 import { getGenerationStatsSnapshot, resetGenerationStats } from "../generationStats";
@@ -35,6 +35,11 @@ describe("AI pet letter prompts", () => {
     expect(validateOptimizedPrompt("B", "整幅图统一生成，将字母 B 改成蓝色，角色不能遮挡，肢体完整，背景不变，空白处补小贴纸，轮换互动萌宠")).toBeNull();
   });
 
+  it("validates style-neutral prompts regenerated from a new reference", () => {
+    expect(validateReferenceGeneratedPrompt("Z", "依据当前参考图，将主字母完整替换为大写 Z，保持参考图的向日葵、水彩材质、黑色背景与整幅构图，完整画面统一生成。" )).toBeNull();
+    expect(validateReferenceGeneratedPrompt("Z", "继续使用旧万圣节猫咪模板")).toContain("过短");
+  });
+
   it("keeps the selected background mode visible in the final prompt", () => {
     const direct = createDefaultPrompts()[1].currentPrompt;
     const transparent = adaptPromptOutputMode(direct, "transparent-colorize");
@@ -59,6 +64,12 @@ describe("strict compositing", () => {
     expect([NATIVE_WIDTH, NATIVE_HEIGHT]).toEqual([3840, 2160]);
     expect(NATIVE_WIDTH * NATIVE_HEIGHT).toBe(8_294_400);
     expect([HIGH_RES_WIDTH, HIGH_RES_HEIGHT]).toEqual([7717, 4346]);
+  });
+  it("keeps the reference ratio for native and high-resolution downloads", () => {
+    expect(constrainDimensions({ width: 1024, height: 1536 })).toEqual({ width: 1024, height: 1536 });
+    expect(referenceDownloadDimensions({ width: 1024, height: 1536 }, "native")).toEqual({ width: 1024, height: 1536 });
+    expect(referenceDownloadDimensions({ width: 1024, height: 1536 }, "high-res")).toEqual({ width: 5145, height: 7717 });
+    expect(constrainDimensions({ width: 8000, height: 4000 })).toEqual({ width: 3840, height: 1920 });
   });
   it("normalizes the local colorization background", () => {
     expect(normalizeHexColor("#ABCDEF")).toBe("#abcdef");
@@ -96,6 +107,26 @@ describe("OpenAI image edit request", () => {
     await editAiPetLetter({ apiKey: "key", image: new Blob(["image"], { type: "image/png" }), prompt: "透明背景", model: "gpt-image-2.5-sunburst", quality: "xhigh", background: "transparent" });
     const form = fetchMock.mock.calls[0][1]?.body as FormData;
     expect(form.get("background")).toBe("transparent");
+  });
+
+  it("requests the reference image dimensions instead of forcing 16:9", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({ data: [{ b64_json: btoa("png") }] }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    await editAiPetLetter({ apiKey: "key", image: new Blob(["image"], { type: "image/png" }), prompt: "竖版字母 Z", model: "gpt-image-2.5-sunburst", quality: "xhigh", width: 1024, height: 1536 });
+    const form = fetchMock.mock.calls[0][1]?.body as FormData;
+    expect(form.get("size")).toBe("1024x1536");
+  });
+
+  it("sends the current reference image when regenerating all prompts", async () => {
+    const generated = Object.fromEntries(AI_PET_LETTERS.map((letter) => [letter, `依据当前参考图，完整画面统一生成大写字母 ${letter}，保持参考图风格。`]));
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({ output_text: JSON.stringify(generated) }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await regenerateAiPetLetterPromptsFromReference({ apiKey: "key", image: new Blob(["reference"], { type: "image/png" }), outputMode: "direct-background", width: 1024, height: 1536 });
+    expect(result.Z).toContain("字母 Z");
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    expect(body.input[0].content[1].type).toBe("input_image");
+    expect(body.input[0].content[0].text).toContain("旧提示词");
+    expect(body.input[0].content[0].text).toContain("1024:1536");
   });
 
   it("classifies temporary errors separately from permission errors", () => {
