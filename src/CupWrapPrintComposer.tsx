@@ -10,6 +10,7 @@ import {
   InputNumber,
   Modal,
   Select,
+  Slider,
   Space,
   Spin,
   Tabs,
@@ -49,6 +50,7 @@ import {
 } from "./services/cupWrap/adaptation";
 const SHOW_MANUAL_ARTWORK_TOOLS = false;
 const DEFAULT_AI_ADJUSTMENT = { scale: 1, x: 0, y: 0, warp: 0 };
+const DEFAULT_GEOMETRY_ADJUSTMENT = { scale: 1, x: 0, y: 0, warp: 1 };
 function BlobPreview({ blob }: { blob: Blob }) {
   const [url, setUrl] = useState("");
   useEffect(() => {
@@ -120,7 +122,7 @@ const fresh = (): WrapDesign => ({
   aiResults: [],
   adaptationMode: "geometry",
   transparentOutput: false,
-  aiAdjustment: { scale: 1, x: 0, y: 0, warp: 1 },
+  aiAdjustment: { ...DEFAULT_GEOMETRY_ADJUSTMENT },
   fit: "contain",
   scale: 1,
   x: 0,
@@ -196,6 +198,11 @@ export default function CupWrapPrintComposer({
   const abort = useRef<AbortController | null>(null),
     saveChain = useRef(Promise.resolve());
   const d = designs.find((v) => v.id === selected) || designs[0];
+  const imageAdjustment =
+    d.aiAdjustment ??
+    ((d.adaptationMode ?? "geometry") === "geometry"
+      ? DEFAULT_GEOMETRY_ADJUSTMENT
+      : DEFAULT_AI_ADJUSTMENT);
   useEffect(() => {
     let cancelled = false;
     const blob = d.adopted || d.source;
@@ -708,93 +715,109 @@ export default function CupWrapPrintComposer({
         </>
       )}
       <h3>输出与 A4</h3>
-      {(d.source &&
+      {d.source &&
         ((d.adaptationMode ?? "geometry") === "geometry" ||
           (d.adopted && d.adoptedFrame) ||
-          d.localAdaptation)) && (
-        <>
-          <h3>生成图片微调</h3>
-          <p>
-            非破坏性调整，原图保留；预览和打印同步更新。几何映射默认使用完整扇形路径（1），可调低以减弱弯曲。缩放或移动超出安全区时可能裁切。
-          </p>
-          {number(
-            "图片缩放",
-            d.aiAdjustment?.scale ?? 1,
-            (scale) =>
-              update({
-                aiAdjustment: {
-                  ...DEFAULT_AI_ADJUSTMENT,
-                  ...d.aiAdjustment,
-                  scale,
-                },
-              }),
-            0.2,
-            2,
-          )}
-          {number(
-            "图片水平 mm",
-            d.aiAdjustment?.x ?? 0,
-            (x) =>
-              update({
-                aiAdjustment: {
-                  ...DEFAULT_AI_ADJUSTMENT,
-                  ...d.aiAdjustment,
-                  x,
-                },
-              }),
-            -500,
-            500,
-          )}
-          {number(
-            "图片垂直 mm",
-            d.aiAdjustment?.y ?? 0,
-            (y) =>
-              update({
-                aiAdjustment: {
-                  ...DEFAULT_AI_ADJUSTMENT,
-                  ...d.aiAdjustment,
-                  y,
-                },
-              }),
-            -500,
-            500,
-          )}
-          {number(
-            "扇形路径变形（0–1）",
-            d.aiAdjustment?.warp ??
-              ((d.adaptationMode ?? "geometry") === "geometry" ? 1 : 0),
-            (warp) =>
-              update({
-                aiAdjustment: {
-                  ...DEFAULT_AI_ADJUSTMENT,
-                  ...d.aiAdjustment,
-                  warp,
-                },
-              }),
-            0,
-            1,
-          )}
-          <Button
-            onClick={() =>
-              update({
-                aiAdjustment:
-                  (d.adaptationMode ?? "geometry") === "geometry"
-                    ? { scale: 1, x: 0, y: 0, warp: 1 }
-                    : undefined,
-              })
-            }
-          >
-            重置图片微调
-          </Button>
-          {d.adopted && (
+          d.localAdaptation) && (
+          <>
+            <h3>生成图片微调</h3>
+            <p>
+              非破坏性调整，原图保留；预览和打印同步更新。几何映射默认使用完整扇形路径（1），可调低以减弱弯曲。缩放或移动超出安全区时可能裁切。
+            </p>
+            {number(
+              "图片缩放",
+              imageAdjustment.scale,
+              (scale) =>
+                update({
+                  aiAdjustment: {
+                    ...imageAdjustment,
+                    scale,
+                  },
+                }),
+              0.2,
+              2,
+            )}
+            <label className="cup-field">
+              缩放滑动条 · {Math.round(imageAdjustment.scale * 100)}%
+              <Slider
+                ariaLabelForHandle="图片缩放滑动条"
+                min={0.2}
+                max={2}
+                step={0.01}
+                value={imageAdjustment.scale}
+                tooltip={{
+                  formatter: (value) => `${Math.round((value ?? 1) * 100)}%`,
+                }}
+                onChange={(scale) =>
+                  update({
+                    aiAdjustment: {
+                      ...imageAdjustment,
+                      scale,
+                    },
+                  })
+                }
+              />
+            </label>
+            {number(
+              "图片水平 mm",
+              imageAdjustment.x,
+              (x) =>
+                update({
+                  aiAdjustment: {
+                    ...imageAdjustment,
+                    x,
+                  },
+                }),
+              -500,
+              500,
+            )}
+            {number(
+              "图片垂直 mm",
+              imageAdjustment.y,
+              (y) =>
+                update({
+                  aiAdjustment: {
+                    ...imageAdjustment,
+                    y,
+                  },
+                }),
+              -500,
+              500,
+            )}
+            {number(
+              "扇形路径变形（0–1）",
+              imageAdjustment.warp,
+              (warp) =>
+                update({
+                  aiAdjustment: {
+                    ...imageAdjustment,
+                    warp,
+                  },
+                }),
+              0,
+              1,
+            )}
             <Button
-              onClick={() => download(d.adopted!, `${d.name}-AI原始图.png`)}
+              onClick={() =>
+                update({
+                  aiAdjustment:
+                    (d.adaptationMode ?? "geometry") === "geometry"
+                      ? DEFAULT_GEOMETRY_ADJUSTMENT
+                      : undefined,
+                })
+              }
             >
-              下载 AI 原始图（不裁刀模）
+              重置图片微调
             </Button>
-          )}
-        </>
-      )}
+            {d.adopted && (
+              <Button
+                onClick={() => download(d.adopted!, `${d.name}-AI原始图.png`)}
+              >
+                下载 AI 原始图（不裁刀模）
+              </Button>
+            )}
+          </>
+        )}
       {number("DPI", print.dpi, (v) => setting({ dpi: v }), 72, 2400)}
       <Space wrap>
         <Button

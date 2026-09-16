@@ -170,7 +170,7 @@ export function drawWarpWebGL(
     uniform sampler2D u_image;
     in vec2 v_texCoord;
     out vec4 outColor;
-    void main() { outColor = texture(u_image, vec2(v_texCoord.x, 1.0 - v_texCoord.y)); }`;
+    void main() { outColor = texture(u_image, v_texCoord); }`;
   const shader = (kind: number, source: string) => {
     const value = gl.createShader(kind)!;
     gl.shaderSource(value, source);
@@ -200,7 +200,12 @@ export function drawWarpWebGL(
     );
     const x = transform.a * p.x + transform.c * p.y + transform.e,
       y = transform.b * p.x + transform.d * p.y + transform.f;
-    vertices.push((2 * x) / target.width - 1, 1 - (2 * y) / target.height, u, v);
+    vertices.push(
+      (2 * x) / target.width - 1,
+      1 - (2 * y) / target.height,
+      u,
+      v,
+    );
   };
   for (let y = 0; y < ny; y++)
     for (let x = 0; x < nx; x++) {
@@ -239,14 +244,7 @@ export function drawWarpWebGL(
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-  gl.texImage2D(
-    gl.TEXTURE_2D,
-    0,
-    gl.RGBA,
-    gl.RGBA,
-    gl.UNSIGNED_BYTE,
-    img,
-  );
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
   gl.viewport(0, 0, layer.width, layer.height);
   gl.clearColor(0, 0, 0, 0);
   gl.clear(gl.COLOR_BUFFER_BIT);
