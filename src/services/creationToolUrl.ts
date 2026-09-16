@@ -1,6 +1,7 @@
 import type { CreationTool } from "../types";
 
 export const CREATION_TOOLS: readonly CreationTool[] = [
+  "cup-wrap-print",
   "workflow",
   "scene",
   "scene-replace",

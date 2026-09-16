@@ -19,6 +19,25 @@ export type AppLanguage = "zh-CN" | "en-US";
 const LANGUAGE_KEY = "scene-studio-language";
 
 const translations: Record<string, string> = {
+  "杯身刀模与打印排版": "Cup wrap dielines and print layout",
+  "杯身尺寸 · mm": "Cup dimensions · mm",
+  口径: "Top diameter", 底径: "Bottom diameter", 垂直高度: "Vertical height",
+  距杯口留白: "Top inset", 距杯底留白: "Bottom inset", "覆盖角度 °": "Coverage angle °",
+  "接缝 mm（负数留缝／正数搭接）": "Seam mm (negative: gap / positive: overlap)",
+  "展开预览": "Dieline preview", "SVG 刀模": "SVG dieline", "1:1 TIF": "1:1 TIFF",
+  "计算 A4 混排": "Pack on A4", "下载 A4 PDF": "Download A4 PDF", "校准页": "Calibration page",
+  "图案 · 不拉伸": "Artwork · no stretching", "完整放入（允许留白）": "Contain (allow empty space)",
+  "等比铺满（裁切越界）": "Cover (crop overflow)", "等比平铺": "Uniform tiling",
+  "水平移动 mm": "Horizontal offset mm", "垂直移动 mm": "Vertical offset mm",
+  "独立素材／保护图层": "Separate assets / protected layers", "提取素材／修正背景": "Extract assets / edit background",
+  "恢复原始上传图": "Restore original upload", "自动排列已确认素材": "Arrange confirmed assets",
+  "AI 适配（可选）": "AI adaptation (optional)", "AI 生成候选图": "Generate AI candidate",
+  "输出与 A4": "Export and A4", "彩图包含出血": "Include bleed in artwork",
+  "A4 打印边距 mm": "A4 printer margins mm", "图案间距 mm": "Artwork gap mm",
+  "横向 A4": "Landscape A4", "允许旋转": "Allow rotation", "按数量自动分页": "Paginate by quantity",
+  "单页尽量填满": "Fill one page", "新增设计": "New design", "上传图案": "Upload artwork",
+  "1:1 多页拼接": "1:1 tiled pages", "显示拼接标记": "Show assembly marks",
+  "精确展开、图案适配与 1:1 TIF / A4 输出": "Exact development, artwork fitting and 1:1 TIFF / A4 export",
   萌宠字母贴纸: "Pet letter stickers",
   "完整萌宠、互动姿势与高清 A–Z 字母排版":
     "Complete pets, interactive poses and high-resolution A–Z layouts",

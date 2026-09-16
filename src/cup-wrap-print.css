@@ -1,0 +1,100 @@
+.cup-workbench {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.cup-workbench h2 {
+  margin: 0;
+}
+.cup-workbench header p {
+  color: #64748b;
+  margin: 6px 0;
+}
+.cup-body {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+.cup-body main {
+  min-width: 0;
+  flex: 1;
+}
+.cup-body aside {
+  width: 300px;
+  flex-shrink: 0;
+}
+.cup-settings {
+  padding: 16px;
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.cup-settings h3 {
+  margin: 8px 0;
+}
+.cup-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.cup-field .ant-input-number {
+  width: 105px;
+  flex-shrink: 0;
+}
+.cup-settings p {
+  font-size: 12px;
+  color: #64748b;
+}
+.cup-canvas {
+  margin-top: 16px;
+  background: repeating-conic-gradient(#f2f4f6 0% 25%, white 0% 50%) 0/20px 20px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  display: flex;
+  justify-content: center;
+}
+.cup-canvas svg {
+  max-height: 580px;
+  max-width: 100%;
+  width: 100%;
+}
+.cup-designs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+.cup-designs .ant-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cup-paper {
+  max-width: 500px;
+  margin: 16px auto;
+}
+.cup-paper svg {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  box-shadow: 0 4px 20px #0001;
+}
+@media (max-width: 800px) {
+  .cup-body {
+    flex-direction: column;
+  }
+  .cup-body aside {
+    width: 100%;
+  }
+  .cup-settings {
+    max-height: 70vh;
+  }
+  .cup-workbench {
+    padding: 10px;
+  }
+  .cup-body main {
+    width: 100%;
+  }
+}

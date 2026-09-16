@@ -76,6 +76,8 @@ import {
   useMemo,
   useRef,
   useState,
+  lazy,
+  Suspense,
   type CSSProperties,
   type ReactNode,
 } from "react";
@@ -113,6 +115,7 @@ import IconVectorSplitComposer from "./IconVectorSplitComposer";
 import CustomMonochromeLogoComposer from "./CustomMonochromeLogoComposer";
 import PetLetterStickerComposer from "./PetLetterStickerComposer";
 import AiPetLetterStickerComposer from "./AiPetLetterStickerComposer";
+const CupWrapPrintComposer = lazy(() => import("./CupWrapPrintComposer"));
 import { useLanguage } from "./i18n";
 import { readLocalStorage } from "./storage";
 import {
@@ -172,6 +175,7 @@ const CREATION_TOOL_ITEMS: Array<{
   icon: ReactNode;
   disabled?: boolean;
 }> = [
+  { key: "cup-wrap-print", icon: <ScissorOutlined />, label: "杯身刀模与打印排版", description: "精确展开、图案适配与 1:1 TIF / A4 输出" },
   {
     key: "scene-logo-replace",
     icon: <SwapOutlined />,
@@ -641,6 +645,9 @@ function AppContent() {
   const [engravingSettingsHost, setEngravingSettingsHost] = useState<HTMLElement | null>(null);
   const [petSettingsHost, setPetSettingsHost] = useState<HTMLElement | null>(null);
   const [aiPetSettingsHost, setAiPetSettingsHost] = useState<HTMLElement | null>(null);
+  const [cupWrapSettingsHost, setCupWrapSettingsHost] = useState<HTMLElement | null>(null);
+  const [cupWrapOpened,setCupWrapOpened] = useState(() => readCreationTool(window.location.search)==="cup-wrap-print");
+  useEffect(()=>{if(creationTool==="cup-wrap-print")setCupWrapOpened(true);},[creationTool]);
   const [inpaintSettingsHost, setInpaintSettingsHost] =
     useState<HTMLElement | null>(null);
   const [productDetailSettingsHost, setProductDetailSettingsHost] =
@@ -1854,6 +1861,9 @@ function AppContent() {
               <div hidden={creationTool !== "ai-pet-letter-stickers"}>
                 <AiPetLetterStickerComposer active={creationTool === "ai-pet-letter-stickers"} settings={settings} settingsHost={aiPetSettingsHost} onConfigure={() => setKeyOpen(true)} />
               </div>
+              <div hidden={creationTool !== "cup-wrap-print"}>
+                {cupWrapOpened&&<Suspense fallback={<p>正在加载杯身排版工具…</p>}><CupWrapPrintComposer active={creationTool === "cup-wrap-print"} settingsHost={cupWrapSettingsHost} settings={settings} /></Suspense>}
+              </div>
               <div hidden={creationTool !== "background-removal"}>
                 <BackgroundRemovalComposer
                   apiKey={settings.apiKey}
@@ -2481,6 +2491,7 @@ function AppContent() {
         {!compact && creationTool === "custom-monochrome-logo" && (<Sider width={330} theme="light" className="settings-sider"><div ref={setEngravingSettingsHost} /></Sider>)}
         {!compact && creationTool === "pet-letter-stickers" && (<Sider width={330} theme="light" className="settings-sider"><div ref={setPetSettingsHost} /></Sider>)}
         {!compact && creationTool === "ai-pet-letter-stickers" && (<Sider width={330} theme="light" className="settings-sider"><div ref={setAiPetSettingsHost} /></Sider>)}
+        {!compact && creationTool === "cup-wrap-print" && (<Sider width={330} theme="light" className="settings-sider"><div ref={setCupWrapSettingsHost} /></Sider>)}
         {!compact && creationTool === "inpaint" && (
           <Sider width={330} theme="light" className="settings-sider">
             <div ref={setInpaintSettingsHost} />
@@ -2510,7 +2521,7 @@ function AppContent() {
         ) : compact && !["icon-vector-split"].includes(creationTool) ? (
           <div
             ref={
-              creationTool === "ai-pet-letter-stickers" ? setAiPetSettingsHost : creationTool === "pet-letter-stickers" ? setPetSettingsHost : creationTool === "custom-monochrome-logo" ? setEngravingSettingsHost : creationTool === "logo"
+              creationTool === "cup-wrap-print" ? setCupWrapSettingsHost : creationTool === "ai-pet-letter-stickers" ? setAiPetSettingsHost : creationTool === "pet-letter-stickers" ? setPetSettingsHost : creationTool === "custom-monochrome-logo" ? setEngravingSettingsHost : creationTool === "logo"
                 ? setLogoSettingsHost
                 : creationTool === "logo-replace"
                   ? setLogoReplaceSettingsHost

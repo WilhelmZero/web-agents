@@ -12,6 +12,7 @@ export type TaskStatus =
   "waiting" | "running" | "success" | "failed" | "stopped";
 export type ImageSize = "0.5K" | "1K" | "2K" | "4K";
 export type CreationTool =
+  | "cup-wrap-print"
   | "workflow"
   | "scene"
   | "scene-replace"
