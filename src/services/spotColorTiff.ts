@@ -549,11 +549,9 @@ export function encodeSpotColorTiff(input: SpotTiffEncodeInput): ArrayBuffer {
         bytes[target++] = red;
         bytes[target++] = green;
         bytes[target++] = blue;
-        const spotDetail = Math.round(
-          0.2126 * red + 0.7152 * green + 0.0722 * blue,
-        );
-        bytes[target++] = spotDetail;
-        bytes[target++] = spotDetail;
+        const solidCoverage = 255 - source[sourceOffset + 3];
+        bytes[target++] = solidCoverage;
+        bytes[target++] = solidCoverage;
       } else {
         bytes[target++] = 255;
         bytes[target++] = 255;

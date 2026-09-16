@@ -70,7 +70,15 @@ describe("spot color TIFF", () => {
     expect(raw.info.channels).toBe(5);
     const pixel = (1 * 8 + 2) * 5;
     expect([...raw.data.subarray(pixel, pixel + 5)]).toEqual([
-      255, 0, 0, 54, 54,
+      255, 0, 0, 0, 0,
+    ]);
+    const antialiasedPixel = (1 * 8 + 3) * 5;
+    expect([...raw.data.subarray(antialiasedPixel, antialiasedPixel + 5)]).toEqual([
+      127, 255, 127, 127, 127,
+    ]);
+    const transparentPixel = (2 * 8 + 3) * 5;
+    expect([...raw.data.subarray(transparentPixel, transparentPixel + 5)]).toEqual([
+      255, 255, 255, 255, 255,
     ]);
     const firstSpot: number[] = [];
     const secondSpot: number[] = [];
