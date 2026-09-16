@@ -19,7 +19,7 @@ describe("AI dieline canvas", () => {
     expect(text).toContain("125.664mm");
     expect(text).toContain("106.814mm");
     expect(text).toContain("不放大、缩小");
-    expect(text).toContain("背景颜色与原图保持一致");
+    expect(text).toContain("输出纯白底");
     expect(adaptationPrompt(DEFAULT_CUP, "", true)).toContain("保留白色角色");
   });
 });

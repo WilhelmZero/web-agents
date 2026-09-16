@@ -8,6 +8,30 @@ export interface ArtLayer {
   rotation: number;
   locked: boolean;
 }
+export type LocalObjectRole = "main" | "decoration" | "excluded";
+export interface LocalObject {
+  id: string;
+  blob: Blob;
+  rect: { x: number; y: number; width: number; height: number };
+  role: LocalObjectRole;
+  duplicateOf?: string;
+}
+export interface LocalAdaptation {
+  sourceWidth: number;
+  sourceHeight: number;
+  background: string;
+  confidence: number;
+  objects: LocalObject[];
+  layers: ArtLayer[];
+  fill: number;
+  gap: number;
+  scale: number;
+  seed: number;
+  backgroundMode: "transparent" | "white" | "color";
+  backgroundColor: string;
+  cupKey: string;
+  unplaced: string[];
+}
 export interface WrapDesign {
   id: string;
   name: string;
@@ -20,6 +44,9 @@ export interface WrapDesign {
   adoptedFrame?: { cupKey: string; transparent: boolean };
   transparentOutput?: boolean;
   backgroundColor?: string;
+  aiAdjustment?: { scale: number; x: number; y: number; warp: number };
+  adaptationMode?: "ai" | "local";
+  localAdaptation?: LocalAdaptation;
   fit: "contain" | "cover" | "tile";
   scale: number;
   x: number;

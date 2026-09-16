@@ -2,6 +2,7 @@ import { geometry, pathData } from "./geometry";
 import type { WrapDesign } from "./types";
 import { containFit } from "./fitting";
 import { framePlacement } from "./adaptation";
+import { drawWarp, warpPoint } from "./warp";
 export async function renderDesign(
   d: WrapDesign,
   dpi: number,
@@ -46,7 +47,18 @@ export async function renderDesign(
     }
   };
   const source = d.adopted || d.source;
-  if (d.adopted && d.adoptedFrame) {
+  const local =
+    d.adaptationMode === "local" &&
+    d.localAdaptation?.cupKey === JSON.stringify(d.cup)
+      ? d.localAdaptation
+      : undefined;
+  if (local) {
+    if (local.backgroundMode !== "transparent") {
+      ctx.fillStyle =
+        local.backgroundMode === "white" ? "#ffffff" : local.backgroundColor;
+      ctx.fillRect(-b, -b, g.width + b * 2, g.height + b * 2);
+    }
+  } else if (d.adopted && d.adoptedFrame) {
     if (d.adoptedFrame.cupKey !== JSON.stringify(d.cup))
       throw new Error(
         "刀模尺寸已改变，请重新生成匹配当前刀模的候选图或切回原图。",
@@ -54,11 +66,20 @@ export async function renderDesign(
     const img = await createImageBitmap(d.adopted);
     try {
       const box = framePlacement(img.width, img.height, g.width, g.height);
-      if (d.adoptedFrame.transparent && d.backgroundColor) {
-        ctx.fillStyle = d.backgroundColor;
+      if (!d.adoptedFrame.transparent || d.backgroundColor) {
+        ctx.fillStyle = d.adoptedFrame.transparent
+          ? d.backgroundColor!
+          : "#ffffff";
         ctx.fillRect(-b, -b, g.width + b * 2, g.height + b * 2);
       }
-      ctx.drawImage(img, box.x, box.y, box.width, box.height);
+      const adjust = d.aiAdjustment ?? { scale: 1, x: 0, y: 0, warp: 0 };
+      ctx.save();
+      ctx.translate(g.width / 2 + adjust.x, g.height / 2 + adjust.y);
+      ctx.scale(adjust.scale, adjust.scale);
+      ctx.translate(-g.width / 2, -g.height / 2);
+      if (adjust.warp) drawWarp(ctx, img, g, adjust.warp);
+      else ctx.drawImage(img, box.x, box.y, box.width, box.height);
+      ctx.restore();
     } finally {
       img.close();
     }
@@ -92,8 +113,24 @@ export async function renderDesign(
     ctx.restore();
     img.close();
   }
-  for (const layer of d.adopted && d.adoptedFrame ? [] : d.layers)
-    await draw(layer.blob, layer.x, layer.y, layer.width, layer.rotation);
+  const layerList =
+    local?.layers ?? (d.adopted && d.adoptedFrame ? [] : d.layers);
+  if (local) {
+    const a = d.aiAdjustment ?? { scale: 1, x: 0, y: 0, warp: 0 };
+    ctx.save();
+    ctx.translate(g.width / 2 + a.x, g.height / 2 + a.y);
+    ctx.scale(a.scale, a.scale);
+    ctx.translate(-g.width / 2, -g.height / 2);
+    for (const layer of layerList) {
+      const p = a.warp
+        ? warpPoint(g, layer.x / g.width, layer.y / g.height, a.warp)
+        : layer;
+      await draw(layer.blob, p.x, p.y, layer.width, layer.rotation);
+    }
+    ctx.restore();
+  } else
+    for (const layer of layerList)
+      await draw(layer.blob, layer.x, layer.y, layer.width, layer.rotation);
   // Mask after drawing, keeping guide strokes out of production output.
   const mask = new OffscreenCanvas(width, height),
     m = mask.getContext("2d")!;

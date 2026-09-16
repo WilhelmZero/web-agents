@@ -21,6 +21,40 @@ it("restores original blobs, edits and adopted candidates independently", async 
       layers: [],
       quantity: 2,
       prompt: "exact",
+      adaptationMode: "local",
+      localAdaptation: {
+        sourceWidth: 100,
+        sourceHeight: 80,
+        background: "#ffffff",
+        confidence: 1,
+        objects: [
+          {
+            id: "object",
+            blob: new Blob(["object"]),
+            rect: { x: 1, y: 2, width: 3, height: 4 },
+            role: "main",
+          },
+        ],
+        layers: [
+          {
+            id: "object",
+            blob: new Blob(["object"]),
+            x: 10,
+            y: 20,
+            width: 30,
+            rotation: 0,
+            locked: true,
+          },
+        ],
+        fill: 40,
+        gap: 2,
+        scale: 1,
+        seed: 1,
+        backgroundMode: "white",
+        backgroundColor: "#ffffff",
+        cupKey: JSON.stringify(DEFAULT_CUP),
+        unplaced: [],
+      },
     },
   ]);
   const [d] = await loadDesigns();
@@ -28,4 +62,6 @@ it("restores original blobs, edits and adopted candidates independently", async 
   expect(await d.source!.text()).toBe("edited");
   expect(await d.originalSource!.text()).toBe("original");
   expect(await d.adopted!.text()).toBe("result");
+  expect(d.localAdaptation?.objects).toHaveLength(1);
+  expect(await d.localAdaptation!.objects[0].blob.text()).toBe("object");
 });

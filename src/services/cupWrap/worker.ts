@@ -1,8 +1,17 @@
 import { renderDesign } from "./render";
 import { encodeTiff } from "./tiff";
 import { pack } from "./packing";
+import { analyzeLocalArtwork, arrangeLocal } from "./localAdaptation";
 self.onmessage = async ({ data }) => {
   try {
+    if (data.kind === "localAnalyze") {
+      self.postMessage({ result: await analyzeLocalArtwork(data.source) });
+      return;
+    }
+    if (data.kind === "localArrange") {
+      self.postMessage({ result: arrangeLocal(data.input, data.cup) });
+      return;
+    }
     if (data.kind === "pack") {
       self.postMessage({ result: pack(data.designs, data.settings) });
       return;

@@ -6,7 +6,7 @@ export function adaptationPrompt(
   transparent = false,
 ) {
   const g = geometry(cup);
-  return `${user}\n\n【刀模排版要求】第一张是原始图案，第二张是精确刀模画布。输出与第二张画布相同的宽高比例（${g.width.toFixed(3)}:${g.height.toFixed(3)}），图案分布沿第二张的轮廓展开，不要在轮廓内部放一个矩形拼图。上边弧长 ${g.topArc.toFixed(3)}mm，下边弧长 ${g.bottomArc.toFixed(3)}mm；严格保持该方向。只调整物体之间的间距及位置，不放大、缩小、拉伸、弯曲或裁断任何角色及文字；保留文字内容、每个主体的大小比例、服装、眼睛和完整肢体。边缘角色沿弧线错落排布且完整位于轮廓内。空隙过大时仅可复制原图中的小星星、糖果等小装饰，不复制主要角色或文字，不遮挡主体。不画刀线、尺寸、标签、边框或引导图的颜色。${transparent ? "输出真正透明的 PNG 背景（不是棋盘格图案），保留白色角色及白色细节。" : "背景颜色与原图保持一致。"}轮廓之外不安排任何图案。`;
+  return `${user}\n\n【无边框成品】仅返回完整插画，不要返回刀模示意图。第二张的白色范围只是排布参考，灰色区域不可复制进成品。严禁出现红线、轮廓线、描边框、尺寸或标签。${transparent ? "输出真正透明 PNG，不画棋盘格；保留白色角色。" : "输出纯白底，包括排布范围之外也使用纯白色。"}\n【刀模排版要求】第一张是原始图案，第二张是范围参考。输出宽高比例 ${g.width.toFixed(3)}:${g.height.toFixed(3)}。上边弧长 ${g.topArc.toFixed(3)}mm，下边弧长 ${g.bottomArc.toFixed(3)}mm，保持方向。只调整间距和位置，不放大、缩小、拉伸或弯曲主体及文字。排布尽可能贴合范围即可，不要为强行贴边裁断角色。所有帽尖、手臂、道具、猫头、脚和身体必须完整。距离参考范围四周至少留 ${Math.max(cup.safe, 4).toFixed(1)}mm 的纯背景安全空隙，最外侧角色向内移动；宁可留白也不能裁掉主体。空隙可复制小星星、糖果等装饰，不复制主要角色，不遮挡文字或主体。保留原文字、角色身份及大小比例。提交前检查四条边，无任何角色与画布边缘或范围边缘相交。`;
 }
 
 // Use a uniform canvas transform, never an inscribed-rectangle fit or a warp.
@@ -20,7 +20,7 @@ export function framePlacement(
     throw new Error(
       "AI 返回画布比例与刀模不符，已保留原始候选图；请重新生成，不能通过拉伸采用。",
     );
-  const scale = Math.max(targetWidth / width, targetHeight / height);
+  const scale = Math.min(targetWidth / width, targetHeight / height);
   return {
     x: (targetWidth - width * scale) / 2,
     y: (targetHeight - height * scale) / 2,

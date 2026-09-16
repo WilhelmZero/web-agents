@@ -37,6 +37,7 @@ import {
 import { exportPdf, calibrationPdf, tiledPdf } from "./services/cupWrap/pdf";
 import "./cup-wrap-print.css";
 import CupWrapArtworkEditor from "./CupWrapArtworkEditor";
+import CupWrapLocalAdapter from "./CupWrapLocalAdapter";
 import { adaptArtwork } from "./services/cupWrap/ai";
 import type { AppSettings } from "./types";
 import { arrangeLayers } from "./services/cupWrap/artwork";
@@ -47,6 +48,7 @@ import {
   framePlacement,
 } from "./services/cupWrap/adaptation";
 const SHOW_MANUAL_ARTWORK_TOOLS = false;
+const DEFAULT_AI_ADJUSTMENT = { scale: 1, x: 0, y: 0, warp: 0 };
 function BlobPreview({ blob }: { blob: Blob }) {
   const [url, setUrl] = useState("");
   useEffect(() => {
@@ -144,6 +146,7 @@ export default function CupWrapPrintComposer({
   settings: AppSettings;
 }) {
   const [editor, setEditor] = useState(false),
+    [localEditor, setLocalEditor] = useState(false),
     [model, setModel] = useState(
       () =>
         localStorage.getItem("cup-wrap-print:model:v2") ||
@@ -174,7 +177,7 @@ export default function CupWrapPrintComposer({
     [busy, setBusy] = useState(""),
     [layout, setLayout] = useState<PrintLayout>(),
     [tab, setTab] = useState("design"),
-    [guide, setGuide] = useState(true);
+    [guide, setGuide] = useState(false);
   const [print, setPrint] = useState<PrintSettings>(() => {
     try {
       return {
@@ -291,14 +294,11 @@ export default function CupWrapPrintComposer({
     c.height = Math.max(1, Math.round((1600 * g.height) / g.width));
     if (c.height > 8000) throw new Error("展开比例过于狭长，暂不支持 AI 适配");
     const ctx = c.getContext("2d")!;
-    ctx.fillStyle = "white";
+    ctx.fillStyle = "#eeeeee";
     ctx.fillRect(0, 0, c.width, c.height);
     ctx.scale(c.width / g.width, c.height / g.height);
-    ctx.fillStyle = "#e6f4ff";
+    ctx.fillStyle = "white";
     ctx.fill(new Path2D(pathData(g.points)));
-    ctx.strokeStyle = "#ff0000";
-    ctx.lineWidth = 0.3;
-    ctx.stroke(new Path2D(pathData(g.points)));
     const guide = await new Promise<Blob>((resolve) =>
       c.toBlob((v) => resolve(v!), "image/png"),
     );
@@ -374,6 +374,7 @@ export default function CupWrapPrintComposer({
         aiResults: [],
         aiFrames: [],
         adoptedFrame: undefined,
+        localAdaptation: undefined,
         name: file.name.replace(/\.[^.]+$/, ""),
       });
     } catch (e) {
@@ -569,76 +570,195 @@ export default function CupWrapPrintComposer({
           ))}
         </>
       )}
-      <h3>AI 适配</h3>
+      <h3>图案适配方式</h3>
       <Select
-        value={model}
-        onChange={setModel}
+        aria-label="图案适配方式"
+        value={d.adaptationMode ?? "ai"}
+        onChange={(adaptationMode) => update({ adaptationMode })}
         options={[
-          "gpt-image-2.5-flare",
-          "gpt-image-2",
-          "gpt-image-2.5-sunburst",
-          "gemini-3-pro-image",
-          "gemini-3.1-flash-image",
-        ].map((value) => ({ value, label: value }))}
+          { value: "ai", label: "AI 适配" },
+          { value: "local", label: "本地智能排布（免费）" },
+        ]}
       />
-      <Checkbox
-        checked={!!d.transparentOutput}
-        onChange={(e) => update({ transparentOutput: e.target.checked })}
-      >
-        请求透明背景（默认沿用原图背景）
-      </Checkbox>
-      <Checkbox
-        checked={!!d.backgroundColor}
-        disabled={!d.transparentOutput && !d.adoptedFrame?.transparent}
-        onChange={(e) =>
-          update({ backgroundColor: e.target.checked ? "#ffffff" : undefined })
-        }
-      >
-        透明结果填充自定义底色
-      </Checkbox>
-      {d.backgroundColor && (
-        <input
-          aria-label="自定义背景颜色"
-          type="color"
-          value={d.backgroundColor}
-          onChange={(e) => update({ backgroundColor: e.target.value })}
-        />
-      )}
-      <Input.TextArea
-        aria-label="AI 适配提示词"
-        rows={5}
-        value={d.prompt}
-        onChange={(e) => update({ prompt: e.target.value })}
-      />
-      <details>
-        <summary>查看最终提交提示词</summary>
-        <Input.TextArea
-          readOnly
-          rows={12}
-          value={adaptationPrompt(
-            d.cup,
-            d.prompt.replace("位置、等比大小和间距", "位置和间距"),
-            d.transparentOutput,
+      {(d.adaptationMode ?? "ai") === "local" ? (
+        <>
+          <p>
+            适用于透明底、白底或其他纯色底贴纸图。本地识别后先确认主体和可复制小装饰，再按真实刀模重新排布。
+          </p>
+          <Button
+            type="primary"
+            disabled={!d.source || !!busy}
+            onClick={() => setLocalEditor(true)}
+          >
+            {d.localAdaptation ? "检查／重新排布" : "分析素材并排布"}
+          </Button>
+          {d.localAdaptation &&
+            d.localAdaptation.cupKey !== JSON.stringify(d.cup) && (
+              <Alert
+                type="warning"
+                showIcon
+                message="杯型尺寸已改变，请重新生成本地排布"
+              />
+            )}
+          {d.localAdaptation &&
+            d.localAdaptation.cupKey === JSON.stringify(d.cup) && (
+              <Alert
+                type="success"
+                showIcon
+                message={`已采用本地排布 · ${d.localAdaptation.layers.length} 个对象 · 不产生 AI 费用`}
+              />
+            )}
+        </>
+      ) : (
+        <>
+          <h3>AI 适配</h3>
+          <Select
+            value={model}
+            onChange={setModel}
+            options={[
+              "gpt-image-2.5-flare",
+              "gpt-image-2",
+              "gpt-image-2.5-sunburst",
+              "gemini-3-pro-image",
+              "gemini-3.1-flash-image",
+            ].map((value) => ({ value, label: value }))}
+          />
+          <Checkbox
+            checked={!!d.transparentOutput}
+            onChange={(e) => update({ transparentOutput: e.target.checked })}
+          >
+            请求透明背景（默认纯白底）
+          </Checkbox>
+          <Checkbox
+            checked={!!d.backgroundColor}
+            disabled={!d.transparentOutput && !d.adoptedFrame?.transparent}
+            onChange={(e) =>
+              update({
+                backgroundColor: e.target.checked ? "#ffffff" : undefined,
+              })
+            }
+          >
+            透明结果填充自定义底色
+          </Checkbox>
+          {d.backgroundColor && (
+            <input
+              aria-label="自定义背景颜色"
+              type="color"
+              value={d.backgroundColor}
+              onChange={(e) => update({ backgroundColor: e.target.value })}
+            />
           )}
-        />
-      </details>
-      <p>
-        输入顺序：原图、精确刀模引导图。仅调整间距，不改变主体大小。采用后按整幅刀模画布对齐，不再缩入矩形或叠加旧图层。AI
-        仍可能偏离要求，请检查后采用。自定义底色仅填充透明区域；若服务返回不透明图，请重新生成，不会删除白色角色。
-      </p>
-      <Button
-        disabled={!d.source || !!busy || !d.prompt.trim()}
-        onClick={() =>
-          Modal.confirm({
-            title: "将发起 1 次付费图片请求",
-            content: "仅调整图案，不以 AI 输出尺寸作为打印尺寸。不自动重试。",
-            onOk: () => run("AI 正在适配图案", generate),
-          })
-        }
-      >
-        AI 生成候选图
-      </Button>
+          <Input.TextArea
+            aria-label="AI 适配提示词"
+            rows={5}
+            value={d.prompt}
+            onChange={(e) => update({ prompt: e.target.value })}
+          />
+          <details>
+            <summary>查看最终提交提示词</summary>
+            <Input.TextArea
+              readOnly
+              rows={12}
+              value={adaptationPrompt(
+                d.cup,
+                d.prompt.replace("位置、等比大小和间距", "位置和间距"),
+                d.transparentOutput,
+              )}
+            />
+          </details>
+          <p>
+            输入顺序：原图、精确刀模引导图。仅调整间距，不改变主体大小。采用后按整幅刀模画布对齐，不再缩入矩形或叠加旧图层。AI
+            仍可能偏离要求，请检查后采用。自定义底色仅填充透明区域；若服务返回不透明图，请重新生成，不会删除白色角色。
+          </p>
+          <Button
+            disabled={!d.source || !!busy || !d.prompt.trim()}
+            onClick={() =>
+              Modal.confirm({
+                title: "将发起 1 次付费图片请求",
+                content:
+                  "仅调整图案，不以 AI 输出尺寸作为打印尺寸。不自动重试。",
+                onOk: () => run("AI 正在适配图案", generate),
+              })
+            }
+          >
+            AI 生成候选图
+          </Button>
+        </>
+      )}
       <h3>输出与 A4</h3>
+      {((d.adopted && d.adoptedFrame) || d.localAdaptation) && (
+        <>
+          <h3>生成图片微调</h3>
+          <p>
+            非破坏性调整，原图保留；预览和打印同步更新。扇形变形会改变物体形状，仅在需要时开启。缩小或移动可为边缘角色留空间；已被
+            AI 裁掉的部分不能靠缩放恢复。
+          </p>
+          {number(
+            "图片缩放",
+            d.aiAdjustment?.scale ?? 1,
+            (scale) =>
+              update({
+                aiAdjustment: {
+                  ...DEFAULT_AI_ADJUSTMENT,
+                  ...d.aiAdjustment,
+                  scale,
+                },
+              }),
+            0.2,
+            2,
+          )}
+          {number(
+            "图片水平 mm",
+            d.aiAdjustment?.x ?? 0,
+            (x) =>
+              update({
+                aiAdjustment: {
+                  ...DEFAULT_AI_ADJUSTMENT,
+                  ...d.aiAdjustment,
+                  x,
+                },
+              }),
+            -500,
+            500,
+          )}
+          {number(
+            "图片垂直 mm",
+            d.aiAdjustment?.y ?? 0,
+            (y) =>
+              update({
+                aiAdjustment: {
+                  ...DEFAULT_AI_ADJUSTMENT,
+                  ...d.aiAdjustment,
+                  y,
+                },
+              }),
+            -500,
+            500,
+          )}
+          {number(
+            "扇形路径变形（0–1）",
+            d.aiAdjustment?.warp ?? 0,
+            (warp) =>
+              update({
+                aiAdjustment: {
+                  ...DEFAULT_AI_ADJUSTMENT,
+                  ...d.aiAdjustment,
+                  warp,
+                },
+              }),
+            0,
+            1,
+          )}
+          <Button onClick={() => update({ aiAdjustment: undefined })}>
+            重置图片微调
+          </Button>
+          <Button
+            onClick={() => download(d.adopted!, `${d.name}-AI原始图.png`)}
+          >
+            下载 AI 原始图（不裁刀模）
+          </Button>
+        </>
+      )}
       {number("DPI", print.dpi, (v) => setting({ dpi: v }), 72, 2400)}
       <Space wrap>
         <Button
@@ -1188,7 +1308,9 @@ export default function CupWrapPrintComposer({
                     }
                     update({
                       adopted: blob,
+                      adaptationMode: "ai",
                       adoptedFrame: frame ?? undefined,
+                      aiAdjustment: undefined,
                       fit: "contain",
                       scale: 1,
                       x: 0,
@@ -1220,6 +1342,23 @@ export default function CupWrapPrintComposer({
               layers,
             });
             setEditor(false);
+          }}
+        />
+      )}
+      {localEditor && d.source && (
+        <CupWrapLocalAdapter
+          source={d.source}
+          cup={d.cup}
+          initial={d.localAdaptation}
+          onClose={() => setLocalEditor(false)}
+          onApply={(localAdaptation) => {
+            update({
+              localAdaptation,
+              adopted: undefined,
+              adoptedFrame: undefined,
+              aiAdjustment: undefined,
+            });
+            setLocalEditor(false);
           }}
         />
       )}
