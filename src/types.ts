@@ -32,6 +32,7 @@ export type CreationTool =
   | "ai-pet-letter-stickers"
   | "paper-text"
   | "background-removal"
+  | "spot-color-tiff"
   | "outpaint"
   | "object-replace"
   | "inpaint"

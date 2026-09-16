@@ -21,6 +21,7 @@ export const CREATION_TOOLS: readonly CreationTool[] = [
   "ai-pet-letter-stickers",
   "paper-text",
   "background-removal",
+  "spot-color-tiff",
   "outpaint",
   "object-replace",
   "inpaint",

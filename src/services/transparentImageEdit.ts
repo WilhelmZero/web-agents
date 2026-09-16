@@ -1,5 +1,6 @@
 export interface RgbColor { r: number; g: number; b: number }
 export interface PreparedTransparentEdit { image: File; matte?: RgbColor; promptSuffix: string }
+export interface BorderMatteAnalysis { matte: RgbColor; confidence: number; sampledPixels: number; isBlack: boolean }
 
 const MATTE_CANDIDATES: RgbColor[] = [
   { r: 255, g: 0, b: 255 }, { r: 0, g: 255, b: 0 },
@@ -46,22 +47,34 @@ export function chooseChromaMatte(data: Uint8ClampedArray): RgbColor {
 }
 
 export function detectBorderMatteFromPixels(data: Uint8ClampedArray, width: number, height: number): RgbColor {
+  return analyzeBorderMatteFromPixels(data, width, height).matte;
+}
+
+export function analyzeBorderMatteFromPixels(data: Uint8ClampedArray, width: number, height: number): BorderMatteAnalysis {
   const bins = new Map<number, { count: number; r: number; g: number; b: number }>();
   const borderX = Math.max(1, Math.round(width * 0.04)); const borderY = Math.max(1, Math.round(height * 0.04));
+  let sampledPixels = 0;
   for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) {
     if (x >= borderX && x < width - borderX && y >= borderY && y < height - borderY) continue;
     const offset = (y * width + x) * 4;
     if (data[offset + 3] < 128) continue;
+    sampledPixels += 1;
     const key = ((data[offset] >> 4) << 8) | ((data[offset + 1] >> 4) << 4) | (data[offset + 2] >> 4);
     const bin = bins.get(key) || { count: 0, r: 0, g: 0, b: 0 };
     bin.count += 1; bin.r += data[offset]; bin.g += data[offset + 1]; bin.b += data[offset + 2]; bins.set(key, bin);
   }
-  const winner = [...bins.values()].sort((left, right) => right.count - left.count)[0];
+  let winner: { count: number; r: number; g: number; b: number } | undefined;
+  for (const bin of bins.values()) if (!winner || bin.count > winner.count) winner = bin;
   if (!winner) throw new Error('无法从图片边缘识别纯色背景');
-  return { r: Math.round(winner.r / winner.count), g: Math.round(winner.g / winner.count), b: Math.round(winner.b / winner.count) };
+  const matte = { r: Math.round(winner.r / winner.count), g: Math.round(winner.g / winner.count), b: Math.round(winner.b / winner.count) };
+  return { matte, confidence: sampledPixels ? winner.count / sampledPixels : 0, sampledPixels, isBlack: Math.max(matte.r, matte.g, matte.b) <= 64 };
 }
 
 export async function detectBorderMatte(blob: Blob): Promise<RgbColor> {
+  return (await analyzeBorderMatte(blob)).matte;
+}
+
+export async function analyzeBorderMatte(blob: Blob): Promise<BorderMatteAnalysis> {
   const bitmap = await createImageBitmap(blob);
   try {
     const scale = Math.min(1, 512 / Math.max(bitmap.width, bitmap.height));
@@ -69,7 +82,7 @@ export async function detectBorderMatte(blob: Blob): Promise<RgbColor> {
     const context = canvas.getContext('2d', { willReadFrequently: true });
     if (!context) throw new Error('当前浏览器不支持背景色分析');
     context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    return detectBorderMatteFromPixels(context.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height);
+    return analyzeBorderMatteFromPixels(context.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height);
   } finally { bitmap.close(); }
 }
 

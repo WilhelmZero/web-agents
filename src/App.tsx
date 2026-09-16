@@ -102,6 +102,7 @@ import ProductDetailComposer from "./ProductDetailComposer";
 import PaperTextComposer from "./PaperTextComposer";
 import PsdLogoExportComposer from "./PsdLogoExportComposer";
 import BackgroundRemovalComposer from "./BackgroundRemovalComposer";
+import SpotColorTiffComposer from "./SpotColorTiffComposer";
 import OutpaintComposer from "./OutpaintComposer";
 import CupResizeComposer from "./CupResizeComposer";
 import WorkflowComposer from "./WorkflowComposer";
@@ -289,6 +290,12 @@ const CREATION_TOOL_ITEMS: Array<{
     icon: <HighlightOutlined />,
     label: "去除背景",
     description: "智能抠图、透明化并支持矢量输出",
+  },
+  {
+    key: "spot-color-tiff",
+    icon: <FileImageOutlined />,
+    label: "专色 TIFF 制作",
+    description: "批量生成智能对象图层与双专色通道的印刷 TIFF",
   },
   {
     key: "outpaint",
@@ -1874,6 +1881,9 @@ function AppContent() {
                   onSessionStateChange={setBackgroundRemovalHasSession}
                   settingsHost={backgroundRemovalSettingsHost}
                 />
+              </div>
+              <div hidden={creationTool !== "spot-color-tiff"}>
+                <SpotColorTiffComposer />
               </div>
               <div hidden={creationTool !== "outpaint"}>
                 <OutpaintComposer

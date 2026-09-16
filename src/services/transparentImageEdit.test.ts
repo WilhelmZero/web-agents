@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chooseChromaMatte, detectBorderMatteFromPixels, hasTransparentPixels, removeChromaFromPixels } from './transparentImageEdit';
+import { analyzeBorderMatteFromPixels, chooseChromaMatte, detectBorderMatteFromPixels, hasTransparentPixels, removeChromaFromPixels } from './transparentImageEdit';
 
 describe('transparent image editing helpers', () => {
   it('detects alpha transparency', () => {
@@ -24,6 +24,19 @@ describe('transparent image editing helpers', () => {
     expect(restored[3]).toBeLessThan(20);
     expect(restored[7]).toBeLessThan(20);
     expect(restored[11]).toBe(255);
+  });
+
+  it('reports confidence and black eligibility for a uniform border', () => {
+    const pixels = new Uint8ClampedArray(10 * 10 * 4).fill(255);
+    for (let pixel = 0; pixel < 100; pixel += 1) {
+      pixels[pixel * 4] = 4;
+      pixels[pixel * 4 + 1] = 5;
+      pixels[pixel * 4 + 2] = 6;
+    }
+    const analysis = analyzeBorderMatteFromPixels(pixels, 10, 10);
+    expect(analysis.isBlack).toBe(true);
+    expect(analysis.confidence).toBe(1);
+    expect(analysis.matte).toEqual({ r: 4, g: 5, b: 6 });
   });
 
   it('keeps low-saturation detail even when its hue is close to the matte', () => {
