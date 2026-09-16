@@ -5,7 +5,7 @@ export const SPOT_TIFF_HEIGHT = 4346;
 export const SPOT_TIFF_DPI = 800;
 // Photoshop layer flags: bit 3 marks the flags as meaningful and bit 1 hides
 // the layer. The flattened RGB composite still contains the white backdrop.
-export const HIDDEN_BACKGROUND_LAYER_FLAGS = 0x0a;
+export const HIDDEN_BACKGROUND_LAYER_FLAGS = 0x0b;
 export const DEFAULT_SPOT_PLACEMENT = {
   centerX: (2491 + 5227) / 2,
   centerY: (743 + 3603) / 2,
@@ -102,12 +102,21 @@ export function containSpotLayer(
 ): SpotLayerBounds {
   if (imageWidth <= 0 || imageHeight <= 0) throw new Error("图片尺寸无效");
   const frameWidth = Math.max(1, Math.min(canvasWidth, placement.frameWidth));
-  const frameHeight = Math.max(1, Math.min(canvasHeight, placement.frameHeight));
+  const frameHeight = Math.max(
+    1,
+    Math.min(canvasHeight, placement.frameHeight),
+  );
   const scale = Math.min(frameWidth / imageWidth, frameHeight / imageHeight);
   const width = Math.max(1, Math.round(imageWidth * scale));
   const height = Math.max(1, Math.round(imageHeight * scale));
-  const centerX = Math.max(width / 2, Math.min(canvasWidth - width / 2, placement.centerX));
-  const centerY = Math.max(height / 2, Math.min(canvasHeight - height / 2, placement.centerY));
+  const centerX = Math.max(
+    width / 2,
+    Math.min(canvasWidth - width / 2, placement.centerX),
+  );
+  const centerY = Math.max(
+    height / 2,
+    Math.min(canvasHeight - height / 2, placement.centerY),
+  );
   return {
     left: Math.round(centerX - width / 2),
     top: Math.round(centerY - height / 2),
@@ -121,13 +130,29 @@ export function clampSpotPlacement(
   canvasWidth = SPOT_TIFF_WIDTH,
   canvasHeight = SPOT_TIFF_HEIGHT,
 ): SpotPlacement {
-  const frameWidth = Math.max(64, Math.min(canvasWidth, Math.round(placement.frameWidth)));
-  const frameHeight = Math.max(64, Math.min(canvasHeight, Math.round(placement.frameHeight)));
+  const frameWidth = Math.max(
+    64,
+    Math.min(canvasWidth, Math.round(placement.frameWidth)),
+  );
+  const frameHeight = Math.max(
+    64,
+    Math.min(canvasHeight, Math.round(placement.frameHeight)),
+  );
   return {
     frameWidth,
     frameHeight,
-    centerX: Math.round(Math.max(frameWidth / 2, Math.min(canvasWidth - frameWidth / 2, placement.centerX))),
-    centerY: Math.round(Math.max(frameHeight / 2, Math.min(canvasHeight - frameHeight / 2, placement.centerY))),
+    centerX: Math.round(
+      Math.max(
+        frameWidth / 2,
+        Math.min(canvasWidth - frameWidth / 2, placement.centerX),
+      ),
+    ),
+    centerY: Math.round(
+      Math.max(
+        frameHeight / 2,
+        Math.min(canvasHeight - frameHeight / 2, placement.centerY),
+      ),
+    ),
   };
 }
 
@@ -174,7 +199,11 @@ function unicodeAdditionalInfo(key: string, value: string) {
   return result.finish();
 }
 
-function backgroundLayerRecord(width: number, height: number, channelLength: number) {
+function backgroundLayerRecord(
+  width: number,
+  height: number,
+  channelLength: number,
+) {
   const extra = new ByteWriter();
   extra.u32(0);
   extra.u32(0);
@@ -327,7 +356,13 @@ function createImageSourceData(input: SpotTiffEncodeInput) {
   const backgroundChannel = constantRleChannel(input.width, input.height, 255);
   const layerInfo = new ByteWriter();
   layerInfo.i16(2);
-  layerInfo.push(backgroundLayerRecord(input.width, input.height, backgroundChannel.byteLength));
+  layerInfo.push(
+    backgroundLayerRecord(
+      input.width,
+      input.height,
+      backgroundChannel.byteLength,
+    ),
+  );
   layerInfo.push(parts.smartRecord);
   layerInfo.push(backgroundChannel);
   layerInfo.push(backgroundChannel);
@@ -338,7 +373,29 @@ function createImageSourceData(input: SpotTiffEncodeInput) {
   result.push(ascii("Adobe Photoshop Document Data Block"));
   result.u8(0);
   result.push(photoshopBlock("Layr", layerInfo.finish()));
-  result.push(photoshopBlock("LMsk", parts.globalMask));
+  // A zero-length LMsk block makes Photoshop reject the complete Layr block
+  // and fall back to the flattened composite. TIFF layer data expects the
+  // complete 14-byte global-mask record when LMsk is present.
+  const globalMask =
+    parts.globalMask.byteLength > 0
+      ? parts.globalMask
+      : Uint8Array.from([
+          0x00,
+          0x00, // overlay color space
+          0xff,
+          0xff,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00, // color components
+          0x00,
+          0x32, // opacity (50%)
+          0x80, // kind
+          0x00, // TIFF four-byte block alignment
+        ]);
+  result.push(photoshopBlock("LMsk", globalMask));
   result.push(parts.documentAdditional);
   return result.finish();
 }
@@ -381,8 +438,8 @@ function createPhotoshopResources(dpi: number) {
     0x20, 0x32,
   ]);
   const displayInfo = Uint8Array.from([
-    0, 0, 0, 1, 0, 0, 255, 255, 0, 0, 0, 0, 0, 0, 0, 100, 2,
-    0, 0, 255, 255, 0, 0, 0, 0, 0, 0, 0, 100, 2,
+    0, 0, 0, 1, 0, 0, 255, 255, 0, 0, 0, 0, 0, 0, 0, 100, 2, 0, 0, 255, 255, 0,
+    0, 0, 0, 0, 0, 0, 100, 2,
   ]);
   const writer = new ByteWriter();
   writer.push(resource(1005, resolution.finish()));
@@ -392,7 +449,14 @@ function createPhotoshopResources(dpi: number) {
   return writer.finish();
 }
 
-function tiffEntry(view: DataView, offset: number, tag: number, type: number, count: number, value: number) {
+function tiffEntry(
+  view: DataView,
+  offset: number,
+  tag: number,
+  type: number,
+  count: number,
+  value: number,
+) {
   view.setUint16(offset, tag, false);
   view.setUint16(offset + 2, type, false);
   view.setUint32(offset + 4, count, false);
@@ -450,7 +514,8 @@ export function encodeSpotColorTiff(input: SpotTiffEncodeInput): ArrayBuffer {
   add(34377, 1, resources.byteLength, resourcesOffset);
   add(37724, 7, imageSource.byteLength, imageSourceOffset);
   view.setUint32(10 + entryCount * 12, 0, false);
-  for (let index = 0; index < 5; index += 1) view.setUint16(bitsOffset + index * 2, 8, false);
+  for (let index = 0; index < 5; index += 1)
+    view.setUint16(bitsOffset + index * 2, 8, false);
   for (const offset of [xResolutionOffset, yResolutionOffset]) {
     view.setUint32(offset, dpi, false);
     view.setUint32(offset + 4, 1, false);
@@ -463,17 +528,28 @@ export function encodeSpotColorTiff(input: SpotTiffEncodeInput): ArrayBuffer {
   let target = pixelOffset;
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
-      if (x >= left && x < left + layerWidth && y >= top && y < top + layerHeight) {
+      if (
+        x >= left &&
+        x < left + layerWidth &&
+        y >= top &&
+        y < top + layerHeight
+      ) {
         const sourceOffset = ((y - top) * layerWidth + (x - left)) * 4;
         const alpha = source[sourceOffset + 3] / 255;
         const inverse = 1 - alpha;
         const red = Math.round(source[sourceOffset] * alpha + 255 * inverse);
-        const green = Math.round(source[sourceOffset + 1] * alpha + 255 * inverse);
-        const blue = Math.round(source[sourceOffset + 2] * alpha + 255 * inverse);
+        const green = Math.round(
+          source[sourceOffset + 1] * alpha + 255 * inverse,
+        );
+        const blue = Math.round(
+          source[sourceOffset + 2] * alpha + 255 * inverse,
+        );
         bytes[target++] = red;
         bytes[target++] = green;
         bytes[target++] = blue;
-        bytes[target++] = Math.round(0.2126 * red + 0.7152 * green + 0.0722 * blue);
+        bytes[target++] = Math.round(
+          0.2126 * red + 0.7152 * green + 0.0722 * blue,
+        );
         bytes[target++] = 255 - source[sourceOffset + 3];
       } else {
         bytes[target++] = 255;
@@ -490,11 +566,15 @@ export function encodeSpotColorTiff(input: SpotTiffEncodeInput): ArrayBuffer {
 
 export function inspectSpotTiff(buffer: ArrayBuffer) {
   const view = new DataView(buffer);
-  const bigEndian = String.fromCharCode(view.getUint8(0), view.getUint8(1)) === "MM";
+  const bigEndian =
+    String.fromCharCode(view.getUint8(0), view.getUint8(1)) === "MM";
   const littleEndian = !bigEndian;
   const ifd = view.getUint32(4, littleEndian);
   const count = view.getUint16(ifd, littleEndian);
-  const tags = new Map<number, { type: number; count: number; value: number }>();
+  const tags = new Map<
+    number,
+    { type: number; count: number; value: number }
+  >();
   for (let index = 0; index < count; index += 1) {
     const offset = ifd + 2 + index * 12;
     const type = view.getUint16(offset + 2, littleEndian);
@@ -502,9 +582,10 @@ export function inspectSpotTiff(buffer: ArrayBuffer) {
     tags.set(view.getUint16(offset, littleEndian), {
       type,
       count: itemCount,
-      value: type === 3 && itemCount === 1
-        ? view.getUint16(offset + 8, littleEndian)
-        : view.getUint32(offset + 8, littleEndian),
+      value:
+        type === 3 && itemCount === 1
+          ? view.getUint16(offset + 8, littleEndian)
+          : view.getUint32(offset + 8, littleEndian),
     });
   }
   return { bigEndian, tags };
