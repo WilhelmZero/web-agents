@@ -118,6 +118,9 @@ const fresh = (): WrapDesign => ({
   name: "杯身设计",
   cup: { ...DEFAULT_CUP },
   aiResults: [],
+  adaptationMode: "geometry",
+  transparentOutput: false,
+  aiAdjustment: { scale: 1, x: 0, y: 0, warp: 1 },
   fit: "contain",
   scale: 1,
   x: 0,
@@ -573,14 +576,33 @@ export default function CupWrapPrintComposer({
       <h3>图案适配方式</h3>
       <Select
         aria-label="图案适配方式"
-        value={d.adaptationMode ?? "ai"}
+        value={d.adaptationMode ?? "geometry"}
         onChange={(adaptationMode) => update({ adaptationMode })}
         options={[
+          { value: "geometry", label: "原图几何映射（推荐）" },
           { value: "ai", label: "AI 适配" },
           { value: "local", label: "本地智能排布（免费）" },
         ]}
       />
-      {(d.adaptationMode ?? "ai") === "local" ? (
+      {(d.adaptationMode ?? "geometry") === "geometry" ? (
+        <>
+          <Alert
+            type="success"
+            showIcon
+            message="确定性圆台映射 · 不调用 AI"
+            description="严格按杯口径、杯底径和垂直高度计算扇形；保留原图内容与相对排版，不生成红线、文字或新角色，并自动留出安全边距防止边缘裁切。"
+          />
+          <Checkbox
+            checked={!!d.transparentOutput}
+            onChange={(e) => update({ transparentOutput: e.target.checked })}
+          >
+            透明底（自动移除与边界连通的纯色背景）
+          </Checkbox>
+          <p>
+            未勾选时输出纯白底。只移除与边界连通且颜色均匀的背景；角色身体、眼睛和封闭区域中的白色或黑色会保留。
+          </p>
+        </>
+      ) : (d.adaptationMode ?? "geometry") === "local" ? (
         <>
           <p>
             适用于透明底、白底或其他纯色底贴纸图。本地识别后先确认主体和可复制小装饰，再按真实刀模重新排布。
@@ -686,12 +708,14 @@ export default function CupWrapPrintComposer({
         </>
       )}
       <h3>输出与 A4</h3>
-      {((d.adopted && d.adoptedFrame) || d.localAdaptation) && (
+      {(d.source &&
+        ((d.adaptationMode ?? "geometry") === "geometry" ||
+          (d.adopted && d.adoptedFrame) ||
+          d.localAdaptation)) && (
         <>
           <h3>生成图片微调</h3>
           <p>
-            非破坏性调整，原图保留；预览和打印同步更新。扇形变形会改变物体形状，仅在需要时开启。缩小或移动可为边缘角色留空间；已被
-            AI 裁掉的部分不能靠缩放恢复。
+            非破坏性调整，原图保留；预览和打印同步更新。几何映射默认使用完整扇形路径（1），可调低以减弱弯曲。缩放或移动超出安全区时可能裁切。
           </p>
           {number(
             "图片缩放",
@@ -737,7 +761,8 @@ export default function CupWrapPrintComposer({
           )}
           {number(
             "扇形路径变形（0–1）",
-            d.aiAdjustment?.warp ?? 0,
+            d.aiAdjustment?.warp ??
+              ((d.adaptationMode ?? "geometry") === "geometry" ? 1 : 0),
             (warp) =>
               update({
                 aiAdjustment: {
@@ -749,14 +774,25 @@ export default function CupWrapPrintComposer({
             0,
             1,
           )}
-          <Button onClick={() => update({ aiAdjustment: undefined })}>
+          <Button
+            onClick={() =>
+              update({
+                aiAdjustment:
+                  (d.adaptationMode ?? "geometry") === "geometry"
+                    ? { scale: 1, x: 0, y: 0, warp: 1 }
+                    : undefined,
+              })
+            }
+          >
             重置图片微调
           </Button>
-          <Button
-            onClick={() => download(d.adopted!, `${d.name}-AI原始图.png`)}
-          >
-            下载 AI 原始图（不裁刀模）
-          </Button>
+          {d.adopted && (
+            <Button
+              onClick={() => download(d.adopted!, `${d.name}-AI原始图.png`)}
+            >
+              下载 AI 原始图（不裁刀模）
+            </Button>
+          )}
         </>
       )}
       {number("DPI", print.dpi, (v) => setting({ dpi: v }), 72, 2400)}

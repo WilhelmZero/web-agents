@@ -32,7 +32,7 @@ export const DEFAULT_CUP: CupParams = {
   coverage: 360,
   seam: 0,
   bleed: 2,
-  safe: 2,
+  safe: 3,
 };
 export function geometry(p: CupParams): WrapGeometry {
   if (

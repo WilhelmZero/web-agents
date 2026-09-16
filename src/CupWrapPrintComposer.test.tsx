@@ -63,7 +63,12 @@ it("renders settings in the independent host and opens artwork options without A
     />,
   );
   expect(host.querySelector(".cup-settings")).not.toBeNull();
-  expect(screen.getByRole("button", { name: "AI 生成候选图" })).toBeDisabled();
+  expect(screen.getByText("确定性圆台映射 · 不调用 AI")).toBeInTheDocument();
+  expect(
+    screen.getByRole("checkbox", {
+      name: "透明底（自动移除与边界连通的纯色背景）",
+    }),
+  ).not.toBeChecked();
   fireEvent.click(screen.getByRole("tab", { name: "A4 排版" }));
   expect(screen.getByText(/请上传设计后计算排版/)).toBeInTheDocument();
   unmount();

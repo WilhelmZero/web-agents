@@ -45,7 +45,7 @@ export interface WrapDesign {
   transparentOutput?: boolean;
   backgroundColor?: string;
   aiAdjustment?: { scale: number; x: number; y: number; warp: number };
-  adaptationMode?: "ai" | "local";
+  adaptationMode?: "geometry" | "ai" | "local";
   localAdaptation?: LocalAdaptation;
   fit: "contain" | "cover" | "tile";
   scale: number;
