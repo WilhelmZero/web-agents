@@ -70,10 +70,52 @@ describe("spot color TIFF", () => {
     expect(raw.info.channels).toBe(5);
     const pixel = (1 * 8 + 2) * 5;
     expect([...raw.data.subarray(pixel, pixel + 5)]).toEqual([
-      255, 0, 0, 54, 0,
+      255, 0, 0, 54, 54,
     ]);
+    const firstSpot: number[] = [];
+    const secondSpot: number[] = [];
+    for (let offset = 0; offset < raw.data.byteLength; offset += 5) {
+      firstSpot.push(raw.data[offset + 3]);
+      secondSpot.push(raw.data[offset + 4]);
+    }
+    expect(secondSpot).toEqual(firstSpot);
 
     const bytes = new Uint8Array(buffer);
+    const resources = tags.get(34377)!;
+    const legacyChannelName = Uint8Array.from([
+      0x0b, 0xd7, 0xa8, 0xc9, 0xab, 0x20, 0x31, 0x20, 0xbf, 0xbd, 0xb1, 0xb4,
+    ]);
+    const duplicateLegacyNames = Uint8Array.from([
+      ...legacyChannelName,
+      ...legacyChannelName,
+    ]);
+    const resourceBytes = bytes.subarray(
+      resources.value,
+      resources.value + resources.count,
+    );
+    expect(
+      resourceBytes.findIndex((_, index) =>
+        duplicateLegacyNames.every(
+          (value, inner) => resourceBytes[index + inner] === value,
+        ),
+      ),
+    ).toBeGreaterThanOrEqual(0);
+    const unicodeChannelName = Uint8Array.from([
+      0x00, 0x00, 0x00, 0x08,
+      0x4e, 0x13, 0x82, 0x72, 0x00, 0x20, 0x00, 0x31, 0x00, 0x20,
+      0x62, 0xf7, 0x8d, 0x1d, 0x00, 0x00,
+    ]);
+    const duplicateUnicodeNames = Uint8Array.from([
+      ...unicodeChannelName,
+      ...unicodeChannelName,
+    ]);
+    expect(
+      resourceBytes.findIndex((_, index) =>
+        duplicateUnicodeNames.every(
+          (value, inner) => resourceBytes[index + inner] === value,
+        ),
+      ),
+    ).toBeGreaterThanOrEqual(0);
     const source = tags.get(37724)!;
     // Header and NUL (36) + 8BIM/Layr header (12) + layer count (2) + the flags
     // offset within the first layer record (46).

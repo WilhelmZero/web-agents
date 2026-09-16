@@ -16,6 +16,6 @@ describe("spot color TIFF composer", () => {
     expect(screen.getByText("当前浏览器不支持文件夹写入")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /选择文件夹并批量导出/ })).toBeDisabled();
     expect(screen.getByText("背景图层（默认隐藏）+ 智能对象 A")).toBeInTheDocument();
-    expect(screen.getByText("专色 1 拷贝（灰度细节）")).toBeInTheDocument();
+    expect(screen.getByText("专色 1 拷贝 × 2（相同灰度细节）")).toBeInTheDocument();
   });
 });

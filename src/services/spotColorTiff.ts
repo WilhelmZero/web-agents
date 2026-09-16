@@ -415,8 +415,11 @@ function resource(id: number, payload: Uint8Array) {
 function unicodeChannelNames(names: string[]) {
   const writer = new ByteWriter();
   for (const name of names) {
-    writer.u32(name.length);
+    // Photoshop counts and stores the trailing UTF-16 NUL in resource 1045.
+    // Omitting it makes Photoshop discard the final visible character.
+    writer.u32(name.length + 1);
     for (let i = 0; i < name.length; i += 1) writer.u16(name.charCodeAt(i));
+    writer.u16(0);
   }
   return writer.finish();
 }
@@ -429,13 +432,12 @@ function createPhotoshopResources(dpi: number) {
   resolution.u32(Math.round(dpi * 65536));
   resolution.u16(1);
   resolution.u16(2);
-  const names = ["专色 1 拷贝", "专色 1 拷贝 2"];
+  const names = ["专色 1 拷贝", "专色 1 拷贝"];
   // Legacy Photoshop channel names use the same GBK bytes as the supplied
   // reference. Resource 1045 below carries the authoritative Unicode names.
   const legacyNames = Uint8Array.from([
     0x0b, 0xd7, 0xa8, 0xc9, 0xab, 0x20, 0x31, 0x20, 0xbf, 0xbd, 0xb1, 0xb4,
-    0x0d, 0xd7, 0xa8, 0xc9, 0xab, 0x20, 0x31, 0x20, 0xbf, 0xbd, 0xb1, 0xb4,
-    0x20, 0x32,
+    0x0b, 0xd7, 0xa8, 0xc9, 0xab, 0x20, 0x31, 0x20, 0xbf, 0xbd, 0xb1, 0xb4,
   ]);
   const displayInfo = Uint8Array.from([
     0, 0, 0, 1, 0, 0, 255, 255, 0, 0, 0, 0, 0, 0, 0, 100, 2, 0, 0, 255, 255, 0,
@@ -547,10 +549,11 @@ export function encodeSpotColorTiff(input: SpotTiffEncodeInput): ArrayBuffer {
         bytes[target++] = red;
         bytes[target++] = green;
         bytes[target++] = blue;
-        bytes[target++] = Math.round(
+        const spotDetail = Math.round(
           0.2126 * red + 0.7152 * green + 0.0722 * blue,
         );
-        bytes[target++] = 255 - source[sourceOffset + 3];
+        bytes[target++] = spotDetail;
+        bytes[target++] = spotDetail;
       } else {
         bytes[target++] = 255;
         bytes[target++] = 255;
