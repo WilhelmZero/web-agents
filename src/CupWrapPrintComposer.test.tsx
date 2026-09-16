@@ -30,6 +30,7 @@ vi.mock("./services/cupWrap/pdf", () => ({
   tiledPdf: vi.fn(),
 }));
 beforeEach(() => {
+  vi.clearAllMocks();
   localStorage.clear();
   vi.stubGlobal(
     "URL",
@@ -104,6 +105,20 @@ it("automatically recalculates A4 layout after design data loads", async () => {
       ),
     { timeout: 3000 },
   );
+  const cutLine = screen.getByRole("checkbox", {
+    name: "导出裁切线（黑色 0.1 mm）",
+  });
+  expect(cutLine).not.toBeChecked();
+  fireEvent.click(cutLine);
+  expect(cutLine).toBeChecked();
+  await waitFor(
+    () =>
+      expect(work).toHaveBeenCalledWith(
+        expect.objectContaining({ kind: "png", cutLine: true }),
+        expect.any(AbortSignal),
+      ),
+    { timeout: 3000 },
+  );
 }, 30000);
 it("renders settings in the independent host and opens artwork options without AI calls", async () => {
   const host = document.createElement("div");
@@ -125,6 +140,11 @@ it("renders settings in the independent host and opens artwork options without A
   expect(
     screen.getByRole("checkbox", { name: "辅助线（不进入彩图）" }),
   ).toBeChecked();
+  expect(
+    screen.getByRole("checkbox", {
+      name: "导出裁切线（黑色 0.1 mm）",
+    }),
+  ).not.toBeChecked();
   expect(
     screen.getByLabelText("排版模式").closest(".ant-select"),
   ).toHaveTextContent("单页尽量填满");

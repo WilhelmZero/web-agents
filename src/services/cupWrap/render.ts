@@ -74,6 +74,7 @@ export async function renderDesign(
   dpi: number,
   withBleed = false,
   preview = false,
+  cutLine = false,
 ): Promise<OffscreenCanvas> {
   const g = geometry(d.cup),
     b = withBleed ? d.cup.bleed : 0;
@@ -254,6 +255,17 @@ export async function renderDesign(
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalCompositeOperation = "destination-in";
   ctx.drawImage(mask, 0, 0);
+  if (cutLine) {
+    ctx.globalCompositeOperation = "source-over";
+    ctx.save();
+    ctx.scale(factor, factor);
+    ctx.translate(b, b);
+    ctx.strokeStyle = "#000000";
+    ctx.lineWidth = 0.1;
+    ctx.lineJoin = "round";
+    ctx.stroke(p);
+    ctx.restore();
+  }
   if (geometric && !d.transparentOutput) {
     ctx.globalCompositeOperation = "destination-over";
     ctx.fillStyle = "#ffffff";

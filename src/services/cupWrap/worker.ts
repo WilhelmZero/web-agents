@@ -21,6 +21,7 @@ self.onmessage = async ({ data }) => {
       data.dpi,
       data.bleed,
       data.preview,
+      data.cutLine,
     );
     if (data.kind === "tiff") {
       const rgba = canvas

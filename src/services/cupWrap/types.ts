@@ -67,6 +67,7 @@ export interface WrapDesign {
 export interface PrintSettings {
   dpi: number;
   bleed: boolean;
+  cutLine: boolean;
   margin: number;
   gap: number;
   landscape: boolean;
@@ -76,6 +77,7 @@ export interface PrintSettings {
 export const DEFAULT_PRINT: PrintSettings = {
   dpi: 300,
   bleed: false,
+  cutLine: false,
   margin: 5,
   gap: 2,
   landscape: false,

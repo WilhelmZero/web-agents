@@ -46,7 +46,13 @@ export async function tiledPdf(
     ys = tileOffsets(h, ah, overlap);
   if (xs.length * ys.length > 100) throw new Error("拼接超过 100 页");
   const blob = await work<Blob>(
-      { kind: "png", design: d, dpi: s.dpi, bleed: s.bleed },
+      {
+        kind: "png",
+        design: d,
+        dpi: s.dpi,
+        bleed: s.bleed,
+        cutLine: s.cutLine,
+      },
       signal,
     ),
     pdf = await PDFDocument.create(),
@@ -100,7 +106,13 @@ export async function exportPdf(
     signal?.throwIfAborted();
     if (d.source || d.layers.length) {
       const blob = await work<Blob>(
-        { kind: "png", design: d, dpi: s.dpi, bleed: s.bleed },
+        {
+          kind: "png",
+          design: d,
+          dpi: s.dpi,
+          bleed: s.bleed,
+          cutLine: s.cutLine,
+        },
         signal,
       );
       images.set(d.id, await pdf.embedPng(await blob.arrayBuffer()));

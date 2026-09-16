@@ -74,22 +74,34 @@ function BlobPreview({ blob }: { blob: Blob }) {
   }, [blob]);
   return <Image width={140} src={url} />;
 }
-const layoutPreviews = new WeakMap<WrapDesign, Map<boolean, Promise<Blob>>>();
+const layoutPreviews = new WeakMap<WrapDesign, Map<string, Promise<Blob>>>();
 let layoutPreviewQueue: Promise<unknown> = Promise.resolve();
-function cachedLayoutPreview(design: WrapDesign, bleed: boolean) {
+function cachedLayoutPreview(
+  design: WrapDesign,
+  bleed: boolean,
+  cutLine: boolean,
+) {
   let map = layoutPreviews.get(design);
   if (!map) {
     map = new Map();
     layoutPreviews.set(design, map);
   }
-  let task = map.get(bleed);
+  const key = `${bleed}:${cutLine}`;
+  let task = map.get(key);
   if (!task) {
     task = layoutPreviewQueue
       .catch(() => {})
       .then(() =>
-        work<Blob>({ kind: "png", design, dpi: 72, bleed, preview: true }),
+        work<Blob>({
+          kind: "png",
+          design,
+          dpi: 72,
+          bleed,
+          cutLine,
+          preview: true,
+        }),
       );
-    map.set(bleed, task);
+    map.set(key, task);
     layoutPreviewQueue = task;
   }
   return task;
@@ -97,15 +109,17 @@ function cachedLayoutPreview(design: WrapDesign, bleed: boolean) {
 function LayoutArtwork({
   design,
   bleed,
+  cutLine,
 }: {
   design: WrapDesign;
   bleed: boolean;
+  cutLine: boolean;
 }) {
   const [url, setUrl] = useState("");
   useEffect(() => {
     let cancelled = false;
     let u = "";
-    cachedLayoutPreview(design, bleed)
+    cachedLayoutPreview(design, bleed, cutLine)
       .then((b) => {
         if (cancelled) return;
         u = URL.createObjectURL(b);
@@ -116,7 +130,7 @@ function LayoutArtwork({
       cancelled = true;
       if (u) URL.revokeObjectURL(u);
     };
-  }, [design, bleed]);
+  }, [design, bleed, cutLine]);
   const g = geometry(design.cup),
     b = bleed ? design.cup.bleed : 0;
   return (
@@ -320,7 +334,13 @@ export default function CupWrapPrintComposer({
     let url = "";
     const timer = setTimeout(() => {
       work<Blob>(
-        { kind: "png", design: d, dpi: print.dpi, preview: true },
+        {
+          kind: "png",
+          design: d,
+          dpi: print.dpi,
+          cutLine: print.cutLine,
+          preview: true,
+        },
         controller.signal,
       )
         .then((blob) => {
@@ -336,7 +356,7 @@ export default function CupWrapPrintComposer({
       controller.abort();
       if (url) URL.revokeObjectURL(url);
     };
-  }, [d, active, geo.g, print.dpi]);
+  }, [d, active, geo.g, print.dpi, print.cutLine]);
   const update = (patch: Partial<WrapDesign>) => {
     setDesigns((all) =>
       all.map((v) => (v.id === d.id ? { ...v, ...patch } : v)),
@@ -917,6 +937,12 @@ export default function CupWrapPrintComposer({
       >
         彩图包含出血
       </Checkbox>
+      <Checkbox
+        checked={print.cutLine}
+        onChange={(e) => setting({ cutLine: e.target.checked })}
+      >
+        导出裁切线（黑色 0.1 mm）
+      </Checkbox>
       {number(
         "A4 打印边距 mm",
         print.margin,
@@ -1058,6 +1084,7 @@ export default function CupWrapPrintComposer({
                   design: structuredClone(d),
                   dpi: print.dpi,
                   bleed: print.bleed,
+                  cutLine: print.cutLine,
                 },
                 signal,
               );
@@ -1293,6 +1320,7 @@ export default function CupWrapPrintComposer({
                               <LayoutArtwork
                                 design={design}
                                 bleed={print.bleed}
+                                cutLine={print.cutLine}
                               />
                               <path
                                 d={pathData(shape.points)}
