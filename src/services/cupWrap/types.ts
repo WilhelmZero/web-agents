@@ -32,6 +32,14 @@ export interface LocalAdaptation {
   cupKey: string;
   unplaced: string[];
 }
+export interface ImageAdjustment {
+  scale: number;
+  x: number;
+  y: number;
+  warp: number;
+  topGap?: number;
+  bottomGap?: number;
+}
 export interface WrapDesign {
   id: string;
   name: string;
@@ -44,7 +52,7 @@ export interface WrapDesign {
   adoptedFrame?: { cupKey: string; transparent: boolean };
   transparentOutput?: boolean;
   backgroundColor?: string;
-  aiAdjustment?: { scale: number; x: number; y: number; warp: number };
+  aiAdjustment?: ImageAdjustment;
   adaptationMode?: "geometry" | "ai" | "local";
   localAdaptation?: LocalAdaptation;
   fit: "contain" | "cover" | "tile";

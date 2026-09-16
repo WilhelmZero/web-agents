@@ -26,9 +26,30 @@ it("contains the whole source inside the safe sector region", () => {
   expect(region.u1).toBeLessThan(1);
   expect(region.v1).toBeLessThan(1);
   expect((region.u1 - region.u0) / (region.v1 - region.v0)).toBeCloseTo(
-    (2048 / 1760) / (((g.topArc + g.bottomArc) / 2) / g.slant),
+    2048 / 1760 / ((g.topArc + g.bottomArc) / 2 / g.slant),
     5,
   );
+});
+
+it("fills the usable height with independently adjustable top and bottom gaps", () => {
+  const g = {
+    points: [],
+    width: 130,
+    height: 106,
+    topArc: 125.664,
+    bottomArc: 106.814,
+    slant: 105.043,
+    angle: 0.1794,
+    area: 0,
+  };
+  const region = safeWarpRegion(g, 2048, 1760, 3, 0.94, {
+    topGapMm: 2,
+    bottomGapMm: 5,
+  });
+  expect(region.v0).toBeCloseTo(2 / g.slant, 8);
+  expect(region.v1).toBeCloseTo(1 - 5 / g.slant, 8);
+  expect(region.u0).toBeGreaterThan(0);
+  expect(region.u1).toBeLessThan(1);
 });
 it("full warp follows actual cup edges including reverse taper", () => {
   for (const cup of [

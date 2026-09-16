@@ -25,6 +25,7 @@ import {
 } from "./services/cupWrap/geometry";
 import {
   DEFAULT_PRINT,
+  type ImageAdjustment,
   type PrintSettings,
   type WrapDesign,
 } from "./services/cupWrap/types";
@@ -49,8 +50,20 @@ import {
   framePlacement,
 } from "./services/cupWrap/adaptation";
 const SHOW_MANUAL_ARTWORK_TOOLS = false;
-const DEFAULT_AI_ADJUSTMENT = { scale: 1, x: 0, y: 0, warp: 0 };
-const DEFAULT_GEOMETRY_ADJUSTMENT = { scale: 1, x: 0, y: 0, warp: 1 };
+const DEFAULT_AI_ADJUSTMENT: ImageAdjustment = {
+  scale: 1,
+  x: 0,
+  y: 0,
+  warp: 0,
+};
+const DEFAULT_GEOMETRY_ADJUSTMENT: ImageAdjustment = {
+  scale: 1,
+  x: 0,
+  y: 0,
+  warp: 1,
+  topGap: 2,
+  bottomGap: 2,
+};
 function BlobPreview({ blob }: { blob: Blob }) {
   const [url, setUrl] = useState("");
   useEffect(() => {
@@ -737,7 +750,7 @@ export default function CupWrapPrintComposer({
               0.2,
               2,
             )}
-            <label className="cup-field">
+            <label className="cup-field cup-slider-field">
               缩放滑动条 · {Math.round(imageAdjustment.scale * 100)}%
               <Slider
                 ariaLabelForHandle="图片缩放滑动条"
@@ -758,6 +771,33 @@ export default function CupWrapPrintComposer({
                 }
               />
             </label>
+            {(d.adaptationMode ?? "geometry") === "geometry" && (
+              <>
+                {number(
+                  "图案上方留白 mm",
+                  imageAdjustment.topGap ?? 2,
+                  (topGap) =>
+                    update({
+                      aiAdjustment: { ...imageAdjustment, topGap },
+                    }),
+                  0,
+                  Math.max(0, d.cup.height / 2),
+                )}
+                {number(
+                  "图案下方留白 mm",
+                  imageAdjustment.bottomGap ?? 2,
+                  (bottomGap) =>
+                    update({
+                      aiAdjustment: { ...imageAdjustment, bottomGap },
+                    }),
+                  0,
+                  Math.max(0, d.cup.height / 2),
+                )}
+                <p>
+                  上下留白直接控制图案在扇形径向的起止位置；减小可填满高度，增大会压缩图案并留出空白。
+                </p>
+              </>
+            )}
             {number(
               "图片水平 mm",
               imageAdjustment.x,

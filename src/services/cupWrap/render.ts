@@ -2,12 +2,7 @@ import { geometry, pathData } from "./geometry";
 import type { WrapDesign } from "./types";
 import { containFit } from "./fitting";
 import { framePlacement } from "./adaptation";
-import {
-  drawWarp,
-  drawWarpWebGL,
-  safeWarpRegion,
-  warpPoint,
-} from "./warp";
+import { drawWarp, drawWarpWebGL, safeWarpRegion, warpPoint } from "./warp";
 async function removeUniformBoundaryBackground(img: ImageBitmap) {
   const canvas = new OffscreenCanvas(img.width, img.height);
   const ctx = canvas.getContext("2d")!;
@@ -133,12 +128,24 @@ export async function renderDesign(
         img = foreground;
         original.close();
       }
-      const adjust = d.aiAdjustment ?? { scale: 1, x: 0, y: 0, warp: 1 };
+      const adjust = d.aiAdjustment ?? {
+        scale: 1,
+        x: 0,
+        y: 0,
+        warp: 1,
+        topGap: 2,
+        bottomGap: 2,
+      };
       const region = safeWarpRegion(
         g,
         img.width,
         img.height,
         Math.max(3, d.cup.safe),
+        0.94,
+        {
+          topGapMm: adjust.topGap ?? 2,
+          bottomGapMm: adjust.bottomGap ?? 2,
+        },
       );
       ctx.save();
       ctx.translate(g.width / 2 + adjust.x, g.height / 2 + adjust.y);
@@ -213,7 +220,7 @@ export async function renderDesign(
   }
   const layerList = geometric
     ? []
-    : local?.layers ?? (d.adopted && d.adoptedFrame ? [] : d.layers);
+    : (local?.layers ?? (d.adopted && d.adoptedFrame ? [] : d.layers));
   if (!geometric && local) {
     const a = d.aiAdjustment ?? { scale: 1, x: 0, y: 0, warp: 0 };
     ctx.save();

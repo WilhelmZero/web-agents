@@ -18,12 +18,27 @@ export function safeWarpRegion(
   sourceHeight: number,
   safeMm: number,
   productionInset = 0.94,
+  verticalFill?: { topGapMm: number; bottomGapMm: number },
 ): WarpRegion {
   const narrowArc = Math.max(0.001, Math.min(g.topArc, g.bottomArc));
   const averageArc = Math.max(0.001, (g.topArc + g.bottomArc) / 2);
   const slant = Math.max(0.001, g.slant);
   const maxUSpan = Math.max(0.01, 1 - (2 * safeMm) / narrowArc);
   const maxVSpan = Math.max(0.01, 1 - (2 * safeMm) / slant);
+  if (verticalFill) {
+    const top = Math.max(0, Math.min(slant - 0.01, verticalFill.topGapMm));
+    const bottom = Math.max(
+      0,
+      Math.min(slant - top - 0.01, verticalFill.bottomGapMm),
+    );
+    const uSpan = maxUSpan * productionInset;
+    return {
+      u0: (1 - uSpan) / 2,
+      u1: (1 + uSpan) / 2,
+      v0: top / slant,
+      v1: 1 - bottom / slant,
+    };
+  }
   const scale =
     Math.min(
       (maxUSpan * averageArc) / Math.max(1, sourceWidth),
