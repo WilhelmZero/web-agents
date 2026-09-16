@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { editAiPetLetter, AiPetLetterApiError, optimizeAiPetLetterPrompts, regenerateAiPetLetterPromptsFromReference } from "./services/aiPetLetters/api";
 import { colorizeTransparentResult, constrainDimensions, downloadBlob, fingerprintBlob, normalizeHexColor, normalizeReference, readImageDimensions, referenceDownloadDimensions, resizeForDownload, type ImageDimensions } from "./services/aiPetLetters/image";
-import { adaptPromptOutputMode, createDefaultPrompts, defaultPromptForLetter, promptOptimizerInstruction, validateReferenceGeneratedPrompt } from "./services/aiPetLetters/prompts";
+import { adaptPromptOutputMode, completeReferenceGeneratedPrompt, createDefaultPrompts, defaultPromptForLetter, promptOptimizerInstruction, validateReferenceGeneratedPrompt } from "./services/aiPetLetters/prompts";
 import { loadAiPetLetterPrompts, loadAiPetLetterSettings, loadAiPetLetterWorkspace, saveAiPetLetterPrompts, saveAiPetLetterSettings, saveAiPetLetterWorkspace } from "./services/aiPetLetters/storage";
 import { normalizeQuality, qualityOptions, type AiPetLetterPrompt, type AiPetLetterSettings, type AiPetLetterTask } from "./services/aiPetLetters/types";
 import type { AppSettings } from "./types";
@@ -235,7 +235,7 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
       const next = prompts.map((item) => ({
         letter: item.letter,
         before: item.currentPrompt,
-        after: adaptPromptOutputMode(parsed[item.letter]?.trim() || "", settings.outputMode),
+        after: adaptPromptOutputMode(completeReferenceGeneratedPrompt(item.letter, parsed[item.letter] || ""), settings.outputMode),
       }));
       const invalid = next.find((item) => validateReferenceGeneratedPrompt(item.letter, item.after));
       if (invalid) throw new Error(`${invalid.letter} 的参考图提示词不完整，已拒绝整批应用`);

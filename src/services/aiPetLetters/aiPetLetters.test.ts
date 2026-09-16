@@ -2,7 +2,7 @@ import "fake-indexeddb/auto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { editAiPetLetter, AiPetLetterApiError, regenerateAiPetLetterPromptsFromReference } from "./api";
 import { HIGH_RES_HEIGHT, HIGH_RES_WIDTH, NATIVE_HEIGHT, NATIVE_WIDTH, constrainDimensions, normalizeHexColor, referenceDownloadDimensions, strictCompositePixels } from "./image";
-import { adaptPromptOutputMode, createDefaultPrompts, validateOptimizedPrompt, validateReferenceGeneratedPrompt } from "./prompts";
+import { adaptPromptOutputMode, completeReferenceGeneratedPrompt, createDefaultPrompts, validateOptimizedPrompt, validateReferenceGeneratedPrompt } from "./prompts";
 import { loadAiPetLetterPrompts, loadAiPetLetterSettings, loadAiPetLetterWorkspace, saveAiPetLetterPrompts, saveAiPetLetterSettings, saveAiPetLetterWorkspace } from "./storage";
 import { AI_PET_LETTERS, DEFAULT_AI_PET_LETTER_SETTINGS, normalizeQuality, qualityOptions } from "./types";
 import { getGenerationStatsSnapshot, resetGenerationStats } from "../generationStats";
@@ -38,6 +38,15 @@ describe("AI pet letter prompts", () => {
   it("validates style-neutral prompts regenerated from a new reference", () => {
     expect(validateReferenceGeneratedPrompt("Z", "依据当前参考图，将主字母完整替换为大写 Z，保持参考图的向日葵、水彩材质、黑色背景与整幅构图，完整画面统一生成。" )).toBeNull();
     expect(validateReferenceGeneratedPrompt("Z", "继续使用旧万圣节猫咪模板")).toContain("过短");
+  });
+
+  it("completes a non-empty A prompt instead of rejecting the whole regenerated batch", () => {
+    const completed = completeReferenceGeneratedPrompt("A", "保留花朵、水彩质感与原有构图");
+    expect(validateReferenceGeneratedPrompt("A", completed)).toBeNull();
+    expect(completed).toContain("大写 A");
+    expect(completed).toContain("参考图");
+    expect(completed).toContain("整幅画面");
+    expect(completeReferenceGeneratedPrompt("A", "   ")).toBe("");
   });
 
   it("keeps the selected background mode visible in the final prompt", () => {
@@ -127,6 +136,7 @@ describe("OpenAI image edit request", () => {
     expect(body.input[0].content[1].type).toBe("input_image");
     expect(body.input[0].content[0].text).toContain("旧提示词");
     expect(body.input[0].content[0].text).toContain("1024:1536");
+    expect(body.input[0].content[0].text).toContain("不少于 80 个中文字符");
   });
 
   it("classifies temporary errors separately from permission errors", () => {

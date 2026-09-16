@@ -4,6 +4,10 @@ const DIRECT_BACKGROUND_REQUIREMENT = "输出背景模式：直接生成完整�
 const TRANSPARENT_BACKGROUND_REQUIREMENT = "输出背景模式：背景必须完全透明并保留真实 Alpha 通道，只保留字母、萌宠和小贴纸；主体边缘干净，不得残留蓝边、白边、色块或背景阴影。";
 const OUTPUT_MODE_REQUIREMENT = /\s*输出背景模式：[^。]*。/g;
 
+function referenceTargetPattern(letter: string) {
+  return new RegExp(`(?:大写|字母|uppercase|letter)[\\s“"']*${letter}[\\s”"']*`, "i");
+}
+
 const interactionPets = [
   "戴南瓜帽的白猫",
   "裹绷带的灰猫",
@@ -73,11 +77,22 @@ export function validateOptimizedPrompt(letter: string, prompt: string): string 
 export function validateReferenceGeneratedPrompt(letter: string, prompt: string): string | null {
   const value = prompt.trim();
   if (value.length < 40) return "根据参考图生成的提示词过短";
-  const targetPattern = new RegExp(`(?:大写|字母|uppercase|letter)[\\s“"']*${letter}[\\s”"']*`, "i");
-  if (!targetPattern.test(value)) return `结果没有明确目标字母 ${letter}`;
+  if (!referenceTargetPattern(letter).test(value)) return `结果没有明确目标字母 ${letter}`;
   if (!value.includes("参考图")) return "结果没有明确以当前参考图为准";
   if (!/(整幅|完整画面)/.test(value)) return "结果没有明确整幅统一生成";
   return null;
+}
+
+export function completeReferenceGeneratedPrompt(letter: string, prompt: string): string {
+  const value = prompt.trim();
+  if (!value) return "";
+  const additions: string[] = [];
+  if (!referenceTargetPattern(letter).test(value)) additions.push(`目标字母为大写 ${letter}`);
+  if (!value.includes("参考图")) additions.push("严格以当前参考图的视觉风格与构图为准");
+  if (!/(整幅|完整画面)/.test(value)) additions.push("整幅画面统一生成，不做局部贴片或拼接");
+  const completed = additions.length ? `${value.replace(/[。；;\s]+$/g, "")}。${additions.join("；")}。` : value;
+  if (completed.length >= 40) return completed;
+  return `${completed.replace(/[。；;\s]+$/g, "")}；保持参考图中的字形、材质、配色、主体、装饰和空间关系完整一致。`;
 }
 
 export function promptOptimizerInstruction(letter: string, prompt: string): string {

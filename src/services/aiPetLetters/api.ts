@@ -94,7 +94,7 @@ export async function regenerateAiPetLetterPromptsFromReference(options: {
   signal?: AbortSignal;
 }): Promise<Record<string, string>> {
   const model = "gpt-5.6-terra";
-  const instruction = `分析这张最新参考图，并从零生成 A-Z 共 26 条彼此独立的中文整图编辑提示词。旧提示词和任何预设的宠物、节日、颜色、背景、字体或装饰风格一律无效，只能依据当前参考图。每条提示词必须明确目标大写字母，描述参考图实际存在的字形、材质、配色、背景、构图、主体、装饰元素及它们与字母的空间关系；将参考图中的主字母替换为目标字母，A 也要完整重绘。保持画布比例 ${options.width}:${options.height}，整幅统一生成，不做局部贴片，不出现接缝，不新增其他文字。若参考图包含人物、动物、植物或装饰，应保持其视觉身份、完整性和层级关系，不得遮挡目标字母的可读性或被画布裁切。26 张成品应保持同一系列风格，并根据不同字形自然调整装饰位置。${options.outputMode === "transparent-colorize" ? "输出只保留主体与装饰，背景必须完全透明并保留真实 Alpha。" : "背景与参考图保持一致并覆盖完整画布。"}只返回符合 schema 的 JSON。`;
+  const instruction = `分析这张最新参考图，并从零生成 A-Z 共 26 条彼此独立的中文整图编辑提示词。旧提示词和任何预设的宠物、节日、颜色、背景、字体或装饰风格一律无效，只能依据当前参考图。每条提示词不少于 80 个中文字符，必须明确目标大写字母，描述参考图实际存在的字形、材质、配色、背景、构图、主体、装饰元素及它们与字母的空间关系；将参考图中的主字母替换为目标字母，A 也要完整重绘。保持画布比例 ${options.width}:${options.height}，整幅统一生成，不做局部贴片，不出现接缝，不新增其他文字。若参考图包含人物、动物、植物或装饰，应保持其视觉身份、完整性和层级关系，不得遮挡目标字母的可读性或被画布裁切。26 张成品应保持同一系列风格，并根据不同字形自然调整装饰位置。${options.outputMode === "transparent-colorize" ? "输出只保留主体与装饰，背景必须完全透明并保留真实 Alpha。" : "背景与参考图保持一致并覆盖完整画布。"}只返回符合 schema 的 JSON。`;
   const requestId = startRequestConsoleEntry({
     model,
     connection: "direct",
