@@ -134,6 +134,8 @@ export async function renderDesign(
         x: 0,
         y: 0,
         warp: 1,
+        leftGap: 0,
+        rightGap: 0,
         topGap: 2,
         bottomGap: 2,
       };
@@ -144,6 +146,8 @@ export async function renderDesign(
         Math.max(3, d.cup.safe),
         0.94,
         {
+          leftGapMm: adjust.leftGap ?? 0,
+          rightGapMm: adjust.rightGap ?? 0,
           topGapMm: adjust.topGap ?? 2,
           bottomGapMm: adjust.bottomGap ?? 2,
         },

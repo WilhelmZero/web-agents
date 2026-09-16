@@ -9,8 +9,8 @@ export interface WarpRegion {
 
 /**
  * Uniformly contains the source in the cup's physical parameter space.
- * The narrow arc controls the horizontal safety margin, so neither rim can
- * clip content. A small production inset protects anti-aliased edge pixels.
+ * Without explicit gaps, the narrow arc and production inset protect edge
+ * pixels. With four-side gaps, their millimetre values define the exact region.
  */
 export function safeWarpRegion(
   g: WrapGeometry,
@@ -18,23 +18,32 @@ export function safeWarpRegion(
   sourceHeight: number,
   safeMm: number,
   productionInset = 0.94,
-  verticalFill?: { topGapMm: number; bottomGapMm: number },
+  fillGaps?: {
+    leftGapMm: number;
+    rightGapMm: number;
+    topGapMm: number;
+    bottomGapMm: number;
+  },
 ): WarpRegion {
   const narrowArc = Math.max(0.001, Math.min(g.topArc, g.bottomArc));
   const averageArc = Math.max(0.001, (g.topArc + g.bottomArc) / 2);
   const slant = Math.max(0.001, g.slant);
   const maxUSpan = Math.max(0.01, 1 - (2 * safeMm) / narrowArc);
   const maxVSpan = Math.max(0.01, 1 - (2 * safeMm) / slant);
-  if (verticalFill) {
-    const top = Math.max(0, Math.min(slant - 0.01, verticalFill.topGapMm));
+  if (fillGaps) {
+    const left = Math.max(0, Math.min(narrowArc - 0.01, fillGaps.leftGapMm));
+    const right = Math.max(
+      0,
+      Math.min(narrowArc - left - 0.01, fillGaps.rightGapMm),
+    );
+    const top = Math.max(0, Math.min(slant - 0.01, fillGaps.topGapMm));
     const bottom = Math.max(
       0,
-      Math.min(slant - top - 0.01, verticalFill.bottomGapMm),
+      Math.min(slant - top - 0.01, fillGaps.bottomGapMm),
     );
-    const uSpan = maxUSpan * productionInset;
     return {
-      u0: (1 - uSpan) / 2,
-      u1: (1 + uSpan) / 2,
+      u0: left / narrowArc,
+      u1: 1 - right / narrowArc,
       v0: top / slant,
       v1: 1 - bottom / slant,
     };

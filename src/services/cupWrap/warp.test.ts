@@ -31,7 +31,7 @@ it("contains the whole source inside the safe sector region", () => {
   );
 });
 
-it("fills the usable height with independently adjustable top and bottom gaps", () => {
+it("fills an exact region with independently adjustable four-side gaps", () => {
   const g = {
     points: [],
     width: 130,
@@ -43,13 +43,27 @@ it("fills the usable height with independently adjustable top and bottom gaps", 
     area: 0,
   };
   const region = safeWarpRegion(g, 2048, 1760, 3, 0.94, {
+    leftGapMm: 4,
+    rightGapMm: 7,
     topGapMm: 2,
     bottomGapMm: 5,
   });
+  const narrowArc = Math.min(g.topArc, g.bottomArc);
+  expect(region.u0).toBeCloseTo(4 / narrowArc, 8);
+  expect(region.u1).toBeCloseTo(1 - 7 / narrowArc, 8);
   expect(region.v0).toBeCloseTo(2 / g.slant, 8);
   expect(region.v1).toBeCloseTo(1 - 5 / g.slant, 8);
-  expect(region.u0).toBeGreaterThan(0);
-  expect(region.u1).toBeLessThan(1);
+});
+
+it("uses the full width when left and right gaps are zero", () => {
+  const g = geometry(DEFAULT_CUP);
+  const region = safeWarpRegion(g, 2048, 1760, 3, 0.94, {
+    leftGapMm: 0,
+    rightGapMm: 0,
+    topGapMm: 0,
+    bottomGapMm: 0,
+  });
+  expect(region).toMatchObject({ u0: 0, u1: 1, v0: 0, v1: 1 });
 });
 it("full warp follows actual cup edges including reverse taper", () => {
   for (const cup of [

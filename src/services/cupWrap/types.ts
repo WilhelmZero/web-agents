@@ -37,6 +37,8 @@ export interface ImageAdjustment {
   x: number;
   y: number;
   warp: number;
+  leftGap?: number;
+  rightGap?: number;
   topGap?: number;
   bottomGap?: number;
 }

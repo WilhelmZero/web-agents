@@ -62,6 +62,8 @@ const DEFAULT_GEOMETRY_ADJUSTMENT: ImageAdjustment = {
   x: 0,
   y: 0,
   warp: 1,
+  leftGap: 0,
+  rightGap: 0,
   topGap: 2,
   bottomGap: 2,
 };
@@ -833,6 +835,26 @@ export default function CupWrapPrintComposer({
             {(d.adaptationMode ?? "geometry") === "geometry" && (
               <>
                 {number(
+                  "图案左侧留白 mm",
+                  imageAdjustment.leftGap ?? 0,
+                  (leftGap) =>
+                    update({
+                      aiAdjustment: { ...imageAdjustment, leftGap },
+                    }),
+                  0,
+                  geo.g ? Math.min(geo.g.topArc, geo.g.bottomArc) / 2 : 1000,
+                )}
+                {number(
+                  "图案右侧留白 mm",
+                  imageAdjustment.rightGap ?? 0,
+                  (rightGap) =>
+                    update({
+                      aiAdjustment: { ...imageAdjustment, rightGap },
+                    }),
+                  0,
+                  geo.g ? Math.min(geo.g.topArc, geo.g.bottomArc) / 2 : 1000,
+                )}
+                {number(
                   "图案上方留白 mm",
                   imageAdjustment.topGap ?? 2,
                   (topGap) =>
@@ -853,7 +875,8 @@ export default function CupWrapPrintComposer({
                   Math.max(0, d.cup.height / 2),
                 )}
                 <p>
-                  上下留白直接控制图案在扇形径向的起止位置；减小可填满高度，增大会压缩图案并留出空白。
+                  四边留白直接控制图案在扇形中的起止位置；左右默认 0
+                  mm，尽量铺满宽度。增大对应数值会压缩图案并留出空白。
                 </p>
               </>
             )}

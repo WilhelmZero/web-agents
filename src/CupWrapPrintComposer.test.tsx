@@ -105,6 +105,27 @@ it("automatically recalculates A4 layout after design data loads", async () => {
       ),
     { timeout: 3000 },
   );
+  expect(
+    screen.getByRole("spinbutton", { name: "图案左侧留白 mm" }),
+  ).toHaveValue("0");
+  const rightGap = screen.getByRole("spinbutton", {
+    name: "图案右侧留白 mm",
+  });
+  expect(rightGap).toHaveValue("0");
+  fireEvent.change(rightGap, { target: { value: "4" } });
+  await waitFor(
+    () =>
+      expect(work).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: "png",
+          design: expect.objectContaining({
+            aiAdjustment: expect.objectContaining({ rightGap: 4 }),
+          }),
+        }),
+        expect.any(AbortSignal),
+      ),
+    { timeout: 3000 },
+  );
   const cutLine = screen.getByRole("checkbox", {
     name: "导出裁切线（黑色 0.1 mm）",
   });
