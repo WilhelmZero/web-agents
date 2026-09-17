@@ -29,6 +29,10 @@ vi.mock("./services/cupWrap/pdf", () => ({
   calibrationPdf: vi.fn(),
   tiledPdf: vi.fn(),
 }));
+vi.mock("./CupWrapSeamPreview", () => ({
+  default: ({ open, onClose }: { open: boolean; onClose: () => void }) =>
+    open ? <button onClick={onClose}>测试 3D 接缝弹窗</button> : null,
+}));
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
@@ -173,4 +177,17 @@ it("renders settings in the independent host and opens artwork options without A
   expect(screen.getByText(/上传设计后将自动生成 A4 混排/)).toBeInTheDocument();
   unmount();
   host.remove();
+}, 30000);
+it("opens the seam preview without requiring uploaded artwork", async () => {
+  render(
+    <CupWrapPrintComposer
+      active
+      settingsHost={null}
+      settings={DEFAULT_SETTINGS}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "模拟接缝" }));
+  expect(
+    await screen.findByRole("button", { name: "测试 3D 接缝弹窗" }),
+  ).toBeInTheDocument();
 }, 30000);

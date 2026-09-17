@@ -33,13 +33,15 @@
     "pica": "^10.0.2",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "sharp": "^0.35.3"
+    "sharp": "^0.35.3",
+    "three": "^0.186.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.1",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "@types/three": "^0.186.0",
     "@vitejs/plugin-react": "^5.1.0",
     "electron": "^43.4.1",
     "electron-builder": "^26.15.3",

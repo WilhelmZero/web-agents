@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Alert,
@@ -50,6 +50,7 @@ import {
   framePlacement,
 } from "./services/cupWrap/adaptation";
 const SHOW_MANUAL_ARTWORK_TOOLS = false;
+const CupWrapSeamPreview = lazy(() => import("./CupWrapSeamPreview"));
 const PRINT_SETTINGS_KEY = "cup-wrap-print:settings:v2";
 const DEFAULT_AI_ADJUSTMENT: ImageAdjustment = {
   scale: 1,
@@ -199,6 +200,9 @@ export default function CupWrapPrintComposer({
   const [tileOpen, setTileOpen] = useState(false),
     [overlap, setOverlap] = useState(5),
     [tileMarks, setTileMarks] = useState(true);
+  const [seamOpen, setSeamOpen] = useState(false);
+  const [seamTexture, setSeamTexture] = useState<Blob>();
+  const [seamBusy, setSeamBusy] = useState(false);
   const [moving, setMoving] = useState<{
     page: number;
     index: number;
@@ -365,6 +369,28 @@ export default function CupWrapPrintComposer({
     );
     setLayout(undefined);
   };
+  async function openSeamPreview() {
+    setSeamOpen(true);
+    setSeamTexture(undefined);
+    if (!d.source && !d.adopted && !d.layers.length) return;
+    setSeamBusy(true);
+    try {
+      setSeamTexture(
+        await work<Blob>({
+          kind: "png",
+          design: structuredClone(d),
+          dpi: 144,
+          bleed: false,
+          cutLine: false,
+          preview: true,
+        }),
+      );
+    } catch (e) {
+      setError(`3D 预览纹理生成失败：${e instanceof Error ? e.message : e}`);
+    } finally {
+      setSeamBusy(false);
+    }
+  }
   const setting = (patch: Partial<PrintSettings>) => {
     setPrint((v) => ({ ...v, ...patch }));
     setLayout(undefined);
@@ -1097,6 +1123,9 @@ export default function CupWrapPrintComposer({
         >
           SVG 刀模
         </Button>
+        <Button disabled={!g || seamBusy} onClick={openSeamPreview}>
+          {seamBusy ? "正在准备 3D…" : "模拟接缝"}
+        </Button>
         <Button
           disabled={!g || !!busy}
           onClick={() =>
@@ -1536,6 +1565,18 @@ export default function CupWrapPrintComposer({
             setLocalEditor(false);
           }}
         />
+      )}
+      {seamOpen && (
+        <Suspense fallback={null}>
+          <CupWrapSeamPreview
+            open
+            cup={d.cup}
+            texture={seamTexture}
+            textureHasTransparency={!!d.transparentOutput}
+            initialShowGlass
+            onClose={() => setSeamOpen(false)}
+          />
+        </Suspense>
       )}
       <Modal
         open={tileOpen}

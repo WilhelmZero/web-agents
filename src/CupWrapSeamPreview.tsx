@@ -1,0 +1,453 @@
+import { useEffect, useRef, useState } from "react";
+import { Button, Checkbox, Modal, Space } from "antd";
+import type { Texture } from "three";
+import type { CupParams } from "./services/cupWrap/geometry";
+import { geometry } from "./services/cupWrap/geometry";
+import { seamPreviewGeometry } from "./services/cupWrap/seam3d";
+import { warpPoint } from "./services/cupWrap/warp";
+import {
+  detectBorderMatte,
+  restoreTransparentBackground,
+} from "./services/transparentImageEdit";
+
+export interface CupWrapSeamPreviewProps {
+  open: boolean;
+  cup: CupParams;
+  texture?: Blob;
+  textureHasTransparency?: boolean;
+  initialShowGlass?: boolean;
+  onClose: () => void;
+}
+
+async function unwrapTexture(blob: Blob, cup: CupParams) {
+  const bitmap = await createImageBitmap(blob);
+  const g = geometry(cup);
+  const input = document.createElement("canvas");
+  input.width = bitmap.width;
+  input.height = bitmap.height;
+  const inputContext = input.getContext("2d", { willReadFrequently: true })!;
+  inputContext.drawImage(bitmap, 0, 0);
+  bitmap.close();
+  const pixels = inputContext.getImageData(0, 0, input.width, input.height);
+  const output = document.createElement("canvas");
+  output.width = 1024;
+  output.height = Math.max(
+    256,
+    Math.round(
+      (output.width * g.slant) / Math.max(1, (g.topArc + g.bottomArc) / 2),
+    ),
+  );
+  const outputContext = output.getContext("2d")!;
+  const result = outputContext.createImageData(output.width, output.height);
+  for (let y = 0; y < output.height; y++) {
+    for (let x = 0; x < output.width; x++) {
+      const point = warpPoint(
+        g,
+        (x + 0.5) / output.width,
+        (y + 0.5) / output.height,
+        1,
+      );
+      const sx = Math.max(
+        0,
+        Math.min(
+          input.width - 1,
+          Math.round((point.x / g.width) * input.width),
+        ),
+      );
+      const sy = Math.max(
+        0,
+        Math.min(
+          input.height - 1,
+          Math.round((point.y / g.height) * input.height),
+        ),
+      );
+      const sourceIndex = (sy * input.width + sx) * 4;
+      const targetIndex = (y * output.width + x) * 4;
+      const alpha = pixels.data[sourceIndex + 3] / 255;
+      result.data[targetIndex] =
+        pixels.data[sourceIndex] * alpha + 255 * (1 - alpha);
+      result.data[targetIndex + 1] =
+        pixels.data[sourceIndex + 1] * alpha + 255 * (1 - alpha);
+      result.data[targetIndex + 2] =
+        pixels.data[sourceIndex + 2] * alpha + 255 * (1 - alpha);
+      result.data[targetIndex + 3] = 255;
+    }
+  }
+  outputContext.putImageData(result, 0, 0);
+  return output;
+}
+
+export default function CupWrapSeamPreview({
+  open,
+  cup,
+  texture,
+  initialShowGlass = true,
+  onClose,
+}: CupWrapSeamPreviewProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const setViewRef = useRef<(side: "front" | "seam") => void>(() => {});
+  const setGlassVisibleRef = useRef<(visible: boolean) => void>(() => {});
+  const receivedTextureProp = useRef(false);
+  const [showGlass, setShowGlass] = useState(initialShowGlass);
+  const [status, setStatus] = useState("");
+  const [activeTexture, setActiveTexture] = useState(texture);
+  const [textureRevision, setTextureRevision] = useState(0);
+  const [removingBackground, setRemovingBackground] = useState(false);
+
+  useEffect(() => {
+    if (!receivedTextureProp.current) {
+      receivedTextureProp.current = true;
+      return;
+    }
+    setActiveTexture(texture);
+    setTextureRevision((revision) => revision + 1);
+  }, [texture]);
+
+  useEffect(() => setGlassVisibleRef.current(showGlass), [showGlass]);
+
+  useEffect(() => {
+    if (!open || !canvasRef.current) return;
+    let disposed = false;
+    let cleanup = () => {};
+    setStatus("正在建立 3D 杯身…");
+    Promise.all([
+      import("three"),
+      import("three/examples/jsm/controls/OrbitControls.js"),
+    ])
+      .then(async ([THREE, controlsModule]) => {
+        if (disposed || !canvasRef.current) return;
+        const canvas = canvasRef.current;
+        const renderer = new THREE.WebGLRenderer({
+          canvas,
+          antialias: true,
+          alpha: true,
+        });
+        renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+        renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xf3f5f8);
+        const camera = new THREE.PerspectiveCamera(
+          38,
+          canvas.clientWidth / Math.max(1, canvas.clientHeight),
+          0.1,
+          5000,
+        );
+        const controls = new controlsModule.OrbitControls(camera, canvas);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.08;
+        controls.target.set(0, 0, 0);
+        const metrics = seamPreviewGeometry(cup);
+        const distance = Math.max(cup.height * 1.55, cup.top * 3.2);
+        const setView = (side: "front" | "seam") => {
+          camera.position.set(
+            0,
+            cup.height * 0.08,
+            side === "front" ? distance : -distance,
+          );
+          camera.up.set(0, 1, 0);
+          controls.target.set(0, 0, 0);
+          controls.update();
+        };
+        setViewRef.current = setView;
+        setView("seam");
+
+        scene.add(new THREE.HemisphereLight(0xffffff, 0x64748b, 2.2));
+        const key = new THREE.DirectionalLight(0xffffff, 3.2);
+        key.position.set(80, 120, 100);
+        scene.add(key);
+        const rim = new THREE.DirectionalLight(0x99ccff, 2.2);
+        rim.position.set(-80, 30, -100);
+        scene.add(rim);
+
+        const resources: Array<{ dispose: () => void }> = [];
+        const group = new THREE.Group();
+        scene.add(group);
+        const glassGroup = new THREE.Group();
+        glassGroup.visible = showGlass;
+        group.add(glassGroup);
+        setGlassVisibleRef.current = (visible) => {
+          glassGroup.visible = visible;
+        };
+        const glassGeometry = new THREE.CylinderGeometry(
+          metrics.topRadius,
+          metrics.bottomRadius,
+          metrics.height,
+          128,
+          1,
+          true,
+        );
+        const glassMaterial = new THREE.MeshPhysicalMaterial({
+          color: 0xdff7ff,
+          transparent: true,
+          opacity: 0.24,
+          roughness: 0.08,
+          metalness: 0,
+          transmission: 0.72,
+          thickness: 1.2,
+          side: THREE.DoubleSide,
+        });
+        glassGroup.add(new THREE.Mesh(glassGeometry, glassMaterial));
+        resources.push(glassGeometry, glassMaterial);
+        const bottomGeometry = new THREE.CircleGeometry(
+          metrics.bottomRadius,
+          128,
+        );
+        const bottomMaterial = glassMaterial.clone();
+        bottomMaterial.opacity = 0.34;
+        const bottom = new THREE.Mesh(bottomGeometry, bottomMaterial);
+        bottom.rotation.x = -Math.PI / 2;
+        bottom.position.y = -metrics.height / 2;
+        glassGroup.add(bottom);
+        resources.push(bottomGeometry, bottomMaterial);
+        for (const [radius, y] of [
+          [metrics.topRadius, metrics.height / 2],
+          [metrics.bottomRadius, -metrics.height / 2],
+        ] as const) {
+          const ringGeometry = new THREE.TorusGeometry(radius, 0.55, 10, 128);
+          const ringMaterial = new THREE.MeshPhysicalMaterial({
+            color: 0xeafaff,
+            transparent: true,
+            opacity: 0.58,
+            roughness: 0.06,
+            transmission: 0.55,
+          });
+          const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+          ring.rotation.x = Math.PI / 2;
+          ring.position.y = y;
+          glassGroup.add(ring);
+          resources.push(ringGeometry, ringMaterial);
+        }
+
+        const source = activeTexture
+          ? await unwrapTexture(activeTexture, cup)
+          : document.createElement("canvas");
+        if (!activeTexture) {
+          source.width = 1024;
+          source.height = Math.max(
+            256,
+            Math.round(
+              (1024 * metrics.printHeight) /
+                Math.max(
+                  1,
+                  Math.PI *
+                    (metrics.printTopRadius + metrics.printBottomRadius),
+                ),
+            ),
+          );
+        }
+        const sourceContext = source.getContext("2d")!;
+        if (!activeTexture) {
+          sourceContext.fillStyle = "rgba(105, 80, 220, .76)";
+          sourceContext.fillRect(0, 0, source.width, source.height);
+          sourceContext.fillStyle = "rgba(255,255,255,.86)";
+          sourceContext.font = `700 ${Math.round(source.height / 5)}px sans-serif`;
+          sourceContext.textAlign = "center";
+          sourceContext.textBaseline = "middle";
+          sourceContext.fillText(
+            "杯身图案",
+            source.width / 2,
+            source.height / 2,
+          );
+        }
+        if (disposed) return;
+        const baseTexture = new THREE.CanvasTexture(source);
+        baseTexture.colorSpace = THREE.SRGBColorSpace;
+        baseTexture.wrapS = THREE.ClampToEdgeWrapping;
+        baseTexture.needsUpdate = true;
+        resources.push(baseTexture);
+        const printRadiusOffset = 0.35;
+        const filmGeometry = new THREE.CylinderGeometry(
+          metrics.printTopRadius + 0.2,
+          metrics.printBottomRadius + 0.2,
+          metrics.printHeight,
+          128,
+          1,
+          true,
+          -metrics.visibleAngle / 2,
+          Math.max(0.0001, metrics.visibleAngle),
+        );
+        const filmMaterial = new THREE.MeshStandardMaterial({
+          color: 0xffffff,
+          roughness: 0.58,
+          metalness: 0,
+          side: THREE.DoubleSide,
+        });
+        const film = new THREE.Mesh(filmGeometry, filmMaterial);
+        film.position.y = metrics.printCenterY;
+        group.add(film);
+        resources.push(filmGeometry, filmMaterial);
+        const makePrint = (
+          angle: number,
+          start: number,
+          map: Texture,
+          radiusOffset: number,
+        ) => {
+          const geometry = new THREE.CylinderGeometry(
+            metrics.printTopRadius + radiusOffset,
+            metrics.printBottomRadius + radiusOffset,
+            metrics.printHeight,
+            128,
+            1,
+            true,
+            start,
+            Math.max(0.0001, angle),
+          );
+          const material = new THREE.MeshStandardMaterial({
+            map,
+            transparent: true,
+            roughness: 0.52,
+            metalness: 0,
+            side: THREE.DoubleSide,
+          });
+          const mesh = new THREE.Mesh(geometry, material);
+          mesh.position.y = metrics.printCenterY;
+          group.add(mesh);
+          resources.push(geometry, material, map);
+        };
+        const mainTexture = baseTexture.clone();
+        if (metrics.effectiveAngle > Math.PI * 2)
+          mainTexture.repeat.x = (Math.PI * 2) / metrics.effectiveAngle;
+        makePrint(
+          metrics.visibleAngle,
+          -metrics.visibleAngle / 2,
+          mainTexture,
+          printRadiusOffset,
+        );
+        if (metrics.overlapAngle > 0.0001) {
+          const overlapTexture = baseTexture.clone();
+          overlapTexture.offset.x =
+            1 - metrics.overlapAngle / metrics.effectiveAngle;
+          overlapTexture.repeat.x =
+            metrics.overlapAngle / metrics.effectiveAngle;
+          makePrint(
+            metrics.overlapAngle,
+            Math.PI - metrics.overlapAngle,
+            overlapTexture,
+            printRadiusOffset + 0.28,
+          );
+        }
+        const markerGeometry = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(
+            0,
+            -metrics.height / 2 - 3,
+            -metrics.bottomRadius - 1.2,
+          ),
+          new THREE.Vector3(
+            0,
+            metrics.height / 2 + 3,
+            -metrics.topRadius - 1.2,
+          ),
+        ]);
+        const markerMaterial = new THREE.LineDashedMaterial({
+          color: 0xef4444,
+          dashSize: 3,
+          gapSize: 2,
+        });
+        const marker = new THREE.Line(markerGeometry, markerMaterial);
+        marker.computeLineDistances();
+        group.add(marker);
+        resources.push(markerGeometry, markerMaterial);
+
+        const resize = () => {
+          if (!canvas.clientWidth || !canvas.clientHeight) return;
+          renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
+          camera.aspect = canvas.clientWidth / canvas.clientHeight;
+          camera.updateProjectionMatrix();
+        };
+        const observer = new ResizeObserver(resize);
+        observer.observe(canvas);
+        let frame = 0;
+        const animate = () => {
+          frame = requestAnimationFrame(animate);
+          controls.update();
+          renderer.render(scene, camera);
+        };
+        animate();
+        setStatus(
+          metrics.overlapAngle > 0
+            ? `搭接 ${cup.seam.toFixed(1)} mm`
+            : metrics.gapAngle > 0
+              ? `接缝为负值：按设置保留约 ${(metrics.gapAngle * ((metrics.printTopRadius + metrics.printBottomRadius) / 2)).toFixed(1)} mm 裸露玻璃（设为 0 可闭合）`
+              : "首尾无缝连接",
+        );
+        cleanup = () => {
+          cancelAnimationFrame(frame);
+          observer.disconnect();
+          controls.dispose();
+          resources.forEach((resource) => resource.dispose());
+          renderer.dispose();
+          renderer.forceContextLoss();
+        };
+      })
+      .catch((error) => setStatus(`3D 初始化失败：${error.message}`));
+    return () => {
+      disposed = true;
+      cleanup();
+      setViewRef.current = () => {};
+      setGlassVisibleRef.current = () => {};
+    };
+  }, [open, cup, activeTexture]);
+
+  async function removeBackground() {
+    if (!activeTexture || removingBackground) return;
+    setRemovingBackground(true);
+    try {
+      const matte = await detectBorderMatte(activeTexture);
+      setActiveTexture(
+        await restoreTransparentBackground(activeTexture, matte),
+      );
+      setTextureRevision((revision) => revision + 1);
+    } catch (error) {
+      setStatus(
+        `HSV 去背失败：${error instanceof Error ? error.message : error}`,
+      );
+    } finally {
+      setRemovingBackground(false);
+    }
+  }
+
+  return (
+    <Modal
+      open={open}
+      width="min(1040px, 94vw)"
+      title="杯身接缝 3D 模拟"
+      footer={null}
+      destroyOnHidden
+      onCancel={onClose}
+    >
+      <div className="cup-seam-toolbar">
+        <Space wrap>
+          <Checkbox
+            checked={showGlass}
+            onChange={(event) => setShowGlass(event.target.checked)}
+          >
+            显示玻璃杯
+          </Checkbox>
+          <Button onClick={() => setViewRef.current("front")}>正面</Button>
+          <Button onClick={() => setViewRef.current("seam")}>接缝面</Button>
+          <Button
+            disabled={!activeTexture}
+            loading={removingBackground}
+            onClick={() => void removeBackground()}
+          >
+            去除背景
+          </Button>
+          <Button onClick={() => setViewRef.current("seam")}>重置视角</Button>
+          <span>{status}</span>
+        </Space>
+      </div>
+      <canvas
+        key={`${activeTexture ? "artwork" : "placeholder"}-${textureRevision}`}
+        ref={canvasRef}
+        className="cup-seam-canvas"
+        aria-label="杯身接缝 3D 预览"
+        onDoubleClick={() => setViewRef.current("seam")}
+      />
+      <p className="cup-seam-note">
+        拖动旋转 · 滚轮缩放 · 红色虚线为接缝中心。负接缝会故意留缝，0 mm
+        首尾闭合，正接缝产生搭接。透明图案按白色花纸基材模拟剪下后的整张贴膜。该模拟用于视觉检查，不代表玻璃壁厚制造尺寸。
+      </p>
+    </Modal>
+  );
+}
