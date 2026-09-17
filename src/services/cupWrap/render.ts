@@ -136,8 +136,8 @@ export async function renderDesign(
         warp: 1,
         leftGap: 0,
         rightGap: 0,
-        topGap: 2,
-        bottomGap: 2,
+        topGap: 10,
+        bottomGap: 10,
       };
       const region = safeWarpRegion(
         g,
@@ -148,8 +148,8 @@ export async function renderDesign(
         {
           leftGapMm: adjust.leftGap ?? 0,
           rightGapMm: adjust.rightGap ?? 0,
-          topGapMm: adjust.topGap ?? 2,
-          bottomGapMm: adjust.bottomGap ?? 2,
+          topGapMm: adjust.topGap ?? 10,
+          bottomGapMm: adjust.bottomGap ?? 10,
         },
       );
       ctx.save();

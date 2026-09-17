@@ -53,7 +53,7 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
-it("shows precise default values, edits geometry and creates separate designs", async () => {
+it("shows precise defaults and keeps a single design workflow", async () => {
   render(
     <CupWrapPrintComposer
       active
@@ -68,9 +68,9 @@ it("shows precise default values, edits geometry and creates separate designs", 
   await waitFor(() =>
     expect(screen.getByText(/下弧 125.664/)).toBeInTheDocument(),
   );
-  fireEvent.click(screen.getByRole("button", { name: "新增设计" }));
-  expect(screen.getAllByRole("textbox", { name: "设计名称" })).toHaveLength(2);
-  expect(screen.getByText(/下弧 106.814/)).toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "新增设计" }),
+  ).not.toBeInTheDocument();
 }, 30000);
 it("automatically recalculates A4 layout after design data loads", async () => {
   vi.mocked(loadDesigns).mockResolvedValueOnce([
@@ -116,6 +116,12 @@ it("automatically recalculates A4 layout after design data loads", async () => {
     name: "图案右侧留白 mm",
   });
   expect(rightGap).toHaveValue("0");
+  expect(
+    screen.getByRole("spinbutton", { name: "图案上方留白 mm" }),
+  ).toHaveValue("10");
+  expect(
+    screen.getByRole("spinbutton", { name: "图案下方留白 mm" }),
+  ).toHaveValue("10");
   fireEvent.change(rightGap, { target: { value: "4" } });
   await waitFor(
     () =>
@@ -133,8 +139,6 @@ it("automatically recalculates A4 layout after design data loads", async () => {
   const cutLine = screen.getByRole("checkbox", {
     name: "导出裁切线（黑色 0.1 mm）",
   });
-  expect(cutLine).not.toBeChecked();
-  fireEvent.click(cutLine);
   expect(cutLine).toBeChecked();
   await waitFor(
     () =>
@@ -169,10 +173,16 @@ it("renders settings in the independent host and opens artwork options without A
     screen.getByRole("checkbox", {
       name: "导出裁切线（黑色 0.1 mm）",
     }),
-  ).not.toBeChecked();
+  ).toBeChecked();
   expect(
     screen.getByLabelText("排版模式").closest(".ant-select"),
   ).toHaveTextContent("单页尽量填满");
+  expect(
+    screen.queryByRole("spinbutton", { name: "打印数量" }),
+  ).not.toBeInTheDocument();
+  fireEvent.mouseDown(screen.getByLabelText("排版模式"));
+  fireEvent.click(await screen.findByText("按数量自动分页"));
+  expect(screen.getByRole("spinbutton", { name: "打印数量" })).toHaveValue("1");
   fireEvent.click(screen.getByRole("tab", { name: "A4 排版" }));
   expect(screen.getByText(/上传设计后将自动生成 A4 混排/)).toBeInTheDocument();
   unmount();
@@ -186,7 +196,14 @@ it("opens the seam preview without requiring uploaded artwork", async () => {
       settings={DEFAULT_SETTINGS}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "模拟接缝" }));
+  fireEvent.click(screen.getByRole("button", { name: "3D 模拟" }));
+  const calibration = screen.getByRole("button", { name: "校准页" });
+  const simulation = screen.getByRole("button", { name: "3D 模拟" });
+  expect(
+    calibration.compareDocumentPosition(simulation) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(simulation).toHaveClass("ant-btn-primary");
   expect(
     await screen.findByRole("button", { name: "测试 3D 接缝弹窗" }),
   ).toBeInTheDocument();

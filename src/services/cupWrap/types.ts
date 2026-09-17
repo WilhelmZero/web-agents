@@ -79,7 +79,7 @@ export interface PrintSettings {
 export const DEFAULT_PRINT: PrintSettings = {
   dpi: 300,
   bleed: false,
-  cutLine: false,
+  cutLine: true,
   margin: 5,
   gap: 2,
   landscape: false,

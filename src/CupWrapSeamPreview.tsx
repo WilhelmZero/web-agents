@@ -63,14 +63,10 @@ async function unwrapTexture(blob: Blob, cup: CupParams) {
       );
       const sourceIndex = (sy * input.width + sx) * 4;
       const targetIndex = (y * output.width + x) * 4;
-      const alpha = pixels.data[sourceIndex + 3] / 255;
-      result.data[targetIndex] =
-        pixels.data[sourceIndex] * alpha + 255 * (1 - alpha);
-      result.data[targetIndex + 1] =
-        pixels.data[sourceIndex + 1] * alpha + 255 * (1 - alpha);
-      result.data[targetIndex + 2] =
-        pixels.data[sourceIndex + 2] * alpha + 255 * (1 - alpha);
-      result.data[targetIndex + 3] = 255;
+      result.data[targetIndex] = pixels.data[sourceIndex];
+      result.data[targetIndex + 1] = pixels.data[sourceIndex + 1];
+      result.data[targetIndex + 2] = pixels.data[sourceIndex + 2];
+      result.data[targetIndex + 3] = pixels.data[sourceIndex + 3];
     }
   }
   outputContext.putImageData(result, 0, 0);
@@ -94,6 +90,7 @@ export default function CupWrapSeamPreview({
   const [activeTexture, setActiveTexture] = useState(texture);
   const [textureRevision, setTextureRevision] = useState(0);
   const [removingBackground, setRemovingBackground] = useState(false);
+  const [backgroundRemoved, setBackgroundRemoved] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
@@ -102,6 +99,7 @@ export default function CupWrapSeamPreview({
       return;
     }
     setActiveTexture(texture);
+    setBackgroundRemoved(false);
     setTextureRevision((revision) => revision + 1);
   }, [texture]);
 
@@ -311,9 +309,12 @@ export default function CupWrapSeamPreview({
               // two halves crossing through one another.
               flat[cursor] = point.x - flatGeometry.width / 2;
               flat[cursor + 1] = flatGeometry.height / 2 - point.y;
+              // The seam view camera sits behind the cut. Move the unfolded
+              // sheet away from it so the animation retreats behind the cup
+              // instead of passing forward through the glass.
               flat[cursor + 2] =
-                -Math.max(metrics.topRadius, metrics.bottomRadius) -
-                12 -
+                Math.max(metrics.topRadius, metrics.bottomRadius) +
+                12 +
                 radiusOffset;
               cursor += 3;
               wrappedUvs[uvCursor] = u;
@@ -359,6 +360,7 @@ export default function CupWrapSeamPreview({
           side: THREE.DoubleSide,
         });
         const film = new THREE.Mesh(filmGeometry, filmMaterial);
+        film.visible = !backgroundRemoved;
         film.position.y = metrics.printCenterY;
         group.add(film);
         resources.push(filmGeometry, filmMaterial);
@@ -520,7 +522,7 @@ export default function CupWrapSeamPreview({
       setGlassVisibleRef.current = () => {};
       setExpandedRef.current = () => {};
     };
-  }, [open, cup, activeTexture]);
+  }, [open, cup, activeTexture, backgroundRemoved]);
 
   async function removeBackground() {
     if (!activeTexture || removingBackground) return;
@@ -530,6 +532,7 @@ export default function CupWrapSeamPreview({
       setActiveTexture(
         await restoreTransparentBackground(activeTexture, matte),
       );
+      setBackgroundRemoved(true);
       setTextureRevision((revision) => revision + 1);
     } catch (error) {
       setStatus(

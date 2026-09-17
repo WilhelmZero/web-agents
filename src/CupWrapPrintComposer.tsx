@@ -51,7 +51,9 @@ import {
 } from "./services/cupWrap/adaptation";
 const SHOW_MANUAL_ARTWORK_TOOLS = false;
 const CupWrapSeamPreview = lazy(() => import("./CupWrapSeamPreview"));
-const PRINT_SETTINGS_KEY = "cup-wrap-print:settings:v2";
+const PRINT_SETTINGS_KEY = "cup-wrap-print:settings:v3";
+const LEGACY_PRINT_SETTINGS_KEY = "cup-wrap-print:settings:v2";
+const GAP_DEFAULTS_MIGRATION_KEY = "cup-wrap-print:gap-defaults:v2";
 const DEFAULT_AI_ADJUSTMENT: ImageAdjustment = {
   scale: 1,
   x: 0,
@@ -65,8 +67,8 @@ const DEFAULT_GEOMETRY_ADJUSTMENT: ImageAdjustment = {
   warp: 1,
   leftGap: 0,
   rightGap: 0,
-  topGap: 2,
-  bottomGap: 2,
+  topGap: 10,
+  bottomGap: 10,
 };
 function BlobPreview({ blob }: { blob: Blob }) {
   const [url, setUrl] = useState("");
@@ -209,7 +211,6 @@ export default function CupWrapPrintComposer({
     value: Placement;
   }>();
   const [designs, setDesigns] = useState<WrapDesign[]>(() => [fresh()]),
-    [selected, setSelected] = useState(""),
     [ready, setReady] = useState(false),
     [error, setError] = useState(""),
     [preview, setPreview] = useState(""),
@@ -222,6 +223,13 @@ export default function CupWrapPrintComposer({
     try {
       const saved = localStorage.getItem(PRINT_SETTINGS_KEY);
       if (saved) return { ...DEFAULT_PRINT, ...JSON.parse(saved) };
+      const previous = localStorage.getItem(LEGACY_PRINT_SETTINGS_KEY);
+      if (previous)
+        return {
+          ...DEFAULT_PRINT,
+          ...JSON.parse(previous),
+          cutLine: true,
+        };
       const legacy = JSON.parse(
         localStorage.getItem("cup-wrap-print:settings:v1") || "{}",
       );
@@ -236,7 +244,7 @@ export default function CupWrapPrintComposer({
   });
   const abort = useRef<AbortController | null>(null),
     saveChain = useRef(Promise.resolve());
-  const d = designs.find((v) => v.id === selected) || designs[0];
+  const d = designs[0];
   const imageAdjustment =
     d.aiAdjustment ??
     ((d.adaptationMode ?? "geometry") === "geometry"
@@ -269,10 +277,30 @@ export default function CupWrapPrintComposer({
   useEffect(() => {
     loadDesigns()
       .then((v) => {
+        const migrateOldGapDefaults = !localStorage.getItem(
+          GAP_DEFAULTS_MIGRATION_KEY,
+        );
         if (v.length)
           setDesigns(
-            v.map((item) => ({
+            v.slice(0, 1).map((item) => ({
               ...item,
+              aiAdjustment:
+                migrateOldGapDefaults &&
+                (item.adaptationMode ?? "geometry") === "geometry"
+                  ? {
+                      ...(item.aiAdjustment ?? DEFAULT_GEOMETRY_ADJUSTMENT),
+                      topGap:
+                        item.aiAdjustment?.topGap == null ||
+                        item.aiAdjustment.topGap === 2
+                          ? 10
+                          : item.aiAdjustment.topGap,
+                      bottomGap:
+                        item.aiAdjustment?.bottomGap == null ||
+                        item.aiAdjustment.bottomGap === 2
+                          ? 10
+                          : item.aiAdjustment.bottomGap,
+                    }
+                  : item.aiAdjustment,
               prompt:
                 item.prompt ===
                 "第一张是原始图案，第二张是目标展开轮廓引导图。输出画布构图对应第二张图，不要把红色轮廓线或其他辅助标记画进结果。保持文字内容和角色身份，不拉伸文字与角色。根据目标展开范围调整完整角色的位置、等比大小和间距，在空白区域补充风格一致的小装饰，保持脸部、眼睛和肢体完整。"
@@ -280,6 +308,8 @@ export default function CupWrapPrintComposer({
                   : item.prompt,
             })),
           );
+        if (migrateOldGapDefaults)
+          localStorage.setItem(GAP_DEFAULTS_MIGRATION_KEY, "1");
       })
       .catch((e) => setError(`恢复失败：${e}`))
       .finally(() => setReady(true));
@@ -882,7 +912,7 @@ export default function CupWrapPrintComposer({
                 )}
                 {number(
                   "图案上方留白 mm",
-                  imageAdjustment.topGap ?? 2,
+                  imageAdjustment.topGap ?? 10,
                   (topGap) =>
                     update({
                       aiAdjustment: { ...imageAdjustment, topGap },
@@ -892,7 +922,7 @@ export default function CupWrapPrintComposer({
                 )}
                 {number(
                   "图案下方留白 mm",
-                  imageAdjustment.bottomGap ?? 2,
+                  imageAdjustment.bottomGap ?? 10,
                   (bottomGap) =>
                     update({
                       aiAdjustment: { ...imageAdjustment, bottomGap },
@@ -1021,6 +1051,14 @@ export default function CupWrapPrintComposer({
           { value: "fill", label: "单页尽量填满" },
         ]}
       />
+      {print.mode === "quantity" &&
+        number(
+          "打印数量",
+          d.quantity,
+          (quantity) => update({ quantity }),
+          1,
+          100,
+        )}
       <p>
         RGB 透明
         TIF；白墨由打印软件处理。打印选择实际大小／100%，不要适合页面。先用纸样试贴。
@@ -1102,16 +1140,6 @@ export default function CupWrapPrintComposer({
           <Button disabled={!ready}>上传图案</Button>
         </Upload>
         <Button
-          onClick={() => {
-            const v = fresh();
-            setDesigns((a) => [...a, v]);
-            setSelected(v.id);
-            setLayout(undefined);
-          }}
-        >
-          新增设计
-        </Button>
-        <Button
           disabled={!g || !!busy}
           onClick={() =>
             g &&
@@ -1122,9 +1150,6 @@ export default function CupWrapPrintComposer({
           }
         >
           SVG 刀模
-        </Button>
-        <Button disabled={!g || seamBusy} onClick={openSeamPreview}>
-          {seamBusy ? "正在准备 3D…" : "模拟接缝"}
         </Button>
         <Button
           disabled={!g || !!busy}
@@ -1193,6 +1218,13 @@ export default function CupWrapPrintComposer({
           }
         >
           校准页
+        </Button>
+        <Button
+          type="primary"
+          disabled={!g || seamBusy}
+          onClick={openSeamPreview}
+        >
+          {seamBusy ? "正在准备 3D…" : "3D 模拟"}
         </Button>
         {busy && (
           <>
@@ -1421,66 +1453,6 @@ export default function CupWrapPrintComposer({
           )}
         </main>
         {!settingsHost && <aside>{panel}</aside>}
-      </div>
-      <div className="cup-designs">
-        {designs.map((v) => (
-          <Card
-            key={v.id}
-            size="small"
-            title={
-              <Button
-                type={v.id === d.id ? "primary" : "text"}
-                onClick={() => setSelected(v.id)}
-              >
-                {v.name}
-              </Button>
-            }
-          >
-            <Input
-              aria-label="设计名称"
-              value={v.name}
-              onChange={(e) => {
-                setDesigns((a) =>
-                  a.map((x) =>
-                    x.id === v.id ? { ...x, name: e.target.value } : x,
-                  ),
-                );
-                setLayout(undefined);
-              }}
-            />
-            <label>
-              打印数量{" "}
-              <InputNumber
-                min={1}
-                max={100}
-                value={v.quantity}
-                onChange={(n) => {
-                  setDesigns((a) =>
-                    a.map((x) =>
-                      x.id === v.id ? { ...x, quantity: n || 1 } : x,
-                    ),
-                  );
-                  setLayout(undefined);
-                }}
-              />
-            </label>
-            <Button
-              danger
-              disabled={designs.length === 1}
-              onClick={() =>
-                Modal.confirm({
-                  title: "删除该设计？",
-                  onOk: () => {
-                    setDesigns((a) => a.filter((x) => x.id !== v.id));
-                    setLayout(undefined);
-                  },
-                })
-              }
-            >
-              删除
-            </Button>
-          </Card>
-        ))}
       </div>
       {d.aiResults.length > 0 && (
         <Card title="AI 候选图（点击放大后检查，采用才用于打印）">
