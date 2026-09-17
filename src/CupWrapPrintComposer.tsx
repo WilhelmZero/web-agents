@@ -16,6 +16,7 @@ import {
   Tabs,
   Upload,
 } from "antd";
+import { RotateRightOutlined } from "@ant-design/icons";
 import {
   DEFAULT_CUP,
   geometry,
@@ -931,8 +932,9 @@ export default function CupWrapPrintComposer({
                   Math.max(0, d.cup.height / 2),
                 )}
                 <p>
-                  四边留白直接控制图案在扇形中的起止位置；左右默认 0
-                  mm，尽量铺满宽度。增大对应数值会压缩图案并留出空白。
+                  {
+                    "四边留白直接控制图案在扇形中的起止位置；左右默认 0 mm，尽量铺满宽度。增大对应数值会压缩图案并留出空白。"
+                  }
                 </p>
               </>
             )}
@@ -1060,8 +1062,9 @@ export default function CupWrapPrintComposer({
           100,
         )}
       <p>
-        RGB 透明
-        TIF；白墨由打印软件处理。打印选择实际大小／100%，不要适合页面。先用纸样试贴。
+        {
+          "RGB 透明 TIF；白墨由打印软件处理。打印选择实际大小／100%，不要适合页面。先用纸样试贴。"
+        }
       </p>
     </div>
   );
@@ -1131,109 +1134,115 @@ export default function CupWrapPrintComposer({
           title={error || geo.error}
         />
       )}
-      <Space wrap>
-        <Upload
-          showUploadList={false}
-          beforeUpload={upload}
-          accept="image/png,image/jpeg,image/webp"
-        >
-          <Button disabled={!ready}>上传图案</Button>
-        </Upload>
-        <Button
-          disabled={!g || !!busy}
-          onClick={() =>
-            g &&
-            download(
-              new Blob([dielineSvg(g)], { type: "image/svg+xml" }),
-              "dieline.svg",
-            )
-          }
-        >
-          SVG 刀模
-        </Button>
-        <Button
-          disabled={!g || !!busy}
-          onClick={() =>
-            run("正在导出 TIF", async (signal) => {
-              const bytes = await work<ArrayBuffer>(
-                {
-                  kind: "tiff",
-                  design: structuredClone(d),
-                  dpi: print.dpi,
-                  bleed: print.bleed,
-                  cutLine: print.cutLine,
-                },
-                signal,
-              );
+      <div className="cup-action-rows">
+        <Space wrap>
+          <Upload
+            showUploadList={false}
+            beforeUpload={upload}
+            accept="image/png,image/jpeg,image/webp"
+          >
+            <Button disabled={!ready}>上传图案</Button>
+          </Upload>
+        </Space>
+        <Space wrap>
+          <Button
+            disabled={!g || !!busy}
+            onClick={() =>
+              g &&
               download(
-                new Blob([bytes], { type: "image/tiff" }),
-                `${d.name}.tif`,
-              );
-            })
-          }
-        >
-          1:1 TIF
-        </Button>
-        <Button
-          disabled={!g || !!busy}
-          onClick={() =>
-            run("正在导出 PDF", async (signal) =>
-              download(
-                await exportPdf(
-                  [structuredClone(d)],
-                  { ...print },
-                  undefined,
+                new Blob([dielineSvg(g)], { type: "image/svg+xml" }),
+                "dieline.svg",
+              )
+            }
+          >
+            SVG 刀模
+          </Button>
+          <Button
+            disabled={!g || !!busy}
+            onClick={() =>
+              run("正在导出 TIF", async (signal) => {
+                const bytes = await work<ArrayBuffer>(
+                  {
+                    kind: "tiff",
+                    design: structuredClone(d),
+                    dpi: print.dpi,
+                    bleed: print.bleed,
+                    cutLine: print.cutLine,
+                  },
                   signal,
+                );
+                download(
+                  new Blob([bytes], { type: "image/tiff" }),
+                  `${d.name}.tif`,
+                );
+              })
+            }
+          >
+            1:1 TIF
+          </Button>
+          <Button
+            disabled={!g || !!busy}
+            onClick={() =>
+              run("正在导出 PDF", async (signal) =>
+                download(
+                  await exportPdf(
+                    [structuredClone(d)],
+                    { ...print },
+                    undefined,
+                    signal,
+                  ),
+                  `${d.name}.pdf`,
                 ),
-                `${d.name}.pdf`,
-              ),
-            )
-          }
-        >
-          1:1 PDF
-        </Button>
-        <Button
-          disabled={!layout || layoutBusy || !!busy}
-          onClick={() =>
-            run("正在导出 A4", async (signal) =>
-              download(
-                await exportPdf(
-                  structuredClone(designs),
-                  { ...print },
-                  layout,
-                  signal,
+              )
+            }
+          >
+            1:1 PDF
+          </Button>
+          <Button
+            disabled={!layout || layoutBusy || !!busy}
+            onClick={() =>
+              run("正在导出 A4", async (signal) =>
+                download(
+                  await exportPdf(
+                    structuredClone(designs),
+                    { ...print },
+                    layout,
+                    signal,
+                  ),
+                  "A4-print.pdf",
                 ),
-                "A4-print.pdf",
-              ),
-            )
-          }
-        >
-          下载 A4 PDF
-        </Button>
-        <Button
-          onClick={() =>
-            run("校准页", async () =>
-              download(await calibrationPdf(), "calibration-100mm.pdf"),
-            )
-          }
-        >
-          校准页
-        </Button>
-        <Button
-          type="primary"
-          disabled={!g || seamBusy}
-          onClick={openSeamPreview}
-        >
-          {seamBusy ? "正在准备 3D…" : "3D 模拟"}
-        </Button>
-        {busy && (
-          <>
-            <Spin size="small" />
-            {busy}
-            <Button onClick={() => abort.current?.abort()}>停止</Button>
-          </>
-        )}
-      </Space>
+              )
+            }
+          >
+            下载 A4 PDF
+          </Button>
+          <Button
+            onClick={() =>
+              run("校准页", async () =>
+                download(await calibrationPdf(), "calibration-100mm.pdf"),
+              )
+            }
+          >
+            校准页
+          </Button>
+          <Button
+            type="primary"
+            icon={<RotateRightOutlined />}
+            aria-label="3D 模拟"
+            disabled={!g || seamBusy}
+            onClick={openSeamPreview}
+          >
+            {seamBusy ? "正在准备 3D…" : "3D 模拟"}
+          </Button>
+          {busy && (
+            <>
+              <Spin size="small" />
+              {busy}
+              <Button onClick={() => abort.current?.abort()}>停止</Button>
+            </>
+          )}
+        </Space>
+      </div>
       <div className="cup-body">
         <main>
           <Tabs

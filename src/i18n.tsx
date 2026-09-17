@@ -97,6 +97,89 @@ const translations: Record<string, string> = {
   显示拼接标记: "Show assembly marks",
   "精确展开、图案适配与 1:1 TIF / A4 输出":
     "Exact development, artwork fitting and 1:1 TIFF / A4 export",
+  "毫米级展开 · 图案不拉伸 · 1:1 输出":
+    "Millimeter-accurate dieline · No artwork stretching · 1:1 output",
+  "仅适用于直壁圆柱／圆台杯；输入外表面尺寸。鼓肚、收腰和实物公差需要另行测量。":
+    "For straight cylinders and tapered cups only. Enter outside dimensions; curved profiles and manufacturing tolerances require separate measurement.",
+  出血: "Bleed",
+  安全线: "Safe margin",
+  等比缩放: "Uniform scale",
+  "旋转 °": "Rotation °",
+  图案适配方式: "Artwork adaptation",
+  图案适配: "Artwork fit",
+  "原图几何映射（推荐）": "Geometric mapping (recommended)",
+  "AI 适配": "AI adaptation",
+  "本地智能排布（免费）": "Local smart layout (free)",
+  "确定性圆台映射 · 不调用 AI": "Deterministic frustum mapping · No AI calls",
+  "严格按杯口径、杯底径和垂直高度计算扇形；保留原图内容与相对排版，不生成红线、文字或新角色，并自动留出安全边距防止边缘裁切。":
+    "Calculates the sector from the top diameter, bottom diameter, and vertical height. Preserves the original content and relative layout, adds no guide lines, text, or new characters, and keeps a safe margin against clipping.",
+  "透明底（自动移除与边界连通的纯色背景）":
+    "Transparent background (remove uniform color connected to the edge)",
+  "未勾选时输出纯白底。只移除与边界连通且颜色均匀的背景；角色身体、眼睛和封闭区域中的白色或黑色会保留。":
+    "When disabled, output uses a solid white background. Only a uniform background connected to the border is removed; white or black areas inside characters, eyes, and enclosed shapes are preserved.",
+  生成图片微调: "Generated image adjustments",
+  "非破坏性调整，原图保留；预览和打印同步更新。几何映射默认使用完整扇形路径（1），可调低以减弱弯曲。缩放或移动超出安全区时可能裁切。":
+    "Non-destructive adjustments preserve the original. Preview and print update together. Geometric mapping uses the full sector path (1) by default; lower it to reduce curvature. Scaling or moving beyond the safe area may clip artwork.",
+  图片缩放: "Image scale",
+  "图案左侧留白 mm": "Artwork left margin mm",
+  "图案右侧留白 mm": "Artwork right margin mm",
+  "图案上方留白 mm": "Artwork top margin mm",
+  "图案下方留白 mm": "Artwork bottom margin mm",
+  "四边留白直接控制图案在扇形中的起止位置；左右默认 0 mm，尽量铺满宽度。增大对应数值会压缩图案并留出空白。":
+    "The four margins directly control the artwork bounds in the sector. Left and right default to 0 mm to fill the width; increasing a value compresses the artwork and adds space.",
+  "图片水平 mm": "Image horizontal offset mm",
+  "图片垂直 mm": "Image vertical offset mm",
+  "扇形路径变形（0–1）": "Sector path warp (0–1)",
+  重置图片微调: "Reset image adjustments",
+  "下载 AI 原始图（不裁刀模）": "Download original AI image (uncropped)",
+  "导出裁切线（黑色 0.1 mm）": "Export cut line (black, 0.1 mm)",
+  "RGB 透明 TIF；白墨由打印软件处理。打印选择实际大小／100%，不要适合页面。先用纸样试贴。":
+    "Transparent RGB TIFF; white ink is handled by the print software. Print at actual size / 100%, not fit to page. Test with a paper sample first.",
+  "辅助线（不进入彩图）": "Guides (not included in artwork)",
+  "上传设计后将自动生成 A4 混排。":
+    "An A4 layout will be generated automatically after artwork is uploaded.",
+  "正在根据最新设计与设置自动混排…":
+    "Automatically laying out the latest design and settings…",
+  "杯身接缝 3D 模拟": "3D cup seam preview",
+  显示玻璃杯: "Show glass cup",
+  正面: "Front",
+  接缝面: "Seam view",
+  收起贴图: "Wrap artwork",
+  展开贴图: "Unwrap artwork",
+  重置视角: "Reset view",
+  "拖动旋转 · 滚轮缩放 · 红色虚线为接缝中心。负接缝会故意留缝，0 mm 首尾闭合，正接缝产生搭接。透明图案按白色花纸基材模拟剪下后的整张贴膜。该模拟用于视觉检查，不代表玻璃壁厚制造尺寸。":
+    "Drag to rotate · Scroll to zoom · The red dashed line marks the seam center. Negative values leave a gap, 0 mm closes edge to edge, and positive values create overlap. Transparent artwork is previewed on a white transfer-paper substrate. This simulation is for visual inspection and does not represent manufactured glass thickness.",
+  "正在建立 3D 杯身…": "Building the 3D cup…",
+  首尾无缝连接: "Edges meet with no gap",
+  "A4 排版": "A4 layout",
+  "1:1 PDF": "1:1 PDF",
+  "正在准备 3D…": "Preparing 3D…",
+  正在导出: "Exporting",
+  "正在导出 TIF": "Exporting TIFF",
+  "正在导出 PDF": "Exporting PDF",
+  "正在导出 A4": "Exporting A4 PDF",
+  "正在导出拼接 PDF": "Exporting tiled PDF",
+  "宽度 mm": "Width mm",
+  "角度 °": "Angle °",
+  删除图层: "Delete layer",
+  已保护: "Protected",
+  "适用于透明底、白底或其他纯色底贴纸图。本地识别后先确认主体和可复制小装饰，再按真实刀模重新排布。":
+    "For transparent, white, or other solid-background sticker art. Confirm the main subjects and reusable decorations after local detection, then rearrange them to the true dieline.",
+  "检查／重新排布": "Review / rearrange",
+  分析素材并排布: "Analyze and arrange artwork",
+  "AI 适配提示词": "AI adaptation prompt",
+  "请求透明背景（默认纯白底）":
+    "Request transparent background (solid white by default)",
+  透明结果填充自定义底色: "Fill transparent result with a custom color",
+  自定义背景颜色: "Custom background color",
+  查看最终提交提示词: "View final submitted prompt",
+  "输入顺序：原图、精确刀模引导图。仅调整间距，不改变主体大小。采用后按整幅刀模画布对齐，不再缩入矩形或叠加旧图层。AI 仍可能偏离要求，请检查后采用。自定义底色仅填充透明区域；若服务返回不透明图，请重新生成，不会删除白色角色。":
+    "Input order: original artwork, then the precise dieline guide. Adjust spacing only; do not resize subjects. Accepted output aligns to the complete dieline canvas without shrinking into a rectangle or overlaying old layers. AI may still deviate, so review before use. A custom color fills transparent areas only; if the service returns an opaque image, regenerate it rather than deleting white characters.",
+  "图案外框有部分超出刀模，导出会裁切越界像素。请检查文字和完整角色，必要时缩小或移动。":
+    "Part of the artwork bounds extends beyond the dieline and will be clipped on export. Check text and complete characters; scale down or move them if needed.",
+  "1:1 多页拼接（不缩小图案）": "1:1 tiled pages (no scaling)",
+  "移动／旋转排版图案（不缩放）": "Move / rotate layout artwork (no scaling)",
+  "重叠 mm": "Overlap mm",
   萌宠字母贴纸: "Pet letter stickers",
   "完整萌宠、互动姿势与高清 A–Z 字母排版":
     "Complete pets, interactive poses and high-resolution A–Z layouts",
@@ -863,7 +946,7 @@ const translations: Record<string, string> = {
   "Keys 会保存在当前浏览器": "Keys are stored in this browser",
   "请求地址：https://api.openai.com/v1，不经过中转站":
     "Endpoint: https://api.openai.com/v1. No relay service is used.",
-  去除背景: "Background remover",
+  去除背景: "Remove background",
   "一键智能抠图，直接生成透明背景":
     "Remove backgrounds and create transparent images",
   "可选择本地像素级抠图、GPT + Alpha Matting，或由 GPT 直接返回透明 PNG。":
@@ -1390,6 +1473,22 @@ function translateText(value: string): string {
     ];
   if (exact) return value.replace(trimmed, exact);
   const regexTranslations: Array<[RegExp, string]> = [
+    [/^缩放滑动条 · (\d+)%$/, "Scale slider · $1%"],
+    [/^A4 排版 · 自动计算中$/, "A4 layout · Calculating automatically"],
+    [/^A4 排版 · (\d+) 页$/, "A4 layout · $1 pages"],
+    [
+      /^上弧 ([\d.]+) \/ 下弧 ([\d.]+) \/ 斜高 ([\d.]+) mm$/,
+      "Top arc $1 / Bottom arc $2 / Slant height $3 mm",
+    ],
+    [
+      /^裁切包围盒 ([\d.]+) × ([\d.]+) mm · 面积 ([\d.]+) mm²$/,
+      "Cut bounds $1 × $2 mm · Area $3 mm²",
+    ],
+    [/^搭接 ([-\d.]+) mm$/, "Overlap $1 mm"],
+    [
+      /^接缝为负值：按设置保留约 ([\d.]+) mm 裸露玻璃（设为 0 可闭合）$/,
+      "Negative seam: approximately $1 mm of exposed glass remains (set to 0 to close)",
+    ],
     [/^准备替换 (\d+) 张图片$/, "Ready to replace $1 images"],
     [
       /^(\d+) 张场景图 × 每张 (\d+) 个结果$/,

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Button, Checkbox, Modal, Space } from "antd";
+import { CompressOutlined, ExpandOutlined } from "@ant-design/icons";
 import type { Texture } from "three";
 import type { CupParams } from "./services/cupWrap/geometry";
 import { geometry } from "./services/cupWrap/geometry";
@@ -591,15 +592,9 @@ export default function CupWrapSeamPreview({
     >
       <div className="cup-seam-toolbar">
         <Space wrap>
-          <Checkbox
-            checked={showGlass}
-            onChange={(event) => setShowGlass(event.target.checked)}
-          >
-            显示玻璃杯
-          </Checkbox>
-          <Button onClick={() => setViewRef.current("front")}>正面</Button>
-          <Button onClick={() => setViewRef.current("seam")}>接缝面</Button>
           <Button
+            type="primary"
+            icon={expanded ? <CompressOutlined /> : <ExpandOutlined />}
             onClick={() => {
               const next = !expanded;
               setExpanded(next);
@@ -608,6 +603,14 @@ export default function CupWrapSeamPreview({
           >
             {expanded ? "收起贴图" : "展开贴图"}
           </Button>
+          <Checkbox
+            checked={showGlass}
+            onChange={(event) => setShowGlass(event.target.checked)}
+          >
+            显示玻璃杯
+          </Checkbox>
+          <Button onClick={() => setViewRef.current("front")}>正面</Button>
+          <Button onClick={() => setViewRef.current("seam")}>接缝面</Button>
           <Button
             disabled={!activeTexture}
             loading={removingBackground}
@@ -627,8 +630,9 @@ export default function CupWrapSeamPreview({
         onDoubleClick={() => setViewRef.current("seam")}
       />
       <p className="cup-seam-note">
-        拖动旋转 · 滚轮缩放 · 红色虚线为接缝中心。负接缝会故意留缝，0 mm
-        首尾闭合，正接缝产生搭接。透明图案按白色花纸基材模拟剪下后的整张贴膜。该模拟用于视觉检查，不代表玻璃壁厚制造尺寸。
+        {
+          "拖动旋转 · 滚轮缩放 · 红色虚线为接缝中心。负接缝会故意留缝，0 mm 首尾闭合，正接缝产生搭接。透明图案按白色花纸基材模拟剪下后的整张贴膜。该模拟用于视觉检查，不代表玻璃壁厚制造尺寸。"
+        }
       </p>
     </Modal>
   );
