@@ -272,6 +272,9 @@ export default function CupWrapSeamPreview({
           geometry: InstanceType<typeof THREE.BufferGeometry>;
           wrapped: Float32Array;
           flat: Float32Array;
+          wrappedUvs: Float32Array;
+          flatUvs: Float32Array;
+          usesFlatUvs: boolean;
         }> = [];
         const createMorphGeometry = (radiusOffset: number) => {
           const uSegments = 128;
@@ -280,9 +283,13 @@ export default function CupWrapSeamPreview({
             (uSegments + 1) * (vSegments + 1) * 3,
           );
           const flat = new Float32Array(wrapped.length);
-          const uvs: number[] = [];
+          const wrappedUvs = new Float32Array(
+            (uSegments + 1) * (vSegments + 1) * 2,
+          );
+          const flatUvs = new Float32Array(wrappedUvs.length);
           const indices: number[] = [];
           let cursor = 0;
+          let uvCursor = 0;
           for (let vIndex = 0; vIndex <= vSegments; vIndex++) {
             const v = vIndex / vSegments;
             const radius =
@@ -298,16 +305,22 @@ export default function CupWrapSeamPreview({
                 metrics.printCenterY + metrics.printHeight * (0.5 - v);
               wrapped[cursor + 2] = radius * Math.cos(theta);
               const point = warpPoint(flatGeometry, u, v, 1);
-              // The seam camera looks along +Z, so its screen-right direction
-              // is world -X. Reverse the flat X axis to keep artwork readable.
-              flat[cursor] = flatGeometry.width / 2 - point.x;
+              // Keep each cut edge on its own side while opening: u=0 travels
+              // left and u=1 travels right. Swapping the flat UVs (instead of
+              // the vertex positions) preserves readable artwork without the
+              // two halves crossing through one another.
+              flat[cursor] = point.x - flatGeometry.width / 2;
               flat[cursor + 1] = flatGeometry.height / 2 - point.y;
               flat[cursor + 2] =
                 -Math.max(metrics.topRadius, metrics.bottomRadius) -
                 12 -
                 radiusOffset;
               cursor += 3;
-              uvs.push(u, 1 - v);
+              wrappedUvs[uvCursor] = u;
+              wrappedUvs[uvCursor + 1] = 1 - v;
+              flatUvs[uvCursor] = 1 - u;
+              flatUvs[uvCursor + 1] = 1 - v;
+              uvCursor += 2;
             }
           }
           for (let v = 0; v < vSegments; v++) {
@@ -323,9 +336,19 @@ export default function CupWrapSeamPreview({
             "position",
             new THREE.BufferAttribute(wrapped.slice(), 3),
           );
-          result.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+          result.setAttribute(
+            "uv",
+            new THREE.BufferAttribute(wrappedUvs.slice(), 2),
+          );
           result.computeVertexNormals();
-          morphGeometries.push({ geometry: result, wrapped, flat });
+          morphGeometries.push({
+            geometry: result,
+            wrapped,
+            flat,
+            wrappedUvs,
+            flatUvs,
+            usesFlatUvs: false,
+          });
           return result;
         };
         const filmGeometry = createMorphGeometry(0.2);
@@ -437,6 +460,21 @@ export default function CupWrapSeamPreview({
                 item.wrapped[index] +
                 (item.flat[index] - item.wrapped[index]) * eased;
             position.needsUpdate = true;
+            // Changing handedness continuously would squeeze the entire image
+            // through a zero-width texture at mid-animation. Flip only once
+            // the sheet is practically flat, while its geometry always opens
+            // outwards without crossing.
+            const shouldUseFlatUvs = morphProgress > 0.98;
+            if (shouldUseFlatUvs !== item.usesFlatUvs) {
+              const uv = item.geometry.getAttribute("uv") as InstanceType<
+                typeof THREE.BufferAttribute
+              >;
+              (uv.array as Float32Array).set(
+                shouldUseFlatUvs ? item.flatUvs : item.wrappedUvs,
+              );
+              uv.needsUpdate = true;
+              item.usesFlatUvs = shouldUseFlatUvs;
+            }
             item.geometry.computeVertexNormals();
           }
           marker.visible = morphProgress < 0.98;
