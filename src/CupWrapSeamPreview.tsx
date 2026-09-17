@@ -195,6 +195,7 @@ export default function CupWrapSeamPreview({
           transmission: 0.72,
           thickness: 1.2,
           side: THREE.DoubleSide,
+          depthWrite: false,
         });
         glassGroup.add(new THREE.Mesh(glassGeometry, glassMaterial));
         resources.push(glassGeometry, glassMaterial);
@@ -269,7 +270,9 @@ export default function CupWrapSeamPreview({
         const morphGeometries: Array<{
           geometry: InstanceType<typeof THREE.BufferGeometry>;
           wrapped: Float32Array;
-          flat: Float32Array;
+          vertexU: Float32Array;
+          radius: Float32Array;
+          flatY: Float32Array;
         }> = [];
         const createMorphGeometry = (radiusOffset: number) => {
           const uSegments = 128;
@@ -277,11 +280,15 @@ export default function CupWrapSeamPreview({
           const wrapped = new Float32Array(
             (uSegments + 1) * (vSegments + 1) * 3,
           );
-          const flat = new Float32Array(wrapped.length);
+          const vertexCount = (uSegments + 1) * (vSegments + 1);
+          const vertexU = new Float32Array(vertexCount);
+          const radii = new Float32Array(vertexCount);
+          const flatY = new Float32Array(vertexCount);
           const uvs = new Float32Array((uSegments + 1) * (vSegments + 1) * 2);
           const indices: number[] = [];
           let cursor = 0;
           let uvCursor = 0;
+          let vertexIndex = 0;
           for (let vIndex = 0; vIndex <= vSegments; vIndex++) {
             const v = vIndex / vSegments;
             const radius =
@@ -297,19 +304,14 @@ export default function CupWrapSeamPreview({
                 metrics.printCenterY + metrics.printHeight * (0.5 - v);
               wrapped[cursor + 2] = radius * Math.cos(theta);
               const point = warpPoint(flatGeometry, u, v, 1);
-              const hingeTheta = -metrics.visibleAngle / 2;
-              const hingeX = radius * Math.sin(hingeTheta);
-              const hingeZ = radius * Math.cos(hingeTheta);
-              // Keep the seam's screen-right edge (u=0, the flat artwork's
-              // left edge) fixed as a hinge. The rest of the sheet unwraps
-              // toward screen-right without moving through the cup.
-              flat[cursor] = hingeX - point.x;
-              flat[cursor + 1] = flatGeometry.height / 2 - point.y;
-              flat[cursor + 2] = hingeZ;
+              vertexU[vertexIndex] = u;
+              radii[vertexIndex] = radius;
+              flatY[vertexIndex] = flatGeometry.height / 2 - point.y;
               cursor += 3;
               uvs[uvCursor] = u;
               uvs[uvCursor + 1] = 1 - v;
               uvCursor += 2;
+              vertexIndex++;
             }
           }
           for (let v = 0; v < vSegments; v++) {
@@ -327,7 +329,13 @@ export default function CupWrapSeamPreview({
           );
           result.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
           result.computeVertexNormals();
-          morphGeometries.push({ geometry: result, wrapped, flat });
+          morphGeometries.push({
+            geometry: result,
+            wrapped,
+            vertexU,
+            radius: radii,
+            flatY,
+          });
           return result;
         };
         const filmGeometry = createMorphGeometry(0.2);
@@ -365,11 +373,14 @@ export default function CupWrapSeamPreview({
           const material = new THREE.MeshStandardMaterial({
             map,
             transparent: true,
+            alphaTest: backgroundRemoved ? 0.01 : 0,
+            depthWrite: false,
             roughness: 0.52,
             metalness: 0,
             side: THREE.DoubleSide,
           });
           const mesh = new THREE.Mesh(geometry, material);
+          mesh.renderOrder = 2;
           mesh.position.y = metrics.printCenterY;
           group.add(mesh);
           resources.push(geometry, material, map);
@@ -430,15 +441,39 @@ export default function CupWrapSeamPreview({
             morphProgress += (morphTarget - morphProgress) * 0.065;
           }
           const eased = morphProgress * morphProgress * (3 - 2 * morphProgress);
+          const remainingCurve = 1 - eased;
+          const hingeTheta = -metrics.visibleAngle / 2;
           for (const item of morphGeometries) {
             const position = item.geometry.getAttribute(
               "position",
             ) as InstanceType<typeof THREE.BufferAttribute>;
             const values = position.array as Float32Array;
-            for (let index = 0; index < values.length; index++)
-              values[index] =
-                item.wrapped[index] +
-                (item.flat[index] - item.wrapped[index]) * eased;
+            for (let vertex = 0; vertex < item.vertexU.length; vertex++) {
+              const index = vertex * 3;
+              const u = item.vertexU[vertex];
+              const radius = item.radius[vertex];
+              const arc = u * metrics.visibleAngle;
+              const hingeX = radius * Math.sin(hingeTheta);
+              const hingeZ = radius * Math.cos(hingeTheta);
+              if (remainingCurve < 0.0001 || arc < 0.000001) {
+                values[index] = hingeX + radius * arc * Math.cos(hingeTheta);
+                values[index + 2] =
+                  hingeZ - radius * arc * Math.sin(hingeTheta);
+              } else {
+                const curvedArc = remainingCurve * arc;
+                values[index] =
+                  hingeX +
+                  (radius / remainingCurve) *
+                    (Math.sin(hingeTheta + curvedArc) - Math.sin(hingeTheta));
+                values[index + 2] =
+                  hingeZ +
+                  (radius / remainingCurve) *
+                    (Math.cos(hingeTheta + curvedArc) - Math.cos(hingeTheta));
+              }
+              values[index + 1] =
+                item.wrapped[index + 1] +
+                (item.flatY[vertex] - item.wrapped[index + 1]) * eased;
+            }
             position.needsUpdate = true;
             item.geometry.computeVertexNormals();
           }
