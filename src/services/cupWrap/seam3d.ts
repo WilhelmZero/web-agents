@@ -18,11 +18,12 @@ export interface SeamPreviewGeometry {
 export function seamPreviewGeometry(cup: CupParams): SeamPreviewGeometry {
   const topRadius = cup.top / 2;
   const bottomRadius = cup.bottom / 2;
-  const printHeight = cup.height - cup.topInset - cup.bottomInset;
-  const radiusAt = (distanceFromTop: number) =>
-    topRadius + ((bottomRadius - topRadius) * distanceFromTop) / cup.height;
-  const printTopRadius = radiusAt(cup.topInset);
-  const printBottomRadius = radiusAt(cup.height - cup.bottomInset);
+  // The artwork already contains the configured top/bottom whitespace. The
+  // physical sheet in the 3D mockup therefore reaches both cup rims; applying
+  // the insets again here would create duplicated blank bands.
+  const printHeight = cup.height;
+  const printTopRadius = topRadius;
+  const printBottomRadius = bottomRadius;
   const averagePrintRadius = (printTopRadius + printBottomRadius) / 2;
   const baseAngle = (cup.coverage * Math.PI) / 180;
   const effectiveAngle = Math.max(
@@ -34,7 +35,7 @@ export function seamPreviewGeometry(cup: CupParams): SeamPreviewGeometry {
     bottomRadius,
     height: cup.height,
     printHeight,
-    printCenterY: (cup.bottomInset - cup.topInset) / 2,
+    printCenterY: 0,
     printTopRadius,
     printBottomRadius,
     baseAngle,

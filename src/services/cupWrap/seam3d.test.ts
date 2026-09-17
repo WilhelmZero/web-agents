@@ -14,16 +14,16 @@ it("builds cylinder, normal taper and reverse taper dimensions", () => {
   expect(reverse.bottomRadius).toBe(20);
 });
 
-it("places print band between top and bottom insets", () => {
+it("does not apply artwork insets twice in the physical mockup", () => {
   const value = seamPreviewGeometry({
     ...DEFAULT_CUP,
     topInset: 10,
     bottomInset: 15,
   });
-  expect(value.printHeight).toBe(80);
-  expect(value.printCenterY).toBe(2.5);
-  expect(value.printTopRadius).toBeCloseTo(20 - (3 * 10) / 105);
-  expect(value.printBottomRadius).toBeCloseTo(17 + (3 * 15) / 105);
+  expect(value.printHeight).toBe(105);
+  expect(value.printCenterY).toBe(0);
+  expect(value.printTopRadius).toBe(20);
+  expect(value.printBottomRadius).toBe(17);
 });
 
 it("converts negative, zero and positive seams into gaps and overlaps", () => {

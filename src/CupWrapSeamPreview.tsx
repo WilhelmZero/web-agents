@@ -87,12 +87,14 @@ export default function CupWrapSeamPreview({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const setViewRef = useRef<(side: "front" | "seam") => void>(() => {});
   const setGlassVisibleRef = useRef<(visible: boolean) => void>(() => {});
+  const setExpandedRef = useRef<(expanded: boolean) => void>(() => {});
   const receivedTextureProp = useRef(false);
   const [showGlass, setShowGlass] = useState(initialShowGlass);
   const [status, setStatus] = useState("");
   const [activeTexture, setActiveTexture] = useState(texture);
   const [textureRevision, setTextureRevision] = useState(0);
   const [removingBackground, setRemovingBackground] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     if (!receivedTextureProp.current) {
@@ -138,7 +140,16 @@ export default function CupWrapSeamPreview({
         controls.dampingFactor = 0.08;
         controls.target.set(0, 0, 0);
         const metrics = seamPreviewGeometry(cup);
-        const distance = Math.max(cup.height * 1.55, cup.top * 3.2);
+        const flatGeometry = geometry({
+          ...cup,
+          topInset: 0,
+          bottomInset: 0,
+        });
+        const distance = Math.max(
+          cup.height * 1.7,
+          cup.top * 3.2,
+          flatGeometry.width * 1.45,
+        );
         const setView = (side: "front" | "seam") => {
           camera.position.set(
             0,
@@ -257,16 +268,67 @@ export default function CupWrapSeamPreview({
         baseTexture.needsUpdate = true;
         resources.push(baseTexture);
         const printRadiusOffset = 0.35;
-        const filmGeometry = new THREE.CylinderGeometry(
-          metrics.printTopRadius + 0.2,
-          metrics.printBottomRadius + 0.2,
-          metrics.printHeight,
-          128,
-          1,
-          true,
-          -metrics.visibleAngle / 2,
-          Math.max(0.0001, metrics.visibleAngle),
-        );
+        const morphGeometries: Array<{
+          geometry: InstanceType<typeof THREE.BufferGeometry>;
+          wrapped: Float32Array;
+          flat: Float32Array;
+        }> = [];
+        const createMorphGeometry = (radiusOffset: number) => {
+          const uSegments = 128;
+          const vSegments = 10;
+          const wrapped = new Float32Array(
+            (uSegments + 1) * (vSegments + 1) * 3,
+          );
+          const flat = new Float32Array(wrapped.length);
+          const uvs: number[] = [];
+          const indices: number[] = [];
+          let cursor = 0;
+          for (let vIndex = 0; vIndex <= vSegments; vIndex++) {
+            const v = vIndex / vSegments;
+            const radius =
+              metrics.printTopRadius +
+              (metrics.printBottomRadius - metrics.printTopRadius) * v +
+              radiusOffset;
+            for (let uIndex = 0; uIndex <= uSegments; uIndex++) {
+              const u = uIndex / uSegments;
+              const theta =
+                -metrics.visibleAngle / 2 + u * metrics.visibleAngle;
+              wrapped[cursor] = radius * Math.sin(theta);
+              wrapped[cursor + 1] =
+                metrics.printCenterY + metrics.printHeight * (0.5 - v);
+              wrapped[cursor + 2] = radius * Math.cos(theta);
+              const point = warpPoint(flatGeometry, u, v, 1);
+              // The seam camera looks along +Z, so its screen-right direction
+              // is world -X. Reverse the flat X axis to keep artwork readable.
+              flat[cursor] = flatGeometry.width / 2 - point.x;
+              flat[cursor + 1] = flatGeometry.height / 2 - point.y;
+              flat[cursor + 2] =
+                -Math.max(metrics.topRadius, metrics.bottomRadius) -
+                12 -
+                radiusOffset;
+              cursor += 3;
+              uvs.push(u, 1 - v);
+            }
+          }
+          for (let v = 0; v < vSegments; v++) {
+            for (let u = 0; u < uSegments; u++) {
+              const a = v * (uSegments + 1) + u;
+              const b = a + uSegments + 1;
+              indices.push(a, b, a + 1, b, b + 1, a + 1);
+            }
+          }
+          const result = new THREE.BufferGeometry();
+          result.setIndex(indices);
+          result.setAttribute(
+            "position",
+            new THREE.BufferAttribute(wrapped.slice(), 3),
+          );
+          result.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+          result.computeVertexNormals();
+          morphGeometries.push({ geometry: result, wrapped, flat });
+          return result;
+        };
+        const filmGeometry = createMorphGeometry(0.2);
         const filmMaterial = new THREE.MeshStandardMaterial({
           color: 0xffffff,
           roughness: 0.58,
@@ -283,16 +345,20 @@ export default function CupWrapSeamPreview({
           map: Texture,
           radiusOffset: number,
         ) => {
-          const geometry = new THREE.CylinderGeometry(
-            metrics.printTopRadius + radiusOffset,
-            metrics.printBottomRadius + radiusOffset,
-            metrics.printHeight,
-            128,
-            1,
-            true,
-            start,
-            Math.max(0.0001, angle),
-          );
+          const geometry =
+            Math.abs(angle - metrics.visibleAngle) < 0.0001 &&
+            Math.abs(start + metrics.visibleAngle / 2) < 0.0001
+              ? createMorphGeometry(radiusOffset)
+              : new THREE.CylinderGeometry(
+                  metrics.printTopRadius + radiusOffset,
+                  metrics.printBottomRadius + radiusOffset,
+                  metrics.printHeight,
+                  128,
+                  1,
+                  true,
+                  start,
+                  Math.max(0.0001, angle),
+                );
           const material = new THREE.MeshStandardMaterial({
             map,
             transparent: true,
@@ -349,6 +415,33 @@ export default function CupWrapSeamPreview({
         group.add(marker);
         resources.push(markerGeometry, markerMaterial);
 
+        let morphProgress = expanded ? 1 : 0;
+        let morphTarget = morphProgress;
+        setExpandedRef.current = (next) => {
+          morphTarget = next ? 1 : 0;
+        };
+        const updateMorph = () => {
+          if (Math.abs(morphTarget - morphProgress) < 0.001) {
+            morphProgress = morphTarget;
+          } else {
+            morphProgress += (morphTarget - morphProgress) * 0.065;
+          }
+          const eased = morphProgress * morphProgress * (3 - 2 * morphProgress);
+          for (const item of morphGeometries) {
+            const position = item.geometry.getAttribute(
+              "position",
+            ) as InstanceType<typeof THREE.BufferAttribute>;
+            const values = position.array as Float32Array;
+            for (let index = 0; index < values.length; index++)
+              values[index] =
+                item.wrapped[index] +
+                (item.flat[index] - item.wrapped[index]) * eased;
+            position.needsUpdate = true;
+            item.geometry.computeVertexNormals();
+          }
+          marker.visible = morphProgress < 0.98;
+        };
+
         const resize = () => {
           if (!canvas.clientWidth || !canvas.clientHeight) return;
           renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
@@ -360,6 +453,7 @@ export default function CupWrapSeamPreview({
         let frame = 0;
         const animate = () => {
           frame = requestAnimationFrame(animate);
+          updateMorph();
           controls.update();
           renderer.render(scene, camera);
         };
@@ -386,6 +480,7 @@ export default function CupWrapSeamPreview({
       cleanup();
       setViewRef.current = () => {};
       setGlassVisibleRef.current = () => {};
+      setExpandedRef.current = () => {};
     };
   }, [open, cup, activeTexture]);
 
@@ -426,6 +521,15 @@ export default function CupWrapSeamPreview({
           </Checkbox>
           <Button onClick={() => setViewRef.current("front")}>正面</Button>
           <Button onClick={() => setViewRef.current("seam")}>接缝面</Button>
+          <Button
+            onClick={() => {
+              const next = !expanded;
+              setExpanded(next);
+              setExpandedRef.current(next);
+            }}
+          >
+            {expanded ? "收起贴图" : "展开贴图"}
+          </Button>
           <Button
             disabled={!activeTexture}
             loading={removingBackground}
