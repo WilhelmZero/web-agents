@@ -242,6 +242,14 @@ export async function renderDesign(
   } else
     for (const layer of layerList)
       await draw(layer.blob, layer.x, layer.y, layer.width, layer.rotation);
+  // Apply the white artwork backing before the dieline mask. Doing this after
+  // masking would refill the transparent pixels outside the cut path.
+  if (geometric && !d.transparentOutput) {
+    ctx.globalCompositeOperation = "destination-over";
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, width, height);
+    ctx.globalCompositeOperation = "source-over";
+  }
   // Mask after drawing, keeping guide strokes out of production output.
   const mask = new OffscreenCanvas(width, height),
     m = mask.getContext("2d")!;
@@ -269,11 +277,6 @@ export async function renderDesign(
     ctx.lineJoin = "round";
     ctx.stroke(p);
     ctx.restore();
-  }
-  if (geometric && !d.transparentOutput) {
-    ctx.globalCompositeOperation = "destination-over";
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, width, height);
   }
   return canvas;
 }
