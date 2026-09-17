@@ -190,7 +190,10 @@ export function drawWarpWebGL(
     out vec2 v_texCoord;
     void main() { gl_Position = vec4(a_position, 0.0, 1.0); v_texCoord = a_texCoord; }`;
   const fragmentSource = `#version 300 es
-    precision mediump float;
+    // High precision is required for production-size 1:1 exports. mediump
+    // texture coordinates visibly quantize on large canvases and make alpha
+    // edges appear to wobble between mesh cells.
+    precision highp float;
     uniform sampler2D u_image;
     in vec2 v_texCoord;
     out vec4 outColor;

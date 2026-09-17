@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect } from "vitest";
 import { DEFAULT_CUP, geometry, dielineSvg, inside } from "./geometry";
-import { encodeTiff } from "./tiff";
+import { encodeTiff, stabilizeTransparentEdges } from "./tiff";
 import { pack } from "./packing";
 import { backgroundCandidates, suggestRegions } from "./artwork";
 import { DEFAULT_PRINT, type WrapDesign } from "./types";
@@ -86,6 +86,21 @@ describe("cup wrap geometry", () => {
   });
 });
 describe("TIFF and PDF", () => {
+  it("clears hidden RGB noise at effectively transparent edges", () => {
+    const rgba = new Uint8ClampedArray([
+      255, 240, 230, 0,
+      200, 100, 50, 2,
+      20, 30, 40, 3,
+      10, 20, 30, 255,
+    ]);
+    stabilizeTransparentEdges(rgba);
+    expect([...rgba]).toEqual([
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+      20, 30, 40, 3,
+      10, 20, 30, 255,
+    ]);
+  });
   it("is readable by an independent TIFF decoder", async () => {
     const bytes = encodeTiff(
       2,

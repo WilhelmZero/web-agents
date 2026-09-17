@@ -1,3 +1,23 @@
+/**
+ * Remove colour noise from pixels that are effectively transparent.
+ *
+ * Canvas returns unassociated RGBA. Very small alpha values can therefore
+ * contain strongly amplified RGB rounding noise after a WebGL/canvas round
+ * trip. Some RIPs and image editors resample those hidden colours, producing
+ * an uneven fringe around an otherwise clean transparent edge.
+ */
+export function stabilizeTransparentEdges(rgba: Uint8ClampedArray) {
+  for (let i = 0; i < rgba.length; i += 4) {
+    if (rgba[i + 3] <= 2) {
+      rgba[i] = 0;
+      rgba[i + 1] = 0;
+      rgba[i + 2] = 0;
+      rgba[i + 3] = 0;
+    }
+  }
+  return rgba;
+}
+
 /** Baseline little-endian TIFF, unassociated RGBA, one uncompressed strip. */
 export function encodeTiff(
   width: number,

@@ -1,5 +1,5 @@
 import { renderDesign } from "./render";
-import { encodeTiff } from "./tiff";
+import { encodeTiff, stabilizeTransparentEdges } from "./tiff";
 import { pack } from "./packing";
 import { analyzeLocalArtwork, arrangeLocal } from "./localAdaptation";
 self.onmessage = async ({ data }) => {
@@ -27,6 +27,7 @@ self.onmessage = async ({ data }) => {
       const rgba = canvas
         .getContext("2d")!
         .getImageData(0, 0, canvas.width, canvas.height).data;
+      stabilizeTransparentEdges(rgba);
       const result = encodeTiff(canvas.width, canvas.height, rgba, data.dpi);
       self.postMessage({ result }, { transfer: [result] });
     } else
