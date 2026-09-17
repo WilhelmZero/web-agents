@@ -270,9 +270,6 @@ export default function CupWrapSeamPreview({
           geometry: InstanceType<typeof THREE.BufferGeometry>;
           wrapped: Float32Array;
           flat: Float32Array;
-          wrappedUvs: Float32Array;
-          flatUvs: Float32Array;
-          usesFlatUvs: boolean;
         }> = [];
         const createMorphGeometry = (radiusOffset: number) => {
           const uSegments = 128;
@@ -281,10 +278,7 @@ export default function CupWrapSeamPreview({
             (uSegments + 1) * (vSegments + 1) * 3,
           );
           const flat = new Float32Array(wrapped.length);
-          const wrappedUvs = new Float32Array(
-            (uSegments + 1) * (vSegments + 1) * 2,
-          );
-          const flatUvs = new Float32Array(wrappedUvs.length);
+          const uvs = new Float32Array((uSegments + 1) * (vSegments + 1) * 2);
           const indices: number[] = [];
           let cursor = 0;
           let uvCursor = 0;
@@ -303,24 +297,18 @@ export default function CupWrapSeamPreview({
                 metrics.printCenterY + metrics.printHeight * (0.5 - v);
               wrapped[cursor + 2] = radius * Math.cos(theta);
               const point = warpPoint(flatGeometry, u, v, 1);
-              // Keep each cut edge on its own side while opening: u=0 travels
-              // left and u=1 travels right. Swapping the flat UVs (instead of
-              // the vertex positions) preserves readable artwork without the
-              // two halves crossing through one another.
-              flat[cursor] = point.x - flatGeometry.width / 2;
+              const hingeTheta = -metrics.visibleAngle / 2;
+              const hingeX = radius * Math.sin(hingeTheta);
+              const hingeZ = radius * Math.cos(hingeTheta);
+              // Keep the seam's screen-right edge (u=0, the flat artwork's
+              // left edge) fixed as a hinge. The rest of the sheet unwraps
+              // toward screen-right without moving through the cup.
+              flat[cursor] = hingeX - point.x;
               flat[cursor + 1] = flatGeometry.height / 2 - point.y;
-              // The seam view camera sits behind the cut. Move the unfolded
-              // sheet away from it so the animation retreats behind the cup
-              // instead of passing forward through the glass.
-              flat[cursor + 2] =
-                Math.max(metrics.topRadius, metrics.bottomRadius) +
-                12 +
-                radiusOffset;
+              flat[cursor + 2] = hingeZ;
               cursor += 3;
-              wrappedUvs[uvCursor] = u;
-              wrappedUvs[uvCursor + 1] = 1 - v;
-              flatUvs[uvCursor] = 1 - u;
-              flatUvs[uvCursor + 1] = 1 - v;
+              uvs[uvCursor] = u;
+              uvs[uvCursor + 1] = 1 - v;
               uvCursor += 2;
             }
           }
@@ -337,19 +325,9 @@ export default function CupWrapSeamPreview({
             "position",
             new THREE.BufferAttribute(wrapped.slice(), 3),
           );
-          result.setAttribute(
-            "uv",
-            new THREE.BufferAttribute(wrappedUvs.slice(), 2),
-          );
+          result.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
           result.computeVertexNormals();
-          morphGeometries.push({
-            geometry: result,
-            wrapped,
-            flat,
-            wrappedUvs,
-            flatUvs,
-            usesFlatUvs: false,
-          });
+          morphGeometries.push({ geometry: result, wrapped, flat });
           return result;
         };
         const filmGeometry = createMorphGeometry(0.2);
@@ -462,21 +440,6 @@ export default function CupWrapSeamPreview({
                 item.wrapped[index] +
                 (item.flat[index] - item.wrapped[index]) * eased;
             position.needsUpdate = true;
-            // Changing handedness continuously would squeeze the entire image
-            // through a zero-width texture at mid-animation. Flip only once
-            // the sheet is practically flat, while its geometry always opens
-            // outwards without crossing.
-            const shouldUseFlatUvs = morphProgress > 0.98;
-            if (shouldUseFlatUvs !== item.usesFlatUvs) {
-              const uv = item.geometry.getAttribute("uv") as InstanceType<
-                typeof THREE.BufferAttribute
-              >;
-              (uv.array as Float32Array).set(
-                shouldUseFlatUvs ? item.flatUvs : item.wrappedUvs,
-              );
-              uv.needsUpdate = true;
-              item.usesFlatUvs = shouldUseFlatUvs;
-            }
             item.geometry.computeVertexNormals();
           }
           marker.visible = morphProgress < 0.98;
