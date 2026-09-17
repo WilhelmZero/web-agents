@@ -272,7 +272,8 @@ export default function CupWrapSeamPreview({
           wrapped: Float32Array;
           vertexU: Float32Array;
           radius: Float32Array;
-          flatY: Float32Array;
+          flatDistance: Float32Array;
+          flatAlongDelta: Float32Array;
         }> = [];
         const createMorphGeometry = (radiusOffset: number) => {
           const uSegments = 128;
@@ -283,7 +284,13 @@ export default function CupWrapSeamPreview({
           const vertexCount = (uSegments + 1) * (vSegments + 1);
           const vertexU = new Float32Array(vertexCount);
           const radii = new Float32Array(vertexCount);
-          const flatY = new Float32Array(vertexCount);
+          const flatDistance = new Float32Array(vertexCount);
+          const flatAlongDelta = new Float32Array(vertexCount);
+          const flatHingeTop = warpPoint(flatGeometry, 0, 0, 1);
+          const flatHingeBottom = warpPoint(flatGeometry, 0, 1, 1);
+          const flatHingeDx = flatHingeBottom.x - flatHingeTop.x;
+          const flatHingeDy = flatHingeBottom.y - flatHingeTop.y;
+          const flatHingeLength = Math.hypot(flatHingeDx, flatHingeDy);
           const uvs = new Float32Array((uSegments + 1) * (vSegments + 1) * 2);
           const indices: number[] = [];
           let cursor = 0;
@@ -304,9 +311,17 @@ export default function CupWrapSeamPreview({
                 metrics.printCenterY + metrics.printHeight * (0.5 - v);
               wrapped[cursor + 2] = radius * Math.cos(theta);
               const point = warpPoint(flatGeometry, u, v, 1);
+              const pointDx = point.x - flatHingeTop.x;
+              const pointDy = point.y - flatHingeTop.y;
               vertexU[vertexIndex] = u;
               radii[vertexIndex] = radius;
-              flatY[vertexIndex] = flatGeometry.height / 2 - point.y;
+              flatDistance[vertexIndex] =
+                (pointDx * flatHingeDy - pointDy * flatHingeDx) /
+                flatHingeLength;
+              flatAlongDelta[vertexIndex] =
+                (pointDx * flatHingeDx + pointDy * flatHingeDy) /
+                  flatHingeLength -
+                v * flatHingeLength;
               cursor += 3;
               uvs[uvCursor] = u;
               uvs[uvCursor + 1] = 1 - v;
@@ -334,7 +349,8 @@ export default function CupWrapSeamPreview({
             wrapped,
             vertexU,
             radius: radii,
-            flatY,
+            flatDistance,
+            flatAlongDelta,
           });
           return result;
         };
@@ -443,6 +459,14 @@ export default function CupWrapSeamPreview({
           const eased = morphProgress * morphProgress * (3 - 2 * morphProgress);
           const remainingCurve = 1 - eased;
           const hingeTheta = -metrics.visibleAngle / 2;
+          const hingeRadiusDelta =
+            metrics.printBottomRadius - metrics.printTopRadius;
+          const hingeLength = Math.hypot(metrics.printHeight, hingeRadiusDelta);
+          const hingeUnitX =
+            (hingeRadiusDelta * Math.sin(hingeTheta)) / hingeLength;
+          const hingeUnitY = -metrics.printHeight / hingeLength;
+          const hingeUnitZ =
+            (hingeRadiusDelta * Math.cos(hingeTheta)) / hingeLength;
           for (const item of morphGeometries) {
             const position = item.geometry.getAttribute(
               "position",
@@ -453,26 +477,41 @@ export default function CupWrapSeamPreview({
               const u = item.vertexU[vertex];
               const radius = item.radius[vertex];
               const arc = u * metrics.visibleAngle;
+              const developedDistance = item.flatDistance[vertex];
+              const alongDelta = item.flatAlongDelta[vertex] * eased;
               const hingeX = radius * Math.sin(hingeTheta);
               const hingeZ = radius * Math.cos(hingeTheta);
               if (remainingCurve < 0.0001 || arc < 0.000001) {
-                values[index] = hingeX + radius * arc * Math.cos(hingeTheta);
+                values[index] =
+                  hingeX +
+                  developedDistance * Math.cos(hingeTheta) +
+                  alongDelta * hingeUnitX;
                 values[index + 2] =
-                  hingeZ - radius * arc * Math.sin(hingeTheta);
+                  hingeZ -
+                  developedDistance * Math.sin(hingeTheta) +
+                  alongDelta * hingeUnitZ;
               } else {
                 const curvedArc = remainingCurve * arc;
+                const distanceScale =
+                  1 -
+                  eased +
+                  (eased * developedDistance) /
+                    Math.max(0.000001, radius * arc);
                 values[index] =
                   hingeX +
                   (radius / remainingCurve) *
-                    (Math.sin(hingeTheta + curvedArc) - Math.sin(hingeTheta));
+                    (Math.sin(hingeTheta + curvedArc) - Math.sin(hingeTheta)) *
+                    distanceScale +
+                  alongDelta * hingeUnitX;
                 values[index + 2] =
                   hingeZ +
                   (radius / remainingCurve) *
-                    (Math.cos(hingeTheta + curvedArc) - Math.cos(hingeTheta));
+                    (Math.cos(hingeTheta + curvedArc) - Math.cos(hingeTheta)) *
+                    distanceScale +
+                  alongDelta * hingeUnitZ;
               }
               values[index + 1] =
-                item.wrapped[index + 1] +
-                (item.flatY[vertex] - item.wrapped[index + 1]) * eased;
+                item.wrapped[index + 1] + alongDelta * hingeUnitY;
             }
             position.needsUpdate = true;
             item.geometry.computeVertexNormals();
