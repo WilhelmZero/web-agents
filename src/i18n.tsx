@@ -115,6 +115,9 @@ const translations: Record<string, string> = {
     "Calculates the sector from the top diameter, bottom diameter, and vertical height. Preserves the original content and relative layout, adds no guide lines, text, or new characters, and keeps a safe margin against clipping.",
   "透明底（自动移除与边界连通的纯色背景）":
     "Transparent background (remove uniform color connected to the edge)",
+  保留透明底: "Preserve transparent background",
+  "上传透明图片时自动开启；关闭时输出纯白底。对于不透明图片，开启后只移除与边界连通且颜色均匀的背景；角色身体、眼睛和封闭区域中的白色或黑色会保留。":
+    "Automatically enabled for transparent uploads; turn it off for a solid white background. For opaque images, enabling it removes only uniform colors connected to the boundary while preserving white or black areas inside characters, eyes, and enclosed regions.",
   "未勾选时输出纯白底。只移除与边界连通且颜色均匀的背景；角色身体、眼睛和封闭区域中的白色或黑色会保留。":
     "When disabled, output uses a solid white background. Only a uniform background connected to the border is removed; white or black areas inside characters, eyes, and enclosed shapes are preserved.",
   生成图片微调: "Generated image adjustments",
@@ -141,6 +144,8 @@ const translations: Record<string, string> = {
   "正在根据最新设计与设置自动混排…":
     "Automatically laying out the latest design and settings…",
   "杯身接缝 3D 模拟": "3D cup seam preview",
+  "正在加载 3D 模型…": "Loading 3D model…",
+  "3D 预览未能显示": "The 3D preview could not be displayed",
   显示玻璃杯: "Show glass cup",
   正面: "Front",
   接缝面: "Seam view",

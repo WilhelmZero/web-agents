@@ -11,6 +11,7 @@ import { DEFAULT_SETTINGS } from "./constants";
 import { work } from "./services/cupWrap/client";
 import { loadDesigns } from "./services/cupWrap/storage";
 import { DEFAULT_CUP } from "./services/cupWrap/geometry";
+import { hasUsableTransparency } from "./services/backgroundRemoval";
 vi.mock("./services/cupWrap/client", () => ({
   work: vi.fn((input: { kind: string }) =>
     Promise.resolve(
@@ -28,6 +29,9 @@ vi.mock("./services/cupWrap/pdf", () => ({
   exportPdf: vi.fn(),
   calibrationPdf: vi.fn(),
   tiledPdf: vi.fn(),
+}));
+vi.mock("./services/backgroundRemoval", () => ({
+  hasUsableTransparency: vi.fn(() => Promise.resolve(false)),
 }));
 vi.mock("./CupWrapSeamPreview", () => ({
   default: ({ open, onClose }: { open: boolean; onClose: () => void }) =>
@@ -162,9 +166,7 @@ it("renders settings in the independent host and opens artwork options without A
   expect(host.querySelector(".cup-settings")).not.toBeNull();
   expect(screen.getByText("确定性圆台映射 · 不调用 AI")).toBeInTheDocument();
   expect(
-    screen.getByRole("checkbox", {
-      name: "透明底（自动移除与边界连通的纯色背景）",
-    }),
+    screen.getByRole("switch", { name: "保留透明底" }),
   ).not.toBeChecked();
   expect(
     screen.getByRole("checkbox", { name: "辅助线（不进入彩图）" }),
@@ -207,4 +209,23 @@ it("opens the seam preview without requiring uploaded artwork", async () => {
   expect(
     await screen.findByRole("button", { name: "测试 3D 接缝弹窗" }),
   ).toBeInTheDocument();
+}, 30000);
+it("preserves a transparent background when transparent artwork is uploaded", async () => {
+  vi.mocked(hasUsableTransparency).mockResolvedValueOnce(true);
+  const { container } = render(
+    <CupWrapPrintComposer
+      active
+      settingsHost={null}
+      settings={DEFAULT_SETTINGS}
+    />,
+  );
+  const input = container.querySelector('input[type="file"]')!;
+  fireEvent.change(input, {
+    target: { files: [new File(["png"], "transparent.png", { type: "image/png" })] },
+  });
+  await waitFor(() =>
+    expect(
+      screen.getByRole("switch", { name: "保留透明底" }),
+    ).toBeChecked(),
+  );
 }, 30000);

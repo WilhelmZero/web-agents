@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Button, Checkbox, Modal, Space } from "antd";
-import { CompressOutlined, ExpandOutlined } from "@ant-design/icons";
+import { Alert, Button, Checkbox, Modal, Space, Spin } from "antd";
+import {
+  CompressOutlined,
+  ExpandOutlined,
+  ReloadOutlined,
+} from "@ant-design/icons";
 import type { Texture } from "three";
 import type { CupParams } from "./services/cupWrap/geometry";
 import { geometry } from "./services/cupWrap/geometry";
@@ -78,6 +82,7 @@ export default function CupWrapSeamPreview({
   open,
   cup,
   texture,
+  textureHasTransparency = false,
   initialShowGlass = true,
   onClose,
 }: CupWrapSeamPreviewProps) {
@@ -91,8 +96,13 @@ export default function CupWrapSeamPreview({
   const [activeTexture, setActiveTexture] = useState(texture);
   const [textureRevision, setTextureRevision] = useState(0);
   const [removingBackground, setRemovingBackground] = useState(false);
-  const [backgroundRemoved, setBackgroundRemoved] = useState(false);
+  const [backgroundRemoved, setBackgroundRemoved] = useState(
+    textureHasTransparency,
+  );
   const [expanded, setExpanded] = useState(false);
+  const [initializing, setInitializing] = useState(false);
+  const [initializationError, setInitializationError] = useState("");
+  const [initializationAttempt, setInitializationAttempt] = useState(0);
 
   useEffect(() => {
     if (!receivedTextureProp.current) {
@@ -100,9 +110,9 @@ export default function CupWrapSeamPreview({
       return;
     }
     setActiveTexture(texture);
-    setBackgroundRemoved(false);
+    setBackgroundRemoved(textureHasTransparency);
     setTextureRevision((revision) => revision + 1);
-  }, [texture]);
+  }, [texture, textureHasTransparency]);
 
   useEffect(() => setGlassVisibleRef.current(showGlass), [showGlass]);
 
@@ -110,6 +120,8 @@ export default function CupWrapSeamPreview({
     if (!open || !canvasRef.current) return;
     let disposed = false;
     let cleanup = () => {};
+    setInitializing(true);
+    setInitializationError("");
     setStatus("正在建立 3D 杯身…");
     Promise.all([
       import("three"),
@@ -171,6 +183,29 @@ export default function CupWrapSeamPreview({
         scene.add(rim);
 
         const resources: Array<{ dispose: () => void }> = [];
+        let frame = 0;
+        let observer: ResizeObserver | undefined;
+        let cleaned = false;
+        const contextLost = (event: Event) => {
+          event.preventDefault();
+          if (disposed) return;
+          setInitializing(false);
+          setInitializationError(
+            "浏览器的 3D 图形上下文已丢失，可能是显存紧张或同时打开了过多 3D 页面。请关闭其他 3D 页面后重试。",
+          );
+        };
+        canvas.addEventListener("webglcontextlost", contextLost);
+        cleanup = () => {
+          if (cleaned) return;
+          cleaned = true;
+          cancelAnimationFrame(frame);
+          observer?.disconnect();
+          canvas.removeEventListener("webglcontextlost", contextLost);
+          controls.dispose();
+          resources.forEach((resource) => resource.dispose());
+          renderer.dispose();
+          renderer.forceContextLoss();
+        };
         const group = new THREE.Group();
         scene.add(group);
         const glassGroup = new THREE.Group();
@@ -261,7 +296,10 @@ export default function CupWrapSeamPreview({
             source.height / 2,
           );
         }
-        if (disposed) return;
+        if (disposed) {
+          cleanup();
+          return;
+        }
         const baseTexture = new THREE.CanvasTexture(source);
         baseTexture.colorSpace = THREE.SRGBColorSpace;
         baseTexture.wrapS = THREE.ClampToEdgeWrapping;
@@ -526,9 +564,8 @@ export default function CupWrapSeamPreview({
           camera.aspect = canvas.clientWidth / canvas.clientHeight;
           camera.updateProjectionMatrix();
         };
-        const observer = new ResizeObserver(resize);
+        observer = new ResizeObserver(resize);
         observer.observe(canvas);
-        let frame = 0;
         const animate = () => {
           frame = requestAnimationFrame(animate);
           updateMorph();
@@ -536,6 +573,7 @@ export default function CupWrapSeamPreview({
           renderer.render(scene, camera);
         };
         animate();
+        setInitializing(false);
         setStatus(
           metrics.overlapAngle > 0
             ? `搭接 ${cup.seam.toFixed(1)} mm`
@@ -543,16 +581,16 @@ export default function CupWrapSeamPreview({
               ? `接缝为负值：按设置保留约 ${(metrics.gapAngle * ((metrics.printTopRadius + metrics.printBottomRadius) / 2)).toFixed(1)} mm 裸露玻璃（设为 0 可闭合）`
               : "首尾无缝连接",
         );
-        cleanup = () => {
-          cancelAnimationFrame(frame);
-          observer.disconnect();
-          controls.dispose();
-          resources.forEach((resource) => resource.dispose());
-          renderer.dispose();
-          renderer.forceContextLoss();
-        };
       })
-      .catch((error) => setStatus(`3D 初始化失败：${error.message}`));
+      .catch((error) => {
+        if (disposed) return;
+        const reason = error instanceof Error ? error.message : String(error);
+        setInitializing(false);
+        setInitializationError(
+          `3D 初始化失败：${reason || "浏览器暂时无法创建 3D 场景"}`,
+        );
+        setStatus("");
+      });
     return () => {
       disposed = true;
       cleanup();
@@ -560,7 +598,7 @@ export default function CupWrapSeamPreview({
       setGlassVisibleRef.current = () => {};
       setExpandedRef.current = () => {};
     };
-  }, [open, cup, activeTexture, backgroundRemoved]);
+  }, [open, cup, activeTexture, backgroundRemoved, initializationAttempt]);
 
   async function removeBackground() {
     if (!activeTexture || removingBackground) return;
@@ -622,13 +660,42 @@ export default function CupWrapSeamPreview({
           <span>{status}</span>
         </Space>
       </div>
-      <canvas
-        key={`${activeTexture ? "artwork" : "placeholder"}-${textureRevision}`}
-        ref={canvasRef}
-        className="cup-seam-canvas"
-        aria-label="杯身接缝 3D 预览"
-        onDoubleClick={() => setViewRef.current("seam")}
-      />
+      <div className="cup-seam-stage">
+        <canvas
+          key={`${activeTexture ? "artwork" : "placeholder"}-${textureRevision}`}
+          ref={canvasRef}
+          className="cup-seam-canvas"
+          aria-label="杯身接缝 3D 预览"
+          onDoubleClick={() => setViewRef.current("seam")}
+        />
+        {initializing ? (
+          <div className="cup-seam-state" role="status">
+            <Spin size="large" />
+            <span>正在加载 3D 模型…</span>
+          </div>
+        ) : null}
+        {initializationError ? (
+          <div className="cup-seam-state cup-seam-error" role="alert">
+            <Alert
+              type="error"
+              showIcon
+              message="3D 预览未能显示"
+              description={initializationError}
+              action={
+                <Button
+                  type="primary"
+                  icon={<ReloadOutlined />}
+                  onClick={() =>
+                    setInitializationAttempt((attempt) => attempt + 1)
+                  }
+                >
+                  重试
+                </Button>
+              }
+            />
+          </div>
+        ) : null}
+      </div>
       <p className="cup-seam-note">
         {
           "拖动旋转 · 滚轮缩放 · 红色虚线为接缝中心。负接缝会故意留缝，0 mm 首尾闭合，正接缝产生搭接。透明图案按白色花纸基材模拟剪下后的整张贴膜。该模拟用于视觉检查，不代表玻璃壁厚制造尺寸。"

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Alert,
@@ -13,6 +13,7 @@ import {
   Slider,
   Space,
   Spin,
+  Switch,
   Tabs,
   Upload,
 } from "antd";
@@ -50,8 +51,9 @@ import {
   adaptationPrompt,
   framePlacement,
 } from "./services/cupWrap/adaptation";
+import CupWrapSeamPreview from "./CupWrapSeamPreview";
+import { hasUsableTransparency } from "./services/backgroundRemoval";
 const SHOW_MANUAL_ARTWORK_TOOLS = false;
-const CupWrapSeamPreview = lazy(() => import("./CupWrapSeamPreview"));
 const PRINT_SETTINGS_KEY = "cup-wrap-print:settings:v3";
 const LEGACY_PRINT_SETTINGS_KEY = "cup-wrap-print:settings:v2";
 const GAP_DEFAULTS_MIGRATION_KEY = "cup-wrap-print:gap-defaults:v2";
@@ -507,9 +509,12 @@ export default function CupWrapPrintComposer({
         throw new Error("原图超过 6000 万像素");
       }
       image.close();
+      const sourceHasTransparency = await hasUsableTransparency(file);
       update({
         source: file,
         originalSource: file,
+        transparentOutput: sourceHasTransparency,
+        backgroundColor: sourceHasTransparency ? undefined : d.backgroundColor,
         adopted: undefined,
         layers: [],
         aiResults: [],
@@ -730,14 +735,16 @@ export default function CupWrapPrintComposer({
             message="确定性圆台映射 · 不调用 AI"
             description="严格按杯口径、杯底径和垂直高度计算扇形；保留原图内容与相对排版，不生成红线、文字或新角色，并自动留出安全边距防止边缘裁切。"
           />
-          <Checkbox
+          <Space>
+          <Switch
+            aria-label="保留透明底"
             checked={!!d.transparentOutput}
-            onChange={(e) => update({ transparentOutput: e.target.checked })}
-          >
-            透明底（自动移除与边界连通的纯色背景）
-          </Checkbox>
+            onChange={(checked) => update({ transparentOutput: checked })}
+          />
+          <span>保留透明底</span>
+          </Space>
           <p>
-            未勾选时输出纯白底。只移除与边界连通且颜色均匀的背景；角色身体、眼睛和封闭区域中的白色或黑色会保留。
+            上传透明图片时自动开启；关闭时输出纯白底。对于不透明图片，开启后只移除与边界连通且颜色均匀的背景；角色身体、眼睛和封闭区域中的白色或黑色会保留。
           </p>
         </>
       ) : (d.adaptationMode ?? "geometry") === "local" ? (
@@ -1548,16 +1555,14 @@ export default function CupWrapPrintComposer({
         />
       )}
       {seamOpen && (
-        <Suspense fallback={null}>
-          <CupWrapSeamPreview
-            open
-            cup={d.cup}
-            texture={seamTexture}
-            textureHasTransparency={!!d.transparentOutput}
-            initialShowGlass
-            onClose={() => setSeamOpen(false)}
-          />
-        </Suspense>
+        <CupWrapSeamPreview
+          open
+          cup={d.cup}
+          texture={seamTexture}
+          textureHasTransparency={!!d.transparentOutput}
+          initialShowGlass
+          onClose={() => setSeamOpen(false)}
+        />
       )}
       <Modal
         open={tileOpen}
