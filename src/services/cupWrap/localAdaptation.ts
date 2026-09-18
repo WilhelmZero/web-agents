@@ -140,6 +140,10 @@ export function analyzePixels(
       role: ratio < 0.000015 ? "excluded" : box < 0.007 ? "decoration" : "main",
     });
   }
+  const anchor = regions
+    .filter((region) => region.role === "main")
+    .sort((a, b) => b.width * b.height - a.width * a.height)[0];
+  if (anchor) anchor.role = "anchor";
   return {
     background: bg.map(Math.round) as [number, number, number],
     confidence,
@@ -207,7 +211,7 @@ export async function analyzeLocalArtwork(
     });
   }
   image.close();
-  if (!objects.some((o) => o.role === "main"))
+  if (!objects.some((o) => o.role === "main" || o.role === "anchor"))
     throw new Error("未识别到可排布主体，请检查背景或改用 AI 适配");
   return {
     sourceWidth: Math.round(w / factor),
@@ -292,12 +296,22 @@ export function arrangeLocal(
         a.rect.x + a.rect.width / 2 - (b.rect.x + b.rect.width / 2),
     ),
     anchor = active
-      .filter((o) => o.role === "main")
+      .filter((o) => o.role === "anchor" || o.role === "main")
       .sort(
-        (a, b) => b.rect.width * b.rect.height - a.rect.width * a.rect.height,
+        (a, b) =>
+          Number(b.role === "anchor") - Number(a.role === "anchor") ||
+          b.rect.width * b.rect.height - a.rect.width * a.rect.height,
       )[0],
-    mainOrder = sourceOrder.filter((o) => o.role === "main"),
+    mainOrder = sourceOrder.filter(
+      (o) => o.role === "main" || o.role === "anchor",
+    ),
     decorationOrder = sourceOrder.filter((o) => o.role === "decoration"),
+    surroundingSubjects = mainOrder.filter((o) => o.id !== anchor?.id),
+    topSubjects = surroundingSubjects.slice(
+      0,
+      Math.ceil(surroundingSubjects.length / 2),
+    ),
+    bottomSubjects = surroundingSubjects.slice(topSubjects.length),
     // Fill the subject paths first. Decorations are deliberately deferred so
     // they cannot take space needed by a character or the central title.
     ordered = anchor
@@ -332,24 +346,47 @@ export function arrangeLocal(
     );
   };
   for (const o of ordered) {
-    const w = o.rect.width * mm,
-      h = o.rect.height * mm,
-      u =
+    const topIndex = topSubjects.findIndex((subject) => subject.id === o.id),
+      bottomIndex = bottomSubjects.findIndex((subject) => subject.id === o.id),
+      row = topIndex >= 0 ? topSubjects : bottomSubjects,
+      rowIndex = topIndex >= 0 ? topIndex : bottomIndex,
+      pathU = rowIndex >= 0 ? (rowIndex + 1) / (row.length + 1) : 0.5,
+      distanceScale =
+        o.id === anchor?.id
+          ? 1
+          : o.role === "main"
+            ? 0.72 + 0.22 * (1 - Math.abs(pathU - 0.5) * 2)
+            : 1,
+      w = o.rect.width * mm * distanceScale,
+      h = o.rect.height * mm * distanceScale,
+      sourceU =
         (o.rect.x + o.rect.width / 2 - contentLeft) /
         contentWidth,
-      v =
+      sourceV =
         (o.rect.y + o.rect.height / 2 - contentTop) /
         contentHeight,
-      ty = Math.max(
-        safe + h / 2,
-        Math.min(g.height - safe - h / 2, safe + v * usableH),
-      ),
+      curve = Math.abs(pathU - 0.5) * 2,
+      pathY =
+        o.id === anchor?.id
+          ? g.height * 0.48
+          : topIndex >= 0
+            ? g.height * (0.23 + 0.08 * curve)
+            : bottomIndex >= 0
+              ? g.height * (0.74 - 0.06 * curve)
+              : safe + sourceV * usableH,
+      ty = Math.max(safe + h / 2, Math.min(g.height - safe - h / 2, pathY)),
       span = horizontalSpan(g.points, ty),
       available = Math.max(
         0,
         (span?.right ?? g.width) - (span?.left ?? 0) - safe * 2 - w,
       ),
-      tx = (span?.left ?? 0) + safe + w / 2 + u * available;
+      targetU =
+        o.id === anchor?.id
+          ? 0.5
+          : o.role === "main"
+            ? pathU
+            : sourceU,
+      tx = (span?.left ?? 0) + safe + w / 2 + targetU * available;
     let best: { x: number; y: number } | undefined,
       score = Infinity;
     for (let oy = 0; oy <= 12; oy += 1.5)
@@ -360,7 +397,8 @@ export function arrangeLocal(
               y = ty + sy;
             if (
               fits(x, y, w, h) &&
-              (o.role === "main" || betweenMainSubjects(x, y))
+              ((o.role === "main" || o.role === "anchor") ||
+                betweenMainSubjects(x, y))
             ) {
               const s = (x - tx) ** 2 + (y - ty) ** 2;
               if (s < score) {
@@ -374,7 +412,8 @@ export function arrangeLocal(
       continue;
     }
     boxes.push({ ...best, w, h });
-    if (o.role === "main") mainBoxes.push({ ...best, w, h });
+    if (o.role === "main" || o.role === "anchor")
+      mainBoxes.push({ ...best, w, h });
     layers.push({
       id: o.id,
       blob: o.blob,

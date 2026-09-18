@@ -176,7 +176,11 @@ export default function CupWrapLocalAdapter({
         ? {
             ...v,
             objects: v.objects.map((o) =>
-              o.id === id ? { ...o, role: value } : o,
+              o.id === id
+                ? { ...o, role: value }
+                : value === "anchor" && o.role === "anchor"
+                  ? { ...o, role: "main" }
+                  : o,
             ),
           }
         : v,
@@ -312,6 +316,7 @@ export default function CupWrapLocalAdapter({
                     value={o.role}
                     onChange={(v) => role(o.id, v)}
                     options={[
+                      { value: "anchor", label: "中心主视觉" },
                       { value: "main", label: "主体" },
                       { value: "decoration", label: "小装饰·可复制" },
                       { value: "excluded", label: "排除" },

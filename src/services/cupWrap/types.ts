@@ -8,7 +8,7 @@ export interface ArtLayer {
   rotation: number;
   locked: boolean;
 }
-export type LocalObjectRole = "main" | "decoration" | "excluded";
+export type LocalObjectRole = "anchor" | "main" | "decoration" | "excluded";
 export interface LocalObject {
   id: string;
   blob: Blob;

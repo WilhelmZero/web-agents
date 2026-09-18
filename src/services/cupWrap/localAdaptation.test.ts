@@ -40,7 +40,9 @@ describe("local cup artwork analysis", () => {
       80,
     );
     expect(r.confidence).toBeGreaterThan(0.9);
-    expect(r.regions.some((v) => v.role === "main")).toBe(true);
+    expect(
+      r.regions.some((v) => v.role === "main" || v.role === "anchor"),
+    ).toBe(true);
   });
   it("exposes low confidence for a varied border", () => {
     const d = pixels(40, 40, [255, 255, 255, 255], []);
@@ -57,7 +59,7 @@ describe("local cup layout", () => {
     y: number,
     w: number,
     h: number,
-    role: "main" | "decoration",
+    role: "anchor" | "main" | "decoration",
   ): LocalObject => ({ id, blob, rect: { x, y, width: w, height: h }, role });
   it.each([
     DEFAULT_CUP,
@@ -150,12 +152,13 @@ describe("local cup layout", () => {
       expect(decoration.x).toBeLessThanOrEqual(right);
     }
   });
-  it("keeps row order and expands the wider top more than the narrow bottom", () => {
+  it("locks the anchor centrally and balances subjects over two fan paths", () => {
     const objects = [
-        object("tl", 60, 30, 30, 30, "main"),
-        object("tr", 410, 30, 30, 30, "main"),
-        object("bl", 60, 330, 30, 30, "main"),
-        object("br", 410, 330, 30, 30, "main"),
+        object("anchor", 170, 120, 160, 90, "anchor"),
+        object("ghost-1", 20, 20, 45, 55, "main"),
+        object("ghost-2", 90, 20, 45, 55, "main"),
+        object("ghost-3", 330, 20, 45, 55, "main"),
+        object("ghost-4", 400, 250, 45, 55, "main"),
       ],
       r = arrangeLocal(
         {
@@ -169,12 +172,12 @@ describe("local cup layout", () => {
         },
         DEFAULT_CUP,
       ),
-      by = new Map(r.layers.map((v) => [v.id, v]));
-    expect(by.get("tl")!.x).toBeLessThan(by.get("tr")!.x);
-    expect(by.get("bl")!.x).toBeLessThan(by.get("br")!.x);
-    expect(by.get("tr")!.x - by.get("tl")!.x).toBeGreaterThan(
-      by.get("br")!.x - by.get("bl")!.x,
-    );
-    expect(by.get("tl")!.y).toBeLessThan(by.get("bl")!.y);
+      by = new Map(r.layers.map((v) => [v.id, v])),
+      g = geometry(DEFAULT_CUP),
+      ghosts = [...by.entries()].filter(([id]) => id.startsWith("ghost"));
+    expect(by.get("anchor")!.x).toBeCloseTo(g.width / 2, 0);
+    expect(by.get("anchor")!.y).toBeCloseTo(g.height * 0.48, 0);
+    expect(ghosts.filter(([, layer]) => layer.y < g.height / 2)).toHaveLength(2);
+    expect(ghosts.filter(([, layer]) => layer.y > g.height / 2)).toHaveLength(2);
   });
 });
