@@ -1,12 +1,24 @@
 import { expect, it } from "vitest";
 import { geometry, DEFAULT_CUP } from "./geometry";
-import { safeWarpRegion, warpPoint } from "./warp";
+import { safeWarpRegion, scaleWarpRegion, warpPoint } from "./warp";
 it("zero warp is an unchanged rectangle", () => {
   const g = geometry(DEFAULT_CUP);
   expect(warpPoint(g, 0.3, 0.6, 0)).toEqual({
     x: g.width * 0.3,
     y: g.height * 0.6,
   });
+});
+
+it("scales the vertical span around its center in slanted-side coordinates", () => {
+  const region = scaleWarpRegion(
+    { u0: 0.2, u1: 0.8, v0: 0.25, v1: 0.75 },
+    1,
+    1.5,
+  );
+  expect(region.u0).toBeCloseTo(0.2);
+  expect(region.u1).toBeCloseTo(0.8);
+  expect(region.v0).toBeCloseTo(0.125);
+  expect(region.v1).toBeCloseTo(0.875);
 });
 
 it("contains the whole source inside the safe sector region", () => {

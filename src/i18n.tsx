@@ -164,6 +164,7 @@ const translations: Record<string, string> = {
   "上传／替换第 2 张图": "Upload / replace image 2",
   水平单轴缩放: "Horizontal scale",
   垂直单轴缩放: "Vertical scale",
+  沿斜边方向缩放: "Scale along slanted sides",
   "图案左侧留白 mm": "Artwork left margin mm",
   "图案右侧留白 mm": "Artwork right margin mm",
   "图案上方留白 mm": "Artwork top margin mm",
@@ -1528,6 +1529,7 @@ function translateText(value: string): string {
     [/^图案缩放 (\d+)%$/, "Artwork scale $1%"],
     [/^水平缩放 (\d+)%$/, "Horizontal scale $1%"],
     [/^垂直缩放 (\d+)%$/, "Vertical scale $1%"],
+    [/^斜边方向缩放 (\d+)%$/, "Slanted-side scale $1%"],
     [/^A4 排版 · 自动计算中$/, "A4 layout · Calculating automatically"],
     [/^A4 排版 · (\d+) 页$/, "A4 layout · $1 pages"],
     [

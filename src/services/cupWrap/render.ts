@@ -2,7 +2,13 @@ import { geometry, pathData } from "./geometry";
 import type { WrapDesign } from "./types";
 import { containFit } from "./fitting";
 import { framePlacement } from "./adaptation";
-import { drawWarp, drawWarpWebGL, safeWarpRegion, warpPoint } from "./warp";
+import {
+  drawWarp,
+  drawWarpWebGL,
+  safeWarpRegion,
+  scaleWarpRegion,
+  warpPoint,
+} from "./warp";
 import { artworkSlotPlacement } from "./artworkPlacement";
 async function removeUniformBoundaryBackground(img: ImageBitmap) {
   const canvas = new OffscreenCanvas(img.width, img.height);
@@ -203,25 +209,26 @@ export async function renderDesign(
         topGap: 10,
         bottomGap: 10,
       };
-      const region = safeWarpRegion(
-        g,
-        img.width,
-        img.height,
-        Math.max(3, d.cup.safe),
-        0.94,
-        {
-          leftGapMm: adjust.leftGap ?? 0,
-          rightGapMm: adjust.rightGap ?? 0,
-          topGapMm: adjust.topGap ?? 10,
-          bottomGapMm: adjust.bottomGap ?? 10,
-        },
+      const region = scaleWarpRegion(
+        safeWarpRegion(
+          g,
+          img.width,
+          img.height,
+          Math.max(3, d.cup.safe),
+          0.94,
+          {
+            leftGapMm: adjust.leftGap ?? 0,
+            rightGapMm: adjust.rightGap ?? 0,
+            topGapMm: adjust.topGap ?? 10,
+            bottomGapMm: adjust.bottomGap ?? 10,
+          },
+        ),
+        adjust.scaleX ?? 1,
+        adjust.scaleY ?? 1,
       );
       ctx.save();
       ctx.translate(g.width / 2 + adjust.x, g.height / 2 + adjust.y);
-      ctx.scale(
-        adjust.scale * (adjust.scaleX ?? 1),
-        adjust.scale * (adjust.scaleY ?? 1),
-      );
+      ctx.scale(adjust.scale, adjust.scale);
       ctx.translate(-g.width / 2, -g.height / 2);
       if (!drawWarpWebGL(ctx, img, g, adjust.warp, region))
         drawWarp(ctx, img, g, adjust.warp, region);

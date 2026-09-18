@@ -1121,7 +1121,9 @@ export default function CupWrapPrintComposer({
               3,
             )}
             {number(
-              "垂直单轴缩放",
+              (d.adaptationMode ?? "geometry") === "geometry"
+                ? "沿斜边方向缩放"
+                : "垂直单轴缩放",
               imageAdjustment.scaleY ?? 1,
               (scaleY) =>
                 update({
@@ -1750,7 +1752,10 @@ export default function CupWrapPrintComposer({
                     />
                   </label>
                   <label>
-                    垂直缩放 {Math.round((imageAdjustment.scaleY ?? 1) * 100)}%
+                    {(d.adaptationMode ?? "geometry") === "geometry"
+                      ? "斜边方向缩放"
+                      : "垂直缩放"}{" "}
+                    {Math.round((imageAdjustment.scaleY ?? 1) * 100)}%
                     <Slider
                       min={20}
                       max={300}

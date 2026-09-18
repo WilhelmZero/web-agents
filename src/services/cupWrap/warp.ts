@@ -7,6 +7,20 @@ export interface WarpRegion {
   v1: number;
 }
 
+/** Scale in sector coordinates: U follows the arcs and V follows the slanted
+ * sides, avoiding a Cartesian stretch after frustum mapping. */
+export function scaleWarpRegion(
+  region: WarpRegion,
+  scaleU = 1,
+  scaleV = 1,
+): WarpRegion {
+  const uc = (region.u0 + region.u1) / 2,
+    vc = (region.v0 + region.v1) / 2,
+    uh = ((region.u1 - region.u0) * scaleU) / 2,
+    vh = ((region.v1 - region.v0) * scaleV) / 2;
+  return { u0: uc - uh, u1: uc + uh, v0: vc - vh, v1: vc + vh };
+}
+
 /**
  * Uniformly contains the source in the cup's physical parameter space.
  * Without explicit gaps, the narrow arc and production inset protect edge
