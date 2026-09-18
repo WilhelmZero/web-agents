@@ -306,27 +306,58 @@ export function arrangeLocal(
       (o) => o.role === "main" || o.role === "anchor",
     ),
     decorationOrder = sourceOrder.filter((o) => o.role === "decoration"),
-    surroundingSubjects = mainOrder.filter((o) => o.id !== anchor?.id),
-    topSubjects = surroundingSubjects.slice(
-      0,
-      Math.ceil(surroundingSubjects.length / 2),
+    anchorCenter = anchor
+      ? {
+          x: anchor.rect.x + anchor.rect.width / 2,
+          y: anchor.rect.y + anchor.rect.height / 2,
+        }
+      : { x: contentLeft + contentWidth / 2, y: contentTop + contentHeight / 2 },
+    // Preserve the finished composition around the title instead of scattering
+    // every connected component. Subjects within this central ellipse form one
+    // rigid group and therefore keep their original scale and relative spacing.
+    isInCore = (o: LocalObject) => {
+      const cx = o.rect.x + o.rect.width / 2,
+        cy = o.rect.y + o.rect.height / 2;
+      return (
+        o.id === anchor?.id ||
+        (Math.abs(cx - anchorCenter.x) <= contentWidth * 0.31 &&
+          Math.abs(cy - anchorCenter.y) <= contentHeight * 0.3)
+      );
+    },
+    coreSubjects = mainOrder.filter(isInCore),
+    coreDecorations = decorationOrder.filter(isInCore),
+    coreObjects = [...coreSubjects, ...coreDecorations],
+    outerSubjects = mainOrder.filter(
+      (o) => !coreSubjects.some((core) => core.id === o.id),
     ),
-    bottomSubjects = surroundingSubjects.slice(topSubjects.length),
+    topSubjects = outerSubjects.filter(
+      (o) => o.rect.y + o.rect.height / 2 < anchorCenter.y,
+    ),
+    bottomSubjects = outerSubjects.filter(
+      (o) => o.rect.y + o.rect.height / 2 >= anchorCenter.y,
+    ),
     // Fill the subject paths first. Decorations are deliberately deferred so
     // they cannot take space needed by a character or the central title.
-    ordered = anchor
-      ? [anchor, ...mainOrder.filter((o) => o.id !== anchor.id), ...decorationOrder]
-      : [...mainOrder, ...decorationOrder],
-    boxes: { x: number; y: number; w: number; h: number }[] = [],
+    ordered = [
+      ...coreObjects.sort(
+        (a, b) =>
+          Number(b.id === anchor?.id) - Number(a.id === anchor?.id) ||
+          sourceOrder.indexOf(a) - sourceOrder.indexOf(b),
+      ),
+      ...outerSubjects,
+      ...decorationOrder.filter((o) => !isInCore(o)),
+    ],
+    boxes: { x: number; y: number; w: number; h: number; core: boolean }[] = [],
     mainBoxes: { x: number; y: number; w: number; h: number }[] = [],
     layers: ArtLayer[] = [],
     unplaced: string[] = [];
-  const fits = (x: number, y: number, w: number, h: number) =>
+  const fits = (x: number, y: number, w: number, h: number, core = false) =>
     boxBoundaryPoints(x, y, w, h).every(
       (p) => inside(p, g.points) && distanceToEdge(p, g.points) >= safe,
     ) &&
     !boxes.some(
       (b) =>
+        !(core && b.core) &&
         // Component boxes include transparent corners; a slightly inset proxy
         // preserves the source composition without treating empty pixels as collisions.
         Math.abs(x - b.x) < (w + b.w) * 0.42 + input.gap &&
@@ -346,13 +377,14 @@ export function arrangeLocal(
     );
   };
   for (const o of ordered) {
-    const topIndex = topSubjects.findIndex((subject) => subject.id === o.id),
+    const isCore = coreObjects.some((core) => core.id === o.id),
+      topIndex = topSubjects.findIndex((subject) => subject.id === o.id),
       bottomIndex = bottomSubjects.findIndex((subject) => subject.id === o.id),
       row = topIndex >= 0 ? topSubjects : bottomSubjects,
       rowIndex = topIndex >= 0 ? topIndex : bottomIndex,
       pathU = rowIndex >= 0 ? (rowIndex + 1) / (row.length + 1) : 0.5,
       distanceScale =
-        o.id === anchor?.id
+        isCore
           ? 1
           : o.role === "main"
             ? 0.72 + 0.22 * (1 - Math.abs(pathU - 0.5) * 2)
@@ -367,8 +399,9 @@ export function arrangeLocal(
         contentHeight,
       curve = Math.abs(pathU - 0.5) * 2,
       pathY =
-        o.id === anchor?.id
-          ? g.height * 0.48
+        isCore
+          ? g.height * 0.48 +
+            (o.rect.y + o.rect.height / 2 - anchorCenter.y) * mm
           : topIndex >= 0
             ? g.height * (0.23 + 0.08 * curve)
             : bottomIndex >= 0
@@ -381,12 +414,17 @@ export function arrangeLocal(
         (span?.right ?? g.width) - (span?.left ?? 0) - safe * 2 - w,
       ),
       targetU =
-        o.id === anchor?.id
-          ? 0.5
+        isCore
+          ? 0.5 +
+            ((o.rect.x + o.rect.width / 2 - anchorCenter.x) * mm) /
+              Math.max(1, available)
           : o.role === "main"
             ? pathU
             : sourceU,
-      tx = (span?.left ?? 0) + safe + w / 2 + targetU * available;
+      tx = isCore
+        ? g.width / 2 +
+          (o.rect.x + o.rect.width / 2 - anchorCenter.x) * mm
+        : (span?.left ?? 0) + safe + w / 2 + targetU * available;
     let best: { x: number; y: number } | undefined,
       score = Infinity;
     for (let oy = 0; oy <= 12; oy += 1.5)
@@ -396,7 +434,7 @@ export function arrangeLocal(
             const x = tx + sx,
               y = ty + sy;
             if (
-              fits(x, y, w, h) &&
+              fits(x, y, w, h, isCore) &&
               ((o.role === "main" || o.role === "anchor") ||
                 betweenMainSubjects(x, y))
             ) {
@@ -411,7 +449,7 @@ export function arrangeLocal(
       unplaced.push(o.id);
       continue;
     }
-    boxes.push({ ...best, w, h });
+    boxes.push({ ...best, w, h, core: isCore });
     if (o.role === "main" || o.role === "anchor")
       mainBoxes.push({ ...best, w, h });
     layers.push({
@@ -440,7 +478,7 @@ export function arrangeLocal(
         y = safe + h / 2 + rng() * Math.max(0, g.height - 2 * safe - h);
       if (fits(x, y, w, h) && betweenMainSubjects(x, y)) {
         const id = `${o.id}-copy-${i}`;
-        boxes.push({ x, y, w, h });
+        boxes.push({ x, y, w, h, core: false });
         layers.push({
           id,
           blob: o.blob,

@@ -333,7 +333,7 @@ export default function CupWrapLocalAdapter({
           <Alert
             type="info"
             showIcon
-            message="先沿扇形横截面排布主体路径，再将小装饰填入主体之间；装饰不会抢占主体位置。所有对象统一等比缩放，完整外框不得进入安全边。"
+            message="自动锁定中心主视觉及其邻近角色、月亮和装饰，保持原图中的相对位置与大小；只将外围主体沿上下弧线向扇形空间扩展，再用小装饰填补主体之间的空隙。完整外框不得进入安全边。"
           />
           <Space wrap align="start">
             <label>
@@ -366,7 +366,7 @@ export default function CupWrapLocalAdapter({
               />
             </label>
             <label>
-              随机种子
+              装饰填缝种子
               <InputNumber value={seed} onChange={(v) => setSeed(v ?? 1)} />
             </label>
           </Space>

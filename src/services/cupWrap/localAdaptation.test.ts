@@ -152,13 +152,14 @@ describe("local cup layout", () => {
       expect(decoration.x).toBeLessThanOrEqual(right);
     }
   });
-  it("locks the anchor centrally and balances subjects over two fan paths", () => {
+  it("locks the central composition and only expands outer subjects", () => {
     const objects = [
         object("anchor", 170, 120, 160, 90, "anchor"),
-        object("ghost-1", 20, 20, 45, 55, "main"),
-        object("ghost-2", 90, 20, 45, 55, "main"),
-        object("ghost-3", 330, 20, 45, 55, "main"),
-        object("ghost-4", 400, 250, 45, 55, "main"),
+        object("core-left", 105, 125, 45, 55, "main"),
+        object("core-right", 335, 125, 45, 55, "main"),
+        object("core-star", 245, 210, 12, 12, "decoration"),
+        object("outer-top", 20, 20, 45, 55, "main"),
+        object("outer-bottom", 420, 315, 45, 55, "main"),
       ],
       r = arrangeLocal(
         {
@@ -173,11 +174,14 @@ describe("local cup layout", () => {
         DEFAULT_CUP,
       ),
       by = new Map(r.layers.map((v) => [v.id, v])),
-      g = geometry(DEFAULT_CUP),
-      ghosts = [...by.entries()].filter(([id]) => id.startsWith("ghost"));
+      g = geometry(DEFAULT_CUP);
     expect(by.get("anchor")!.x).toBeCloseTo(g.width / 2, 0);
     expect(by.get("anchor")!.y).toBeCloseTo(g.height * 0.48, 0);
-    expect(ghosts.filter(([, layer]) => layer.y < g.height / 2)).toHaveLength(2);
-    expect(ghosts.filter(([, layer]) => layer.y > g.height / 2)).toHaveLength(2);
+    expect(by.get("core-left")!.x).toBeLessThan(by.get("anchor")!.x);
+    expect(by.get("core-right")!.x).toBeGreaterThan(by.get("anchor")!.x);
+    expect(by.get("core-left")!.y).toBeCloseTo(by.get("core-right")!.y, 1);
+    expect(by.get("core-star")!.x).toBeCloseTo(by.get("anchor")!.x, 0);
+    expect(by.get("outer-top")!.y).toBeLessThan(g.height / 2);
+    expect(by.get("outer-bottom")!.y).toBeGreaterThan(g.height / 2);
   });
 });
