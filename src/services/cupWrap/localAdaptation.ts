@@ -238,6 +238,25 @@ export function horizontalSpan(points: { x: number; y: number }[], y: number) {
     ? { left: hits[0], right: hits[hits.length - 1] }
     : undefined;
 }
+/** Samples the whole object boundary so curved inner/outer arcs cannot cut it. */
+export function boxBoundaryPoints(x: number, y: number, w: number, h: number) {
+  const points: { x: number; y: number }[] = [];
+  for (let i = 0; i <= 4; i++) {
+    const t = i / 4;
+    points.push(
+      { x: x - w / 2 + w * t, y: y - h / 2 },
+      { x: x - w / 2 + w * t, y: y + h / 2 },
+    );
+  }
+  for (let i = 1; i < 4; i++) {
+    const t = i / 4;
+    points.push(
+      { x: x - w / 2, y: y - h / 2 + h * t },
+      { x: x + w / 2, y: y - h / 2 + h * t },
+    );
+  }
+  return points;
+}
 export function arrangeLocal(
   input: Pick<
     LocalAdaptation,
@@ -276,12 +295,7 @@ export function arrangeLocal(
     layers: ArtLayer[] = [],
     unplaced: string[] = [];
   const fits = (x: number, y: number, w: number, h: number) =>
-    [
-      { x: x - w / 2, y: y - h / 2 },
-      { x: x + w / 2, y: y - h / 2 },
-      { x: x + w / 2, y: y + h / 2 },
-      { x: x - w / 2, y: y + h / 2 },
-    ].every(
+    boxBoundaryPoints(x, y, w, h).every(
       (p) => inside(p, g.points) && distanceToEdge(p, g.points) >= safe,
     ) &&
     !boxes.some(

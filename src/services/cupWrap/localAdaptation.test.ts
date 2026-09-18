@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { analyzePixels, arrangeLocal } from "./localAdaptation";
+import {
+  analyzePixels,
+  arrangeLocal,
+  boxBoundaryPoints,
+} from "./localAdaptation";
 import { DEFAULT_CUP, distanceToEdge, geometry, inside } from "./geometry";
 import type { LocalObject } from "./types";
 
@@ -79,8 +83,12 @@ describe("local cup layout", () => {
     );
     const g = geometry(cup);
     for (const l of a.layers) {
-      expect(inside({ x: l.x, y: l.y }, g.points)).toBe(true);
-      expect(distanceToEdge({ x: l.x, y: l.y }, g.points)).toBeGreaterThan(4);
+      const object = input.objects.find((o) => l.id.startsWith(o.id))!;
+      const h = (l.width * object.rect.height) / object.rect.width;
+      for (const point of boxBoundaryPoints(l.x, l.y, l.width, h)) {
+        expect(inside(point, g.points)).toBe(true);
+        expect(distanceToEdge(point, g.points)).toBeGreaterThanOrEqual(4);
+      }
     }
   });
   it("duplicates only decorations within limits", () => {

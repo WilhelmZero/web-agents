@@ -219,9 +219,9 @@ export default function CupWrapLocalAdapter({
     <Modal
       open
       width={1080}
-      title="本地智能排布 · 识别确认"
+      title="无损元素排版 · 分割与识别确认"
       onCancel={onClose}
-      okText="采用本地排布"
+      okText="采用无损排布"
       okButtonProps={{
         disabled: !analysis || !layers.length || !!unplaced.length,
       }}
@@ -242,8 +242,7 @@ export default function CupWrapLocalAdapter({
       }
     >
       <p>
-        全程在浏览器本地处理，不调用
-        AI。请确认主体和可复制的小装饰；相互粘连的内容会作为一个完整物体。
+        全程在浏览器本地处理，不调用生成式 AI，也不会重画或拉伸元素。请确认主体和可复制的小装饰；相互粘连的内容会作为一个完整物体。
       </p>
       <Space wrap>
         <Button loading={busy === "正在识别物体"} onClick={analyze}>
@@ -324,6 +323,11 @@ export default function CupWrapLocalAdapter({
             ))}
           </div>
           <h4>排布参数</h4>
+          <Alert
+            type="info"
+            showIcon
+            message="中心主体优先保持，外围元素沿扇形横截面重新定位；所有对象统一等比缩放，完整外框不得进入安全边。"
+          />
           <Space wrap align="start">
             <label>
               空白填充强度

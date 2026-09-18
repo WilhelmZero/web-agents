@@ -963,7 +963,7 @@ export default function CupWrapPrintComposer({
           { value: "original", label: "原图（手动调整）" },
           { value: "geometry", label: "原图几何映射（推荐）" },
           { value: "ai", label: "AI 扩图" },
-          { value: "local", label: "本地智能排布（免费）" },
+          { value: "local", label: "无损元素排版（程序化）" },
         ]}
       />
       {d.adaptationMode === "original" ? (
@@ -995,15 +995,19 @@ export default function CupWrapPrintComposer({
         </>
       ) : (d.adaptationMode ?? "geometry") === "local" ? (
         <>
-          <p>
-            适用于透明底、白底或其他纯色底贴纸图。本地识别后先确认主体和可复制小装饰，再按真实刀模重新排布。
-          </p>
+          <Alert
+            type="success"
+            showIcon
+            message="元素分割 + 等比排版 + 弧形安全检测 · 不调用生成式 AI"
+            description="保留每个识别元素的原始像素和宽高比；最大主体优先固定，外围主体按原相对位置映射到扇形，可复制装饰用于填补空白。对象完整外框必须通过刀模安全边检测。"
+          />
+          <p>适用于透明底、白底或均匀纯色底图片。相互粘连的对象可在确认窗口中手动合并或重新分类。</p>
           <Button
             type="primary"
             disabled={!d.source || !!busy}
             onClick={() => setLocalEditor(true)}
           >
-            {d.localAdaptation ? "检查／重新排布" : "分析素材并排布"}
+            {d.localAdaptation ? "检查／重新无损排布" : "识别元素并无损排布"}
           </Button>
           {d.localAdaptation &&
             d.localAdaptation.cupKey !== JSON.stringify(d.cup) && (
