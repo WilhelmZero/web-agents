@@ -135,7 +135,9 @@ export function analyzePixels(
       width: maxX - minX + 1,
       height: maxY - minY + 1,
       pixels: t,
-      role: ratio < 0.00008 ? "excluded" : box < 0.007 ? "decoration" : "main",
+      // Keep small stars, sparkles and moons: they are the useful material
+      // for dense gap filling. Only discard truly microscopic noise.
+      role: ratio < 0.000015 ? "excluded" : box < 0.007 ? "decoration" : "main",
     });
   }
   return {
@@ -274,10 +276,16 @@ export function arrangeLocal(
     safe = Math.max(4, cup.safe),
     usableW = Math.max(1, g.width - safe * 2),
     usableH = Math.max(1, g.height - safe * 2),
-    mm =
-      Math.min(usableW / input.sourceWidth, usableH / input.sourceHeight) *
-      input.scale;
-  const active = input.objects.filter((o) => o.role !== "excluded"),
+    active = input.objects.filter((o) => o.role !== "excluded"),
+    contentLeft = Math.min(input.sourceWidth, ...active.map((o) => o.rect.x)),
+    contentTop = Math.min(input.sourceHeight, ...active.map((o) => o.rect.y)),
+    contentRight = Math.max(0, ...active.map((o) => o.rect.x + o.rect.width)),
+    contentBottom = Math.max(0, ...active.map((o) => o.rect.y + o.rect.height)),
+    contentWidth = Math.max(1, contentRight - contentLeft),
+    contentHeight = Math.max(1, contentBottom - contentTop),
+    // Ignore transparent/blank margins around the source. Scaling against the
+    // actual foreground bounds is what makes the layout fill the sector.
+    mm = Math.min(usableW / contentWidth, usableH / contentHeight) * input.scale,
     sourceOrder = [...active].sort(
       (a, b) =>
         a.rect.y + a.rect.height / 2 - (b.rect.y + b.rect.height / 2) ||
@@ -288,10 +296,15 @@ export function arrangeLocal(
       .sort(
         (a, b) => b.rect.width * b.rect.height - a.rect.width * a.rect.height,
       )[0],
+    mainOrder = sourceOrder.filter((o) => o.role === "main"),
+    decorationOrder = sourceOrder.filter((o) => o.role === "decoration"),
+    // Fill the subject paths first. Decorations are deliberately deferred so
+    // they cannot take space needed by a character or the central title.
     ordered = anchor
-      ? [anchor, ...sourceOrder.filter((o) => o.id !== anchor.id)]
-      : sourceOrder,
+      ? [anchor, ...mainOrder.filter((o) => o.id !== anchor.id), ...decorationOrder]
+      : [...mainOrder, ...decorationOrder],
     boxes: { x: number; y: number; w: number; h: number }[] = [],
+    mainBoxes: { x: number; y: number; w: number; h: number }[] = [],
     layers: ArtLayer[] = [],
     unplaced: string[] = [];
   const fits = (x: number, y: number, w: number, h: number) =>
@@ -305,11 +318,28 @@ export function arrangeLocal(
         Math.abs(x - b.x) < (w + b.w) * 0.42 + input.gap &&
         Math.abs(y - b.y) < (h + b.h) * 0.42 + input.gap,
     );
+  const betweenMainSubjects = (x: number, y: number) => {
+    if (mainBoxes.length < 2) return mainBoxes.length === 1;
+    const left = Math.min(...mainBoxes.map((b) => b.x)),
+      right = Math.max(...mainBoxes.map((b) => b.x)),
+      top = Math.min(...mainBoxes.map((b) => b.y)),
+      bottom = Math.max(...mainBoxes.map((b) => b.y));
+    if (x < left || x > right || y < top || y > bottom) return false;
+    const reach = Math.max(g.width, g.height) * 0.42;
+    return (
+      mainBoxes.filter((b) => Math.hypot(x - b.x, y - b.y) <= reach).length >=
+      2
+    );
+  };
   for (const o of ordered) {
     const w = o.rect.width * mm,
       h = o.rect.height * mm,
-      u = (o.rect.x + o.rect.width / 2) / input.sourceWidth,
-      v = (o.rect.y + o.rect.height / 2) / input.sourceHeight,
+      u =
+        (o.rect.x + o.rect.width / 2 - contentLeft) /
+        contentWidth,
+      v =
+        (o.rect.y + o.rect.height / 2 - contentTop) /
+        contentHeight,
       ty = Math.max(
         safe + h / 2,
         Math.min(g.height - safe - h / 2, safe + v * usableH),
@@ -328,7 +358,10 @@ export function arrangeLocal(
           for (const sx of ox ? [ox, -ox] : [0]) {
             const x = tx + sx,
               y = ty + sy;
-            if (fits(x, y, w, h)) {
+            if (
+              fits(x, y, w, h) &&
+              (o.role === "main" || betweenMainSubjects(x, y))
+            ) {
               const s = (x - tx) ** 2 + (y - ty) ** 2;
               if (s < score) {
                 score = s;
@@ -341,6 +374,7 @@ export function arrangeLocal(
       continue;
     }
     boxes.push({ ...best, w, h });
+    if (o.role === "main") mainBoxes.push({ ...best, w, h });
     layers.push({
       id: o.id,
       blob: o.blob,
@@ -354,8 +388,8 @@ export function arrangeLocal(
   const decorations = active.filter((o) => o.role === "decoration"),
     rng = random(input.seed),
     count = Math.min(
-      24,
-      Math.round((decorations.length * 2 * input.fill) / 100),
+      48,
+      Math.round((decorations.length * 4 * input.fill) / 100),
     );
   for (let i = 0; i < count && decorations.length; i++) {
     const o = decorations[i % decorations.length],
@@ -365,7 +399,7 @@ export function arrangeLocal(
     for (let k = 0; k < 300 && !placed; k++) {
       const x = safe + w / 2 + rng() * Math.max(0, g.width - 2 * safe - w),
         y = safe + h / 2 + rng() * Math.max(0, g.height - 2 * safe - h);
-      if (fits(x, y, w, h)) {
+      if (fits(x, y, w, h) && betweenMainSubjects(x, y)) {
         const id = `${o.id}-copy-${i}`;
         boxes.push({ x, y, w, h });
         layers.push({

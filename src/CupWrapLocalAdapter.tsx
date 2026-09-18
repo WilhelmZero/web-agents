@@ -117,8 +117,10 @@ export default function CupWrapLocalAdapter({
     > | null>(initial ?? null),
     [busy, setBusy] = useState(""),
     [error, setError] = useState(""),
-    [fill, setFill] = useState(initial?.fill ?? 40),
-    [gap, setGap] = useState(initial?.gap ?? 2),
+    [fill, setFill] = useState(
+      initial?.fill === 40 ? 70 : initial?.fill ?? 70,
+    ),
+    [gap, setGap] = useState(initial?.gap === 2 ? 1 : initial?.gap ?? 1),
     [scale, setScale] = useState(initial?.scale ?? 1),
     [seed, setSeed] = useState(initial?.seed ?? 1),
     [backgroundMode, setBackgroundMode] = useState(
@@ -326,7 +328,7 @@ export default function CupWrapLocalAdapter({
           <Alert
             type="info"
             showIcon
-            message="中心主体优先保持，外围元素沿扇形横截面重新定位；所有对象统一等比缩放，完整外框不得进入安全边。"
+            message="先沿扇形横截面排布主体路径，再将小装饰填入主体之间；装饰不会抢占主体位置。所有对象统一等比缩放，完整外框不得进入安全边。"
           />
           <Space wrap align="start">
             <label>

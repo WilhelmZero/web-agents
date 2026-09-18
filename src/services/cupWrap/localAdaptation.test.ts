@@ -109,8 +109,46 @@ describe("local cup layout", () => {
     );
     expect(
       r.layers.filter((v) => v.id.includes("copy")).length,
-    ).toBeLessThanOrEqual(2);
+    ).toBeLessThanOrEqual(4);
     expect(r.layers.some((v) => v.id.startsWith("main-copy"))).toBe(false);
+  });
+  it("places every subject before decorations and keeps decorations between subjects", () => {
+    const r = arrangeLocal(
+        {
+          sourceWidth: 500,
+          sourceHeight: 320,
+          objects: [
+            object("left-main", 30, 90, 90, 80, "main"),
+            object("right-main", 380, 90, 90, 80, "main"),
+            object("star", 220, 120, 18, 18, "decoration"),
+          ],
+          fill: 100,
+          gap: 1,
+          scale: 0.45,
+          seed: 3,
+        },
+        DEFAULT_CUP,
+      ),
+      subjectIndexes = r.layers
+        .map((layer, index) => ({ layer, index }))
+        .filter(({ layer }) => layer.id.includes("main"))
+        .map(({ index }) => index),
+      decorationIndexes = r.layers
+        .map((layer, index) => ({ layer, index }))
+        .filter(({ layer }) => layer.id.startsWith("star"))
+        .map(({ index }) => index),
+      subjects = r.layers.filter((layer) => layer.id.includes("main"));
+    expect(Math.max(...subjectIndexes)).toBeLessThan(
+      Math.min(...decorationIndexes),
+    );
+    const left = Math.min(...subjects.map((layer) => layer.x));
+    const right = Math.max(...subjects.map((layer) => layer.x));
+    for (const decoration of r.layers.filter((layer) =>
+      layer.id.startsWith("star"),
+    )) {
+      expect(decoration.x).toBeGreaterThanOrEqual(left);
+      expect(decoration.x).toBeLessThanOrEqual(right);
+    }
   });
   it("keeps row order and expands the wider top more than the narrow bottom", () => {
     const objects = [
