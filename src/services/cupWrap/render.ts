@@ -127,6 +127,11 @@ export async function renderDesign(
     artworkSlots.length &&
     (d.adaptationMode ?? "geometry") !== "local"
   ) {
+    const adjust = d.aiAdjustment ?? { scale: 1, x: 0, y: 0, warp: 0 };
+    ctx.save();
+    ctx.translate(g.width / 2 + adjust.x, g.height / 2 + adjust.y);
+    ctx.scale(adjust.scale, adjust.scale);
+    ctx.translate(-g.width / 2, -g.height / 2);
     for (const slot of artworkSlots) {
       const original = await createImageBitmap(slot.blob);
       let img = original;
@@ -162,6 +167,7 @@ export async function renderDesign(
         img.close();
       }
     }
+    ctx.restore();
   } else if (geometric && d.source) {
     const original = await createImageBitmap(d.source);
     let img = original;
@@ -284,6 +290,48 @@ export async function renderDesign(
   } else
     for (const layer of layerList)
       await draw(layer.blob, layer.x, layer.y, layer.width, layer.rotation);
+  // The editable black/white mask belongs to the artwork, not to the white
+  // backing or production cut line. Replaying normalized strokes here keeps
+  // previews and every export resolution pixel-aligned.
+  if (d.maskStrokes?.length) {
+    const editMask = new OffscreenCanvas(width, height),
+      edit = editMask.getContext("2d")!;
+    edit.scale(factor, factor);
+    edit.translate(b, b);
+    edit.fillStyle = "#fff";
+    edit.fillRect(0, 0, g.width, g.height);
+    edit.lineCap = "round";
+    edit.lineJoin = "round";
+    for (const stroke of d.maskStrokes) {
+      if (!stroke.points.length) continue;
+      edit.globalCompositeOperation =
+        stroke.mode === "erase" ? "destination-out" : "source-over";
+      edit.strokeStyle = "#fff";
+      edit.fillStyle = "#fff";
+      edit.lineWidth = Math.max(0.15, stroke.size * Math.min(g.width, g.height));
+      edit.beginPath();
+      const first = stroke.points[0];
+      edit.moveTo(first.x * g.width, first.y * g.height);
+      for (const point of stroke.points.slice(1))
+        edit.lineTo(point.x * g.width, point.y * g.height);
+      if (stroke.points.length === 1) {
+        edit.arc(
+          first.x * g.width,
+          first.y * g.height,
+          edit.lineWidth / 2,
+          0,
+          Math.PI * 2,
+        );
+        edit.fill();
+      } else edit.stroke();
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = "destination-in";
+    ctx.drawImage(editMask, 0, 0);
+    ctx.globalCompositeOperation = "source-over";
+    ctx.scale(factor, factor);
+    ctx.translate(b, b);
+  }
   // Apply the white artwork backing before the dieline mask. Doing this after
   // masking would refill the transparent pixels outside the cut path.
   if (

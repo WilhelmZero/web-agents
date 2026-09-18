@@ -18,10 +18,13 @@ import {
   Upload,
 } from "antd";
 import {
+  BgColorsOutlined,
   CopyOutlined,
   DeleteOutlined,
+  DragOutlined,
   PlusOutlined,
   RotateRightOutlined,
+  UndoOutlined,
 } from "@ant-design/icons";
 import {
   DEFAULT_CUP,
@@ -32,6 +35,8 @@ import {
 } from "./services/cupWrap/geometry";
 import {
   DEFAULT_PRINT,
+  type ArtworkMaskPoint,
+  type ArtworkMaskStroke,
   type ArtworkRole,
   type ImageAdjustment,
   type PrintSettings,
@@ -258,7 +263,10 @@ export default function CupWrapPrintComposer({
     [layoutBusy, setLayoutBusy] = useState(false),
     [layout, setLayout] = useState<PrintLayout>(),
     [tab, setTab] = useState("design"),
-    [guide, setGuide] = useState(true);
+    [guide, setGuide] = useState(true),
+    [previewTool, setPreviewTool] = useState<"move" | "erase" | "restore">("move"),
+    [brushSize, setBrushSize] = useState(0.045),
+    [liveStroke, setLiveStroke] = useState<ArtworkMaskPoint[]>([]);
   const [print, setPrint] = useState<PrintSettings>(() => {
     try {
       const saved = localStorage.getItem(PRINT_SETTINGS_KEY);
@@ -283,7 +291,13 @@ export default function CupWrapPrintComposer({
     }
   });
   const abort = useRef<AbortController | null>(null),
-    saveChain = useRef(Promise.resolve());
+    saveChain = useRef(Promise.resolve()),
+    previewSvg = useRef<SVGSVGElement | null>(null),
+    previewInteraction = useRef<
+      | { kind: "move"; start: ArtworkMaskPoint; adjustment: ImageAdjustment }
+      | { kind: "paint"; pointerId: number }
+      | undefined
+    >(undefined);
   const d = designs.find((design) => design.id === activeDesignId) ?? designs[0];
   const imageAdjustment =
     d.aiAdjustment ??
@@ -509,13 +523,9 @@ export default function CupWrapPrintComposer({
     const composite = await work<Blob>(
       {
         kind: "png",
-        design: {
-          ...snapshot,
-          adaptationMode: "geometry",
-          adopted: undefined,
-          adoptedFrame: undefined,
-          transparentOutput: snapshot.transparentOutput,
-        },
+        // Send the exact current dieline preview: all placement, scale and
+        // black/white mask edits are already baked into this image.
+        design: snapshot,
         dpi: 144,
         bleed: false,
         cutLine: false,
@@ -554,6 +564,16 @@ export default function CupWrapPrintComposer({
           : undefined,
       },
     );
+    const returned = await createImageBitmap(raw);
+    try {
+      framePlacement(returned.width, returned.height, g.width, g.height);
+    } finally {
+      returned.close();
+    }
+    const frame = {
+      cupKey: JSON.stringify(snapshot.cup),
+      transparent: !!snapshot.transparentOutput,
+    };
     setDesigns((all) =>
       all.map((v) =>
         v.id === snapshot.id
@@ -562,11 +582,18 @@ export default function CupWrapPrintComposer({
               aiResults: [...v.aiResults, raw],
               aiFrames: [
                 ...v.aiResults.map((_, i) => v.aiFrames?.[i] ?? null),
-                {
-                  cupKey: JSON.stringify(snapshot.cup),
-                  transparent: !!snapshot.transparentOutput,
-                },
+                frame,
               ],
+              adopted: raw,
+              adoptedFrame: frame,
+              adaptationMode: "ai",
+              aiAdjustment: { ...DEFAULT_AI_ADJUSTMENT },
+              maskStrokes: [],
+              fit: "contain",
+              scale: 1,
+              x: 0,
+              y: 0,
+              rotation: 0,
             }
           : v,
       ),
@@ -1286,6 +1313,41 @@ export default function CupWrapPrintComposer({
     </div>
   );
   const g = geo.g;
+  const previewPoint = (event: React.PointerEvent<SVGSVGElement>) => {
+    const svg = previewSvg.current;
+    if (!svg || !g) return { x: 0, y: 0 };
+    const point = svg.createSVGPoint();
+    point.x = event.clientX;
+    point.y = event.clientY;
+    const matrix = svg.getScreenCTM();
+    if (!matrix) return { x: 0, y: 0 };
+    const local = point.matrixTransform(matrix.inverse());
+    return { x: local.x, y: local.y };
+  };
+  const normalizedPreviewPoint = (event: React.PointerEvent<SVGSVGElement>) => {
+    const point = previewPoint(event);
+    return {
+      x: Math.max(0, Math.min(1, point.x / g!.width)),
+      y: Math.max(0, Math.min(1, point.y / g!.height)),
+    };
+  };
+  const finishPreviewInteraction = (event: React.PointerEvent<SVGSVGElement>) => {
+    const interaction = previewInteraction.current;
+    if (!interaction) return;
+    if (interaction.kind === "paint" && liveStroke.length) {
+      const stroke: ArtworkMaskStroke = {
+        id: crypto.randomUUID(),
+        mode: previewTool === "restore" ? "restore" : "erase",
+        points: liveStroke,
+        size: brushSize,
+      };
+      update({ maskStrokes: [...(d.maskStrokes ?? []), stroke] });
+    }
+    if (previewSvg.current?.hasPointerCapture(event.pointerId))
+      previewSvg.current.releasePointerCapture(event.pointerId);
+    previewInteraction.current = undefined;
+    setLiveStroke([]);
+  };
   const contained = useMemo(
     () =>
       g && sourceSize
@@ -1601,10 +1663,122 @@ export default function CupWrapPrintComposer({
                   斜高 {g.slant.toFixed(3)} mm
                 </span>
               </Space>
+              <div className="cup-preview-tools">
+                <Space wrap>
+                  <Button
+                    type={previewTool === "move" ? "primary" : "default"}
+                    icon={<DragOutlined />}
+                    onClick={() => setPreviewTool("move")}
+                  >
+                    拖动图案
+                  </Button>
+                  <Button
+                    type={previewTool === "erase" ? "primary" : "default"}
+                    icon={<BgColorsOutlined />}
+                    onClick={() => setPreviewTool("erase")}
+                  >
+                    黑色擦除
+                  </Button>
+                  <Button
+                    type={previewTool === "restore" ? "primary" : "default"}
+                    icon={<BgColorsOutlined />}
+                    onClick={() => setPreviewTool("restore")}
+                  >
+                    白色还原
+                  </Button>
+                  <Button
+                    icon={<UndoOutlined />}
+                    disabled={!d.maskStrokes?.length}
+                    onClick={() => update({ maskStrokes: d.maskStrokes?.slice(0, -1) })}
+                  >
+                    撤销画笔
+                  </Button>
+                  <Button
+                    disabled={!d.maskStrokes?.length}
+                    onClick={() => update({ maskStrokes: [] })}
+                  >
+                    清除蒙版
+                  </Button>
+                </Space>
+                <div className="cup-preview-sliders">
+                  <label>
+                    图案缩放 {Math.round(imageAdjustment.scale * 100)}%
+                    <Slider
+                      min={25}
+                      max={300}
+                      value={Math.round(imageAdjustment.scale * 100)}
+                      onChange={(value) =>
+                        update({
+                          aiAdjustment: { ...imageAdjustment, scale: value / 100 },
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    画笔大小 {Math.round(brushSize * 100)}%
+                    <Slider
+                      min={1}
+                      max={20}
+                      value={Math.round(brushSize * 100)}
+                      onChange={(value) => setBrushSize(value / 100)}
+                    />
+                  </label>
+                </div>
+                <span className="cup-preview-help">
+                  拖动模式可直接移动图案，滚轮可缩放；黑色擦除内容，白色恢复被擦除区域。
+                </span>
+              </div>
               <div className="cup-canvas">
                 <svg
+                  ref={previewSvg}
                   viewBox={`-5 -5 ${g.width + 10} ${g.height + 10}`}
                   aria-label="杯身展开刀模"
+                  className={`cup-preview-${previewTool}`}
+                  onWheel={(event) => {
+                    if (previewTool !== "move") return;
+                    event.preventDefault();
+                    const scale = Math.max(
+                      0.25,
+                      Math.min(3, imageAdjustment.scale * (event.deltaY < 0 ? 1.04 : 0.96)),
+                    );
+                    update({ aiAdjustment: { ...imageAdjustment, scale } });
+                  }}
+                  onPointerDown={(event) => {
+                    if (!preview) return;
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                    if (previewTool === "move") {
+                      previewInteraction.current = {
+                        kind: "move",
+                        start: previewPoint(event),
+                        adjustment: { ...imageAdjustment },
+                      };
+                    } else {
+                      previewInteraction.current = {
+                        kind: "paint",
+                        pointerId: event.pointerId,
+                      };
+                      setLiveStroke([normalizedPreviewPoint(event)]);
+                    }
+                  }}
+                  onPointerMove={(event) => {
+                    const interaction = previewInteraction.current;
+                    if (!interaction) return;
+                    if (interaction.kind === "move") {
+                      const point = previewPoint(event);
+                      update({
+                        aiAdjustment: {
+                          ...interaction.adjustment,
+                          x: interaction.adjustment.x + point.x - interaction.start.x,
+                          y: interaction.adjustment.y + point.y - interaction.start.y,
+                        },
+                      });
+                    } else {
+                      const point = normalizedPreviewPoint(event);
+                      setLiveStroke((points) => [...points, point]);
+                    }
+                  }}
+                  onPointerUp={finishPreviewInteraction}
+                  onPointerCancel={finishPreviewInteraction}
                 >
                   <image
                     href={preview || undefined}
@@ -1641,6 +1815,19 @@ export default function CupWrapPrintComposer({
                       />
                     </>
                   )}
+                  {liveStroke.length > 0 && (
+                    <polyline
+                      points={liveStroke
+                        .map((point) => `${point.x * g.width},${point.y * g.height}`)
+                        .join(" ")}
+                      fill="none"
+                      stroke={previewTool === "erase" ? "#000" : "#fff"}
+                      strokeWidth={brushSize * Math.min(g.width, g.height)}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="cup-live-mask-stroke"
+                    />
+                  )}
                 </svg>
               </div>
               <p>
@@ -1671,7 +1858,6 @@ export default function CupWrapPrintComposer({
                   title="图案外框有部分超出刀模，导出会裁切越界像素。请检查文字和完整角色，必要时缩小或移动。"
                 />
               )}
-              {preview && <Image width={100} src={preview} />}
             </>
           )}
           {tab === "a4" && (
@@ -1795,7 +1981,7 @@ export default function CupWrapPrintComposer({
         {!settingsHost && <aside>{panel}</aside>}
       </div>
       {d.aiResults.length > 0 && (
-        <Card title="AI 候选图（点击放大后检查，采用才用于打印）">
+        <Card title="AI 扩图历史（最新结果已直接替换当前图）">
           <Space wrap>
             {preview ? (
               <div>

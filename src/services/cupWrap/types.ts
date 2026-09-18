@@ -53,6 +53,18 @@ export interface ArtworkSlot {
   y: number;
   rotation: number;
 }
+export interface ArtworkMaskPoint {
+  x: number;
+  y: number;
+}
+export interface ArtworkMaskStroke {
+  id: string;
+  mode: "erase" | "restore";
+  /** Normalized against the dieline bounding box. */
+  points: ArtworkMaskPoint[];
+  /** Brush diameter normalized against the shorter dieline side. */
+  size: number;
+}
 export interface WrapDesign {
   id: string;
   name: string;
@@ -60,6 +72,7 @@ export interface WrapDesign {
   source?: Blob;
   originalSource?: Blob;
   artworkSlots?: ArtworkSlot[];
+  maskStrokes?: ArtworkMaskStroke[];
   enabled?: boolean;
   adopted?: Blob;
   aiResults: Blob[];
