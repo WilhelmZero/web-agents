@@ -171,6 +171,8 @@ const fresh = (): WrapDesign => ({
   enabled: true,
   adaptationMode: "geometry",
   transparentOutput: false,
+  canvasBackground: "white",
+  canvasBackgroundColor: "#ffffff",
   aiAdjustment: { ...DEFAULT_GEOMETRY_ADJUSTMENT },
   fit: "contain",
   scale: 1,
@@ -192,6 +194,10 @@ const hasArtwork = (design: WrapDesign) =>
 const migrateDesign = (design: WrapDesign): WrapDesign => ({
   ...design,
   enabled: design.enabled ?? true,
+  canvasBackground:
+    design.canvasBackground ??
+    (design.transparentOutput ? "transparent" : "white"),
+  canvasBackgroundColor: design.canvasBackgroundColor ?? "#ffffff",
   artworkSlots:
     design.artworkSlots?.length || !design.source
       ? design.artworkSlots ?? []
@@ -265,7 +271,8 @@ export default function CupWrapPrintComposer({
     [guide, setGuide] = useState(true),
     [previewTool, setPreviewTool] = useState<"move" | "erase" | "restore">("move"),
     [brushSize, setBrushSize] = useState(0.045),
-    [liveStroke, setLiveStroke] = useState<ArtworkMaskPoint[]>([]);
+    [liveStroke, setLiveStroke] = useState<ArtworkMaskPoint[]>([]),
+    [liveMove, setLiveMove] = useState<ArtworkMaskPoint>();
   const [print, setPrint] = useState<PrintSettings>(() => {
     try {
       const saved = localStorage.getItem(PRINT_SETTINGS_KEY);
@@ -293,7 +300,12 @@ export default function CupWrapPrintComposer({
     saveChain = useRef(Promise.resolve()),
     previewSvg = useRef<SVGSVGElement | null>(null),
     previewInteraction = useRef<
-      | { kind: "move"; start: ArtworkMaskPoint; adjustment: ImageAdjustment }
+      | {
+          kind: "move";
+          start: ArtworkMaskPoint;
+          adjustment: ImageAdjustment;
+          delta: ArtworkMaskPoint;
+        }
       | { kind: "paint"; pointerId: number }
       | undefined
     >(undefined);
@@ -948,12 +960,20 @@ export default function CupWrapPrintComposer({
         value={d.adaptationMode ?? "geometry"}
         onChange={(adaptationMode) => update({ adaptationMode })}
         options={[
+          { value: "original", label: "原图（手动调整）" },
           { value: "geometry", label: "原图几何映射（推荐）" },
           { value: "ai", label: "AI 扩图" },
           { value: "local", label: "本地智能排布（免费）" },
         ]}
       />
-      {(d.adaptationMode ?? "geometry") === "geometry" ? (
+      {d.adaptationMode === "original" ? (
+        <Alert
+          type="info"
+          showIcon
+          message="原图模式 · 不变形、不重排"
+          description="保留上传图片的原始内容与宽高比，只将整张图片居中放入刀模。请直接在预览中拖动，并使用缩放滑动条调整大小。"
+        />
+      ) : (d.adaptationMode ?? "geometry") === "geometry" ? (
         <>
           <Alert
             type="success"
@@ -1022,25 +1042,6 @@ export default function CupWrapPrintComposer({
           >
             AI 扩图结果固定为透明背景
           </Checkbox>
-          <Checkbox
-            checked={!!d.backgroundColor}
-            disabled={!d.transparentOutput && !d.adoptedFrame?.transparent}
-            onChange={(e) =>
-              update({
-                backgroundColor: e.target.checked ? "#ffffff" : undefined,
-              })
-            }
-          >
-            透明结果填充自定义底色
-          </Checkbox>
-          {d.backgroundColor && (
-            <input
-              aria-label="自定义背景颜色"
-              type="color"
-              value={d.backgroundColor}
-              onChange={(e) => update({ backgroundColor: e.target.value })}
-            />
-          )}
           <Input.TextArea
             aria-label="AI 扩图提示词"
             rows={4}
@@ -1065,6 +1066,31 @@ export default function CupWrapPrintComposer({
           </Button>
         </>
       )}
+      <h3>刀模底色</h3>
+      <Select
+        aria-label="刀模底色"
+        value={d.canvasBackground ?? "white"}
+        onChange={(canvasBackground) => update({ canvasBackground })}
+        options={[
+          { value: "white", label: "白色（默认）" },
+          { value: "transparent", label: "透明" },
+          { value: "color", label: "自定义颜色" },
+        ]}
+      />
+      {d.canvasBackground === "color" && (
+        <Space>
+          <input
+            aria-label="刀模自定义底色"
+            type="color"
+            value={d.canvasBackgroundColor || "#ffffff"}
+            onChange={(event) =>
+              update({ canvasBackgroundColor: event.target.value })
+            }
+          />
+          <span>{d.canvasBackgroundColor || "#ffffff"}</span>
+        </Space>
+      )}
+      <p>底色只填充刀模内部；刀模外始终透明。</p>
       <h3>输出与 A4</h3>
       {hasArtwork(d) &&
         (((d.adaptationMode ?? "geometry") === "geometry" &&
@@ -1319,11 +1345,20 @@ export default function CupWrapPrintComposer({
         size: brushSize,
       };
       update({ maskStrokes: [...(d.maskStrokes ?? []), stroke] });
+    } else if (interaction.kind === "move") {
+      update({
+        aiAdjustment: {
+          ...interaction.adjustment,
+          x: interaction.adjustment.x + interaction.delta.x,
+          y: interaction.adjustment.y + interaction.delta.y,
+        },
+      });
     }
     if (previewSvg.current?.hasPointerCapture(event.pointerId))
       previewSvg.current.releasePointerCapture(event.pointerId);
     previewInteraction.current = undefined;
     setLiveStroke([]);
+    setLiveMove(undefined);
   };
   const contained = useMemo(
     () =>
@@ -1378,15 +1413,27 @@ export default function CupWrapPrintComposer({
       enabledSlots.some((slot) => {
         const size = slotSizes[slot.id];
         if (!size) return false;
-        const placement = artworkSlotPlacement(
-          g,
-          slot,
-          enabledSlots.length,
-          size.width,
-          size.height,
-          d.cup.safe,
-          d.cup.coverage,
-        );
+        const placement =
+          d.adaptationMode === "original" && enabledSlots.length === 1
+            ? (() => {
+                const fit = containFit(g, size.width, size.height);
+                return {
+                  x: fit.cx + slot.x,
+                  y: fit.cy + slot.y,
+                  width: size.width * fit.scale * slot.scale,
+                  height: size.height * fit.scale * slot.scale,
+                  rotation: (slot.rotation * Math.PI) / 180,
+                };
+              })()
+            : artworkSlotPlacement(
+                g,
+                slot,
+                enabledSlots.length,
+                size.width,
+                size.height,
+                d.cup.safe,
+                d.cup.coverage,
+              );
         const c = Math.cos(placement.rotation),
           s = Math.sin(placement.rotation);
         return [
@@ -1702,7 +1749,7 @@ export default function CupWrapPrintComposer({
                   </label>
                 </div>
                 <span className="cup-preview-help">
-                  拖动模式可直接移动图案，滚轮可缩放；黑色擦除内容，白色恢复被擦除区域。
+                  拖动时会实时显示位置；大小请使用缩放滑动条。黑色擦除内容，白色恢复被擦除区域。
                 </span>
               </div>
               <div className="cup-canvas">
@@ -1711,15 +1758,6 @@ export default function CupWrapPrintComposer({
                   viewBox={`-5 -5 ${g.width + 10} ${g.height + 10}`}
                   aria-label="杯身展开刀模"
                   className={`cup-preview-${previewTool}`}
-                  onWheel={(event) => {
-                    if (previewTool !== "move") return;
-                    event.preventDefault();
-                    const scale = Math.max(
-                      0.25,
-                      Math.min(3, imageAdjustment.scale * (event.deltaY < 0 ? 1.04 : 0.96)),
-                    );
-                    update({ aiAdjustment: { ...imageAdjustment, scale } });
-                  }}
                   onPointerDown={(event) => {
                     if (!preview) return;
                     event.currentTarget.setPointerCapture(event.pointerId);
@@ -1728,6 +1766,7 @@ export default function CupWrapPrintComposer({
                         kind: "move",
                         start: previewPoint(event),
                         adjustment: { ...imageAdjustment },
+                        delta: { x: 0, y: 0 },
                       };
                     } else {
                       previewInteraction.current = {
@@ -1742,13 +1781,11 @@ export default function CupWrapPrintComposer({
                     if (!interaction) return;
                     if (interaction.kind === "move") {
                       const point = previewPoint(event);
-                      update({
-                        aiAdjustment: {
-                          ...interaction.adjustment,
-                          x: interaction.adjustment.x + point.x - interaction.start.x,
-                          y: interaction.adjustment.y + point.y - interaction.start.y,
-                        },
-                      });
+                      interaction.delta = {
+                        x: point.x - interaction.start.x,
+                        y: point.y - interaction.start.y,
+                      };
+                      setLiveMove(interaction.delta);
                     } else {
                       const point = normalizedPreviewPoint(event);
                       setLiveStroke((points) => [...points, point]);
@@ -1761,6 +1798,11 @@ export default function CupWrapPrintComposer({
                     href={preview || undefined}
                     width={g.width}
                     height={g.height}
+                    transform={
+                      liveMove
+                        ? `translate(${liveMove.x} ${liveMove.y})`
+                        : undefined
+                    }
                   />
                   {guide && (
                     <>

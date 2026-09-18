@@ -80,8 +80,10 @@ export interface WrapDesign {
   adoptedFrame?: { cupKey: string; transparent: boolean };
   transparentOutput?: boolean;
   backgroundColor?: string;
+  canvasBackground?: "white" | "transparent" | "color";
+  canvasBackgroundColor?: string;
   aiAdjustment?: ImageAdjustment;
-  adaptationMode?: "geometry" | "ai" | "local";
+  adaptationMode?: "original" | "geometry" | "ai" | "local";
   localAdaptation?: LocalAdaptation;
   fit: "contain" | "cover" | "tile";
   scale: number;

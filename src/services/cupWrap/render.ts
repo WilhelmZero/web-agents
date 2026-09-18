@@ -136,22 +136,34 @@ export async function renderDesign(
       const original = await createImageBitmap(slot.blob);
       let img = original;
       try {
-        if (d.transparentOutput) {
+        if (d.transparentOutput && d.adaptationMode !== "original") {
           const foreground = await removeUniformBoundaryBackground(original);
           if (foreground) {
             img = foreground;
             original.close();
           }
         }
-        const placement = artworkSlotPlacement(
-          g,
-          slot,
-          artworkSlots.length,
-          img.width,
-          img.height,
-          d.cup.safe,
-          d.cup.coverage,
-        );
+        const placement =
+          d.adaptationMode === "original" && artworkSlots.length === 1
+            ? (() => {
+                const contained = containFit(g, img.width, img.height);
+                return {
+                  x: contained.cx + slot.x,
+                  y: contained.cy + slot.y,
+                  width: img.width * contained.scale * slot.scale,
+                  height: img.height * contained.scale * slot.scale,
+                  rotation: (slot.rotation * Math.PI) / 180,
+                };
+              })()
+            : artworkSlotPlacement(
+                g,
+                slot,
+                artworkSlots.length,
+                img.width,
+                img.height,
+                d.cup.safe,
+                d.cup.coverage,
+              );
         ctx.save();
         ctx.translate(placement.x, placement.y);
         ctx.rotate(placement.rotation);
@@ -334,15 +346,14 @@ export async function renderDesign(
   }
   // Apply the white artwork backing before the dieline mask. Doing this after
   // masking would refill the transparent pixels outside the cut path.
-  if (
-    (geometric ||
-      (!d.adopted &&
-        artworkSlots.length > 0 &&
-        (d.adaptationMode ?? "geometry") !== "local")) &&
-    !d.transparentOutput
-  ) {
+  const canvasBackground =
+    d.canvasBackground ?? (d.transparentOutput ? "transparent" : "white");
+  if (canvasBackground !== "transparent") {
     ctx.globalCompositeOperation = "destination-over";
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle =
+      canvasBackground === "color"
+        ? d.canvasBackgroundColor || "#ffffff"
+        : "#ffffff";
     ctx.fillRect(0, 0, width, height);
     ctx.globalCompositeOperation = "source-over";
   }
