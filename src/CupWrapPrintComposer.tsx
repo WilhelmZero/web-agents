@@ -62,18 +62,23 @@ import { framePlacement } from "./services/cupWrap/adaptation";
 import CupWrapSeamPreview from "./CupWrapSeamPreview";
 import { hasUsableTransparency } from "./services/backgroundRemoval";
 import { artworkSlotPlacement } from "./services/cupWrap/artworkPlacement";
+import { stitchArtwork } from "./services/cupWrap/stitchArtwork";
 const SHOW_MANUAL_ARTWORK_TOOLS = false;
 const PRINT_SETTINGS_KEY = "cup-wrap-print:settings:v3";
 const LEGACY_PRINT_SETTINGS_KEY = "cup-wrap-print:settings:v2";
 const GAP_DEFAULTS_MIGRATION_KEY = "cup-wrap-print:gap-defaults:v2";
 const DEFAULT_AI_ADJUSTMENT: ImageAdjustment = {
   scale: 1,
+  scaleX: 1,
+  scaleY: 1,
   x: 0,
   y: 0,
   warp: 0,
 };
 const DEFAULT_GEOMETRY_ADJUSTMENT: ImageAdjustment = {
   scale: 1,
+  scaleX: 1,
+  scaleY: 1,
   x: 0,
   y: 0,
   warp: 1,
@@ -317,7 +322,11 @@ export default function CupWrapPrintComposer({
       : DEFAULT_AI_ADJUSTMENT);
   useEffect(() => {
     let cancelled = false;
-    const blob = d.adopted || d.artworkSlots?.find((slot) => slot.enabled)?.blob || d.source;
+    const blob =
+      d.adopted ||
+      (d.stitchedSource
+        ? d.source
+        : d.artworkSlots?.find((slot) => slot.enabled)?.blob || d.source);
     if (!blob) {
       setSourceSize(undefined);
       return;
@@ -492,15 +501,6 @@ export default function CupWrapPrintComposer({
     );
     setLayout(undefined);
   };
-  const updateSlot = (
-    role: ArtworkRole,
-    patch: Partial<NonNullable<WrapDesign["artworkSlots"]>[number]>,
-  ) =>
-    update({
-      artworkSlots: (d.artworkSlots ?? []).map((slot) =>
-        slot.role === role ? { ...slot, ...patch } : slot,
-      ),
-    });
   async function openSeamPreview() {
     setSeamOpen(true);
     setSeamTexture(undefined);
@@ -645,10 +645,14 @@ export default function CupWrapPrintComposer({
         ...existingSlots.filter((item) => item.role !== role),
         slot,
       ].sort((a) => (a.role === "front" ? -1 : 1));
+      const source = await stitchArtwork(
+        artworkSlots.filter((item) => item.enabled).map((item) => item.blob),
+      );
       update({
-        source: role === "front" ? file : d.source,
-        originalSource: role === "front" ? file : d.originalSource,
+        source,
+        originalSource: source,
         artworkSlots,
+        stitchedSource: artworkSlots.length > 1,
         transparentOutput: Boolean(d.transparentOutput || sourceHasTransparency),
         backgroundColor:
           sourceHasTransparency || d.transparentOutput
@@ -861,18 +865,16 @@ export default function CupWrapPrintComposer({
           ))}
         </>
       )}
-      <h3>正面／背面设计图</h3>
-      {(d.artworkSlots ?? []).filter((slot) => slot.enabled).length > 1 &&
-      d.cup.coverage <= 180 ? (
-        <Alert
-          type="warning"
-          showIcon
-          title="当前覆盖角度不足 180°，正面与背面无法在实物杯身上严格相隔 180°；系统已将两图放在可印刷范围的两端。"
-        />
-      ) : null}
+      <h3>设计图拼接</h3>
+      <Alert
+        type="info"
+        showIcon
+        message="默认使用一张图；上传两张时按顺序横向拼接"
+        description="系统保持两张图的宽高比，将第一张右边与第二张左边调整为相同高度后无缝连接。拼接完成后，缩放、移动、变形、蒙版、导出和 3D 模拟均将其视为一张图。"
+      />
       {(["front", "back"] as ArtworkRole[]).map((role) => {
         const slot = d.artworkSlots?.find((item) => item.role === role);
-        const label = role === "front" ? "正面图" : "背面图";
+        const label = role === "front" ? "第 1 张图（左侧）" : "第 2 张图（右侧）";
         return (
           <Card key={role} size="small" title={label} className="cup-artwork-slot">
             <Space wrap>
@@ -885,11 +887,6 @@ export default function CupWrapPrintComposer({
               </Upload>
               {slot ? (
                 <>
-                  <Switch
-                    aria-label={`启用${label}`}
-                    checked={slot.enabled}
-                    onChange={(enabled) => updateSlot(role, { enabled })}
-                  />
                   <Button
                     danger
                     size="small"
@@ -897,13 +894,25 @@ export default function CupWrapPrintComposer({
                       const artworkSlots = (d.artworkSlots ?? []).filter(
                         (item) => item.role !== role,
                       );
-                      update({
-                        artworkSlots,
-                        source:
-                          role === "front" ? undefined : d.source,
-                        originalSource:
-                          role === "front" ? undefined : d.originalSource,
-                      });
+                      const remaining = artworkSlots.map((item) => item.blob);
+                      if (!remaining.length) {
+                        update({
+                          artworkSlots: [],
+                          source: undefined,
+                          originalSource: undefined,
+                          stitchedSource: false,
+                        });
+                      } else
+                        stitchArtwork(remaining)
+                          .then((source) =>
+                            update({
+                              artworkSlots,
+                              source,
+                              originalSource: source,
+                              stitchedSource: artworkSlots.length > 1,
+                            }),
+                          )
+                          .catch((error) => setError(String(error)));
                     }}
                   >
                     删除
@@ -911,46 +920,6 @@ export default function CupWrapPrintComposer({
                 </>
               ) : null}
             </Space>
-            {slot ? (
-              <>
-                {number(
-                  `${label}等比缩放`,
-                  slot.scale,
-                  (scale) => updateSlot(role, { scale }),
-                  0.1,
-                  5,
-                )}
-                {number(
-                  `${label}水平微调 mm`,
-                  slot.x,
-                  (x) => updateSlot(role, { x }),
-                  -500,
-                  500,
-                )}
-                {number(
-                  `${label}垂直微调 mm`,
-                  slot.y,
-                  (y) => updateSlot(role, { y }),
-                  -500,
-                  500,
-                )}
-                {number(
-                  `${label}旋转微调 °`,
-                  slot.rotation,
-                  (rotation) => updateSlot(role, { rotation }),
-                  -180,
-                  180,
-                )}
-                <Button
-                  size="small"
-                  onClick={() =>
-                    updateSlot(role, { scale: 1, x: 0, y: 0, rotation: 0 })
-                  }
-                >
-                  恢复默认位置
-                </Button>
-              </>
-            ) : null}
           </Card>
         );
       })}
@@ -1098,7 +1067,8 @@ export default function CupWrapPrintComposer({
       <h3>输出与 A4</h3>
       {hasArtwork(d) &&
         (((d.adaptationMode ?? "geometry") === "geometry" &&
-          !d.artworkSlots?.length) ||
+          (!d.artworkSlots?.length || d.stitchedSource)) ||
+          d.stitchedSource ||
           (d.adopted && d.adoptedFrame) ||
           d.localAdaptation) && (
           <>
@@ -1140,6 +1110,26 @@ export default function CupWrapPrintComposer({
                 }
               />
             </label>
+            {number(
+              "水平单轴缩放",
+              imageAdjustment.scaleX ?? 1,
+              (scaleX) =>
+                update({
+                  aiAdjustment: { ...imageAdjustment, scaleX },
+                }),
+              0.2,
+              3,
+            )}
+            {number(
+              "垂直单轴缩放",
+              imageAdjustment.scaleY ?? 1,
+              (scaleY) =>
+                update({
+                  aiAdjustment: { ...imageAdjustment, scaleY },
+                }),
+              0.2,
+              3,
+            )}
             {(d.adaptationMode ?? "geometry") === "geometry" && (
               <>
                 {number(
@@ -1383,7 +1373,7 @@ export default function CupWrapPrintComposer({
   const legacySourceOverflow = !!(
     g &&
     sourceSize &&
-    !(d.artworkSlots?.length) &&
+    !d.artworkSlots?.length &&
     d.fit !== "tile" &&
     [
       [-1, -1],
@@ -1414,6 +1404,7 @@ export default function CupWrapPrintComposer({
   const enabledSlots = (d.artworkSlots ?? []).filter((slot) => slot.enabled);
   const slotOverflow = Boolean(
     g &&
+      !d.stitchedSource &&
       enabledSlots.some((slot) => {
         const size = slotSizes[slot.id];
         if (!size) return false;
@@ -1555,14 +1546,14 @@ export default function CupWrapPrintComposer({
             beforeUpload={(file) => upload(file as File, "front")}
             accept="image/png,image/jpeg,image/webp"
           >
-            <Button disabled={!ready}>上传／替换正面图</Button>
+            <Button disabled={!ready}>上传／替换第 1 张图</Button>
           </Upload>
           <Upload
             showUploadList={false}
             beforeUpload={(file) => upload(file as File, "back")}
             accept="image/png,image/jpeg,image/webp"
           >
-            <Button disabled={!ready}>上传／替换背面图</Button>
+            <Button disabled={!ready}>上传／替换第 2 张图</Button>
           </Upload>
         </Space>
         <Space wrap>
@@ -1743,6 +1734,38 @@ export default function CupWrapPrintComposer({
                     />
                   </label>
                   <label>
+                    水平缩放 {Math.round((imageAdjustment.scaleX ?? 1) * 100)}%
+                    <Slider
+                      min={20}
+                      max={300}
+                      value={Math.round((imageAdjustment.scaleX ?? 1) * 100)}
+                      onChange={(value) =>
+                        update({
+                          aiAdjustment: {
+                            ...imageAdjustment,
+                            scaleX: value / 100,
+                          },
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    垂直缩放 {Math.round((imageAdjustment.scaleY ?? 1) * 100)}%
+                    <Slider
+                      min={20}
+                      max={300}
+                      value={Math.round((imageAdjustment.scaleY ?? 1) * 100)}
+                      onChange={(value) =>
+                        update({
+                          aiAdjustment: {
+                            ...imageAdjustment,
+                            scaleY: value / 100,
+                          },
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
                     画笔大小 {Math.round(brushSize * 100)}%
                     <Slider
                       min={1}
@@ -1868,7 +1891,7 @@ export default function CupWrapPrintComposer({
                 )}{" "}
                 px
               </p>
-              {sourceSize && !d.artworkSlots?.length && (
+              {sourceSize && (!d.artworkSlots?.length || d.stitchedSource) && (
                 <p>
                   原图有效清晰度约 {(25.4 / sourceFactor).toFixed(0)} DPI；输出
                   DPI 不会增加原图细节。像素取整误差不超过{" "}

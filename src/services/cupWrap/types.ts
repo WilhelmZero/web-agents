@@ -34,6 +34,9 @@ export interface LocalAdaptation {
 }
 export interface ImageAdjustment {
   scale: number;
+  /** Additional non-uniform scale multipliers; omitted legacy values equal 1. */
+  scaleX?: number;
+  scaleY?: number;
   x: number;
   y: number;
   warp: number;
@@ -72,6 +75,8 @@ export interface WrapDesign {
   source?: Blob;
   originalSource?: Blob;
   artworkSlots?: ArtworkSlot[];
+  /** True when source is the left-to-right composite of artworkSlots. */
+  stitchedSource?: boolean;
   maskStrokes?: ArtworkMaskStroke[];
   enabled?: boolean;
   adopted?: Blob;

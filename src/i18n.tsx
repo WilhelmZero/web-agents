@@ -153,6 +153,17 @@ const translations: Record<string, string> = {
   "非破坏性调整，原图保留；预览和打印同步更新。几何映射默认使用完整扇形路径（1），可调低以减弱弯曲。缩放或移动超出安全区时可能裁切。":
     "Non-destructive adjustments preserve the original. Preview and print update together. Geometric mapping uses the full sector path (1) by default; lower it to reduce curvature. Scaling or moving beyond the safe area may clip artwork.",
   图片缩放: "Image scale",
+  设计图拼接: "Artwork stitching",
+  "默认使用一张图；上传两张时按顺序横向拼接":
+    "One image by default; two uploads are stitched horizontally in order",
+  "系统保持两张图的宽高比，将第一张右边与第二张左边调整为相同高度后无缝连接。拼接完成后，缩放、移动、变形、蒙版、导出和 3D 模拟均将其视为一张图。":
+    "The aspect ratio of each image is preserved. The right edge of the first and the left edge of the second are equalized to the same height and joined seamlessly. Scaling, movement, warping, masks, exports, and 3D preview then treat the result as one image.",
+  "第 1 张图（左侧）": "Image 1 (left)",
+  "第 2 张图（右侧）": "Image 2 (right)",
+  "上传／替换第 1 张图": "Upload / replace image 1",
+  "上传／替换第 2 张图": "Upload / replace image 2",
+  水平单轴缩放: "Horizontal scale",
+  垂直单轴缩放: "Vertical scale",
   "图案左侧留白 mm": "Artwork left margin mm",
   "图案右侧留白 mm": "Artwork right margin mm",
   "图案上方留白 mm": "Artwork top margin mm",
@@ -1514,6 +1525,9 @@ function translateText(value: string): string {
     [/^删除杯型 (.+)$/, "Delete cup profile: $1"],
     [/^AI 扩图候选 (\d+)$/, "AI outpainting candidate $1"],
     [/^缩放滑动条 · (\d+)%$/, "Scale slider · $1%"],
+    [/^图案缩放 (\d+)%$/, "Artwork scale $1%"],
+    [/^水平缩放 (\d+)%$/, "Horizontal scale $1%"],
+    [/^垂直缩放 (\d+)%$/, "Vertical scale $1%"],
     [/^A4 排版 · 自动计算中$/, "A4 layout · Calculating automatically"],
     [/^A4 排版 · (\d+) 页$/, "A4 layout · $1 pages"],
     [

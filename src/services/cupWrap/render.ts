@@ -125,12 +125,16 @@ export async function renderDesign(
   if (
     !d.adopted &&
     artworkSlots.length &&
+    !d.stitchedSource &&
     (d.adaptationMode ?? "geometry") !== "local"
   ) {
     const adjust = d.aiAdjustment ?? { scale: 1, x: 0, y: 0, warp: 0 };
     ctx.save();
     ctx.translate(g.width / 2 + adjust.x, g.height / 2 + adjust.y);
-    ctx.scale(adjust.scale, adjust.scale);
+    ctx.scale(
+      adjust.scale * (adjust.scaleX ?? 1),
+      adjust.scale * (adjust.scaleY ?? 1),
+    );
     ctx.translate(-g.width / 2, -g.height / 2);
     for (const slot of artworkSlots) {
       const original = await createImageBitmap(slot.blob);
@@ -214,10 +218,46 @@ export async function renderDesign(
       );
       ctx.save();
       ctx.translate(g.width / 2 + adjust.x, g.height / 2 + adjust.y);
-      ctx.scale(adjust.scale, adjust.scale);
+      ctx.scale(
+        adjust.scale * (adjust.scaleX ?? 1),
+        adjust.scale * (adjust.scaleY ?? 1),
+      );
       ctx.translate(-g.width / 2, -g.height / 2);
       if (!drawWarpWebGL(ctx, img, g, adjust.warp, region))
         drawWarp(ctx, img, g, adjust.warp, region);
+      ctx.restore();
+    } finally {
+      img.close();
+    }
+  } else if (
+    d.stitchedSource &&
+    d.source &&
+    !d.adopted &&
+    d.adaptationMode !== "local"
+  ) {
+    const img = await createImageBitmap(d.source);
+    try {
+      const fit = containFit(g, img.width, img.height),
+        adjust = d.aiAdjustment ?? { scale: 1, x: 0, y: 0, warp: 0 };
+      ctx.save();
+      ctx.translate(g.width / 2 + adjust.x, g.height / 2 + adjust.y);
+      ctx.scale(
+        adjust.scale * (adjust.scaleX ?? 1),
+        adjust.scale * (adjust.scaleY ?? 1),
+      );
+      ctx.translate(-g.width / 2, -g.height / 2);
+      if (adjust.warp) drawWarp(ctx, img, g, adjust.warp);
+      else {
+        const width = img.width * fit.scale,
+          height = img.height * fit.scale;
+        ctx.drawImage(
+          img,
+          fit.cx - width / 2,
+          fit.cy - height / 2,
+          width,
+          height,
+        );
+      }
       ctx.restore();
     } finally {
       img.close();
@@ -245,7 +285,10 @@ export async function renderDesign(
       const adjust = d.aiAdjustment ?? { scale: 1, x: 0, y: 0, warp: 0 };
       ctx.save();
       ctx.translate(g.width / 2 + adjust.x, g.height / 2 + adjust.y);
-      ctx.scale(adjust.scale, adjust.scale);
+      ctx.scale(
+        adjust.scale * (adjust.scaleX ?? 1),
+        adjust.scale * (adjust.scaleY ?? 1),
+      );
       ctx.translate(-g.width / 2, -g.height / 2);
       if (adjust.warp) drawWarp(ctx, img, g, adjust.warp);
       else ctx.drawImage(img, box.x, box.y, box.width, box.height);
@@ -290,7 +333,7 @@ export async function renderDesign(
     const a = d.aiAdjustment ?? { scale: 1, x: 0, y: 0, warp: 0 };
     ctx.save();
     ctx.translate(g.width / 2 + a.x, g.height / 2 + a.y);
-    ctx.scale(a.scale, a.scale);
+    ctx.scale(a.scale * (a.scaleX ?? 1), a.scale * (a.scaleY ?? 1));
     ctx.translate(-g.width / 2, -g.height / 2);
     for (const layer of layerList) {
       const p = a.warp
