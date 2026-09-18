@@ -58,10 +58,7 @@ import type { AppSettings } from "./types";
 import { arrangeLayers } from "./services/cupWrap/artwork";
 import { inside } from "./services/cupWrap/geometry";
 import { containFit } from "./services/cupWrap/fitting";
-import {
-  adaptationPrompt,
-  framePlacement,
-} from "./services/cupWrap/adaptation";
+import { framePlacement } from "./services/cupWrap/adaptation";
 import CupWrapSeamPreview from "./CupWrapSeamPreview";
 import { hasUsableTransparency } from "./services/backgroundRemoval";
 import { artworkSlotPlacement } from "./services/cupWrap/artworkPlacement";
@@ -85,6 +82,8 @@ const DEFAULT_GEOMETRY_ADJUSTMENT: ImageAdjustment = {
   topGap: 10,
   bottomGap: 10,
 };
+const AI_OUTPAINT_PROMPT =
+  "给图片里的图案扩图填充，填满扇形区域，并移除此图像的背景。保持所有前景主体不变且完整无损，边缘干净平滑。将背景设为透明。";
 function BlobPreview({ blob }: { blob: Blob }) {
   const [url, setUrl] = useState("");
   useEffect(() => {
@@ -524,8 +523,15 @@ export default function CupWrapPrintComposer({
       {
         kind: "png",
         // Send the exact current dieline preview: all placement, scale and
-        // black/white mask edits are already baked into this image.
-        design: snapshot,
+        // black/white mask edits are already baked into this image. The AI
+        // receives one white-filled sector image and is asked to remove it.
+        design: {
+          ...snapshot,
+          transparentOutput: false,
+          adoptedFrame: snapshot.adoptedFrame
+            ? { ...snapshot.adoptedFrame, transparent: false }
+            : undefined,
+        },
         dpi: 144,
         bleed: false,
         cutLine: false,
@@ -533,32 +539,14 @@ export default function CupWrapPrintComposer({
       },
       signal,
     );
-    const c = document.createElement("canvas");
-    c.width = 1600;
-    c.height = Math.max(1, Math.round((1600 * g.height) / g.width));
-    if (c.height > 8000) throw new Error("展开比例过于狭长，暂不支持 AI 适配");
-    const ctx = c.getContext("2d")!;
-    ctx.fillStyle = "#eeeeee";
-    ctx.fillRect(0, 0, c.width, c.height);
-    ctx.scale(c.width / g.width, c.height / g.height);
-    ctx.fillStyle = "white";
-    ctx.fill(new Path2D(pathData(g.points)));
-    const guide = await new Promise<Blob>((resolve) =>
-      c.toBlob((v) => resolve(v!), "image/png"),
-    );
     const raw = await adaptArtwork(
       settings,
       model,
       composite,
-      guide,
-      adaptationPrompt(
-        snapshot.cup,
-        snapshot.prompt.replace("位置、等比大小和间距", "位置和间距"),
-        snapshot.transparentOutput,
-      ),
+      AI_OUTPAINT_PROMPT,
       signal,
       {
-        transparent: !!snapshot.transparentOutput,
+        transparent: true,
         size: model.startsWith("gpt-image-2.5-")
           ? `${Math.max(16, Math.round((2048 * g.width) / Math.max(g.width, g.height) / 16) * 16)}x${Math.max(16, Math.round((2048 * g.height) / Math.max(g.width, g.height) / 16) * 16)}`
           : undefined,
@@ -572,7 +560,7 @@ export default function CupWrapPrintComposer({
     }
     const frame = {
       cupKey: JSON.stringify(snapshot.cup),
-      transparent: !!snapshot.transparentOutput,
+      transparent: true,
     };
     setDesigns((all) =>
       all.map((v) =>
@@ -589,6 +577,8 @@ export default function CupWrapPrintComposer({
               adaptationMode: "ai",
               aiAdjustment: { ...DEFAULT_AI_ADJUSTMENT },
               maskStrokes: [],
+              transparentOutput: true,
+              backgroundColor: undefined,
               fit: "contain",
               scale: 1,
               x: 0,
@@ -1027,10 +1017,10 @@ export default function CupWrapPrintComposer({
             ].map((value) => ({ value, label: value }))}
           />
           <Checkbox
-            checked={!!d.transparentOutput}
-            onChange={(e) => update({ transparentOutput: e.target.checked })}
+            checked
+            disabled
           >
-            请求透明背景（默认纯白底）
+            AI 扩图结果固定为透明背景
           </Checkbox>
           <Checkbox
             checked={!!d.backgroundColor}
@@ -1053,33 +1043,20 @@ export default function CupWrapPrintComposer({
           )}
           <Input.TextArea
             aria-label="AI 扩图提示词"
-            rows={5}
-            value={d.prompt}
-            onChange={(e) => update({ prompt: e.target.value })}
+            rows={4}
+            readOnly
+            value={AI_OUTPAINT_PROMPT}
           />
-          <details>
-            <summary>查看最终提交提示词</summary>
-            <Input.TextArea
-              readOnly
-              rows={12}
-              value={adaptationPrompt(
-                d.cup,
-                d.prompt.replace("位置、等比大小和间距", "位置和间距"),
-                d.transparentOutput,
-              )}
-            />
-          </details>
           <p>
-            输入顺序：精准正背拼接图、刀模范围引导图。AI 主要向外围扩展背景与小装饰，不应改变中央主体及已有图案大小。AI
-            仍可能偏离要求，请对照原始拼接图后再采用；最终结果会由本地刀模路径精确裁切，不会拉伸修正比例。
+            仅发送当前裁切包围盒中的扇形彩图，不再发送第二张刀模引导图。返回图会直接替换当前彩图，并由本地刀模路径再次精确裁切。
           </p>
           <Button
-            disabled={!hasArtwork(d) || !!busy || !d.prompt.trim()}
+            disabled={!hasArtwork(d) || !!busy}
             onClick={() =>
               Modal.confirm({
                 title: "将发起 1 次付费图片请求",
                 content:
-                  "AI 将围绕正背拼接图向刀模外围扩图；主体是否保持不变需由你在候选对比中确认。不自动重试。",
+                  "将只发送当前已调整好的扇形刀模彩图。AI 返回后会直接替换当前彩图，并自动设为透明背景；不自动重试。",
                 onOk: () => run("AI 正在沿刀模扩图", generate),
               })
             }

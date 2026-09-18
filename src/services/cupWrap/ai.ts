@@ -9,7 +9,6 @@ export async function adaptArtwork(
   settings: AppSettings,
   model: string,
   source: Blob,
-  guide: Blob,
   prompt: string,
   signal: AbortSignal,
   options?: { transparent: boolean; size?: string },
@@ -20,9 +19,9 @@ export async function adaptArtwork(
   const id = startRequestConsoleEntry({
       model,
       connection: gemini ? settings.connectionMode : "direct",
-      requestSummary: "杯身刀模扩图 · 正背拼接参考 · 单次请求，无自动重试",
+      requestSummary: "杯身刀模扩图 · 当前刀模图 · 单次请求，无自动重试",
       requestPrompt: prompt,
-      inputImages: [source, guide],
+      inputImages: [source],
     }),
     start = performance.now();
   try {
@@ -34,7 +33,7 @@ export async function adaptArtwork(
           text += String.fromCharCode(byte);
         return { inlineData: { mimeType: blob.type, data: btoa(text) } };
       };
-      const parts = await Promise.all([source, guide].map(encode));
+      const parts = await Promise.all([source].map(encode));
       response = await fetch(
         `${getGeminiApiRoot(settings.connectionMode === "proxy" ? settings.proxyUrl : "")}/models/${model}:generateContent`,
         {
@@ -58,7 +57,6 @@ export async function adaptArtwork(
       form.append("model", model);
       form.append("prompt", prompt);
       form.append("image[]", source, "source.png");
-      form.append("image[]", guide, "guide.png");
       form.append("size", options?.size || "auto");
       form.append("quality", "high");
       form.append("n", "1");

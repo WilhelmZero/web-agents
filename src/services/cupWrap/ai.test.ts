@@ -11,7 +11,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
-it("sends exact prompt, two ordered images and counts only a returned image", async () => {
+it("sends the exact prompt with only the current dieline image", async () => {
   const fetcher = vi
     .fn()
     .mockResolvedValue(
@@ -21,20 +21,18 @@ it("sends exact prompt, two ordered images and counts only a returned image", as
     );
   vi.stubGlobal("fetch", fetcher);
   const source = new Blob(["source"], { type: "image/png" }),
-    guide = new Blob(["guide"], { type: "image/png" }),
     prompt = "用户原文\n完整图案";
   await adaptArtwork(
     { ...DEFAULT_SETTINGS, openAiApiKey: "test" },
     "gpt-image-2",
     source,
-    guide,
     prompt,
     new AbortController().signal,
   );
   const form = fetcher.mock.calls[0][1].body as FormData;
   expect(form.get("prompt")).toBe(prompt);
+  expect(form.getAll("image[]")).toHaveLength(1);
   expect(await (form.getAll("image[]")[0] as Blob).text()).toBe("source");
-  expect(await (form.getAll("image[]")[1] as Blob).text()).toBe("guide");
   expect(updateRequestConsoleEntry).toHaveBeenCalledWith(
     "test",
     expect.objectContaining({
@@ -56,7 +54,6 @@ it("does not automatically retry errors or record generated images", async () =>
     adaptArtwork(
       { ...DEFAULT_SETTINGS, openAiApiKey: "test" },
       "gpt-image-2",
-      new Blob(),
       new Blob(),
       "x",
       new AbortController().signal,
