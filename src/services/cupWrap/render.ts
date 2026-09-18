@@ -3,6 +3,7 @@ import type { WrapDesign } from "./types";
 import { containFit } from "./fitting";
 import { framePlacement } from "./adaptation";
 import { drawWarp, drawWarpWebGL, safeWarpRegion, warpPoint } from "./warp";
+import { artworkSlotPlacement } from "./artworkPlacement";
 async function removeUniformBoundaryBackground(img: ImageBitmap) {
   const canvas = new OffscreenCanvas(img.width, img.height);
   const ctx = canvas.getContext("2d")!;
@@ -114,13 +115,54 @@ export async function renderDesign(
     }
   };
   const source = d.adopted || d.source;
+  const artworkSlots = (d.artworkSlots ?? []).filter((slot) => slot.enabled);
   const geometric = (d.adaptationMode ?? "geometry") === "geometry";
   const local =
     d.adaptationMode === "local" &&
     d.localAdaptation?.cupKey === JSON.stringify(d.cup)
       ? d.localAdaptation
       : undefined;
-  if (geometric && d.source) {
+  if (
+    !d.adopted &&
+    artworkSlots.length &&
+    (d.adaptationMode ?? "geometry") !== "local"
+  ) {
+    for (const slot of artworkSlots) {
+      const original = await createImageBitmap(slot.blob);
+      let img = original;
+      try {
+        if (d.transparentOutput) {
+          const foreground = await removeUniformBoundaryBackground(original);
+          if (foreground) {
+            img = foreground;
+            original.close();
+          }
+        }
+        const placement = artworkSlotPlacement(
+          g,
+          slot,
+          artworkSlots.length,
+          img.width,
+          img.height,
+          d.cup.safe,
+          d.cup.coverage,
+        );
+        ctx.save();
+        ctx.translate(placement.x, placement.y);
+        ctx.rotate(placement.rotation);
+        ctx.drawImage(
+          img,
+          -placement.width / 2,
+          -placement.height / 2,
+          placement.width,
+          placement.height,
+        );
+        ctx.restore();
+      } finally {
+        img.close();
+      }
+    }
+  } else if (geometric && d.source) {
     const original = await createImageBitmap(d.source);
     let img = original;
     try {
@@ -244,7 +286,13 @@ export async function renderDesign(
       await draw(layer.blob, layer.x, layer.y, layer.width, layer.rotation);
   // Apply the white artwork backing before the dieline mask. Doing this after
   // masking would refill the transparent pixels outside the cut path.
-  if (geometric && !d.transparentOutput) {
+  if (
+    (geometric ||
+      (!d.adopted &&
+        artworkSlots.length > 0 &&
+        (d.adaptationMode ?? "geometry") !== "local")) &&
+    !d.transparentOutput
+  ) {
     ctx.globalCompositeOperation = "destination-over";
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, width, height);

@@ -113,27 +113,23 @@ it("automatically recalculates A4 layout after design data loads", async () => {
       ),
     { timeout: 3000 },
   );
+  expect(screen.getByRole("switch", { name: "启用正面图" })).toBeChecked();
   expect(
-    screen.getByRole("spinbutton", { name: "图案左侧留白 mm" }),
-  ).toHaveValue("0");
-  const rightGap = screen.getByRole("spinbutton", {
-    name: "图案右侧留白 mm",
+    screen.getByRole("spinbutton", { name: "正面图等比缩放" }),
+  ).toHaveValue("1");
+  const horizontal = screen.getByRole("spinbutton", {
+    name: "正面图水平微调 mm",
   });
-  expect(rightGap).toHaveValue("0");
-  expect(
-    screen.getByRole("spinbutton", { name: "图案上方留白 mm" }),
-  ).toHaveValue("10");
-  expect(
-    screen.getByRole("spinbutton", { name: "图案下方留白 mm" }),
-  ).toHaveValue("10");
-  fireEvent.change(rightGap, { target: { value: "4" } });
+  fireEvent.change(horizontal, { target: { value: "4" } });
   await waitFor(
     () =>
       expect(work).toHaveBeenCalledWith(
         expect.objectContaining({
           kind: "png",
           design: expect.objectContaining({
-            aiAdjustment: expect.objectContaining({ rightGap: 4 }),
+            artworkSlots: expect.arrayContaining([
+              expect.objectContaining({ role: "front", x: 4 }),
+            ]),
           }),
         }),
         expect.any(AbortSignal),
@@ -209,6 +205,22 @@ it("opens the seam preview without requiring uploaded artwork", async () => {
   expect(
     await screen.findByRole("button", { name: "测试 3D 接缝弹窗" }),
   ).toBeInTheDocument();
+}, 30000);
+it("adds and switches independent cup profiles", async () => {
+  render(
+    <CupWrapPrintComposer
+      active
+      settingsHost={null}
+      settings={DEFAULT_SETTINGS}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: /新增杯型/ }));
+  expect(screen.getByDisplayValue("杯型 2")).toBeInTheDocument();
+  fireEvent.change(screen.getByRole("spinbutton", { name: "口径" }), {
+    target: { value: "55" },
+  });
+  await waitFor(() => expect(screen.getByText(/口径 55 ·/)).toBeInTheDocument());
+  expect(screen.getAllByRole("switch", { name: /加入A4混排/ })).toHaveLength(2);
 }, 30000);
 it("preserves a transparent background when transparent artwork is uploaded", async () => {
   vi.mocked(hasUsableTransparency).mockResolvedValueOnce(true);

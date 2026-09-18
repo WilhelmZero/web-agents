@@ -20,7 +20,7 @@ export async function adaptArtwork(
   const id = startRequestConsoleEntry({
       model,
       connection: gemini ? settings.connectionMode : "direct",
-      requestSummary: "杯身图案适配 · 单次请求，无自动重试",
+      requestSummary: "杯身刀模扩图 · 正背拼接参考 · 单次请求，无自动重试",
       requestPrompt: prompt,
       inputImages: [source, guide],
     }),
@@ -98,7 +98,7 @@ export async function adaptArtwork(
       status: "success",
       durationMs: performance.now() - start,
       outputImages: [blob],
-      resultSummary: "返回 1 张图案适配图片",
+      resultSummary: "返回 1 张杯身扩图候选",
     });
     return blob;
   } catch (e) {

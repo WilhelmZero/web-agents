@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect } from "vitest";
 import { DEFAULT_CUP, geometry, dielineSvg, inside } from "./geometry";
+import { artworkSlotPlacement } from "./artworkPlacement";
 import { encodeTiff, stabilizeTransparentEdges } from "./tiff";
 import { pack } from "./packing";
 import { backgroundCandidates, suggestRegions } from "./artwork";
@@ -25,6 +26,31 @@ const design = (id = "one"): WrapDesign => ({
   prompt: "",
 });
 describe("cup wrap geometry", () => {
+  it("places front and back artwork half a wrap apart without changing aspect ratio", () => {
+    const g = geometry(DEFAULT_CUP);
+    const make = (role: "front" | "back") =>
+      artworkSlotPlacement(
+        g,
+        {
+          id: role,
+          role,
+          blob: new Blob(),
+          enabled: true,
+          scale: 1,
+          x: 0,
+          y: 0,
+          rotation: 0,
+        },
+        2,
+        800,
+        400,
+        DEFAULT_CUP.safe,
+      );
+    const front = make("front"), back = make("back");
+    expect(front.width / front.height).toBeCloseTo(2, 8);
+    expect(back.width / back.height).toBeCloseTo(2, 8);
+    expect(Math.abs(front.x - back.x)).toBeGreaterThan(g.width * 0.35);
+  });
   it("fits a complete image inside curved edges rather than clipping bounding-box corners", () => {
     for (const cup of [
       DEFAULT_CUP,
@@ -163,6 +189,17 @@ describe("packing", () => {
       expect(p.width).toBeCloseTo(p.rotation % 180 ? g.height : g.width);
     }
   }, 30000);
+  it("mixes different cup sizes on the same fill page", () => {
+    const first = design();
+    first.id = "small";
+    first.cup = { ...DEFAULT_CUP, top: 30, bottom: 28, height: 70 };
+    const second = design();
+    second.id = "large";
+    second.cup = { ...DEFAULT_CUP, top: 42, bottom: 36, height: 105 };
+    const layout = pack([first, second], { ...DEFAULT_PRINT, mode: "fill" });
+    expect(layout.pages[0].some((item) => item.id === "small")).toBe(true);
+    expect(layout.pages[0].some((item) => item.id === "large")).toBe(true);
+  });
   it("rejects oversize without shrinking", () => {
     const d = design();
     d.cup = { ...DEFAULT_CUP, top: 400, bottom: 400, height: 400 };

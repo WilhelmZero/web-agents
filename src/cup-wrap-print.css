@@ -17,6 +17,28 @@
   align-items: flex-start;
   gap: 10px;
 }
+.cup-design-list {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 2px 2px 12px;
+}
+.cup-design-card {
+  min-width: 230px;
+  cursor: pointer;
+}
+.cup-design-card.active {
+  border-color: var(--ant-color-primary, #1677ff);
+  box-shadow: 0 0 0 2px rgba(22, 119, 255, 0.12);
+}
+.cup-design-card span {
+  font-size: 12px;
+  color: #64748b;
+}
+.cup-artwork-slot {
+  margin-bottom: 10px;
+}
 .cup-body {
   display: flex;
   gap: 24px;

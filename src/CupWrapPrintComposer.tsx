@@ -17,7 +17,12 @@ import {
   Tabs,
   Upload,
 } from "antd";
-import { RotateRightOutlined } from "@ant-design/icons";
+import {
+  CopyOutlined,
+  DeleteOutlined,
+  PlusOutlined,
+  RotateRightOutlined,
+} from "@ant-design/icons";
 import {
   DEFAULT_CUP,
   geometry,
@@ -27,6 +32,7 @@ import {
 } from "./services/cupWrap/geometry";
 import {
   DEFAULT_PRINT,
+  type ArtworkRole,
   type ImageAdjustment,
   type PrintSettings,
   type WrapDesign,
@@ -53,6 +59,7 @@ import {
 } from "./services/cupWrap/adaptation";
 import CupWrapSeamPreview from "./CupWrapSeamPreview";
 import { hasUsableTransparency } from "./services/backgroundRemoval";
+import { artworkSlotPlacement } from "./services/cupWrap/artworkPlacement";
 const SHOW_MANUAL_ARTWORK_TOOLS = false;
 const PRINT_SETTINGS_KEY = "cup-wrap-print:settings:v3";
 const LEGACY_PRINT_SETTINGS_KEY = "cup-wrap-print:settings:v2";
@@ -156,6 +163,8 @@ const fresh = (): WrapDesign => ({
   name: "杯身设计",
   cup: { ...DEFAULT_CUP },
   aiResults: [],
+  artworkSlots: [],
+  enabled: true,
   adaptationMode: "geometry",
   transparentOutput: false,
   aiAdjustment: { ...DEFAULT_GEOMETRY_ADJUSTMENT },
@@ -167,7 +176,33 @@ const fresh = (): WrapDesign => ({
   layers: [],
   quantity: 1,
   prompt:
-    "保持各个角色及文字大小不变，只调整间距与位置，沿刀模轮廓重新排布；空白过大时复制原图中的小装饰填补。",
+    "保持中央主体、文字、角色和已有小图案的大小及比例不变，沿刀模轮廓只向外围空白扩展同风格背景和小装饰，并自然连接正面与背面图案。",
+});
+const hasArtwork = (design: WrapDesign) =>
+  Boolean(
+    design.source ||
+      design.adopted ||
+      design.layers.length ||
+      design.artworkSlots?.some((slot) => slot.enabled),
+  );
+const migrateDesign = (design: WrapDesign): WrapDesign => ({
+  ...design,
+  enabled: design.enabled ?? true,
+  artworkSlots:
+    design.artworkSlots?.length || !design.source
+      ? design.artworkSlots ?? []
+      : [
+          {
+            id: crypto.randomUUID(),
+            role: "front",
+            blob: design.source,
+            enabled: true,
+            scale: 1,
+            x: 0,
+            y: 0,
+            rotation: 0,
+          },
+        ],
 });
 function download(blob: Blob, name: string) {
   const url = URL.createObjectURL(blob),
@@ -197,6 +232,7 @@ export default function CupWrapPrintComposer({
     width: number;
     height: number;
   }>();
+  const [slotSizes, setSlotSizes] = useState<Record<string, { width: number; height: number }>>({});
   useEffect(() => {
     try {
       localStorage.setItem("cup-wrap-print:model:v2", model);
@@ -214,6 +250,7 @@ export default function CupWrapPrintComposer({
     value: Placement;
   }>();
   const [designs, setDesigns] = useState<WrapDesign[]>(() => [fresh()]),
+    [activeDesignId, setActiveDesignId] = useState(""),
     [ready, setReady] = useState(false),
     [error, setError] = useState(""),
     [preview, setPreview] = useState(""),
@@ -247,7 +284,7 @@ export default function CupWrapPrintComposer({
   });
   const abort = useRef<AbortController | null>(null),
     saveChain = useRef(Promise.resolve());
-  const d = designs[0];
+  const d = designs.find((design) => design.id === activeDesignId) ?? designs[0];
   const imageAdjustment =
     d.aiAdjustment ??
     ((d.adaptationMode ?? "geometry") === "geometry"
@@ -255,7 +292,7 @@ export default function CupWrapPrintComposer({
       : DEFAULT_AI_ADJUSTMENT);
   useEffect(() => {
     let cancelled = false;
-    const blob = d.adopted || d.source;
+    const blob = d.adopted || d.artworkSlots?.find((slot) => slot.enabled)?.blob || d.source;
     if (!blob) {
       setSourceSize(undefined);
       return;
@@ -269,7 +306,32 @@ export default function CupWrapPrintComposer({
     return () => {
       cancelled = true;
     };
-  }, [d.source, d.adopted]);
+  }, [d.source, d.adopted, d.artworkSlots]);
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all(
+      (d.artworkSlots ?? []).map(async (slot) => {
+        const image = await createImageBitmap(slot.blob);
+        const result = { id: slot.id, width: image.width, height: image.height };
+        image.close();
+        return result;
+      }),
+    )
+      .then((items) => {
+        if (!cancelled)
+          setSlotSizes(
+            Object.fromEntries(
+              items.map(({ id, width, height }) => [id, { width, height }]),
+            ),
+          );
+      })
+      .catch(() => {
+        if (!cancelled) setSlotSizes({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [d.artworkSlots]);
   const geo = useMemo(() => {
     try {
       return { g: geometry(d.cup), error: "" };
@@ -283,9 +345,8 @@ export default function CupWrapPrintComposer({
         const migrateOldGapDefaults = !localStorage.getItem(
           GAP_DEFAULTS_MIGRATION_KEY,
         );
-        if (v.length)
-          setDesigns(
-            v.slice(0, 1).map((item) => ({
+        if (v.length) {
+          const restored = v.map((item) => migrateDesign({
               ...item,
               aiAdjustment:
                 migrateOldGapDefaults &&
@@ -309,8 +370,10 @@ export default function CupWrapPrintComposer({
                 "第一张是原始图案，第二张是目标展开轮廓引导图。输出画布构图对应第二张图，不要把红色轮廓线或其他辅助标记画进结果。保持文字内容和角色身份，不拉伸文字与角色。根据目标展开范围调整完整角色的位置、等比大小和间距，在空白区域补充风格一致的小装饰，保持脸部、眼睛和肢体完整。"
                   ? fresh().prompt
                   : item.prompt,
-            })),
-          );
+            }));
+          setDesigns(restored);
+          setActiveDesignId(restored[0].id);
+        } else setActiveDesignId((current) => current || designs[0].id);
         if (migrateOldGapDefaults)
           localStorage.setItem(GAP_DEFAULTS_MIGRATION_KEY, "1");
       })
@@ -335,7 +398,9 @@ export default function CupWrapPrintComposer({
     }
   }, [print]);
   useEffect(() => {
-    const printable = designs.filter((design) => design.source);
+    const printable = designs.filter(
+      (design) => design.enabled !== false && hasArtwork(design),
+    );
     if (!printable.length) {
       setLayout(undefined);
       setLayoutBusy(false);
@@ -402,10 +467,19 @@ export default function CupWrapPrintComposer({
     );
     setLayout(undefined);
   };
+  const updateSlot = (
+    role: ArtworkRole,
+    patch: Partial<NonNullable<WrapDesign["artworkSlots"]>[number]>,
+  ) =>
+    update({
+      artworkSlots: (d.artworkSlots ?? []).map((slot) =>
+        slot.role === role ? { ...slot, ...patch } : slot,
+      ),
+    });
   async function openSeamPreview() {
     setSeamOpen(true);
     setSeamTexture(undefined);
-    if (!d.source && !d.adopted && !d.layers.length) return;
+    if (!hasArtwork(d)) return;
     setSeamBusy(true);
     try {
       setSeamTexture(
@@ -429,9 +503,26 @@ export default function CupWrapPrintComposer({
     setLayout(undefined);
   };
   async function generate(signal: AbortSignal) {
-    if (!d.source) return;
+    if (!hasArtwork(d)) return;
     const snapshot = structuredClone(d),
       g = geometry(snapshot.cup);
+    const composite = await work<Blob>(
+      {
+        kind: "png",
+        design: {
+          ...snapshot,
+          adaptationMode: "geometry",
+          adopted: undefined,
+          adoptedFrame: undefined,
+          transparentOutput: snapshot.transparentOutput,
+        },
+        dpi: 144,
+        bleed: false,
+        cutLine: false,
+        preview: true,
+      },
+      signal,
+    );
     const c = document.createElement("canvas");
     c.width = 1600;
     c.height = Math.max(1, Math.round((1600 * g.height) / g.width));
@@ -448,7 +539,7 @@ export default function CupWrapPrintComposer({
     const raw = await adaptArtwork(
       settings,
       model,
-      snapshot.source!,
+      composite,
       guide,
       adaptationPrompt(
         snapshot.cup,
@@ -496,7 +587,7 @@ export default function CupWrapPrintComposer({
       setBusy("");
     }
   }
-  async function upload(file: File) {
+  async function upload(file: File, role: ArtworkRole = "front") {
     try {
       if (
         !["image/png", "image/jpeg", "image/webp"].includes(file.type) ||
@@ -510,18 +601,37 @@ export default function CupWrapPrintComposer({
       }
       image.close();
       const sourceHasTransparency = await hasUsableTransparency(file);
+      const existingSlots = d.artworkSlots ?? [];
+      const slot = {
+        id: crypto.randomUUID(),
+        role,
+        blob: file,
+        enabled: true,
+        scale: 1,
+        x: 0,
+        y: 0,
+        rotation: 0,
+      };
+      const artworkSlots = [
+        ...existingSlots.filter((item) => item.role !== role),
+        slot,
+      ].sort((a) => (a.role === "front" ? -1 : 1));
       update({
-        source: file,
-        originalSource: file,
-        transparentOutput: sourceHasTransparency,
-        backgroundColor: sourceHasTransparency ? undefined : d.backgroundColor,
+        source: role === "front" ? file : d.source,
+        originalSource: role === "front" ? file : d.originalSource,
+        artworkSlots,
+        transparentOutput: Boolean(d.transparentOutput || sourceHasTransparency),
+        backgroundColor:
+          sourceHasTransparency || d.transparentOutput
+            ? undefined
+            : d.backgroundColor,
         adopted: undefined,
         layers: [],
         aiResults: [],
         aiFrames: [],
         adoptedFrame: undefined,
         localAdaptation: undefined,
-        name: file.name.replace(/\.[^.]+$/, ""),
+        name: role === "front" ? file.name.replace(/\.[^.]+$/, "") : d.name,
       });
     } catch (e) {
       setError(String(e));
@@ -550,6 +660,12 @@ export default function CupWrapPrintComposer({
   );
   const panel = (
     <div className="cup-settings">
+      <h3>杯型名称</h3>
+      <Input
+        aria-label="杯型名称"
+        value={d.name}
+        onChange={(event) => update({ name: event.target.value })}
+      />
       <h3>杯身尺寸 · mm</h3>
       {(
         [
@@ -716,6 +832,99 @@ export default function CupWrapPrintComposer({
           ))}
         </>
       )}
+      <h3>正面／背面设计图</h3>
+      {(d.artworkSlots ?? []).filter((slot) => slot.enabled).length > 1 &&
+      d.cup.coverage <= 180 ? (
+        <Alert
+          type="warning"
+          showIcon
+          title="当前覆盖角度不足 180°，正面与背面无法在实物杯身上严格相隔 180°；系统已将两图放在可印刷范围的两端。"
+        />
+      ) : null}
+      {(["front", "back"] as ArtworkRole[]).map((role) => {
+        const slot = d.artworkSlots?.find((item) => item.role === role);
+        const label = role === "front" ? "正面图" : "背面图";
+        return (
+          <Card key={role} size="small" title={label} className="cup-artwork-slot">
+            <Space wrap>
+              <Upload
+                showUploadList={false}
+                accept="image/png,image/jpeg,image/webp"
+                beforeUpload={(file) => upload(file as File, role)}
+              >
+                <Button>{slot ? `替换${label}` : `上传${label}`}</Button>
+              </Upload>
+              {slot ? (
+                <>
+                  <Switch
+                    aria-label={`启用${label}`}
+                    checked={slot.enabled}
+                    onChange={(enabled) => updateSlot(role, { enabled })}
+                  />
+                  <Button
+                    danger
+                    size="small"
+                    onClick={() => {
+                      const artworkSlots = (d.artworkSlots ?? []).filter(
+                        (item) => item.role !== role,
+                      );
+                      update({
+                        artworkSlots,
+                        source:
+                          role === "front" ? undefined : d.source,
+                        originalSource:
+                          role === "front" ? undefined : d.originalSource,
+                      });
+                    }}
+                  >
+                    删除
+                  </Button>
+                </>
+              ) : null}
+            </Space>
+            {slot ? (
+              <>
+                {number(
+                  `${label}等比缩放`,
+                  slot.scale,
+                  (scale) => updateSlot(role, { scale }),
+                  0.1,
+                  5,
+                )}
+                {number(
+                  `${label}水平微调 mm`,
+                  slot.x,
+                  (x) => updateSlot(role, { x }),
+                  -500,
+                  500,
+                )}
+                {number(
+                  `${label}垂直微调 mm`,
+                  slot.y,
+                  (y) => updateSlot(role, { y }),
+                  -500,
+                  500,
+                )}
+                {number(
+                  `${label}旋转微调 °`,
+                  slot.rotation,
+                  (rotation) => updateSlot(role, { rotation }),
+                  -180,
+                  180,
+                )}
+                <Button
+                  size="small"
+                  onClick={() =>
+                    updateSlot(role, { scale: 1, x: 0, y: 0, rotation: 0 })
+                  }
+                >
+                  恢复默认位置
+                </Button>
+              </>
+            ) : null}
+          </Card>
+        );
+      })}
       <h3>图案适配方式</h3>
       <Select
         aria-label="图案适配方式"
@@ -723,7 +932,7 @@ export default function CupWrapPrintComposer({
         onChange={(adaptationMode) => update({ adaptationMode })}
         options={[
           { value: "geometry", label: "原图几何映射（推荐）" },
-          { value: "ai", label: "AI 适配" },
+          { value: "ai", label: "AI 扩图" },
           { value: "local", label: "本地智能排布（免费）" },
         ]}
       />
@@ -778,7 +987,7 @@ export default function CupWrapPrintComposer({
         </>
       ) : (
         <>
-          <h3>AI 适配</h3>
+          <h3>AI 扩图</h3>
           <Select
             value={model}
             onChange={setModel}
@@ -816,7 +1025,7 @@ export default function CupWrapPrintComposer({
             />
           )}
           <Input.TextArea
-            aria-label="AI 适配提示词"
+            aria-label="AI 扩图提示词"
             rows={5}
             value={d.prompt}
             onChange={(e) => update({ prompt: e.target.value })}
@@ -834,27 +1043,28 @@ export default function CupWrapPrintComposer({
             />
           </details>
           <p>
-            输入顺序：原图、精确刀模引导图。仅调整间距，不改变主体大小。采用后按整幅刀模画布对齐，不再缩入矩形或叠加旧图层。AI
-            仍可能偏离要求，请检查后采用。自定义底色仅填充透明区域；若服务返回不透明图，请重新生成，不会删除白色角色。
+            输入顺序：精准正背拼接图、刀模范围引导图。AI 主要向外围扩展背景与小装饰，不应改变中央主体及已有图案大小。AI
+            仍可能偏离要求，请对照原始拼接图后再采用；最终结果会由本地刀模路径精确裁切，不会拉伸修正比例。
           </p>
           <Button
-            disabled={!d.source || !!busy || !d.prompt.trim()}
+            disabled={!hasArtwork(d) || !!busy || !d.prompt.trim()}
             onClick={() =>
               Modal.confirm({
                 title: "将发起 1 次付费图片请求",
                 content:
-                  "仅调整图案，不以 AI 输出尺寸作为打印尺寸。不自动重试。",
-                onOk: () => run("AI 正在适配图案", generate),
+                  "AI 将围绕正背拼接图向刀模外围扩图；主体是否保持不变需由你在候选对比中确认。不自动重试。",
+                onOk: () => run("AI 正在沿刀模扩图", generate),
               })
             }
           >
-            AI 生成候选图
+            AI 扩图生成候选
           </Button>
         </>
       )}
       <h3>输出与 A4</h3>
-      {d.source &&
-        ((d.adaptationMode ?? "geometry") === "geometry" ||
+      {hasArtwork(d) &&
+        (((d.adaptationMode ?? "geometry") === "geometry" &&
+          !d.artworkSlots?.length) ||
           (d.adopted && d.adoptedFrame) ||
           d.localAdaptation) && (
           <>
@@ -1008,7 +1218,7 @@ export default function CupWrapPrintComposer({
       {number("DPI", print.dpi, (v) => setting({ dpi: v }), 72, 2400)}
       <Space wrap>
         <Button
-          disabled={!d.source || !!busy}
+          disabled={!hasArtwork(d) || !!busy}
           onClick={() => setTileOpen(true)}
         >
           1:1 多页拼接
@@ -1092,9 +1302,10 @@ export default function CupWrapPrintComposer({
               g.height / sourceSize.height,
             )) * d.scale
       : 0;
-  const sourceOverflow = !!(
+  const legacySourceOverflow = !!(
     g &&
     sourceSize &&
+    !(d.artworkSlots?.length) &&
     d.fit !== "tile" &&
     [
       [-1, -1],
@@ -1122,6 +1333,42 @@ export default function CupWrapPrintComposer({
       );
     })
   );
+  const enabledSlots = (d.artworkSlots ?? []).filter((slot) => slot.enabled);
+  const slotOverflow = Boolean(
+    g &&
+      enabledSlots.some((slot) => {
+        const size = slotSizes[slot.id];
+        if (!size) return false;
+        const placement = artworkSlotPlacement(
+          g,
+          slot,
+          enabledSlots.length,
+          size.width,
+          size.height,
+          d.cup.safe,
+          d.cup.coverage,
+        );
+        const c = Math.cos(placement.rotation),
+          s = Math.sin(placement.rotation);
+        return [
+          [-1, -1],
+          [-1, 1],
+          [1, -1],
+          [1, 1],
+        ].some(([sx, sy]) => {
+          const x = (sx * placement.width) / 2,
+            y = (sy * placement.height) / 2;
+          return !inside(
+            {
+              x: placement.x + x * c - y * s,
+              y: placement.y + x * s + y * c,
+            },
+            g.points,
+          );
+        });
+      }),
+  );
+  const sourceOverflow = legacySourceOverflow || slotOverflow;
   return (
     <div className="cup-workbench">
       <header>
@@ -1141,14 +1388,91 @@ export default function CupWrapPrintComposer({
           title={error || geo.error}
         />
       )}
+      <div className="cup-design-list" aria-label="杯型列表">
+        {designs.map((design, index) => (
+          <Card
+            key={design.id}
+            size="small"
+            className={design.id === d.id ? "cup-design-card active" : "cup-design-card"}
+            onClick={() => setActiveDesignId(design.id)}
+          >
+            <Space direction="vertical" size={4}>
+              <strong>{design.name || `杯型 ${index + 1}`}</strong>
+              <span>
+                口径 {design.cup.top} · 底径 {design.cup.bottom} · 高 {design.cup.height} mm
+              </span>
+              <Space onClick={(event) => event.stopPropagation()}>
+                <Switch
+                  size="small"
+                  aria-label={`加入A4混排 ${design.name}`}
+                  checked={design.enabled !== false}
+                  onChange={(enabled) =>
+                    setDesigns((items) =>
+                      items.map((item) =>
+                        item.id === design.id ? { ...item, enabled } : item,
+                      ),
+                    )
+                  }
+                />
+                <Button
+                  size="small"
+                  icon={<CopyOutlined />}
+                  aria-label={`复制杯型 ${design.name}`}
+                  onClick={() => {
+                    const copy = structuredClone(design);
+                    copy.id = crypto.randomUUID();
+                    copy.name = `${design.name} 副本`;
+                    copy.artworkSlots = copy.artworkSlots?.map((slot) => ({
+                      ...slot,
+                      id: crypto.randomUUID(),
+                    }));
+                    setDesigns((items) => [...items, copy]);
+                    setActiveDesignId(copy.id);
+                  }}
+                />
+                <Button
+                  size="small"
+                  danger
+                  disabled={designs.length === 1}
+                  icon={<DeleteOutlined />}
+                  aria-label={`删除杯型 ${design.name}`}
+                  onClick={() => {
+                    const next = designs.filter((item) => item.id !== design.id);
+                    setDesigns(next);
+                    if (d.id === design.id) setActiveDesignId(next[0].id);
+                  }}
+                />
+              </Space>
+            </Space>
+          </Card>
+        ))}
+        <Button
+          icon={<PlusOutlined />}
+          onClick={() => {
+            const design = fresh();
+            design.name = `杯型 ${designs.length + 1}`;
+            setDesigns((items) => [...items, design]);
+            setActiveDesignId(design.id);
+          }}
+        >
+          新增杯型
+        </Button>
+      </div>
       <div className="cup-action-rows">
         <Space wrap>
           <Upload
             showUploadList={false}
-            beforeUpload={upload}
+            beforeUpload={(file) => upload(file as File, "front")}
             accept="image/png,image/jpeg,image/webp"
           >
-            <Button disabled={!ready}>上传图案</Button>
+            <Button disabled={!ready}>上传／替换正面图</Button>
+          </Upload>
+          <Upload
+            showUploadList={false}
+            beforeUpload={(file) => upload(file as File, "back")}
+            accept="image/png,image/jpeg,image/webp"
+          >
+            <Button disabled={!ready}>上传／替换背面图</Button>
           </Upload>
         </Space>
         <Space wrap>
@@ -1334,7 +1658,7 @@ export default function CupWrapPrintComposer({
                 )}{" "}
                 px
               </p>
-              {sourceSize && (
+              {sourceSize && !d.artworkSlots?.length && (
                 <p>
                   原图有效清晰度约 {(25.4 / sourceFactor).toFixed(0)} DPI；输出
                   DPI 不会增加原图细节。像素取整误差不超过{" "}
@@ -1428,7 +1752,7 @@ export default function CupWrapPrintComposer({
                                 stroke="#1677ff"
                                 strokeWidth=".2"
                               />
-                              {!design.source && (
+                              {!hasArtwork(design) && (
                                 <text
                                   x={shape.width / 2}
                                   y={shape.height / 2}
@@ -1473,9 +1797,16 @@ export default function CupWrapPrintComposer({
       {d.aiResults.length > 0 && (
         <Card title="AI 候选图（点击放大后检查，采用才用于打印）">
           <Space wrap>
+            {preview ? (
+              <div>
+                <Image width={140} src={preview} alt="原始正背拼接" />
+                <p>原始正背拼接</p>
+              </div>
+            ) : null}
             {d.aiResults.map((blob, i) => (
               <div key={i}>
                 <BlobPreview blob={blob} />
+                <p>AI 扩图候选 {i + 1}</p>
                 <Button
                   onClick={async () => {
                     const frame = d.aiFrames?.[i];

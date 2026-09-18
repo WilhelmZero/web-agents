@@ -42,12 +42,25 @@ export interface ImageAdjustment {
   topGap?: number;
   bottomGap?: number;
 }
+export type ArtworkRole = "front" | "back";
+export interface ArtworkSlot {
+  id: string;
+  role: ArtworkRole;
+  blob: Blob;
+  enabled: boolean;
+  scale: number;
+  x: number;
+  y: number;
+  rotation: number;
+}
 export interface WrapDesign {
   id: string;
   name: string;
   cup: CupParams;
   source?: Blob;
   originalSource?: Blob;
+  artworkSlots?: ArtworkSlot[];
+  enabled?: boolean;
   adopted?: Blob;
   aiResults: Blob[];
   aiFrames?: ({ cupKey: string; transparent: boolean } | null)[];

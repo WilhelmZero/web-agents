@@ -104,7 +104,11 @@ export async function exportPdf(
   const images = new Map<string, Awaited<ReturnType<typeof pdf.embedPng>>>();
   for (const [i, d] of designs.entries()) {
     signal?.throwIfAborted();
-    if (d.source || d.layers.length) {
+    if (
+      d.source ||
+      d.artworkSlots?.some((slot) => slot.enabled) ||
+      d.layers.length
+    ) {
       const blob = await work<Blob>(
         {
           kind: "png",
