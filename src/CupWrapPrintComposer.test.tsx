@@ -83,7 +83,6 @@ it("automatically recalculates A4 layout after design data loads", async () => {
       name: "自动排版",
       cup: { ...DEFAULT_CUP },
       source: new Blob(["image"], { type: "image/png" }),
-      stitchedSource: true,
       aiResults: [],
       adaptationMode: "geometry",
       fit: "contain",

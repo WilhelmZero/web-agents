@@ -198,6 +198,12 @@ const hasArtwork = (design: WrapDesign) =>
   );
 const migrateDesign = (design: WrapDesign): WrapDesign => ({
   ...design,
+  // A single uploaded image uses the same unified source pipeline as a
+  // stitched pair. Legacy one-slot projects are upgraded automatically so
+  // geometry mapping is not bypassed by the old front/back placement branch.
+  stitchedSource:
+    design.stitchedSource ??
+    Boolean(design.source && (design.artworkSlots?.length ?? 0) <= 1),
   enabled: design.enabled ?? true,
   canvasBackground:
     design.canvasBackground ??
@@ -652,7 +658,7 @@ export default function CupWrapPrintComposer({
         source,
         originalSource: source,
         artworkSlots,
-        stitchedSource: artworkSlots.length > 1,
+        stitchedSource: true,
         transparentOutput: Boolean(d.transparentOutput || sourceHasTransparency),
         backgroundColor:
           sourceHasTransparency || d.transparentOutput
@@ -909,7 +915,7 @@ export default function CupWrapPrintComposer({
                               artworkSlots,
                               source,
                               originalSource: source,
-                              stitchedSource: artworkSlots.length > 1,
+                              stitchedSource: true,
                             }),
                           )
                           .catch((error) => setError(String(error)));
