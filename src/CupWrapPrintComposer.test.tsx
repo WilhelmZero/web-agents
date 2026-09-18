@@ -83,6 +83,7 @@ it("automatically recalculates A4 layout after design data loads", async () => {
       name: "自动排版",
       cup: { ...DEFAULT_CUP },
       source: new Blob(["image"], { type: "image/png" }),
+      stitchedSource: true,
       aiResults: [],
       adaptationMode: "geometry",
       fit: "contain",
@@ -113,23 +114,19 @@ it("automatically recalculates A4 layout after design data loads", async () => {
       ),
     { timeout: 3000 },
   );
-  expect(screen.getByRole("switch", { name: "启用正面图" })).toBeChecked();
-  expect(
-    screen.getByRole("spinbutton", { name: "正面图等比缩放" }),
-  ).toHaveValue("1");
+  expect(screen.getByText("设计图拼接")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "替换第 1 张图（左侧）" })).toBeInTheDocument();
   const horizontal = screen.getByRole("spinbutton", {
-    name: "正面图水平微调 mm",
+    name: "水平单轴缩放",
   });
-  fireEvent.change(horizontal, { target: { value: "4" } });
+  fireEvent.change(horizontal, { target: { value: "1.25" } });
   await waitFor(
     () =>
       expect(work).toHaveBeenCalledWith(
         expect.objectContaining({
           kind: "png",
           design: expect.objectContaining({
-            artworkSlots: expect.arrayContaining([
-              expect.objectContaining({ role: "front", x: 4 }),
-            ]),
+            aiAdjustment: expect.objectContaining({ scaleX: 1.25 }),
           }),
         }),
         expect.any(AbortSignal),
