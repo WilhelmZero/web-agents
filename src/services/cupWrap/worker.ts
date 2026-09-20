@@ -1,7 +1,11 @@
 import { renderDesign } from "./render";
 import { encodeTiff, stabilizeTransparentEdges } from "./tiff";
 import { pack } from "./packing";
-import { analyzeLocalArtwork, arrangeLocal } from "./localAdaptation";
+import {
+  analyzeLocalArtwork,
+  arrangeLocal,
+  arrangeSmartDecorations,
+} from "./localAdaptation";
 self.onmessage = async ({ data }) => {
   try {
     if (data.kind === "localAnalyze") {
@@ -10,6 +14,16 @@ self.onmessage = async ({ data }) => {
     }
     if (data.kind === "localArrange") {
       self.postMessage({ result: arrangeLocal(data.input, data.cup) });
+      return;
+    }
+    if (data.kind === "localDecorate") {
+      self.postMessage({
+        result: await arrangeSmartDecorations(
+          data.input,
+          data.cup,
+          data.layers,
+        ),
+      });
       return;
     }
     if (data.kind === "pack") {

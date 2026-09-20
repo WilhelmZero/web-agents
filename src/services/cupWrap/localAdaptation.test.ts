@@ -4,8 +4,10 @@ import {
   analyzePixels,
   automaticPathCount,
   arrangeLocal,
+  blankRatio,
   fixedPathDividerPoints,
   fixedPathPoints,
+  respectsDecorationSpacing,
   rotatedBoundaryPoints,
 } from "./localAdaptation";
 import { DEFAULT_CUP, distanceToEdge, geometry, inside } from "./geometry";
@@ -31,6 +33,20 @@ function pixels(
   return d;
 }
 describe("local cup artwork analysis", () => {
+  it("measures transparent gaps and enforces two-width decoration spacing", () => {
+    const alpha = new Uint8Array(100);
+    for (let y = 2; y < 4; y++)
+      for (let x = 2; x < 4; x++) alpha[y * 10 + x] = 255;
+    expect(blankRatio(alpha, 10, 10, 6, 6, 2, 2)).toBe(1);
+    expect(blankRatio(alpha, 10, 10, 2, 2, 2, 2)).toBe(0);
+    expect(
+      respectsDecorationSpacing(19, 10, 5, [{ x: 10, y: 10, width: 5 }]),
+    ).toBe(false);
+    expect(
+      respectsDecorationSpacing(20, 10, 5, [{ x: 10, y: 10, width: 5 }]),
+    ).toBe(true);
+  });
+
   it.each([
     [[255, 255, 255, 255] as const, "white"],
     [[20, 80, 160, 255] as const, "solid"],

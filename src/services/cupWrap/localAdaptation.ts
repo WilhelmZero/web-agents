@@ -288,7 +288,7 @@ export function fixedPathPoints(
 ) {
   const g = geometry(cup),
     n = Math.max(1, Math.round(count)),
-    safe = Math.max(4, cup.safe),
+    safe = Math.max(4, cup.safe ?? 0),
     edgeInset = Math.min(
       g.slant / 2,
       Math.max(safe + averageHeight / 2, pathGap + averageHeight / 2),
@@ -701,4 +701,154 @@ export function arrangeLocal(
     averageHeight,
     paths,
   };
+}
+
+export function blankRatio(
+  alpha: Uint8Array,
+  canvasWidth: number,
+  canvasHeight: number,
+  left: number,
+  top: number,
+  width: number,
+  height: number,
+) {
+  const x0 = Math.max(0, Math.floor(left)),
+    y0 = Math.max(0, Math.floor(top)),
+    x1 = Math.min(canvasWidth, Math.ceil(left + width)),
+    y1 = Math.min(canvasHeight, Math.ceil(top + height));
+  if (x1 <= x0 || y1 <= y0) return 0;
+  let occupied = 0,
+    total = 0;
+  for (let y = y0; y < y1; y += 2)
+    for (let x = x0; x < x1; x += 2) {
+      occupied += alpha[y * canvasWidth + x] > 20 ? 1 : 0;
+      total++;
+    }
+  return 1 - occupied / Math.max(1, total);
+}
+
+export function respectsDecorationSpacing(
+  x: number,
+  y: number,
+  width: number,
+  placed: { x: number; y: number; width: number }[],
+) {
+  return placed.every(
+    (other) =>
+      Math.hypot(x - other.x, y - other.y) >=
+      2 * Math.max(width, other.width),
+  );
+}
+
+/** Scans the actual arranged alpha image and inserts decorations into gaps. */
+export async function arrangeSmartDecorations(
+  input: Pick<
+    LocalAdaptation,
+    "sourceWidth" | "sourceHeight" | "objects" | "fill" | "scale" | "seed"
+  >,
+  cup: CupParams,
+  currentLayers: ArtLayer[],
+) {
+  const g = geometry(cup),
+    safe = Math.max(4, cup.safe ?? 0),
+    rasterScale = Math.max(2, Math.min(6, 1200 / Math.max(g.width, g.height))),
+    canvasWidth = Math.max(1, Math.ceil(g.width * rasterScale)),
+    canvasHeight = Math.max(1, Math.ceil(g.height * rasterScale)),
+    canvas = new OffscreenCanvas(canvasWidth, canvasHeight),
+    ctx = canvas.getContext("2d", { willReadFrequently: true })!,
+    byId = new Map(input.objects.map((object) => [object.id, object]));
+  ctx.scale(rasterScale, rasterScale);
+  for (const layer of currentLayers.filter(
+    (item) => item.layerRole !== "decoration",
+  )) {
+    const object = byId.get(layer.sourceObjectId ?? "");
+    if (!object) continue;
+    const image = await createImageBitmap(layer.blob),
+      height = (layer.width * object.rect.height) / object.rect.width;
+    ctx.save();
+    ctx.translate(layer.x, layer.y);
+    ctx.rotate((layer.rotation * Math.PI) / 180);
+    ctx.drawImage(image, -layer.width / 2, -height / 2, layer.width, height);
+    ctx.restore();
+    image.close();
+  }
+  const rgba = ctx.getImageData(0, 0, canvasWidth, canvasHeight).data,
+    alpha = new Uint8Array(canvasWidth * canvasHeight);
+  for (let i = 0; i < alpha.length; i++) alpha[i] = rgba[i * 4 + 3];
+  const decorations = input.objects.filter(
+      (object) => object.role === "decoration",
+    ),
+    ratios = currentLayers.flatMap((layer) => {
+      const object = byId.get(layer.sourceObjectId ?? "");
+      return object?.rect.width ? [layer.width / object.rect.width] : [];
+    }),
+    visualRatio = median(ratios, Math.min(g.width / input.sourceWidth, g.height / input.sourceHeight) * input.scale),
+    targetCount = Math.min(
+      48,
+      Math.round((decorations.length * 4 * input.fill) / 100),
+    ),
+    placed: { x: number; y: number; width: number }[] = [],
+    result: ArtLayer[] = [],
+    rng = random(input.seed);
+  for (let index = 0; index < targetCount && decorations.length; index++) {
+    const object = decorations[index % decorations.length],
+      width = object.rect.width * visualRatio,
+      height = object.rect.height * visualRatio,
+      step = Math.max(1, Math.min(width, height) / 3),
+      candidates: { x: number; y: number; score: number }[] = [];
+    for (let y = safe + height / 2; y <= g.height - safe - height / 2; y += step)
+      for (let x = safe + width / 2; x <= g.width - safe - width / 2; x += step) {
+        const boundary = boxBoundaryPoints(x, y, width, height);
+        if (!boundary.every((point) => inside(point, g.points))) continue;
+        if (!respectsDecorationSpacing(x, y, width, placed)) continue;
+        const empty = blankRatio(
+          alpha,
+          canvasWidth,
+          canvasHeight,
+          (x - width / 2) * rasterScale,
+          (y - height / 2) * rasterScale,
+          width * rasterScale,
+          height * rasterScale,
+        );
+        if (empty < 0.96) continue;
+        const ringEmpty = blankRatio(
+          alpha,
+          canvasWidth,
+          canvasHeight,
+          (x - width) * rasterScale,
+          (y - height) * rasterScale,
+          width * 2 * rasterScale,
+          height * 2 * rasterScale,
+        );
+        candidates.push({ x, y, score: 1 - ringEmpty + rng() * 0.0001 });
+      }
+    candidates.sort((a, b) => b.score - a.score);
+    const best = candidates[0];
+    if (!best) continue;
+    placed.push({ x: best.x, y: best.y, width });
+    // Reserve the full decoration box so later inserts cannot occupy the
+    // same visual gap even when the PNG itself contains transparent pixels.
+    const x0 = Math.max(0, Math.floor((best.x - width / 2) * rasterScale)),
+      y0 = Math.max(0, Math.floor((best.y - height / 2) * rasterScale)),
+      x1 = Math.min(canvasWidth, Math.ceil((best.x + width / 2) * rasterScale)),
+      y1 = Math.min(canvasHeight, Math.ceil((best.y + height / 2) * rasterScale));
+    for (let py = y0; py < y1; py++)
+      alpha.fill(255, py * canvasWidth + x0, py * canvasWidth + x1);
+    result.push({
+      id: `smart-decoration-${index}-${object.id}`,
+      blob: object.blob,
+      sourceObjectId: object.id,
+      x: best.x,
+      y: best.y,
+      width,
+      rotation: 0,
+      autoX: best.x,
+      autoY: best.y,
+      autoWidth: width,
+      autoRotation: 0,
+      locked: false,
+      layerRole: "decoration",
+    });
+  }
+  return result;
 }

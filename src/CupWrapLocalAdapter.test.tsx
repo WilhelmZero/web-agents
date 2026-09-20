@@ -25,7 +25,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it("shows row dividers and supports right-click duplicate and delete", () => {
+it("shows row dividers and supports right-click duplicate and delete", async () => {
   const blob = new Blob(["subject"], { type: "image/png" }),
     initial: LocalAdaptation = {
       sourceWidth: 200,
@@ -72,7 +72,7 @@ it("shows row dividers and supports right-click duplicate and delete", () => {
       backgroundMode: "white",
       backgroundColor: "#ffffff",
       cupKey: JSON.stringify(DEFAULT_CUP),
-      unplaced: [],
+      unplaced: ["ghost"],
     };
   render(
     <CupWrapLocalAdapter
@@ -93,8 +93,12 @@ it("shows row dividers and supports right-click duplicate and delete", () => {
   expect(preview.querySelectorAll("polyline")).toHaveLength(2);
   expect(screen.getByText("路径 2 偏移 mm")).toBeInTheDocument();
   expect(
-    screen.getByRole("button", { name: "排布小装饰" }),
+    screen.getByRole("button", { name: "智能填充小装饰" }),
   ).toBeEnabled();
+  expect(
+    screen.getByRole("button", { name: "采用无损排布" }),
+  ).toBeEnabled();
+  expect(screen.getByText("物体 1（60×70px）")).toBeInTheDocument();
 
   fireEvent.drop(preview, {
     clientX: 80,
@@ -130,6 +134,17 @@ it("shows row dividers and supports right-click duplicate and delete", () => {
     panel.querySelector<HTMLElement>("[data-layer-id]")?.dataset.layerId,
   ).not.toBe(firstId);
 
+  fireEvent.click(screen.getByRole("button", { name: "锁定全部" }));
+  for (const control of within(panel).getAllByRole("switch", {
+    name: /锁定图层/,
+  }))
+    expect(control).toHaveAttribute("aria-checked", "true");
+  fireEvent.click(screen.getByRole("button", { name: "解锁全部" }));
+  for (const control of within(panel).getAllByRole("switch", {
+    name: /锁定图层/,
+  }))
+    expect(control).toHaveAttribute("aria-checked", "false");
+
   fireEvent.click(
     within(
       panel.querySelector<HTMLElement>(`[data-layer-id="${firstId}"]`)!,
@@ -145,6 +160,17 @@ it("shows row dividers and supports right-click duplicate and delete", () => {
     ).getByRole("switch", { name: /锁定图层/ }),
   );
 
+  const bottomImage = preview.querySelector("image")!,
+    bottomId = bottomImage.getAttribute("data-layer-id")!;
+  fireEvent.contextMenu(bottomImage, {
+    clientX: 100,
+    clientY: 120,
+  });
+  fireEvent.click(screen.getByRole("button", { name: "移到最顶层" }));
+  expect(
+    panel.querySelector<HTMLElement>("[data-layer-id]")?.dataset.layerId,
+  ).toBe(bottomId);
+
   fireEvent.contextMenu(preview.querySelector("image")!, {
     clientX: 100,
     clientY: 120,
@@ -158,4 +184,12 @@ it("shows row dividers and supports right-click duplicate and delete", () => {
   });
   fireEvent.click(screen.getByRole("button", { name: "删除主体" }));
   expect(preview.querySelectorAll("image")).toHaveLength(2);
+
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  expect(
+    (await screen.findAllByText("确认关闭无损元素排版？")).length,
+  ).toBeGreaterThan(0);
+  fireEvent.click(
+    screen.getAllByRole("button", { name: "继续编辑" }).at(-1)!,
+  );
 }, 20_000);

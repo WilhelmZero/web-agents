@@ -162,7 +162,25 @@ function LayerPanel({
   };
   return (
     <div style={{ marginTop: 12 }}>
-      <h4>图层（上方优先显示）</h4>
+      <Space wrap style={{ marginBottom: 8 }}>
+        <h4 style={{ margin: 0 }}>图层（上方优先显示）</h4>
+        <Button
+          size="small"
+          onClick={() =>
+            onLayersChange(layers.map((layer) => ({ ...layer, locked: true })))
+          }
+        >
+          锁定全部
+        </Button>
+        <Button
+          size="small"
+          onClick={() =>
+            onLayersChange(layers.map((layer) => ({ ...layer, locked: false })))
+          }
+        >
+          解锁全部
+        </Button>
+      </Space>
       <div
         aria-label="本地排布图层"
         style={{
@@ -267,6 +285,7 @@ function LayoutPreview({
   onInsert,
   onDuplicate,
   onDelete,
+  onBringToFront,
 }: {
   objects: LocalObject[];
   layers: LocalAdaptation["layers"];
@@ -284,6 +303,7 @@ function LayoutPreview({
   onInsert: (objectId: string, x: number, y: number) => void;
   onDuplicate: (layerId: string) => void;
   onDelete: (layerId: string) => void;
+  onBringToFront: (layerId: string) => void;
 }) {
   const [urls, setUrls] = useState<Record<string, string>>({}),
     [contextMenu, setContextMenu] = useState<
@@ -397,6 +417,7 @@ function LayoutPreview({
           return (
             <image
               key={l.id}
+              data-layer-id={l.id}
               href={url}
               x={l.x - l.width / 2}
               y={l.y - h / 2}
@@ -471,7 +492,7 @@ function LayoutPreview({
       {contextMenu && (
         <div
           role="menu"
-          aria-label="主体右键菜单"
+          aria-label="图层右键菜单"
           onPointerDown={(event) => event.stopPropagation()}
           style={{
             position: "fixed",
@@ -486,6 +507,16 @@ function LayoutPreview({
             boxShadow: "0 6px 20px rgba(0,0,0,.16)",
           }}
         >
+          <Button
+            type="text"
+            block
+            onClick={() => {
+              onBringToFront(contextMenu.id);
+              setContextMenu(undefined);
+            }}
+          >
+            移到最顶层
+          </Button>
           <Button
             type="text"
             block
@@ -591,6 +622,15 @@ export default function CupWrapLocalAdapter({
     setLayers((items) => [...items, copy]);
     setSelectedLayerId(copy.id);
   };
+  const bringLayerToFront = (layerId: string) =>
+    setLayers((items) => {
+      const index = items.findIndex((layer) => layer.id === layerId);
+      if (index < 0 || index === items.length - 1) return items;
+      const next = [...items],
+        [layer] = next.splice(index, 1);
+      next.push(layer);
+      return next;
+    });
   const replaceLayer = (layerId: string, objectId: string) => {
     const object = analysis?.objects.find((item) => item.id === objectId);
     if (
@@ -719,27 +759,17 @@ export default function CupWrapLocalAdapter({
     setBusy("正在排布小装饰");
     setError("");
     try {
-      const result = await work<{
-        layers: LocalAdaptation["layers"];
-      }>({
-        kind: "localArrange",
+      const decorations = await work<LocalAdaptation["layers"]>({
+        kind: "localDecorate",
         input: {
           ...analysis,
           fill,
-          gap: itemGap,
           scale,
           seed,
-          pathMode,
-          pathCount,
-          pathGap,
-          pathOffsets,
-          itemGap,
         },
         cup,
+        layers,
       });
-      const decorations = result.layers.filter(
-        (layer) => layer.layerRole === "decoration",
-      );
       setLayers((items) => [
         ...decorations,
         ...items.filter((layer) => layer.layerRole !== "decoration"),
@@ -811,10 +841,19 @@ export default function CupWrapLocalAdapter({
       open
       width={1080}
       title="无损元素排版 · 分割与识别确认"
-      onCancel={onClose}
+      onCancel={() =>
+        Modal.confirm({
+          title: "确认关闭无损元素排版？",
+          content: "尚未采用的排布和微调将会丢失。",
+          okText: "确认关闭",
+          cancelText: "继续编辑",
+          okButtonProps: { danger: true },
+          onOk: onClose,
+        })
+      }
       okText="采用无损排布"
       okButtonProps={{
-        disabled: !analysis || !layers.length || !!unplaced.length,
+        disabled: !analysis || !layers.length,
       }}
       onOk={() =>
         analysis &&
@@ -1050,7 +1089,7 @@ export default function CupWrapLocalAdapter({
               }
               onClick={() => arrangeDecorations()}
             >
-              排布小装饰
+              智能填充小装饰
             </Button>
             <Tag color="purple">主体上层</Tag>
             <Tag color="gold">小装饰底层</Tag>
@@ -1077,6 +1116,17 @@ export default function CupWrapLocalAdapter({
               type="warning"
               showIcon
               message={`${unplaced.length} 个主体无法完整放入；可手动调整或删除，也可降低整体缩放、间距或排除素材`}
+              description={unplaced
+                .map((id) => {
+                  const index = analysis.objects.findIndex(
+                      (object) => object.id === id,
+                    ),
+                    object = analysis.objects[index];
+                  return object
+                    ? `物体 ${index + 1}（${object.rect.width}×${object.rect.height}px）`
+                    : id;
+                })
+                .join("、")}
             />
           )}{" "}
           {layers.length > 0 && !unplaced.length && (
@@ -1111,6 +1161,7 @@ export default function CupWrapLocalAdapter({
                 onInsert={insertLayer}
                 onDuplicate={duplicateLayer}
                 onDelete={deleteLayer}
+                onBringToFront={bringLayerToFront}
               />
               <p>
                 当前使用 {actualPathCount}{" "}
