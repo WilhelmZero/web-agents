@@ -39,6 +39,8 @@ export interface LocalAdaptation {
   pathCount?: number;
   pathAverageHeight?: number;
   pathGap?: number;
+  /** Per-row offset in millimetres from the evenly distributed position. */
+  pathOffsets?: number[];
   itemGap?: number;
   showPaths?: boolean;
   backgroundMode: "transparent" | "white" | "color";

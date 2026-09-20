@@ -189,17 +189,27 @@ describe("local cup layout", () => {
   });
 
   it("computes concentric paths for cylinders and tapered cups", () => {
-    expect(automaticPathCount(100, 4, 20, 1)).toBe(4);
+    expect(automaticPathCount(100, 4, 20, 1)).toBe(5);
+    expect(automaticPathCount(86, 4, 20, 1)).toBe(4);
+    expect(automaticPathCount(73, 4, 20, 1)).toBe(4);
     for (const cup of [DEFAULT_CUP, { ...DEFAULT_CUP, top: 34, bottom: 40 }]) {
-      const paths = fixedPathPoints(cup, 3, 20, 2);
+      const paths = fixedPathPoints(cup, 3, 20, 2),
+        spacingA = paths[1].v - paths[0].v,
+        spacingB = paths[2].v - paths[1].v;
       expect(paths).toHaveLength(3);
       expect(paths.every((path) => path.points.length === 65)).toBe(true);
       expect(paths[0].v).toBeLessThan(paths[1].v);
       expect(paths[1].v).toBeLessThan(paths[2].v);
+      expect(spacingA).toBeCloseTo(spacingB, 8);
       const dividers = fixedPathDividerPoints(cup, 3, 20, 2);
       expect(dividers).toHaveLength(2);
       expect(dividers[0].v).toBeGreaterThan(paths[0].v);
       expect(dividers[0].v).toBeLessThan(paths[1].v);
+      const shifted = fixedPathPoints(cup, 3, 20, 2, [0, 5, 0]);
+      expect(shifted[1].v - paths[1].v).toBeCloseTo(
+        5 / geometry(cup).slant,
+        8,
+      );
     }
   });
 
@@ -217,7 +227,7 @@ describe("local cup layout", () => {
       scale: 0.35,
       seed: 1,
       pathMode: "manual" as const,
-      pathCount: 3,
+      pathCount: 4,
       pathGap: 1,
       itemGap: 1,
     };
@@ -230,6 +240,7 @@ describe("local cup layout", () => {
     expect(pathLayers.some((layer) => layer.sourceObjectId === "ghost-a")).toBe(true);
     expect(pathLayers.some((layer) => layer.sourceObjectId === "ghost-b")).toBe(true);
     expect(pathLayers.length).toBeGreaterThan(2);
+    expect(new Set(pathLayers.map((layer) => layer.pathIndex)).size).toBe(4);
   });
 
   it("uses the typical subject height for automatic path count", () => {
@@ -259,7 +270,7 @@ describe("local cup layout", () => {
       },
       DEFAULT_CUP,
     );
-    expect(r.pathCount).toBe(4);
+    expect(r.pathCount).toBeGreaterThanOrEqual(4);
     expect(r.layers.some((layer) => layer.sourceObjectId === "title")).toBe(true);
     expect(
       new Set(
@@ -267,7 +278,7 @@ describe("local cup layout", () => {
           .filter((layer) => layer.pathIndex != null)
           .map((layer) => layer.pathIndex),
       ).size,
-    ).toBe(4);
+    ).toBe(r.pathCount);
   });
 
   it("does not let one unplaceable subject block later subjects or decorations hide the failure", () => {

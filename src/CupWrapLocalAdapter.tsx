@@ -53,6 +53,7 @@ function LayoutPreview({
   pathCount,
   averageHeight,
   pathGap,
+  pathOffsets,
   selectedId,
   onSelect,
   onLayersChange,
@@ -68,6 +69,7 @@ function LayoutPreview({
   pathCount: number;
   averageHeight: number;
   pathGap: number;
+  pathOffsets: number[];
   selectedId?: string;
   onSelect: (id: string) => void;
   onLayersChange: (layers: LocalAdaptation["layers"]) => void;
@@ -88,8 +90,15 @@ function LayoutPreview({
   const g = geometry(cup),
     byId = useMemo(() => new Map(objects.map((o) => [o.id, o])), [objects]),
     dividers = useMemo(
-      () => fixedPathDividerPoints(cup, pathCount, averageHeight, pathGap),
-      [cup, pathCount, averageHeight, pathGap],
+      () =>
+        fixedPathDividerPoints(
+          cup,
+          pathCount,
+          averageHeight,
+          pathGap,
+          pathOffsets,
+        ),
+      [cup, pathCount, averageHeight, pathGap, pathOffsets],
     ),
     drag = useRef<
       { id: string; startX: number; startY: number; x: number; y: number } | undefined
@@ -277,6 +286,9 @@ export default function CupWrapLocalAdapter({
     [pathCount, setPathCount] = useState(initial?.pathCount ?? 3),
     [actualPathCount, setActualPathCount] = useState(initial?.pathCount ?? 3),
     [pathGap, setPathGap] = useState(initial?.pathGap ?? 1),
+    [pathOffsets, setPathOffsets] = useState<number[]>(
+      initial?.pathOffsets ?? [],
+    ),
     [itemGap, setItemGap] = useState(initial?.itemGap ?? initial?.gap ?? 1),
     [showPaths, setShowPaths] = useState(initial?.showPaths ?? true),
     [averageHeight, setAverageHeight] = useState(
@@ -366,6 +378,7 @@ export default function CupWrapLocalAdapter({
           pathMode,
           pathCount,
           pathGap,
+          pathOffsets,
           itemGap,
         },
         cup,
@@ -456,6 +469,7 @@ export default function CupWrapLocalAdapter({
           pathCount: actualPathCount,
           pathAverageHeight: averageHeight,
           pathGap,
+          pathOffsets,
           itemGap,
           showPaths,
           backgroundMode,
@@ -630,6 +644,35 @@ export default function CupWrapLocalAdapter({
               <Switch checked={showPaths} onChange={setShowPaths} />
             </label>
           </Space>
+          <div style={{ margin: "10px 0" }}>
+            <strong>每条路径位置</strong>
+            <Space wrap style={{ marginLeft: 8 }}>
+              {Array.from(
+                {
+                  length:
+                    pathMode === "auto" ? actualPathCount : pathCount,
+                },
+                (_unused, index) => (
+                  <label key={index}>
+                    路径 {index + 1} 偏移 mm
+                    <InputNumber
+                      min={-50}
+                      max={50}
+                      step={0.5}
+                      value={pathOffsets[index] ?? 0}
+                      onChange={(value) =>
+                        setPathOffsets((current) => {
+                          const next = [...current];
+                          next[index] = value ?? 0;
+                          return next;
+                        })
+                      }
+                    />
+                  </label>
+                ),
+              )}
+            </Space>
+          </div>
           <Space wrap>
             <Button
               type="primary"
@@ -687,6 +730,7 @@ export default function CupWrapLocalAdapter({
                 pathCount={actualPathCount}
                 averageHeight={averageHeight}
                 pathGap={pathGap}
+                pathOffsets={pathOffsets}
                 selectedId={selectedLayerId}
                 onSelect={setSelectedLayerId}
                 onLayersChange={setLayers}

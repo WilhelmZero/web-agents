@@ -171,6 +171,7 @@ const translations: Record<string, string> = {
   路径条数: "Number of paths",
   "路径间距 mm": "Path spacing mm",
   "同路径主体间距 mm": "Item spacing on path mm",
+  每条路径位置: "Per-path positions",
   显示路径辅助线: "Show path guides",
   当前元素微调: "Selected item adjustments",
   恢复自动位置: "Restore automatic position",
@@ -1548,6 +1549,7 @@ function translateText(value: string): string {
     [/^水平缩放 (\d+)%$/, "Horizontal scale $1%"],
     [/^垂直缩放 (\d+)%$/, "Vertical scale $1%"],
     [/^斜边方向缩放 (\d+)%$/, "Slanted-side scale $1%"],
+    [/^路径 (\d+) 偏移 mm$/, "Path $1 offset mm"],
     [
       /^当前使用 (\d+) 条路径。拖动预览中的元素可实时微调；从上方素材列表拖到元素上可仅替换该实例。$/,
       "Using $1 paths. Drag an item in the preview for live adjustment, or drag a source item onto it to replace only that instance.",

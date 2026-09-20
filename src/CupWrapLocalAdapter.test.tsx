@@ -54,6 +54,7 @@ it("shows row dividers and supports right-click duplicate and delete", () => {
       pathCount: 3,
       pathAverageHeight: 20,
       pathGap: 1,
+      pathOffsets: [0, 2, 0],
       itemGap: 1,
       showPaths: true,
       backgroundMode: "white",
@@ -75,6 +76,7 @@ it("shows row dividers and supports right-click duplicate and delete", () => {
     pathInput = screen.getByText("路径条数").closest("label")!.querySelector("input")!;
   expect(pathInput).toHaveValue("3");
   expect(preview.querySelectorAll("polyline")).toHaveLength(2);
+  expect(screen.getByText("路径 2 偏移 mm")).toBeInTheDocument();
 
   fireEvent.contextMenu(preview.querySelector("image")!, {
     clientX: 100,

@@ -283,13 +283,24 @@ export function fixedPathPoints(
   count: number,
   averageHeight: number,
   pathGap: number,
+  pathOffsets: number[] = [],
 ) {
   const g = geometry(cup),
     n = Math.max(1, Math.round(count)),
-    block = n * averageHeight + Math.max(0, n - 1) * pathGap,
-    start = (g.slant - block) / 2 + averageHeight / 2;
+    safe = Math.max(4, cup.safe),
+    edgeInset = Math.min(
+      g.slant / 2,
+      Math.max(safe + averageHeight / 2, pathGap + averageHeight / 2),
+    ),
+    span = Math.max(0, g.slant - edgeInset * 2);
   return Array.from({ length: n }, (_, pathIndex) => {
-    const v = (start + pathIndex * (averageHeight + pathGap)) / g.slant;
+    const evenlyDistributed =
+        n === 1 ? g.slant / 2 : edgeInset + (span * pathIndex) / (n - 1),
+      offset = Number.isFinite(pathOffsets[pathIndex])
+        ? pathOffsets[pathIndex]
+        : 0,
+      position = Math.max(safe, Math.min(g.slant - safe, evenlyDistributed + offset)),
+      v = position / g.slant;
     return {
       pathIndex,
       v,
@@ -304,9 +315,10 @@ export function fixedPathDividerPoints(
   count: number,
   averageHeight: number,
   pathGap: number,
+  pathOffsets: number[] = [],
 ) {
   const g = geometry(cup),
-    rows = fixedPathPoints(cup, count, averageHeight, pathGap);
+    rows = fixedPathPoints(cup, count, averageHeight, pathGap, pathOffsets);
   return rows.slice(0, -1).map((row, index) => {
     const v = (row.v + rows[index + 1].v) / 2;
     return {
@@ -326,7 +338,7 @@ export function automaticPathCount(
 ) {
   return Math.max(
     1,
-    Math.floor(
+    Math.ceil(
       (Math.max(1, slant - safe * 2) + pathGap) /
         Math.max(0.01, averageHeight + pathGap),
     ),
@@ -363,6 +375,7 @@ export function arrangeLocal(
     | "pathMode"
     | "pathCount"
     | "pathGap"
+    | "pathOffsets"
     | "itemGap"
   >,
   cup: CupParams,
@@ -407,7 +420,13 @@ export function arrangeLocal(
       input.pathMode === "manual"
         ? Math.max(1, Math.round(input.pathCount ?? 1))
         : automaticPathCount(g.slant, safe, averageHeight, pathGap),
-    paths = fixedPathPoints(cup, pathCount, averageHeight, pathGap),
+    paths = fixedPathPoints(
+      cup,
+      pathCount,
+      averageHeight,
+      pathGap,
+      input.pathOffsets,
+    ),
     boxes: { x: number; y: number; w: number; h: number }[] = [],
     layers: ArtLayer[] = [],
     unplaced: string[] = [],
@@ -418,16 +437,24 @@ export function arrangeLocal(
     w: Math.max(...points.map((p) => p.x)) - Math.min(...points.map((p) => p.x)),
     h: Math.max(...points.map((p) => p.y)) - Math.min(...points.map((p) => p.y)),
   });
-  const fits = (x: number, y: number, w: number, h: number, rotation: number) => {
+  const fits = (
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    rotation: number,
+    edgeSafe = safe,
+    collisionScale = 1,
+  ) => {
     const points = rotatedBoundaryPoints(x, y, w, h, rotation),
       box = bounds(points);
     return points.every(
-      (p) => inside(p, g.points) && distanceToEdge(p, g.points) >= safe,
+      (p) => inside(p, g.points) && distanceToEdge(p, g.points) >= edgeSafe,
     ) &&
     !boxes.some(
       (b) =>
-        Math.abs(box.x - b.x) < (box.w + b.w) / 2 + itemGap &&
-        Math.abs(box.y - b.y) < (box.h + b.h) / 2 + itemGap,
+        Math.abs(box.x - b.x) < ((box.w + b.w) / 2) * collisionScale + itemGap &&
+        Math.abs(box.y - b.y) < ((box.h + b.h) / 2) * collisionScale + itemGap,
     );
   };
   const addLayer = (
@@ -526,7 +553,7 @@ export function arrangeLocal(
           height = o.rect.height * mm,
           minimumFactor =
             width <= averageWidth * 1.6 && height <= averageHeight * 1.6
-              ? 0.8
+              ? 0.6
               : 1;
         subjectCursor++;
         let placed = false;
@@ -536,7 +563,18 @@ export function arrangeLocal(
         for (let factor = 1; factor >= minimumFactor && !placed; factor -= 0.05) {
           const candidateWidth = width * factor,
             candidateHeight = height * factor;
-          if (!fits(p.x, p.y, candidateWidth, candidateHeight, rotation)) continue;
+          if (
+            !fits(
+              p.x,
+              p.y,
+              candidateWidth,
+              candidateHeight,
+              rotation,
+              Math.max(1, safe * 0.4),
+              0.82,
+            )
+          )
+            continue;
           addLayer(
             `path-${path.pathIndex}-${slot}-${o.id}`,
             o,
