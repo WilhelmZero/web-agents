@@ -226,4 +226,69 @@ describe("local cup layout", () => {
     expect(pathLayers.some((layer) => layer.sourceObjectId === "ghost-b")).toBe(true);
     expect(pathLayers.length).toBeGreaterThan(2);
   });
+
+  it("uses the typical subject height for automatic path count", () => {
+    const r = arrangeLocal(
+      {
+        sourceWidth: 500,
+        sourceHeight: 400,
+        objects: [
+          object("title", 170, 150, 160, 60, "anchor"),
+          object("ghost-a", 20, 20, 55, 80, "main"),
+          object("ghost-b", 100, 20, 55, 80, "main"),
+          object("ghost-c", 180, 20, 55, 80, "main"),
+          object("tall-outlier", 260, 20, 40, 240, "main"),
+          // Keep source bounds stable so this specifically exercises the
+          // robust row-height calculation rather than source fitting.
+          object("corner-a", 0, 0, 1, 1, "decoration"),
+          object("corner-b", 499, 399, 1, 1, "decoration"),
+        ],
+        fill: 0,
+        gap: 1,
+        scale: 1,
+        seed: 1,
+        pathMode: "auto" as const,
+        pathCount: 1,
+        pathGap: 1,
+        itemGap: 1,
+      },
+      DEFAULT_CUP,
+    );
+    expect(r.pathCount).toBe(4);
+    expect(r.layers.some((layer) => layer.sourceObjectId === "title")).toBe(true);
+    expect(
+      new Set(
+        r.layers
+          .filter((layer) => layer.pathIndex != null)
+          .map((layer) => layer.pathIndex),
+      ).size,
+    ).toBe(4);
+  });
+
+  it("does not let one unplaceable subject block later subjects or decorations hide the failure", () => {
+    const r = arrangeLocal(
+      {
+        sourceWidth: 1000,
+        sourceHeight: 300,
+        objects: [
+          object("title", 450, 0, 100, 30, "anchor"),
+          object("too-wide", 0, 20, 990, 35, "main"),
+          object("small-main", 975, 200, 20, 45, "main"),
+          object("star", 500, 250, 12, 12, "decoration"),
+        ],
+        fill: 100,
+        gap: 1,
+        scale: 1,
+        seed: 4,
+        pathMode: "manual" as const,
+        pathCount: 3,
+        pathGap: 1,
+        itemGap: 1,
+      },
+      DEFAULT_CUP,
+    );
+    expect(r.layers.some((layer) => layer.sourceObjectId === "small-main")).toBe(true);
+    expect(r.unplaced).toContain("too-wide");
+    expect(r.layers.some((layer) => layer.sourceObjectId === "star")).toBe(false);
+  });
 });

@@ -1548,6 +1548,10 @@ function translateText(value: string): string {
       /^当前使用 (\d+) 条路径。拖动预览中的元素可实时微调；从上方素材列表拖到元素上可仅替换该实例。$/,
       "Using $1 paths. Drag an item in the preview for live adjustment, or drag a source item onto it to replace only that instance.",
     ],
+    [
+      /^(\d+) 个主体无法完整放入，已暂停装饰填充；请降低整体缩放、间距或排除素材$/,
+      "$1 subjects could not fit completely, so decoration filling is paused. Reduce the overall scale or spacing, or exclude source items.",
+    ],
     [/^A4 排版 · 自动计算中$/, "A4 layout · Calculating automatically"],
     [/^A4 排版 · (\d+) 页$/, "A4 layout · $1 pages"],
     [

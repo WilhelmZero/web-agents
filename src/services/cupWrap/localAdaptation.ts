@@ -323,6 +323,14 @@ function tangentRotation(
     b = warpPoint(g, Math.min(1, u + d), v, 1);
   return (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
 }
+function median(values: number[], fallback = 10) {
+  if (!values.length) return fallback;
+  const sorted = [...values].sort((a, b) => a - b),
+    middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2
+    ? sorted[middle]
+    : (sorted[middle - 1] + sorted[middle]) / 2;
+}
 export function arrangeLocal(
   input: Pick<
     LocalAdaptation,
@@ -369,12 +377,11 @@ export function arrangeLocal(
     ),
     decorationOrder = sourceOrder.filter((o) => o.role === "decoration"),
     pathSubjects = mainOrder.filter((o) => o.id !== anchor?.id),
-    averageHeight =
-      (pathSubjects.reduce((sum, o) => sum + o.rect.height * mm, 0) /
-        Math.max(1, pathSubjects.length)) || 10,
-    averageWidth =
-      (pathSubjects.reduce((sum, o) => sum + o.rect.width * mm, 0) /
-        Math.max(1, pathSubjects.length)) || 10,
+    // A title or other unusually large subject must not reduce the number of
+    // paths available to the normal subjects. The median describes the
+    // typical row item and remains stable in the presence of such outliers.
+    averageHeight = median(pathSubjects.map((o) => o.rect.height * mm)),
+    averageWidth = median(pathSubjects.map((o) => o.rect.width * mm)),
     pathGap = Math.max(0, input.pathGap ?? 1),
     itemGap = Math.max(0, input.itemGap ?? input.gap ?? 1),
     pathCount =
@@ -451,12 +458,28 @@ export function arrangeLocal(
         ),
       ),
       p = warpPoint(g, u, v, 1),
-      width = anchor.rect.width * mm,
-      height = anchor.rect.height * mm,
       rotation = tangentRotation(g, u, v);
-    if (fits(p.x, p.y, width, height, rotation))
-      addLayer(`anchor-${anchor.id}`, anchor, p.x, p.y, width, rotation, undefined, u);
-    else unplaced.push(anchor.id);
+    let width = anchor.rect.width * mm,
+      placed = false;
+    // Keep the mapped source position, but scale a large title down just
+    // enough to fit instead of silently dropping the most important element.
+    for (let factor = 1; factor >= 0.35 && !placed; factor -= 0.05) {
+      const candidateWidth = width * factor,
+        candidateHeight = (candidateWidth * anchor.rect.height) / anchor.rect.width;
+      if (!fits(p.x, p.y, candidateWidth, candidateHeight, rotation)) continue;
+      addLayer(
+        `anchor-${anchor.id}`,
+        anchor,
+        p.x,
+        p.y,
+        candidateWidth,
+        rotation,
+        undefined,
+        u,
+      );
+      placed = true;
+    }
+    if (!placed) unplaced.push(anchor.id);
   }
   let subjectCursor = 0;
   for (const path of paths) {
@@ -471,32 +494,65 @@ export function arrangeLocal(
         ),
       );
     for (let slot = 0; slot < capacity; slot++) {
-      const o = pathSubjects[subjectCursor % pathSubjects.length],
-        distance = safe +
+      const distance = safe +
           ((slot + 0.5) * Math.max(1, arcLength - safe * 2)) / capacity,
         u = Math.max(0, Math.min(1, distance / Math.max(0.01, arcLength))),
         p = warpPoint(g, u, path.v, 1),
-        width = o.rect.width * mm,
-        height = o.rect.height * mm,
         rotation = tangentRotation(g, u, path.v);
-      if (!fits(p.x, p.y, width, height, rotation)) continue;
-      addLayer(
-        `path-${path.pathIndex}-${slot}-${o.id}`,
-        o,
-        p.x,
-        p.y,
-        width,
-        rotation,
-        path.pathIndex,
-        u,
-      );
-      subjectCursor++;
+      // A single oversized/colliding subject must not block every following
+      // slot. Try each source once and advance the cycle on every attempt.
+      for (let attempt = 0; attempt < pathSubjects.length; attempt++) {
+        const o = pathSubjects[subjectCursor % pathSubjects.length],
+          width = o.rect.width * mm,
+          height = o.rect.height * mm,
+          minimumFactor =
+            width <= averageWidth * 1.6 && height <= averageHeight * 1.6
+              ? 0.8
+              : 1;
+        subjectCursor++;
+        let placed = false;
+        // Edge rows sometimes need a small uniform reduction because their
+        // rotated corners approach the curved cut line. This keeps all four
+        // visual rows populated without stretching the artwork.
+        for (let factor = 1; factor >= minimumFactor && !placed; factor -= 0.05) {
+          const candidateWidth = width * factor,
+            candidateHeight = height * factor;
+          if (!fits(p.x, p.y, candidateWidth, candidateHeight, rotation)) continue;
+          addLayer(
+            `path-${path.pathIndex}-${slot}-${o.id}`,
+            o,
+            p.x,
+            p.y,
+            candidateWidth,
+            rotation,
+            path.pathIndex,
+            u,
+          );
+          placed = true;
+        }
+        if (placed) break;
+      }
     }
   }
   for (const o of mainOrder)
     if (!placedSources.has(o.id) && !unplaced.includes(o.id)) unplaced.push(o.id);
-  const decorations = active.filter((o) => o.role === "decoration"),
+  // Decorative fillers are subordinate to subjects. Leaving them out while
+  // subjects are missing makes the failure visible and prevents a sparse
+  // subject layout from being disguised by a cloud of tiny decorations.
+  const decorations = unplaced.length
+      ? []
+      : active.filter((o) => o.role === "decoration"),
     rng = random(input.seed),
+    subjectLayers = layers.filter((layer) => {
+      const source = active.find((o) => o.id === layer.sourceObjectId);
+      return source?.role === "main" || source?.role === "anchor";
+    }),
+    subjectMinX = subjectLayers.length
+      ? Math.min(...subjectLayers.map((layer) => layer.x))
+      : safe,
+    subjectMaxX = subjectLayers.length
+      ? Math.max(...subjectLayers.map((layer) => layer.x))
+      : g.width - safe,
     count = Math.min(
       48,
       Math.round((decorations.length * 4 * input.fill) / 100),
@@ -507,7 +563,9 @@ export function arrangeLocal(
       h = o.rect.height * mm;
     let placed = false;
     for (let k = 0; k < 300 && !placed; k++) {
-      const x = safe + w / 2 + rng() * Math.max(0, g.width - 2 * safe - w),
+      const minX = Math.max(safe + w / 2, subjectMinX),
+        maxX = Math.min(g.width - safe - w / 2, subjectMaxX),
+        x = minX + rng() * Math.max(0, maxX - minX),
         y = safe + h / 2 + rng() * Math.max(0, g.height - 2 * safe - h);
       if (fits(x, y, w, h, 0)) {
         const id = `${o.id}-copy-${i}`;

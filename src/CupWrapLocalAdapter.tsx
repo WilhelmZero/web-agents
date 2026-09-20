@@ -573,7 +573,7 @@ export default function CupWrapLocalAdapter({
             <Alert
               type="warning"
               showIcon
-              message={`${unplaced.length} 个主体无法完整放入，请降低整体缩放、间距或排除素材`}
+              message={`${unplaced.length} 个主体无法完整放入，已暂停装饰填充；请降低整体缩放、间距或排除素材`}
             />
           )}{" "}
           {layers.length > 0 && !unplaced.length && (
