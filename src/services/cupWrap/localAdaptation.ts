@@ -479,6 +479,7 @@ export function arrangeLocal(
     rotation: number,
     pathIndex?: number,
     pathU?: number,
+    layerRole: ArtLayer["layerRole"] = "subject",
   ) => {
     const height = (width * o.rect.height) / o.rect.width,
       box = bounds(rotatedBoundaryPoints(x, y, width, height, rotation));
@@ -499,6 +500,7 @@ export function arrangeLocal(
       autoWidth: width,
       autoRotation: rotation,
       locked: true,
+      layerRole,
     });
   };
   if (anchor) {
@@ -572,13 +574,16 @@ export function arrangeLocal(
   for (const path of paths) {
     if (!pathSubjects.length) break;
     const arcLength = g.topArc * (1 - path.v) + g.bottomArc * path.v,
-      capacity = Math.max(
+      baseCapacity = Math.max(
         1,
         Math.floor(
           (Math.max(1, arcLength - safe * 2) + itemGap) /
-            Math.max(0.01, averageWidth + itemGap),
+          Math.max(0.01, averageWidth + itemGap),
         ),
-      );
+      ),
+      // Give the narrow final row one extra editable subject. The user can
+      // resolve any deliberate crowding with the instance controls.
+      capacity = baseCapacity + (path.pathIndex === paths.length - 1 ? 1 : 0);
     for (let slot = 0; slot < capacity; slot++) {
       const distance =
           safe + ((slot + 0.5) * Math.max(1, arcLength - safe * 2)) / capacity,
@@ -646,12 +651,7 @@ export function arrangeLocal(
   for (const o of mainOrder)
     if (!placedSources.has(o.id) && !unplaced.includes(o.id))
       unplaced.push(o.id);
-  // Decorative fillers are subordinate to subjects. Leaving them out while
-  // subjects are missing makes the failure visible and prevents a sparse
-  // subject layout from being disguised by a cloud of tiny decorations.
-  const decorations = unplaced.length
-      ? []
-      : active.filter((o) => o.role === "decoration"),
+  const decorations = active.filter((o) => o.role === "decoration"),
     rng = random(input.seed),
     subjectLayers = layers.filter((layer) => {
       const source = active.find((o) => o.id === layer.sourceObjectId);
@@ -677,12 +677,23 @@ export function arrangeLocal(
         maxX = Math.min(g.width - safe - w / 2, subjectMaxX),
         x = minX + rng() * Math.max(0, maxX - minX),
         y = safe + h / 2 + rng() * Math.max(0, g.height - 2 * safe - h);
-      if (fits(x, y, w, h, 0)) {
+      // Prefer gaps but permit restrained overlap with the subject layer.
+      if (fits(x, y, w, h, 0, safe, 0.32)) {
         const id = `${o.id}-copy-${i}`;
-        addLayer(id, o, x, y, w, 0);
+        addLayer(id, o, x, y, w, 0, undefined, undefined, "decoration");
         placed = true;
       }
     }
   }
-  return { layers, unplaced, pathCount, averageHeight, paths };
+  return {
+    layers: layers.sort(
+      (a, b) =>
+        Number(a.layerRole !== "decoration") -
+        Number(b.layerRole !== "decoration"),
+    ),
+    unplaced,
+    pathCount,
+    averageHeight,
+    paths,
+  };
 }

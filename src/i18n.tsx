@@ -174,6 +174,11 @@ const translations: Record<string, string> = {
   每条路径位置: "Per-path positions",
   显示路径辅助线: "Show path guides",
   当前元素微调: "Selected item adjustments",
+  排布小装饰: "Arrange decorations",
+  主体上层: "Subjects · top layer",
+  小装饰底层: "Decorations · bottom layer",
+  "没有可排布的小装饰，请先把星星、亮点等素材标记为“小装饰·可复制”。":
+    "No decorations are available. Mark stars, sparkles, or similar items as ‘Small decoration · reusable’ first.",
   恢复自动位置: "Restore automatic position",
   删除当前实例: "Delete this instance",
   复制主体: "Duplicate subject",
@@ -1559,8 +1564,8 @@ function translateText(value: string): string {
       "Using $1 subject paths. Subjects sit between adjacent guides. Drag for live adjustment; right-click to duplicate or delete a subject.",
     ],
     [
-      /^(\d+) 个主体无法完整放入，已暂停装饰填充；请降低整体缩放、间距或排除素材$/,
-      "$1 subjects could not fit completely, so decoration filling is paused. Reduce the overall scale or spacing, or exclude source items.",
+      /^(\d+) 个主体无法完整放入；可手动调整或删除，也可降低整体缩放、间距或排除素材$/,
+      "$1 subjects could not fit completely. Adjust or delete them manually, or reduce the overall scale or spacing, or exclude source items.",
     ],
     [/^A4 排版 · 自动计算中$/, "A4 layout · Calculating automatically"],
     [/^A4 排版 · (\d+) 页$/, "A4 layout · $1 pages"],

@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import CupWrapLocalAdapter from "./CupWrapLocalAdapter";
 import { DEFAULT_CUP } from "./services/cupWrap/geometry";
@@ -32,6 +38,12 @@ it("shows row dividers and supports right-click duplicate and delete", () => {
           blob,
           rect: { x: 20, y: 20, width: 60, height: 70 },
           role: "main",
+        },
+        {
+          id: "star",
+          blob,
+          rect: { x: 100, y: 20, width: 12, height: 12 },
+          role: "decoration",
         },
       ],
       layers: [
@@ -80,6 +92,9 @@ it("shows row dividers and supports right-click duplicate and delete", () => {
   expect(pathInput).toHaveValue("3");
   expect(preview.querySelectorAll("polyline")).toHaveLength(2);
   expect(screen.getByText("路径 2 偏移 mm")).toBeInTheDocument();
+  expect(
+    screen.getByRole("button", { name: "排布小装饰" }),
+  ).toBeEnabled();
 
   fireEvent.drop(preview, {
     clientX: 80,
@@ -87,6 +102,11 @@ it("shows row dividers and supports right-click duplicate and delete", () => {
     dataTransfer: { getData: () => "ghost" },
   });
   expect(preview.querySelectorAll("image")).toHaveLength(2);
+  expect(
+    within(document.querySelector(".cup-local-layer-editor")!).getAllByRole(
+      "slider",
+    ),
+  ).toHaveLength(4);
 
   fireEvent.contextMenu(preview.querySelector("image")!, {
     clientX: 100,

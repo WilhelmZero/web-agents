@@ -15,6 +15,8 @@ export interface ArtLayer {
   autoWidth?: number;
   autoRotation?: number;
   manual?: boolean;
+  /** Decorations are painted below the subject group. */
+  layerRole?: "subject" | "decoration";
 }
 export type LocalObjectRole = "anchor" | "main" | "decoration" | "excluded";
 export interface LocalObject {

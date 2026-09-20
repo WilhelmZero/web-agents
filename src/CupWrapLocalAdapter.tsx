@@ -47,6 +47,50 @@ function Preview({ blob }: { blob: Blob }) {
     />
   );
 }
+function AdjustmentControl({
+  label,
+  value,
+  min,
+  max,
+  step,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label style={{ width: 220 }}>
+      <span style={{ display: "flex", justifyContent: "space-between" }}>
+        {label}
+        <InputNumber
+          size="small"
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          onChange={(next) => onChange(next ?? value)}
+        />
+      </span>
+      <Slider
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={onChange}
+      />
+    </label>
+  );
+}
+const orderLayers = (layers: LocalAdaptation["layers"]) =>
+  [...layers].sort(
+    (a, b) =>
+      Number(a.layerRole !== "decoration") -
+      Number(b.layerRole !== "decoration"),
+  );
 function LayoutPreview({
   objects,
   layers,
@@ -182,7 +226,7 @@ function LayoutPreview({
               pointerEvents="none"
             />
           ))}
-        {layers.map((l) => {
+      {orderLayers(layers).map((l) => {
           const id = l.sourceObjectId ?? l.id.split("-copy-")[0],
             o = byId.get(id),
             url = urls[id];
@@ -386,11 +430,14 @@ export default function CupWrapLocalAdapter({
               ...layer,
               blob: object.blob,
               sourceObjectId: object.id,
+              layerRole:
+                object.role === "decoration" ? "decoration" : "subject",
               manual: true,
             }
           : layer,
       ),
     );
+    setLayers((items) => orderLayers(items));
     setError("已替换当前实例；请检查新主体与相邻元素是否冲突。");
   };
   const insertLayer = (objectId: string, x: number, y: number) => {
@@ -409,7 +456,7 @@ export default function CupWrapLocalAdapter({
         : (geometry(cup).width / Math.max(1, analysis?.sourceWidth ?? 1)) *
           scale,
       width = object.rect.width * visualRatio,
-      layer = {
+      layer: LocalAdaptation["layers"][number] = {
         id: `manual-insert-${crypto.randomUUID()}`,
         blob: object.blob,
         sourceObjectId: object.id,
@@ -423,8 +470,9 @@ export default function CupWrapLocalAdapter({
         autoRotation: 0,
         locked: true,
         manual: true,
+        layerRole: object.role === "decoration" ? "decoration" : "subject",
       };
-    setLayers((items) => [...items, layer]);
+    setLayers((items) => orderLayers([...items, layer]));
     setSelectedLayerId(layer.id);
     setError("");
   };
@@ -466,12 +514,57 @@ export default function CupWrapLocalAdapter({
         },
         cup,
       });
-      setLayers(result.layers);
+      setLayers(
+        result.layers.filter((layer) => layer.layerRole !== "decoration"),
+      );
       setUnplaced(result.unplaced);
       setActualPathCount(result.pathCount);
       setAverageHeight(result.averageHeight);
       setSelectedLayerId(undefined);
       setSeed(nextSeed);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy("");
+    }
+  }
+  async function arrangeDecorations() {
+    if (!analysis) return;
+    setBusy("正在排布小装饰");
+    setError("");
+    try {
+      const result = await work<{
+        layers: LocalAdaptation["layers"];
+      }>({
+        kind: "localArrange",
+        input: {
+          ...analysis,
+          fill,
+          gap: itemGap,
+          scale,
+          seed,
+          pathMode,
+          pathCount,
+          pathGap,
+          pathOffsets,
+          itemGap,
+        },
+        cup,
+      });
+      const decorations = result.layers.filter(
+        (layer) => layer.layerRole === "decoration",
+      );
+      setLayers((items) =>
+        orderLayers([
+          ...decorations,
+          ...items.filter((layer) => layer.layerRole !== "decoration"),
+        ]),
+      );
+      setError(
+        decorations.length
+          ? ""
+          : "没有可排布的小装饰，请先把星星、亮点等素材标记为“小装饰·可复制”。",
+      );
     } catch (e) {
       setError(String(e));
     } finally {
@@ -765,6 +858,18 @@ export default function CupWrapLocalAdapter({
             >
               生成排布
             </Button>
+            <Button
+              loading={busy === "正在排布小装饰"}
+              disabled={
+                !layers.length ||
+                !analysis.objects.some((object) => object.role === "decoration")
+              }
+              onClick={() => arrangeDecorations()}
+            >
+              排布小装饰
+            </Button>
+            <Tag color="purple">主体上层</Tag>
+            <Tag color="gold">小装饰底层</Tag>
             <Select
               value={backgroundMode}
               onChange={setBackgroundMode}
@@ -787,7 +892,7 @@ export default function CupWrapLocalAdapter({
             <Alert
               type="warning"
               showIcon
-              message={`${unplaced.length} 个主体无法完整放入，已暂停装饰填充；请降低整体缩放、间距或排除素材`}
+              message={`${unplaced.length} 个主体无法完整放入；可手动调整或删除，也可降低整体缩放、间距或排除素材`}
             />
           )}{" "}
           {layers.length > 0 && !unplaced.length && (
@@ -831,48 +936,50 @@ export default function CupWrapLocalAdapter({
                 <div className="cup-local-layer-editor">
                   <h4>当前元素微调</h4>
                   <Space wrap align="start">
-                    <label>
-                      X mm
-                      <InputNumber
-                        value={selectedLayer.x}
-                        onChange={(x) =>
-                          setLayers((items) =>
-                            items.map((layer) =>
-                              layer.id === selectedLayer.id
-                                ? { ...layer, x: x ?? layer.x, manual: true }
-                                : layer,
-                            ),
-                          )
-                        }
-                      />
-                    </label>
-                    <label>
-                      Y mm
-                      <InputNumber
-                        value={selectedLayer.y}
-                        onChange={(y) =>
-                          setLayers((items) =>
-                            items.map((layer) =>
-                              layer.id === selectedLayer.id
-                                ? { ...layer, y: y ?? layer.y, manual: true }
-                                : layer,
-                            ),
-                          )
-                        }
-                      />
-                    </label>
-                    <label>
-                      宽度 mm
-                      <InputNumber
-                        min={0.1}
-                        value={selectedLayer.width}
-                        onChange={(width) =>
+                    {[
+                      {
+                        key: "x" as const,
+                        label: "X mm",
+                        min: 0,
+                        max: geometry(cup).width,
+                        step: 0.1,
+                      },
+                      {
+                        key: "y" as const,
+                        label: "Y mm",
+                        min: 0,
+                        max: geometry(cup).height,
+                        step: 0.1,
+                      },
+                      {
+                        key: "width" as const,
+                        label: "宽度 mm",
+                        min: 0.1,
+                        max: geometry(cup).width,
+                        step: 0.1,
+                      },
+                      {
+                        key: "rotation" as const,
+                        label: "旋转 °",
+                        min: -180,
+                        max: 180,
+                        step: 1,
+                      },
+                    ].map((control) => (
+                      <AdjustmentControl
+                        key={control.key}
+                        label={control.label}
+                        min={control.min}
+                        max={control.max}
+                        step={control.step}
+                        value={selectedLayer[control.key]}
+                        onChange={(value) =>
                           setLayers((items) =>
                             items.map((layer) =>
                               layer.id === selectedLayer.id
                                 ? {
                                     ...layer,
-                                    width: width ?? layer.width,
+                                    [control.key]: value,
                                     manual: true,
                                   }
                                 : layer,
@@ -880,28 +987,7 @@ export default function CupWrapLocalAdapter({
                           )
                         }
                       />
-                    </label>
-                    <label>
-                      旋转 °
-                      <InputNumber
-                        min={-180}
-                        max={180}
-                        value={selectedLayer.rotation}
-                        onChange={(rotation) =>
-                          setLayers((items) =>
-                            items.map((layer) =>
-                              layer.id === selectedLayer.id
-                                ? {
-                                    ...layer,
-                                    rotation: rotation ?? layer.rotation,
-                                    manual: true,
-                                  }
-                                : layer,
-                            ),
-                          )
-                        }
-                      />
-                    </label>
+                    ))}
                     <Button
                       onClick={() =>
                         setLayers((items) =>

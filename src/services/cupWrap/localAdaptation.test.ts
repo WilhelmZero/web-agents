@@ -127,7 +127,7 @@ describe("local cup layout", () => {
     ).toBeLessThanOrEqual(4);
     expect(r.layers.some((v) => v.id.startsWith("main-copy"))).toBe(false);
   });
-  it("places every subject before decorations and keeps decorations between subjects", () => {
+  it("places decorations below subjects and keeps them between subjects", () => {
     const r = arrangeLocal(
         {
           sourceWidth: 500,
@@ -153,9 +153,14 @@ describe("local cup layout", () => {
         .filter(({ layer }) => layer.id.startsWith("star"))
         .map(({ index }) => index),
       subjects = r.layers.filter((layer) => layer.id.includes("main"));
-    expect(Math.max(...subjectIndexes)).toBeLessThan(
-      Math.min(...decorationIndexes),
+    expect(Math.max(...decorationIndexes)).toBeLessThan(
+      Math.min(...subjectIndexes),
     );
+    expect(
+      r.layers
+        .filter((layer) => layer.id.startsWith("star"))
+        .every((layer) => layer.layerRole === "decoration"),
+    ).toBe(true);
     const left = Math.min(...subjects.map((layer) => layer.x));
     const right = Math.max(...subjects.map((layer) => layer.x));
     for (const decoration of r.layers.filter((layer) =>
@@ -258,6 +263,9 @@ describe("local cup layout", () => {
       expect(
         pathLayers.filter((layer) => layer.pathIndex === pathIndex).length,
       ).toBeGreaterThanOrEqual(2);
+    const lastRow = pathLayers.filter((layer) => layer.pathIndex === 3),
+      previousRow = pathLayers.filter((layer) => layer.pathIndex === 2);
+    expect(lastRow.length).toBeGreaterThanOrEqual(previousRow.length);
   });
 
   it("uses the typical subject height for automatic path count", () => {
