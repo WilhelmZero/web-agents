@@ -24,7 +24,7 @@ import type {
   LocalObjectRole,
 } from "./services/cupWrap/types";
 import { work } from "./services/cupWrap/client";
-import { fixedPathPoints } from "./services/cupWrap/localAdaptation";
+import { fixedPathDividerPoints } from "./services/cupWrap/localAdaptation";
 
 function Preview({ blob }: { blob: Blob }) {
   const [url, setUrl] = useState("");
@@ -57,6 +57,8 @@ function LayoutPreview({
   onSelect,
   onLayersChange,
   onReplace,
+  onDuplicate,
+  onDelete,
 }: {
   objects: LocalObject[];
   layers: LocalAdaptation["layers"];
@@ -70,8 +72,13 @@ function LayoutPreview({
   onSelect: (id: string) => void;
   onLayersChange: (layers: LocalAdaptation["layers"]) => void;
   onReplace: (layerId: string, objectId: string) => void;
+  onDuplicate: (layerId: string) => void;
+  onDelete: (layerId: string) => void;
 }) {
-  const [urls, setUrls] = useState<Record<string, string>>({});
+  const [urls, setUrls] = useState<Record<string, string>>({}),
+    [contextMenu, setContextMenu] = useState<
+      { id: string; x: number; y: number } | undefined
+    >();
   useEffect(() => {
     const next: Record<string, string> = {};
     for (const o of objects) next[o.id] = URL.createObjectURL(o.blob);
@@ -80,8 +87,8 @@ function LayoutPreview({
   }, [objects]);
   const g = geometry(cup),
     byId = useMemo(() => new Map(objects.map((o) => [o.id, o])), [objects]),
-    paths = useMemo(
-      () => fixedPathPoints(cup, pathCount, averageHeight, pathGap),
+    dividers = useMemo(
+      () => fixedPathDividerPoints(cup, pathCount, averageHeight, pathGap),
       [cup, pathCount, averageHeight, pathGap],
     ),
     drag = useRef<
@@ -94,7 +101,18 @@ function LayoutPreview({
     p.y = event.clientY;
     return p.matrixTransform(svg.getScreenCTM()!.inverse());
   };
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(undefined);
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("blur", close);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("blur", close);
+    };
+  }, [contextMenu]);
   return (
+    <>
     <svg
       aria-label="本地排布预览"
       viewBox={`0 0 ${g.width} ${g.height}`}
@@ -112,7 +130,7 @@ function LayoutPreview({
         strokeDasharray="1 1"
       />
       {showPaths &&
-        paths.map((path) => (
+        dividers.map((path) => (
           <polyline
             key={path.pathIndex}
             points={path.points.map((p) => `${p.x},${p.y}`).join(" ")}
@@ -142,6 +160,7 @@ function LayoutPreview({
             stroke={selectedId === l.id ? "#1677ff" : undefined}
             style={{ cursor: "move", outline: selectedId === l.id ? "1px solid #1677ff" : undefined }}
             onPointerDown={(event) => {
+              if (event.button === 2) return;
               event.preventDefault();
               event.currentTarget.setPointerCapture(event.pointerId);
               const p = point(event);
@@ -168,6 +187,12 @@ function LayoutPreview({
             onPointerUp={() => {
               drag.current = undefined;
             }}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onSelect(l.id);
+              setContextMenu({ id: l.id, x: event.clientX, y: event.clientY });
+            }}
             onDragOver={(event) => event.preventDefault()}
             onDrop={(event) => {
               event.preventDefault();
@@ -178,6 +203,48 @@ function LayoutPreview({
         );
       })}
     </svg>
+      {contextMenu && (
+        <div
+          role="menu"
+          aria-label="主体右键菜单"
+          onPointerDown={(event) => event.stopPropagation()}
+          style={{
+            position: "fixed",
+            left: contextMenu.x,
+            top: contextMenu.y,
+            zIndex: 2100,
+            minWidth: 120,
+            padding: 4,
+            border: "1px solid #d9d9d9",
+            borderRadius: 8,
+            background: "#fff",
+            boxShadow: "0 6px 20px rgba(0,0,0,.16)",
+          }}
+        >
+          <Button
+            type="text"
+            block
+            onClick={() => {
+              onDuplicate(contextMenu.id);
+              setContextMenu(undefined);
+            }}
+          >
+            复制主体
+          </Button>
+          <Button
+            type="text"
+            danger
+            block
+            onClick={() => {
+              onDelete(contextMenu.id);
+              setContextMenu(undefined);
+            }}
+          >
+            删除主体
+          </Button>
+        </div>
+      )}
+    </>
   );
 }
 export default function CupWrapLocalAdapter({
@@ -230,6 +297,25 @@ export default function CupWrapLocalAdapter({
     [analysis],
   ),
     selectedLayer = layers.find((layer) => layer.id === selectedLayerId);
+  const deleteLayer = (layerId: string) => {
+    setLayers((items) => items.filter((layer) => layer.id !== layerId));
+    setSelectedLayerId((id) => (id === layerId ? undefined : id));
+  };
+  const duplicateLayer = (layerId: string) => {
+    const sourceLayer = layers.find((layer) => layer.id === layerId);
+    if (!sourceLayer) return;
+    const copy = {
+      ...sourceLayer,
+      id: `manual-copy-${crypto.randomUUID()}`,
+      x: sourceLayer.x + 3,
+      y: sourceLayer.y + 3,
+      autoX: sourceLayer.x + 3,
+      autoY: sourceLayer.y + 3,
+      manual: true,
+    };
+    setLayers((items) => [...items, copy]);
+    setSelectedLayerId(copy.id);
+  };
   const replaceLayer = (layerId: string, objectId: string) => {
     const object = analysis?.objects.find((item) => item.id === objectId);
     if (!object || object.role === "excluded") return;
@@ -470,7 +556,7 @@ export default function CupWrapLocalAdapter({
           <Alert
             type="info"
             showIcon
-            message="最大主体按原图位置映射并跨路径占位；其他主体按固定顺序沿多条同心弧线路径循环排列。主体排布不使用随机数，小装饰仍可随机填缝。"
+            message="最大主体按原图位置映射并跨行占位；其他主体按固定顺序排列在相邻同心弧辅助线之间。主体排布不使用随机数，小装饰仍可随机填缝。"
           />
           <Space wrap align="start">
             <label>
@@ -485,17 +571,18 @@ export default function CupWrapLocalAdapter({
                 ]}
               />
             </label>
-            {pathMode === "manual" && (
-              <label>
-                路径条数
-                <InputNumber
-                  min={1}
-                  max={30}
-                  value={pathCount}
-                  onChange={(value) => setPathCount(value ?? 1)}
-                />
-              </label>
-            )}
+            <label>
+              路径条数
+              <InputNumber
+                min={1}
+                max={30}
+                value={pathMode === "auto" ? actualPathCount : pathCount}
+                onChange={(value) => {
+                  setPathCount(value ?? 1);
+                  setPathMode("manual");
+                }}
+              />
+            </label>
             <label>
               路径间距 mm
               <InputNumber
@@ -604,9 +691,11 @@ export default function CupWrapLocalAdapter({
                 onSelect={setSelectedLayerId}
                 onLayersChange={setLayers}
                 onReplace={replaceLayer}
+                onDuplicate={duplicateLayer}
+                onDelete={deleteLayer}
               />
               <p>
-                当前使用 {actualPathCount} 条路径。拖动预览中的元素可实时微调；从上方素材列表拖到元素上可仅替换该实例。
+                当前使用 {actualPathCount} 条主体路径，主体位于相邻辅助线之间。拖动可实时微调；右键可复制或删除主体。
               </p>
               {selectedLayer && (
                 <div className="cup-local-layer-editor">
@@ -705,12 +794,7 @@ export default function CupWrapLocalAdapter({
                     </Button>
                     <Button
                       danger
-                      onClick={() => {
-                        setLayers((items) =>
-                          items.filter((layer) => layer.id !== selectedLayer.id),
-                        );
-                        setSelectedLayerId(undefined);
-                      }}
+                      onClick={() => deleteLayer(selectedLayer.id)}
                     >
                       删除当前实例
                     </Button>

@@ -299,6 +299,25 @@ export function fixedPathPoints(
     };
   });
 }
+export function fixedPathDividerPoints(
+  cup: CupParams,
+  count: number,
+  averageHeight: number,
+  pathGap: number,
+) {
+  const g = geometry(cup),
+    rows = fixedPathPoints(cup, count, averageHeight, pathGap);
+  return rows.slice(0, -1).map((row, index) => {
+    const v = (row.v + rows[index + 1].v) / 2;
+    return {
+      pathIndex: index,
+      v,
+      points: Array.from({ length: 65 }, (_unused, pointIndex) =>
+        warpPoint(g, pointIndex / 64, v, 1),
+      ),
+    };
+  });
+}
 export function automaticPathCount(
   slant: number,
   safe: number,

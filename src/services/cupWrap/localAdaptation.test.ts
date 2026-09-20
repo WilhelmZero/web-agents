@@ -3,6 +3,7 @@ import {
   analyzePixels,
   automaticPathCount,
   arrangeLocal,
+  fixedPathDividerPoints,
   fixedPathPoints,
   rotatedBoundaryPoints,
 } from "./localAdaptation";
@@ -195,6 +196,10 @@ describe("local cup layout", () => {
       expect(paths.every((path) => path.points.length === 65)).toBe(true);
       expect(paths[0].v).toBeLessThan(paths[1].v);
       expect(paths[1].v).toBeLessThan(paths[2].v);
+      const dividers = fixedPathDividerPoints(cup, 3, 20, 2);
+      expect(dividers).toHaveLength(2);
+      expect(dividers[0].v).toBeGreaterThan(paths[0].v);
+      expect(dividers[0].v).toBeLessThan(paths[1].v);
     }
   });
 

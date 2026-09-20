@@ -175,10 +175,14 @@ const translations: Record<string, string> = {
   当前元素微调: "Selected item adjustments",
   恢复自动位置: "Restore automatic position",
   删除当前实例: "Delete this instance",
+  复制主体: "Duplicate subject",
+  删除主体: "Delete subject",
   "拖到预览中的元素上可替换该实例":
     "Drag onto an item in the preview to replace that instance",
   "最大主体按原图位置映射并跨路径占位；其他主体按固定顺序沿多条同心弧线路径循环排列。主体排布不使用随机数，小装饰仍可随机填缝。":
     "The largest subject keeps its mapped source position and reserves every intersected path. Other subjects cycle in a fixed order along concentric arc paths. Subject placement is deterministic; only small decoration gap filling is randomized.",
+  "最大主体按原图位置映射并跨行占位；其他主体按固定顺序排列在相邻同心弧辅助线之间。主体排布不使用随机数，小装饰仍可随机填缝。":
+    "The largest subject keeps its mapped source position and spans rows. Other subjects follow a fixed order in the bands between adjacent concentric arc guides. Subject placement is deterministic; only small decoration gap filling is randomized.",
   "图案左侧留白 mm": "Artwork left margin mm",
   "图案右侧留白 mm": "Artwork right margin mm",
   "图案上方留白 mm": "Artwork top margin mm",
@@ -1547,6 +1551,10 @@ function translateText(value: string): string {
     [
       /^当前使用 (\d+) 条路径。拖动预览中的元素可实时微调；从上方素材列表拖到元素上可仅替换该实例。$/,
       "Using $1 paths. Drag an item in the preview for live adjustment, or drag a source item onto it to replace only that instance.",
+    ],
+    [
+      /^当前使用 (\d+) 条主体路径，主体位于相邻辅助线之间。拖动可实时微调；右键可复制或删除主体。$/,
+      "Using $1 subject paths. Subjects sit between adjacent guides. Drag for live adjustment; right-click to duplicate or delete a subject.",
     ],
     [
       /^(\d+) 个主体无法完整放入，已暂停装饰填充；请降低整体缩放、间距或排除素材$/,
