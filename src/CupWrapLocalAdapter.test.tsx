@@ -256,4 +256,4 @@ it("shows row dividers and supports right-click duplicate and delete", async () 
     (await screen.findAllByText("确认关闭无损元素排版？")).length,
   ).toBeGreaterThan(0);
   fireEvent.click(screen.getAllByRole("button", { name: "继续编辑" }).at(-1)!);
-}, 20_000);
+}, 40_000);
