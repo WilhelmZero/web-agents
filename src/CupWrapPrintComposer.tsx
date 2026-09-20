@@ -1000,12 +1000,11 @@ export default function CupWrapPrintComposer({
         );
       })}
       {(d.artworkSlots ?? []).filter((slot) => slot.enabled).length > 1 && (
-        <div className="cup-field">
-          <span>图与图之间的间隙 px</span>
-          <Space wrap>
+        <div className="cup-stitch-gap">
+          <strong>图与图之间的间隙 px</strong>
+          <div className="cup-stitch-gap-controls">
             <Slider
               ariaLabelForHandle="图与图之间的间隙滑动条"
-              style={{ width: 220 }}
               min={-1000}
               max={1000}
               step={1}
@@ -1020,7 +1019,7 @@ export default function CupWrapPrintComposer({
               value={d.stitchGapPx ?? 0}
               onChange={(value) => changeStitchGap(value ?? 0)}
             />
-          </Space>
+          </div>
           <small>0 为无缝连接；负数时第 2 张图位于顶层并覆盖第 1 张图。</small>
         </div>
       )}

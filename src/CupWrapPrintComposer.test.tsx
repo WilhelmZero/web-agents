@@ -284,6 +284,11 @@ it("shows a signed stitch gap control when two artwork images exist", async () =
   expect(
     screen.getByText(/负数时第 2 张图位于顶层并覆盖第 1 张图/),
   ).toBeInTheDocument();
+  const gapPanel = screen
+    .getByText("图与图之间的间隙 px")
+    .closest(".cup-stitch-gap");
+  expect(gapPanel).not.toBeNull();
+  expect(gapPanel?.querySelector(".cup-stitch-gap-controls")).not.toBeNull();
 }, 30000);
 it("preserves a transparent background when transparent artwork is uploaded", async () => {
   vi.mocked(hasUsableTransparency).mockResolvedValueOnce(true);
