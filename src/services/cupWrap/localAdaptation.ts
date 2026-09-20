@@ -499,7 +499,7 @@ export function arrangeLocal(
       autoY: y,
       autoWidth: width,
       autoRotation: rotation,
-      locked: true,
+      locked: false,
       layerRole,
     });
   };
@@ -563,6 +563,7 @@ export function arrangeLocal(
           rotation,
           undefined,
           candidate.u,
+          "anchor",
         );
         placed = true;
         break;
@@ -686,11 +687,15 @@ export function arrangeLocal(
     }
   }
   return {
-    layers: layers.sort(
-      (a, b) =>
-        Number(a.layerRole !== "decoration") -
-        Number(b.layerRole !== "decoration"),
-    ),
+    layers: layers.sort((a, b) => {
+      const rank = (layer: ArtLayer) =>
+        layer.layerRole === "decoration"
+          ? 0
+          : layer.layerRole === "anchor"
+            ? 2
+            : 1;
+      return rank(a) - rank(b);
+    }),
     unplaced,
     pathCount,
     averageHeight,

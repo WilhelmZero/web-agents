@@ -194,6 +194,8 @@ describe("local cup layout", () => {
       anchor = r.layers.find((layer) => layer.sourceObjectId === "anchor")!,
       pathLayers = r.layers.filter((layer) => layer.pathIndex != null);
     expect(anchor).toBeTruthy();
+    expect(anchor.layerRole).toBe("anchor");
+    expect(r.layers.at(-1)?.sourceObjectId).toBe("anchor");
     expect(anchor.autoX).toBe(anchor.x);
     expect(anchor.autoY).toBe(anchor.y);
     expect(pathLayers.length).toBeGreaterThan(0);

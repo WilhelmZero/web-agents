@@ -177,6 +177,9 @@ const translations: Record<string, string> = {
   排布小装饰: "Arrange decorations",
   主体上层: "Subjects · top layer",
   小装饰底层: "Decorations · bottom layer",
+  "图层（上方优先显示）": "Layers (topmost first)",
+  "文字／中心主视觉": "Text / central visual",
+  锁定: "Lock",
   "没有可排布的小装饰，请先把星星、亮点等素材标记为“小装饰·可复制”。":
     "No decorations are available. Mark stars, sparkles, or similar items as ‘Small decoration · reusable’ first.",
   恢复自动位置: "Restore automatic position",

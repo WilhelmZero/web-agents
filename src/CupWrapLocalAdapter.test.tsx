@@ -107,6 +107,43 @@ it("shows row dividers and supports right-click duplicate and delete", () => {
       "slider",
     ),
   ).toHaveLength(4);
+  const panel = screen.getByLabelText("本地排布图层"),
+    rows = Array.from(panel.querySelectorAll<HTMLElement>("[data-layer-id]"));
+  expect(rows).toHaveLength(2);
+  const firstId = rows[0].dataset.layerId!,
+    dragData: Record<string, string> = {};
+  fireEvent.dragStart(rows[0], {
+    dataTransfer: {
+      effectAllowed: "move",
+      setData: (type: string, value: string) => {
+        dragData[type] = value;
+      },
+    },
+  });
+  fireEvent.drop(rows[1], {
+    dataTransfer: {
+      dropEffect: "move",
+      getData: (type: string) => dragData[type],
+    },
+  });
+  expect(
+    panel.querySelector<HTMLElement>("[data-layer-id]")?.dataset.layerId,
+  ).not.toBe(firstId);
+
+  fireEvent.click(
+    within(
+      panel.querySelector<HTMLElement>(`[data-layer-id="${firstId}"]`)!,
+    ).getByRole("switch", { name: /锁定图层/ }),
+  );
+  for (const slider of within(
+    document.querySelector(".cup-local-layer-editor")!,
+  ).getAllByRole("slider"))
+    expect(slider).toHaveAttribute("aria-disabled", "true");
+  fireEvent.click(
+    within(
+      panel.querySelector<HTMLElement>(`[data-layer-id="${firstId}"]`)!,
+    ).getByRole("switch", { name: /锁定图层/ }),
+  );
 
   fireEvent.contextMenu(preview.querySelector("image")!, {
     clientX: 100,
@@ -121,4 +158,4 @@ it("shows row dividers and supports right-click duplicate and delete", () => {
   });
   fireEvent.click(screen.getByRole("button", { name: "删除主体" }));
   expect(preview.querySelectorAll("image")).toHaveLength(2);
-}, 10_000);
+}, 20_000);

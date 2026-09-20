@@ -53,6 +53,7 @@ function AdjustmentControl({
   min,
   max,
   step,
+  disabled,
   onChange,
 }: {
   label: string;
@@ -60,6 +61,7 @@ function AdjustmentControl({
   min: number;
   max: number;
   step: number;
+  disabled?: boolean;
   onChange: (value: number) => void;
 }) {
   return (
@@ -72,6 +74,7 @@ function AdjustmentControl({
           max={max}
           step={step}
           value={value}
+          disabled={disabled}
           onChange={(next) => onChange(next ?? value)}
         />
       </span>
@@ -80,17 +83,173 @@ function AdjustmentControl({
         max={max}
         step={step}
         value={value}
+        disabled={disabled}
         onChange={onChange}
       />
     </label>
   );
 }
-const orderLayers = (layers: LocalAdaptation["layers"]) =>
-  [...layers].sort(
-    (a, b) =>
-      Number(a.layerRole !== "decoration") -
-      Number(b.layerRole !== "decoration"),
+const layerRank = (layer: LocalAdaptation["layers"][number]) =>
+  layer.layerRole === "decoration"
+    ? 0
+    : layer.layerRole === "anchor"
+      ? 2
+      : 1;
+const orderLayers = (
+  layers: LocalAdaptation["layers"],
+  objects: LocalObject[] = [],
+) => {
+  const roles = new Map(objects.map((object) => [object.id, object.role]));
+  return layers
+    .map((layer) => {
+      if (layer.layerRole) return layer;
+      const role = roles.get(layer.sourceObjectId ?? "");
+      return {
+        ...layer,
+        layerRole:
+          role === "decoration"
+            ? ("decoration" as const)
+            : role === "anchor"
+              ? ("anchor" as const)
+              : ("subject" as const),
+      };
+    })
+    .sort((a, b) => layerRank(a) - layerRank(b));
+};
+function LayerThumbnail({ blob }: { blob: Blob }) {
+  const [url, setUrl] = useState("");
+  useEffect(() => {
+    const next = URL.createObjectURL(blob);
+    setUrl(next);
+    return () => URL.revokeObjectURL(next);
+  }, [blob]);
+  return url ? (
+    <img
+      src={url}
+      alt=""
+      draggable={false}
+      style={{ width: 38, height: 38, objectFit: "contain" }}
+    />
+  ) : null;
+}
+function LayerPanel({
+  layers,
+  objects,
+  selectedId,
+  onSelect,
+  onLayersChange,
+}: {
+  layers: LocalAdaptation["layers"];
+  objects: LocalObject[];
+  selectedId?: string;
+  onSelect: (id: string) => void;
+  onLayersChange: (layers: LocalAdaptation["layers"]) => void;
+}) {
+  const byId = useMemo(
+      () => new Map(objects.map((object) => [object.id, object])),
+      [objects],
+    ),
+    topFirst = [...layers].reverse();
+  const move = (sourceId: string, targetId: string) => {
+    if (!sourceId || sourceId === targetId) return;
+    const next = [...topFirst],
+      sourceIndex = next.findIndex((layer) => layer.id === sourceId),
+      targetIndex = next.findIndex((layer) => layer.id === targetId);
+    if (sourceIndex < 0 || targetIndex < 0) return;
+    const [source] = next.splice(sourceIndex, 1);
+    next.splice(targetIndex, 0, source);
+    onLayersChange(next.reverse());
+  };
+  return (
+    <div style={{ marginTop: 12 }}>
+      <h4>图层（上方优先显示）</h4>
+      <div
+        aria-label="本地排布图层"
+        style={{
+          maxHeight: 280,
+          overflow: "auto",
+          border: "1px solid #e5e7eb",
+          borderRadius: 8,
+        }}
+      >
+        {topFirst.map((layer, index) => {
+          const object = byId.get(layer.sourceObjectId ?? ""),
+            role =
+              layer.layerRole === "anchor" || object?.role === "anchor"
+                ? "文字／中心主视觉"
+                : layer.layerRole === "decoration" ||
+                    object?.role === "decoration"
+                  ? "小装饰"
+                  : "主体";
+          return (
+            <div
+              key={layer.id}
+              role="button"
+              tabIndex={0}
+              draggable
+              data-layer-id={layer.id}
+              onClick={() => onSelect(layer.id)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ")
+                  onSelect(layer.id);
+              }}
+              onDragStart={(event) => {
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData("application/x-cup-layer", layer.id);
+              }}
+              onDragOver={(event) => {
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                move(
+                  event.dataTransfer.getData("application/x-cup-layer"),
+                  layer.id,
+                );
+              }}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "24px 42px 1fr auto",
+                alignItems: "center",
+                gap: 8,
+                padding: "6px 10px",
+                borderBottom:
+                  index + 1 === topFirst.length ? undefined : "1px solid #eee",
+                background: selectedId === layer.id ? "#e6f4ff" : "#fff",
+                cursor: "grab",
+              }}
+            >
+              <span aria-hidden="true">⋮⋮</span>
+              <LayerThumbnail blob={layer.blob} />
+              <span>
+                <strong>{role}</strong>
+                <small style={{ display: "block", color: "#777" }}>
+                  {layer.id}
+                </small>
+              </span>
+              <label onClick={(event) => event.stopPropagation()}>
+                锁定{" "}
+                <Switch
+                  size="small"
+                  checked={layer.locked}
+                  aria-label={`锁定图层 ${layer.id}`}
+                  onChange={(locked) =>
+                    onLayersChange(
+                      layers.map((item) =>
+                        item.id === layer.id ? { ...item, locked } : item,
+                      ),
+                    )
+                  }
+                />
+              </label>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
+}
 function LayoutPreview({
   objects,
   layers,
@@ -191,6 +350,9 @@ function LayoutPreview({
       window.removeEventListener("blur", close);
     };
   }, [contextMenu]);
+  const contextLayer = contextMenu
+    ? layers.find((layer) => layer.id === contextMenu.id)
+    : undefined;
   return (
     <>
       <svg
@@ -226,7 +388,7 @@ function LayoutPreview({
               pointerEvents="none"
             />
           ))}
-      {orderLayers(layers).map((l) => {
+        {layers.map((l) => {
           const id = l.sourceObjectId ?? l.id.split("-copy-")[0],
             o = byId.get(id),
             url = urls[id];
@@ -244,12 +406,14 @@ function LayoutPreview({
               opacity={selectedId === l.id ? 0.78 : 1}
               stroke={selectedId === l.id ? "#1677ff" : undefined}
               style={{
-                cursor: "move",
+                cursor: l.locked ? "not-allowed" : "move",
                 outline: selectedId === l.id ? "1px solid #1677ff" : undefined,
               }}
               onPointerDown={(event) => {
                 if (event.button === 2) return;
                 event.preventDefault();
+                onSelect(l.id);
+                if (l.locked) return;
                 event.currentTarget.setPointerCapture(event.pointerId);
                 const p = point(event);
                 drag.current = {
@@ -259,7 +423,6 @@ function LayoutPreview({
                   x: l.x,
                   y: l.y,
                 };
-                onSelect(l.id);
               }}
               onPointerMove={(event) => {
                 const state = drag.current;
@@ -295,6 +458,7 @@ function LayoutPreview({
               onDrop={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
+                if (l.locked) return;
                 const objectId = event.dataTransfer.getData(
                   "application/x-cup-object",
                 );
@@ -336,6 +500,7 @@ function LayoutPreview({
             type="text"
             danger
             block
+            disabled={contextLayer?.locked}
             onClick={() => {
               onDelete(contextMenu.id);
               setContextMenu(undefined);
@@ -392,7 +557,9 @@ export default function CupWrapLocalAdapter({
     [backgroundColor, setBackgroundColor] = useState(
       initial?.backgroundColor ?? "#ffffff",
     ),
-    [layers, setLayers] = useState(initial?.layers ?? []),
+    [layers, setLayers] = useState(() =>
+      orderLayers(initial?.layers ?? [], initial?.objects),
+    ),
     [unplaced, setUnplaced] = useState<string[]>(initial?.unplaced ?? []),
     [selectedObjects, setSelectedObjects] = useState<string[]>([]),
     [selectedLayerId, setSelectedLayerId] = useState<string>();
@@ -402,7 +569,11 @@ export default function CupWrapLocalAdapter({
     ),
     selectedLayer = layers.find((layer) => layer.id === selectedLayerId);
   const deleteLayer = (layerId: string) => {
-    setLayers((items) => items.filter((layer) => layer.id !== layerId));
+    setLayers((items) =>
+      items.some((layer) => layer.id === layerId && layer.locked)
+        ? items
+        : items.filter((layer) => layer.id !== layerId),
+    );
     setSelectedLayerId((id) => (id === layerId ? undefined : id));
   };
   const duplicateLayer = (layerId: string) => {
@@ -422,7 +593,12 @@ export default function CupWrapLocalAdapter({
   };
   const replaceLayer = (layerId: string, objectId: string) => {
     const object = analysis?.objects.find((item) => item.id === objectId);
-    if (!object || object.role === "excluded") return;
+    if (
+      !object ||
+      object.role === "excluded" ||
+      layers.find((layer) => layer.id === layerId)?.locked
+    )
+      return;
     setLayers((items) =>
       items.map((layer) =>
         layer.id === layerId
@@ -431,13 +607,16 @@ export default function CupWrapLocalAdapter({
               blob: object.blob,
               sourceObjectId: object.id,
               layerRole:
-                object.role === "decoration" ? "decoration" : "subject",
+                object.role === "decoration"
+                  ? "decoration"
+                  : object.role === "anchor"
+                    ? "anchor"
+                    : "subject",
               manual: true,
             }
           : layer,
       ),
     );
-    setLayers((items) => orderLayers(items));
     setError("已替换当前实例；请检查新主体与相邻元素是否冲突。");
   };
   const insertLayer = (objectId: string, x: number, y: number) => {
@@ -468,11 +647,18 @@ export default function CupWrapLocalAdapter({
         autoY: y,
         autoWidth: width,
         autoRotation: 0,
-        locked: true,
+        locked: false,
         manual: true,
-        layerRole: object.role === "decoration" ? "decoration" : "subject",
+        layerRole:
+          object.role === "decoration"
+            ? "decoration"
+            : object.role === "anchor"
+              ? "anchor"
+              : "subject",
       };
-    setLayers((items) => orderLayers([...items, layer]));
+    setLayers((items) =>
+      layer.layerRole === "decoration" ? [layer, ...items] : [...items, layer],
+    );
     setSelectedLayerId(layer.id);
     setError("");
   };
@@ -554,12 +740,10 @@ export default function CupWrapLocalAdapter({
       const decorations = result.layers.filter(
         (layer) => layer.layerRole === "decoration",
       );
-      setLayers((items) =>
-        orderLayers([
-          ...decorations,
-          ...items.filter((layer) => layer.layerRole !== "decoration"),
-        ]),
-      );
+      setLayers((items) => [
+        ...decorations,
+        ...items.filter((layer) => layer.layerRole !== "decoration"),
+      ]);
       setError(
         decorations.length
           ? ""
@@ -932,6 +1116,13 @@ export default function CupWrapLocalAdapter({
                 当前使用 {actualPathCount}{" "}
                 条主体路径，主体位于相邻辅助线之间。可将上方素材拖到空白处新增，或拖到已有元素上替换；拖动实例可实时微调，右键可复制或删除。
               </p>
+              <LayerPanel
+                layers={layers}
+                objects={analysis.objects}
+                selectedId={selectedLayerId}
+                onSelect={setSelectedLayerId}
+                onLayersChange={setLayers}
+              />
               {selectedLayer && (
                 <div className="cup-local-layer-editor">
                   <h4>当前元素微调</h4>
@@ -973,6 +1164,7 @@ export default function CupWrapLocalAdapter({
                         max={control.max}
                         step={control.step}
                         value={selectedLayer[control.key]}
+                        disabled={selectedLayer.locked}
                         onChange={(value) =>
                           setLayers((items) =>
                             items.map((layer) =>
@@ -989,6 +1181,7 @@ export default function CupWrapLocalAdapter({
                       />
                     ))}
                     <Button
+                      disabled={selectedLayer.locked}
                       onClick={() =>
                         setLayers((items) =>
                           items.map((layer) =>
@@ -1011,6 +1204,7 @@ export default function CupWrapLocalAdapter({
                     </Button>
                     <Button
                       danger
+                      disabled={selectedLayer.locked}
                       onClick={() => deleteLayer(selectedLayer.id)}
                     >
                       删除当前实例
