@@ -21,6 +21,7 @@ export interface PixelAnalysis {
   labels: Int32Array;
   regions: PixelRegion[];
 }
+export const AUTO_LAYOUT_SCALE_FACTORS = [1, 0.95, 0.9] as const;
 
 export function analyzePixels(
   data: Uint8ClampedArray,
@@ -509,7 +510,8 @@ export function arrangeLocal(
       placed = false;
     // Keep the mapped source position, but scale a large title down just
     // enough to fit instead of silently dropping the most important element.
-    for (let factor = 1; factor >= 0.35 && !placed; factor -= 0.05) {
+    for (const factor of AUTO_LAYOUT_SCALE_FACTORS) {
+      if (placed) break;
       const candidateWidth = width * factor,
         candidateHeight = (candidateWidth * anchor.rect.height) / anchor.rect.width;
       if (!fits(p.x, p.y, candidateWidth, candidateHeight, rotation)) continue;
@@ -550,17 +552,14 @@ export function arrangeLocal(
       for (let attempt = 0; attempt < pathSubjects.length; attempt++) {
         const o = pathSubjects[subjectCursor % pathSubjects.length],
           width = o.rect.width * mm,
-          height = o.rect.height * mm,
-          minimumFactor =
-            width <= averageWidth * 1.6 && height <= averageHeight * 1.6
-              ? 0.6
-              : 1;
+          height = o.rect.height * mm;
         subjectCursor++;
         let placed = false;
         // Edge rows sometimes need a small uniform reduction because their
         // rotated corners approach the curved cut line. This keeps all four
         // visual rows populated without stretching the artwork.
-        for (let factor = 1; factor >= minimumFactor && !placed; factor -= 0.05) {
+        for (const factor of AUTO_LAYOUT_SCALE_FACTORS) {
+          if (placed) break;
           const candidateWidth = width * factor,
             candidateHeight = height * factor;
           if (

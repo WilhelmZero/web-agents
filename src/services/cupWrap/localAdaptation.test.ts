@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  AUTO_LAYOUT_SCALE_FACTORS,
   analyzePixels,
   automaticPathCount,
   arrangeLocal,
@@ -64,6 +65,9 @@ describe("local cup layout", () => {
     h: number,
     role: "anchor" | "main" | "decoration",
   ): LocalObject => ({ id, blob, rect: { x, y, width: w, height: h }, role });
+  it("limits automatic per-subject scaling to ten percent", () => {
+    expect(AUTO_LAYOUT_SCALE_FACTORS).toEqual([1, 0.95, 0.9]);
+  });
   it.each([
     DEFAULT_CUP,
     { ...DEFAULT_CUP, top: 34, bottom: 40 },
@@ -287,8 +291,7 @@ describe("local cup layout", () => {
         sourceWidth: 1000,
         sourceHeight: 300,
         objects: [
-          object("title", 450, 0, 100, 30, "anchor"),
-          object("too-wide", 0, 20, 990, 35, "main"),
+          object("edge-anchor", 0, 0, 1, 30, "anchor"),
           object("small-main", 975, 200, 20, 45, "main"),
           object("star", 500, 250, 12, 12, "decoration"),
         ],
@@ -304,7 +307,7 @@ describe("local cup layout", () => {
       DEFAULT_CUP,
     );
     expect(r.layers.some((layer) => layer.sourceObjectId === "small-main")).toBe(true);
-    expect(r.unplaced).toContain("too-wide");
+    expect(r.unplaced).toContain("edge-anchor");
     expect(r.layers.some((layer) => layer.sourceObjectId === "star")).toBe(false);
   });
 });
