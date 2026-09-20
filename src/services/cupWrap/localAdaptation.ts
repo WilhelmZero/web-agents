@@ -1,4 +1,5 @@
 import { distanceToEdge, geometry, inside, type CupParams } from "./geometry";
+import { warpPoint } from "./warp";
 import type {
   ArtLayer,
   LocalAdaptation,
@@ -263,6 +264,65 @@ export function boxBoundaryPoints(x: number, y: number, w: number, h: number) {
   }
   return points;
 }
+export function rotatedBoundaryPoints(
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  rotation: number,
+) {
+  const c = Math.cos((rotation * Math.PI) / 180),
+    s = Math.sin((rotation * Math.PI) / 180);
+  return boxBoundaryPoints(0, 0, w, h).map((p) => ({
+    x: x + p.x * c - p.y * s,
+    y: y + p.x * s + p.y * c,
+  }));
+}
+export function fixedPathPoints(
+  cup: CupParams,
+  count: number,
+  averageHeight: number,
+  pathGap: number,
+) {
+  const g = geometry(cup),
+    n = Math.max(1, Math.round(count)),
+    block = n * averageHeight + Math.max(0, n - 1) * pathGap,
+    start = (g.slant - block) / 2 + averageHeight / 2;
+  return Array.from({ length: n }, (_, pathIndex) => {
+    const v = (start + pathIndex * (averageHeight + pathGap)) / g.slant;
+    return {
+      pathIndex,
+      v,
+      points: Array.from({ length: 65 }, (_unused, i) =>
+        warpPoint(g, i / 64, v, 1),
+      ),
+    };
+  });
+}
+export function automaticPathCount(
+  slant: number,
+  safe: number,
+  averageHeight: number,
+  pathGap: number,
+) {
+  return Math.max(
+    1,
+    Math.floor(
+      (Math.max(1, slant - safe * 2) + pathGap) /
+        Math.max(0.01, averageHeight + pathGap),
+    ),
+  );
+}
+function tangentRotation(
+  g: ReturnType<typeof geometry>,
+  u: number,
+  v: number,
+) {
+  const d = 0.001,
+    a = warpPoint(g, Math.max(0, u - d), v, 1),
+    b = warpPoint(g, Math.min(1, u + d), v, 1);
+  return (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
+}
 export function arrangeLocal(
   input: Pick<
     LocalAdaptation,
@@ -273,6 +333,10 @@ export function arrangeLocal(
     | "gap"
     | "scale"
     | "seed"
+    | "pathMode"
+    | "pathCount"
+    | "pathGap"
+    | "itemGap"
   >,
   cup: CupParams,
 ) {
@@ -287,8 +351,6 @@ export function arrangeLocal(
     contentBottom = Math.max(0, ...active.map((o) => o.rect.y + o.rect.height)),
     contentWidth = Math.max(1, contentRight - contentLeft),
     contentHeight = Math.max(1, contentBottom - contentTop),
-    // Ignore transparent/blank margins around the source. Scaling against the
-    // actual foreground bounds is what makes the layout fill the sector.
     mm = Math.min(usableW / contentWidth, usableH / contentHeight) * input.scale,
     sourceOrder = [...active].sort(
       (a, b) =>
@@ -306,162 +368,133 @@ export function arrangeLocal(
       (o) => o.role === "main" || o.role === "anchor",
     ),
     decorationOrder = sourceOrder.filter((o) => o.role === "decoration"),
-    anchorCenter = anchor
-      ? {
-          x: anchor.rect.x + anchor.rect.width / 2,
-          y: anchor.rect.y + anchor.rect.height / 2,
-        }
-      : { x: contentLeft + contentWidth / 2, y: contentTop + contentHeight / 2 },
-    // Preserve the finished composition around the title instead of scattering
-    // every connected component. Subjects within this central ellipse form one
-    // rigid group and therefore keep their original scale and relative spacing.
-    isInCore = (o: LocalObject) => {
-      const cx = o.rect.x + o.rect.width / 2,
-        cy = o.rect.y + o.rect.height / 2;
-      return (
-        o.id === anchor?.id ||
-        (Math.abs(cx - anchorCenter.x) <= contentWidth * 0.31 &&
-          Math.abs(cy - anchorCenter.y) <= contentHeight * 0.3)
-      );
-    },
-    coreSubjects = mainOrder.filter(isInCore),
-    coreDecorations = decorationOrder.filter(isInCore),
-    coreObjects = [...coreSubjects, ...coreDecorations],
-    outerSubjects = mainOrder.filter(
-      (o) => !coreSubjects.some((core) => core.id === o.id),
-    ),
-    topSubjects = outerSubjects.filter(
-      (o) => o.rect.y + o.rect.height / 2 < anchorCenter.y,
-    ),
-    bottomSubjects = outerSubjects.filter(
-      (o) => o.rect.y + o.rect.height / 2 >= anchorCenter.y,
-    ),
-    // Fill the subject paths first. Decorations are deliberately deferred so
-    // they cannot take space needed by a character or the central title.
-    ordered = [
-      ...coreObjects.sort(
-        (a, b) =>
-          Number(b.id === anchor?.id) - Number(a.id === anchor?.id) ||
-          sourceOrder.indexOf(a) - sourceOrder.indexOf(b),
-      ),
-      ...outerSubjects,
-      ...decorationOrder.filter((o) => !isInCore(o)),
-    ],
-    boxes: { x: number; y: number; w: number; h: number; core: boolean }[] = [],
-    mainBoxes: { x: number; y: number; w: number; h: number }[] = [],
+    pathSubjects = mainOrder.filter((o) => o.id !== anchor?.id),
+    averageHeight =
+      (pathSubjects.reduce((sum, o) => sum + o.rect.height * mm, 0) /
+        Math.max(1, pathSubjects.length)) || 10,
+    averageWidth =
+      (pathSubjects.reduce((sum, o) => sum + o.rect.width * mm, 0) /
+        Math.max(1, pathSubjects.length)) || 10,
+    pathGap = Math.max(0, input.pathGap ?? 1),
+    itemGap = Math.max(0, input.itemGap ?? input.gap ?? 1),
+    pathCount =
+      input.pathMode === "manual"
+        ? Math.max(1, Math.round(input.pathCount ?? 1))
+        : automaticPathCount(g.slant, safe, averageHeight, pathGap),
+    paths = fixedPathPoints(cup, pathCount, averageHeight, pathGap),
+    boxes: { x: number; y: number; w: number; h: number }[] = [],
     layers: ArtLayer[] = [],
-    unplaced: string[] = [];
-  const fits = (x: number, y: number, w: number, h: number, core = false) =>
-    boxBoundaryPoints(x, y, w, h).every(
+    unplaced: string[] = [],
+    placedSources = new Set<string>();
+  const bounds = (points: { x: number; y: number }[]) => ({
+    x: (Math.min(...points.map((p) => p.x)) + Math.max(...points.map((p) => p.x))) / 2,
+    y: (Math.min(...points.map((p) => p.y)) + Math.max(...points.map((p) => p.y))) / 2,
+    w: Math.max(...points.map((p) => p.x)) - Math.min(...points.map((p) => p.x)),
+    h: Math.max(...points.map((p) => p.y)) - Math.min(...points.map((p) => p.y)),
+  });
+  const fits = (x: number, y: number, w: number, h: number, rotation: number) => {
+    const points = rotatedBoundaryPoints(x, y, w, h, rotation),
+      box = bounds(points);
+    return points.every(
       (p) => inside(p, g.points) && distanceToEdge(p, g.points) >= safe,
     ) &&
     !boxes.some(
       (b) =>
-        !(core && b.core) &&
-        // Component boxes include transparent corners; a slightly inset proxy
-        // preserves the source composition without treating empty pixels as collisions.
-        Math.abs(x - b.x) < (w + b.w) * 0.42 + input.gap &&
-        Math.abs(y - b.y) < (h + b.h) * 0.42 + input.gap,
-    );
-  const betweenMainSubjects = (x: number, y: number) => {
-    if (mainBoxes.length < 2) return mainBoxes.length === 1;
-    const left = Math.min(...mainBoxes.map((b) => b.x)),
-      right = Math.max(...mainBoxes.map((b) => b.x)),
-      top = Math.min(...mainBoxes.map((b) => b.y)),
-      bottom = Math.max(...mainBoxes.map((b) => b.y));
-    if (x < left || x > right || y < top || y > bottom) return false;
-    const reach = Math.max(g.width, g.height) * 0.42;
-    return (
-      mainBoxes.filter((b) => Math.hypot(x - b.x, y - b.y) <= reach).length >=
-      2
+        Math.abs(box.x - b.x) < (box.w + b.w) / 2 + itemGap &&
+        Math.abs(box.y - b.y) < (box.h + b.h) / 2 + itemGap,
     );
   };
-  for (const o of ordered) {
-    const isCore = coreObjects.some((core) => core.id === o.id),
-      topIndex = topSubjects.findIndex((subject) => subject.id === o.id),
-      bottomIndex = bottomSubjects.findIndex((subject) => subject.id === o.id),
-      row = topIndex >= 0 ? topSubjects : bottomSubjects,
-      rowIndex = topIndex >= 0 ? topIndex : bottomIndex,
-      pathU = rowIndex >= 0 ? (rowIndex + 1) / (row.length + 1) : 0.5,
-      distanceScale =
-        isCore
-          ? 1
-          : o.role === "main"
-            ? 0.72 + 0.22 * (1 - Math.abs(pathU - 0.5) * 2)
-            : 1,
-      w = o.rect.width * mm * distanceScale,
-      h = o.rect.height * mm * distanceScale,
-      sourceU =
-        (o.rect.x + o.rect.width / 2 - contentLeft) /
-        contentWidth,
-      sourceV =
-        (o.rect.y + o.rect.height / 2 - contentTop) /
-        contentHeight,
-      curve = Math.abs(pathU - 0.5) * 2,
-      pathY =
-        isCore
-          ? g.height * 0.48 +
-            (o.rect.y + o.rect.height / 2 - anchorCenter.y) * mm
-          : topIndex >= 0
-            ? g.height * (0.23 + 0.08 * curve)
-            : bottomIndex >= 0
-              ? g.height * (0.74 - 0.06 * curve)
-              : safe + sourceV * usableH,
-      ty = Math.max(safe + h / 2, Math.min(g.height - safe - h / 2, pathY)),
-      span = horizontalSpan(g.points, ty),
-      available = Math.max(
-        0,
-        (span?.right ?? g.width) - (span?.left ?? 0) - safe * 2 - w,
-      ),
-      targetU =
-        isCore
-          ? 0.5 +
-            ((o.rect.x + o.rect.width / 2 - anchorCenter.x) * mm) /
-              Math.max(1, available)
-          : o.role === "main"
-            ? pathU
-            : sourceU,
-      tx = isCore
-        ? g.width / 2 +
-          (o.rect.x + o.rect.width / 2 - anchorCenter.x) * mm
-        : (span?.left ?? 0) + safe + w / 2 + targetU * available;
-    let best: { x: number; y: number } | undefined,
-      score = Infinity;
-    for (let oy = 0; oy <= 12; oy += 1.5)
-      for (const sy of oy ? [oy, -oy] : [0])
-        for (let ox = 0; ox <= 20; ox += 1.5)
-          for (const sx of ox ? [ox, -ox] : [0]) {
-            const x = tx + sx,
-              y = ty + sy;
-            if (
-              fits(x, y, w, h, isCore) &&
-              ((o.role === "main" || o.role === "anchor") ||
-                betweenMainSubjects(x, y))
-            ) {
-              const s = (x - tx) ** 2 + (y - ty) ** 2;
-              if (s < score) {
-                score = s;
-                best = { x, y };
-              }
-            }
-          }
-    if (!best) {
-      unplaced.push(o.id);
-      continue;
-    }
-    boxes.push({ ...best, w, h, core: isCore });
-    if (o.role === "main" || o.role === "anchor")
-      mainBoxes.push({ ...best, w, h });
+  const addLayer = (
+    id: string,
+    o: LocalObject,
+    x: number,
+    y: number,
+    width: number,
+    rotation: number,
+    pathIndex?: number,
+    pathU?: number,
+  ) => {
+    const height = (width * o.rect.height) / o.rect.width,
+      box = bounds(rotatedBoundaryPoints(x, y, width, height, rotation));
+    boxes.push(box);
+    placedSources.add(o.id);
     layers.push({
-      id: o.id,
+      id,
       blob: o.blob,
-      x: best.x,
-      y: best.y,
-      width: w,
-      rotation: 0,
+      sourceObjectId: o.id,
+      pathIndex,
+      pathU,
+      x,
+      y,
+      width,
+      rotation,
+      autoX: x,
+      autoY: y,
+      autoWidth: width,
+      autoRotation: rotation,
       locked: true,
     });
+  };
+  if (anchor) {
+    const u = Math.max(
+        0,
+        Math.min(
+          1,
+          (anchor.rect.x + anchor.rect.width / 2 - contentLeft) / contentWidth,
+        ),
+      ),
+      v = Math.max(
+        0,
+        Math.min(
+          1,
+          (anchor.rect.y + anchor.rect.height / 2 - contentTop) / contentHeight,
+        ),
+      ),
+      p = warpPoint(g, u, v, 1),
+      width = anchor.rect.width * mm,
+      height = anchor.rect.height * mm,
+      rotation = tangentRotation(g, u, v);
+    if (fits(p.x, p.y, width, height, rotation))
+      addLayer(`anchor-${anchor.id}`, anchor, p.x, p.y, width, rotation, undefined, u);
+    else unplaced.push(anchor.id);
   }
+  let subjectCursor = 0;
+  for (const path of paths) {
+    if (!pathSubjects.length) break;
+    const arcLength =
+        g.topArc * (1 - path.v) + g.bottomArc * path.v,
+      capacity = Math.max(
+        1,
+        Math.floor(
+          (Math.max(1, arcLength - safe * 2) + itemGap) /
+            Math.max(0.01, averageWidth + itemGap),
+        ),
+      );
+    for (let slot = 0; slot < capacity; slot++) {
+      const o = pathSubjects[subjectCursor % pathSubjects.length],
+        distance = safe +
+          ((slot + 0.5) * Math.max(1, arcLength - safe * 2)) / capacity,
+        u = Math.max(0, Math.min(1, distance / Math.max(0.01, arcLength))),
+        p = warpPoint(g, u, path.v, 1),
+        width = o.rect.width * mm,
+        height = o.rect.height * mm,
+        rotation = tangentRotation(g, u, path.v);
+      if (!fits(p.x, p.y, width, height, rotation)) continue;
+      addLayer(
+        `path-${path.pathIndex}-${slot}-${o.id}`,
+        o,
+        p.x,
+        p.y,
+        width,
+        rotation,
+        path.pathIndex,
+        u,
+      );
+      subjectCursor++;
+    }
+  }
+  for (const o of mainOrder)
+    if (!placedSources.has(o.id) && !unplaced.includes(o.id)) unplaced.push(o.id);
   const decorations = active.filter((o) => o.role === "decoration"),
     rng = random(input.seed),
     count = Math.min(
@@ -476,21 +509,12 @@ export function arrangeLocal(
     for (let k = 0; k < 300 && !placed; k++) {
       const x = safe + w / 2 + rng() * Math.max(0, g.width - 2 * safe - w),
         y = safe + h / 2 + rng() * Math.max(0, g.height - 2 * safe - h);
-      if (fits(x, y, w, h) && betweenMainSubjects(x, y)) {
+      if (fits(x, y, w, h, 0)) {
         const id = `${o.id}-copy-${i}`;
-        boxes.push({ x, y, w, h, core: false });
-        layers.push({
-          id,
-          blob: o.blob,
-          x,
-          y,
-          width: w,
-          rotation: 0,
-          locked: true,
-        });
+        addLayer(id, o, x, y, w, 0);
         placed = true;
       }
     }
   }
-  return { layers, unplaced };
+  return { layers, unplaced, pathCount, averageHeight, paths };
 }

@@ -7,6 +7,14 @@ export interface ArtLayer {
   width: number;
   rotation: number;
   locked: boolean;
+  sourceObjectId?: string;
+  pathIndex?: number;
+  pathU?: number;
+  autoX?: number;
+  autoY?: number;
+  autoWidth?: number;
+  autoRotation?: number;
+  manual?: boolean;
 }
 export type LocalObjectRole = "anchor" | "main" | "decoration" | "excluded";
 export interface LocalObject {
@@ -27,6 +35,12 @@ export interface LocalAdaptation {
   gap: number;
   scale: number;
   seed: number;
+  pathMode?: "auto" | "manual";
+  pathCount?: number;
+  pathAverageHeight?: number;
+  pathGap?: number;
+  itemGap?: number;
+  showPaths?: boolean;
   backgroundMode: "transparent" | "white" | "color";
   backgroundColor: string;
   cupKey: string;

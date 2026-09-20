@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   analyzePixels,
+  automaticPathCount,
   arrangeLocal,
-  boxBoundaryPoints,
+  fixedPathPoints,
+  rotatedBoundaryPoints,
 } from "./localAdaptation";
 import { DEFAULT_CUP, distanceToEdge, geometry, inside } from "./geometry";
 import type { LocalObject } from "./types";
@@ -85,9 +87,9 @@ describe("local cup layout", () => {
     );
     const g = geometry(cup);
     for (const l of a.layers) {
-      const object = input.objects.find((o) => l.id.startsWith(o.id))!;
+      const object = input.objects.find((o) => o.id === l.sourceObjectId)!;
       const h = (l.width * object.rect.height) / object.rect.width;
-      for (const point of boxBoundaryPoints(l.x, l.y, l.width, h)) {
+      for (const point of rotatedBoundaryPoints(l.x, l.y, l.width, h, l.rotation)) {
         expect(inside(point, g.points)).toBe(true);
         expect(distanceToEdge(point, g.points)).toBeGreaterThanOrEqual(4);
       }
@@ -152,7 +154,7 @@ describe("local cup layout", () => {
       expect(decoration.x).toBeLessThanOrEqual(right);
     }
   });
-  it("locks the central composition and only expands outer subjects", () => {
+  it("keeps the large anchor at its mapped source position and reserves path slots", () => {
     const objects = [
         object("anchor", 170, 120, 160, 90, "anchor"),
         object("core-left", 105, 125, 45, 55, "main"),
@@ -173,15 +175,55 @@ describe("local cup layout", () => {
         },
         DEFAULT_CUP,
       ),
-      by = new Map(r.layers.map((v) => [v.id, v])),
-      g = geometry(DEFAULT_CUP);
-    expect(by.get("anchor")!.x).toBeCloseTo(g.width / 2, 0);
-    expect(by.get("anchor")!.y).toBeCloseTo(g.height * 0.48, 0);
-    expect(by.get("core-left")!.x).toBeLessThan(by.get("anchor")!.x);
-    expect(by.get("core-right")!.x).toBeGreaterThan(by.get("anchor")!.x);
-    expect(by.get("core-left")!.y).toBeCloseTo(by.get("core-right")!.y, 1);
-    expect(by.get("core-star")!.x).toBeCloseTo(by.get("anchor")!.x, 0);
-    expect(by.get("outer-top")!.y).toBeLessThan(g.height / 2);
-    expect(by.get("outer-bottom")!.y).toBeGreaterThan(g.height / 2);
+      anchor = r.layers.find((layer) => layer.sourceObjectId === "anchor")!,
+      pathLayers = r.layers.filter((layer) => layer.pathIndex != null);
+    expect(anchor).toBeTruthy();
+    expect(anchor.autoX).toBe(anchor.x);
+    expect(anchor.autoY).toBe(anchor.y);
+    expect(pathLayers.length).toBeGreaterThan(0);
+    expect(new Set(pathLayers.map((layer) => layer.pathIndex)).size).toBeGreaterThan(1);
+    expect(
+      pathLayers.every((layer) => Number.isFinite(layer.rotation)),
+    ).toBe(true);
+  });
+
+  it("computes concentric paths for cylinders and tapered cups", () => {
+    expect(automaticPathCount(100, 4, 20, 1)).toBe(4);
+    for (const cup of [DEFAULT_CUP, { ...DEFAULT_CUP, top: 34, bottom: 40 }]) {
+      const paths = fixedPathPoints(cup, 3, 20, 2);
+      expect(paths).toHaveLength(3);
+      expect(paths.every((path) => path.points.length === 65)).toBe(true);
+      expect(paths[0].v).toBeLessThan(paths[1].v);
+      expect(paths[1].v).toBeLessThan(paths[2].v);
+    }
+  });
+
+  it("uses fixed slots and cycles subjects deterministically", () => {
+    const input = {
+      sourceWidth: 600,
+      sourceHeight: 400,
+      objects: [
+        object("title", 220, 145, 160, 90, "anchor"),
+        object("ghost-a", 10, 10, 50, 55, "main"),
+        object("ghost-b", 540, 330, 50, 55, "main"),
+      ],
+      fill: 0,
+      gap: 1,
+      scale: 0.35,
+      seed: 1,
+      pathMode: "manual" as const,
+      pathCount: 3,
+      pathGap: 1,
+      itemGap: 1,
+    };
+    const first = arrangeLocal(input, DEFAULT_CUP),
+      second = arrangeLocal(input, DEFAULT_CUP),
+      pathLayers = first.layers.filter((layer) => layer.pathIndex != null);
+    expect(first.layers.map(({ id, x, y }) => [id, x, y])).toEqual(
+      second.layers.map(({ id, x, y }) => [id, x, y]),
+    );
+    expect(pathLayers.some((layer) => layer.sourceObjectId === "ghost-a")).toBe(true);
+    expect(pathLayers.some((layer) => layer.sourceObjectId === "ghost-b")).toBe(true);
+    expect(pathLayers.length).toBeGreaterThan(2);
   });
 });

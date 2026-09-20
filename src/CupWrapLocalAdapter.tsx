@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
 import {
   Alert,
   Button,
@@ -9,6 +10,7 @@ import {
   Select,
   Slider,
   Space,
+  Switch,
   Tag,
 } from "antd";
 import {
@@ -22,6 +24,7 @@ import type {
   LocalObjectRole,
 } from "./services/cupWrap/types";
 import { work } from "./services/cupWrap/client";
+import { fixedPathPoints } from "./services/cupWrap/localAdaptation";
 
 function Preview({ blob }: { blob: Blob }) {
   const [url, setUrl] = useState("");
@@ -46,11 +49,27 @@ function LayoutPreview({
   layers,
   cup,
   background,
+  showPaths,
+  pathCount,
+  averageHeight,
+  pathGap,
+  selectedId,
+  onSelect,
+  onLayersChange,
+  onReplace,
 }: {
   objects: LocalObject[];
   layers: LocalAdaptation["layers"];
   cup: CupParams;
   background: string;
+  showPaths: boolean;
+  pathCount: number;
+  averageHeight: number;
+  pathGap: number;
+  selectedId?: string;
+  onSelect: (id: string) => void;
+  onLayersChange: (layers: LocalAdaptation["layers"]) => void;
+  onReplace: (layerId: string, objectId: string) => void;
 }) {
   const [urls, setUrls] = useState<Record<string, string>>({});
   useEffect(() => {
@@ -60,7 +79,21 @@ function LayoutPreview({
     return () => Object.values(next).forEach(URL.revokeObjectURL);
   }, [objects]);
   const g = geometry(cup),
-    byId = new Map(objects.map((o) => [o.id, o]));
+    byId = useMemo(() => new Map(objects.map((o) => [o.id, o])), [objects]),
+    paths = useMemo(
+      () => fixedPathPoints(cup, pathCount, averageHeight, pathGap),
+      [cup, pathCount, averageHeight, pathGap],
+    ),
+    drag = useRef<
+      { id: string; startX: number; startY: number; x: number; y: number } | undefined
+    >(undefined);
+  const point = (event: ReactPointerEvent<SVGImageElement>) => {
+    const svg = event.currentTarget.ownerSVGElement!,
+      p = svg.createSVGPoint();
+    p.x = event.clientX;
+    p.y = event.clientY;
+    return p.matrixTransform(svg.getScreenCTM()!.inverse());
+  };
   return (
     <svg
       aria-label="本地排布预览"
@@ -78,8 +111,20 @@ function LayoutPreview({
         stroke="#999"
         strokeDasharray="1 1"
       />
+      {showPaths &&
+        paths.map((path) => (
+          <polyline
+            key={path.pathIndex}
+            points={path.points.map((p) => `${p.x},${p.y}`).join(" ")}
+            fill="none"
+            stroke="#1677ff"
+            strokeWidth="0.35"
+            strokeDasharray="2 1"
+            pointerEvents="none"
+          />
+        ))}
       {layers.map((l) => {
-        const id = l.id.split("-copy-")[0],
+        const id = l.sourceObjectId ?? l.id.split("-copy-")[0],
           o = byId.get(id),
           url = urls[id];
         if (!o || !url) return null;
@@ -92,6 +137,43 @@ function LayoutPreview({
             y={l.y - h / 2}
             width={l.width}
             height={h}
+            transform={`rotate(${l.rotation} ${l.x} ${l.y})`}
+            opacity={selectedId === l.id ? 0.78 : 1}
+            stroke={selectedId === l.id ? "#1677ff" : undefined}
+            style={{ cursor: "move", outline: selectedId === l.id ? "1px solid #1677ff" : undefined }}
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.currentTarget.setPointerCapture(event.pointerId);
+              const p = point(event);
+              drag.current = { id: l.id, startX: p.x, startY: p.y, x: l.x, y: l.y };
+              onSelect(l.id);
+            }}
+            onPointerMove={(event) => {
+              const state = drag.current;
+              if (!state || state.id !== l.id) return;
+              const p = point(event);
+              onLayersChange(
+                layers.map((layer) =>
+                  layer.id === l.id
+                    ? {
+                        ...layer,
+                        x: state.x + p.x - state.startX,
+                        y: state.y + p.y - state.startY,
+                        manual: true,
+                      }
+                    : layer,
+                ),
+              );
+            }}
+            onPointerUp={() => {
+              drag.current = undefined;
+            }}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => {
+              event.preventDefault();
+              const objectId = event.dataTransfer.getData("application/x-cup-object");
+              if (objectId) onReplace(l.id, objectId);
+            }}
           />
         );
       })}
@@ -120,9 +202,19 @@ export default function CupWrapLocalAdapter({
     [fill, setFill] = useState(
       initial?.fill === 40 ? 70 : initial?.fill ?? 70,
     ),
-    [gap, setGap] = useState(initial?.gap === 2 ? 1 : initial?.gap ?? 1),
     [scale, setScale] = useState(initial?.scale ?? 1),
     [seed, setSeed] = useState(initial?.seed ?? 1),
+    [pathMode, setPathMode] = useState<"auto" | "manual">(
+      initial?.pathMode ?? "auto",
+    ),
+    [pathCount, setPathCount] = useState(initial?.pathCount ?? 3),
+    [actualPathCount, setActualPathCount] = useState(initial?.pathCount ?? 3),
+    [pathGap, setPathGap] = useState(initial?.pathGap ?? 1),
+    [itemGap, setItemGap] = useState(initial?.itemGap ?? initial?.gap ?? 1),
+    [showPaths, setShowPaths] = useState(initial?.showPaths ?? true),
+    [averageHeight, setAverageHeight] = useState(
+      initial?.pathAverageHeight ?? 10,
+    ),
     [backgroundMode, setBackgroundMode] = useState(
       initial?.backgroundMode ?? "white",
     ),
@@ -131,11 +223,30 @@ export default function CupWrapLocalAdapter({
     ),
     [layers, setLayers] = useState(initial?.layers ?? []),
     [unplaced, setUnplaced] = useState<string[]>(initial?.unplaced ?? []),
-    [selectedObjects, setSelectedObjects] = useState<string[]>([]);
+    [selectedObjects, setSelectedObjects] = useState<string[]>([]),
+    [selectedLayerId, setSelectedLayerId] = useState<string>();
   const active = useMemo(
     () => analysis?.objects.filter((o) => o.role !== "excluded").length ?? 0,
     [analysis],
-  );
+  ),
+    selectedLayer = layers.find((layer) => layer.id === selectedLayerId);
+  const replaceLayer = (layerId: string, objectId: string) => {
+    const object = analysis?.objects.find((item) => item.id === objectId);
+    if (!object || object.role === "excluded") return;
+    setLayers((items) =>
+      items.map((layer) =>
+        layer.id === layerId
+          ? {
+              ...layer,
+              blob: object.blob,
+              sourceObjectId: object.id,
+              manual: true,
+            }
+          : layer,
+      ),
+    );
+    setError("已替换当前实例；请检查新主体与相邻元素是否冲突。");
+  };
   async function analyze() {
     setBusy("正在识别物体");
     setError("");
@@ -156,13 +267,28 @@ export default function CupWrapLocalAdapter({
       const result = await work<{
         layers: LocalAdaptation["layers"];
         unplaced: string[];
+        pathCount: number;
+        averageHeight: number;
       }>({
         kind: "localArrange",
-        input: { ...analysis, fill, gap, scale, seed: nextSeed },
+        input: {
+          ...analysis,
+          fill,
+          gap: itemGap,
+          scale,
+          seed: nextSeed,
+          pathMode,
+          pathCount,
+          pathGap,
+          itemGap,
+        },
         cup,
       });
       setLayers(result.layers);
       setUnplaced(result.unplaced);
+      setActualPathCount(result.pathCount);
+      setAverageHeight(result.averageHeight);
+      setSelectedLayerId(undefined);
       setSeed(nextSeed);
     } catch (e) {
       setError(String(e));
@@ -237,9 +363,15 @@ export default function CupWrapLocalAdapter({
           ...analysis,
           layers,
           fill,
-          gap,
+          gap: itemGap,
           scale,
           seed,
+          pathMode,
+          pathCount: actualPathCount,
+          pathAverageHeight: averageHeight,
+          pathGap,
+          itemGap,
+          showPaths,
           backgroundMode,
           backgroundColor,
           cupKey: JSON.stringify(cup),
@@ -288,6 +420,11 @@ export default function CupWrapLocalAdapter({
             {analysis.objects.map((o: LocalObject, i) => (
               <div
                 key={o.id}
+                draggable={o.role !== "excluded"}
+                onDragStart={(event) =>
+                  event.dataTransfer.setData("application/x-cup-object", o.id)
+                }
+                title="拖到预览中的元素上可替换该实例"
                 style={{
                   border: "1px solid #ddd",
                   borderRadius: 8,
@@ -333,9 +470,50 @@ export default function CupWrapLocalAdapter({
           <Alert
             type="info"
             showIcon
-            message="自动锁定中心主视觉及其邻近角色、月亮和装饰，保持原图中的相对位置与大小；只将外围主体沿上下弧线向扇形空间扩展，再用小装饰填补主体之间的空隙。完整外框不得进入安全边。"
+            message="最大主体按原图位置映射并跨路径占位；其他主体按固定顺序沿多条同心弧线路径循环排列。主体排布不使用随机数，小装饰仍可随机填缝。"
           />
           <Space wrap align="start">
+            <label>
+              路径数量
+              <Select
+                style={{ width: 120 }}
+                value={pathMode}
+                onChange={setPathMode}
+                options={[
+                  { value: "auto", label: "自动计算" },
+                  { value: "manual", label: "手动设置" },
+                ]}
+              />
+            </label>
+            {pathMode === "manual" && (
+              <label>
+                路径条数
+                <InputNumber
+                  min={1}
+                  max={30}
+                  value={pathCount}
+                  onChange={(value) => setPathCount(value ?? 1)}
+                />
+              </label>
+            )}
+            <label>
+              路径间距 mm
+              <InputNumber
+                min={0}
+                max={50}
+                value={pathGap}
+                onChange={(value) => setPathGap(value ?? 1)}
+              />
+            </label>
+            <label>
+              同路径主体间距 mm
+              <InputNumber
+                min={0}
+                max={50}
+                value={itemGap}
+                onChange={(value) => setItemGap(value ?? 1)}
+              />
+            </label>
             <label>
               空白填充强度
               <Slider
@@ -344,15 +522,6 @@ export default function CupWrapLocalAdapter({
                 max={100}
                 value={fill}
                 onChange={setFill}
-              />
-            </label>
-            <label>
-              最小间距 mm
-              <InputNumber
-                min={0}
-                max={20}
-                value={gap}
-                onChange={(v) => setGap(v ?? 2)}
               />
             </label>
             <label>
@@ -369,6 +538,10 @@ export default function CupWrapLocalAdapter({
               装饰填缝种子
               <InputNumber value={seed} onChange={(v) => setSeed(v ?? 1)} />
             </label>
+            <label>
+              显示路径辅助线
+              <Switch checked={showPaths} onChange={setShowPaths} />
+            </label>
           </Space>
           <Space wrap>
             <Button
@@ -377,9 +550,6 @@ export default function CupWrapLocalAdapter({
               onClick={() => arrange()}
             >
               生成排布
-            </Button>
-            <Button disabled={!layers.length} onClick={() => arrange(seed + 1)}>
-              换一版排布
             </Button>
             <Select
               value={backgroundMode}
@@ -414,18 +584,140 @@ export default function CupWrapLocalAdapter({
             />
           )}
           {layers.length > 0 && (
-            <LayoutPreview
-              objects={analysis.objects}
-              layers={layers}
-              cup={cup}
-              background={
-                backgroundMode === "transparent"
-                  ? "transparent"
-                  : backgroundMode === "white"
-                    ? "#fff"
-                    : backgroundColor
-              }
-            />
+            <>
+              <LayoutPreview
+                objects={analysis.objects}
+                layers={layers}
+                cup={cup}
+                background={
+                  backgroundMode === "transparent"
+                    ? "transparent"
+                    : backgroundMode === "white"
+                      ? "#fff"
+                      : backgroundColor
+                }
+                showPaths={showPaths}
+                pathCount={actualPathCount}
+                averageHeight={averageHeight}
+                pathGap={pathGap}
+                selectedId={selectedLayerId}
+                onSelect={setSelectedLayerId}
+                onLayersChange={setLayers}
+                onReplace={replaceLayer}
+              />
+              <p>
+                当前使用 {actualPathCount} 条路径。拖动预览中的元素可实时微调；从上方素材列表拖到元素上可仅替换该实例。
+              </p>
+              {selectedLayer && (
+                <div className="cup-local-layer-editor">
+                  <h4>当前元素微调</h4>
+                  <Space wrap align="start">
+                    <label>
+                      X mm
+                      <InputNumber
+                        value={selectedLayer.x}
+                        onChange={(x) =>
+                          setLayers((items) =>
+                            items.map((layer) =>
+                              layer.id === selectedLayer.id
+                                ? { ...layer, x: x ?? layer.x, manual: true }
+                                : layer,
+                            ),
+                          )
+                        }
+                      />
+                    </label>
+                    <label>
+                      Y mm
+                      <InputNumber
+                        value={selectedLayer.y}
+                        onChange={(y) =>
+                          setLayers((items) =>
+                            items.map((layer) =>
+                              layer.id === selectedLayer.id
+                                ? { ...layer, y: y ?? layer.y, manual: true }
+                                : layer,
+                            ),
+                          )
+                        }
+                      />
+                    </label>
+                    <label>
+                      宽度 mm
+                      <InputNumber
+                        min={0.1}
+                        value={selectedLayer.width}
+                        onChange={(width) =>
+                          setLayers((items) =>
+                            items.map((layer) =>
+                              layer.id === selectedLayer.id
+                                ? {
+                                    ...layer,
+                                    width: width ?? layer.width,
+                                    manual: true,
+                                  }
+                                : layer,
+                            ),
+                          )
+                        }
+                      />
+                    </label>
+                    <label>
+                      旋转 °
+                      <InputNumber
+                        min={-180}
+                        max={180}
+                        value={selectedLayer.rotation}
+                        onChange={(rotation) =>
+                          setLayers((items) =>
+                            items.map((layer) =>
+                              layer.id === selectedLayer.id
+                                ? {
+                                    ...layer,
+                                    rotation: rotation ?? layer.rotation,
+                                    manual: true,
+                                  }
+                                : layer,
+                            ),
+                          )
+                        }
+                      />
+                    </label>
+                    <Button
+                      onClick={() =>
+                        setLayers((items) =>
+                          items.map((layer) =>
+                            layer.id === selectedLayer.id
+                              ? {
+                                  ...layer,
+                                  x: layer.autoX ?? layer.x,
+                                  y: layer.autoY ?? layer.y,
+                                  width: layer.autoWidth ?? layer.width,
+                                  rotation: layer.autoRotation ?? layer.rotation,
+                                  manual: false,
+                                }
+                              : layer,
+                          ),
+                        )
+                      }
+                    >
+                      恢复自动位置
+                    </Button>
+                    <Button
+                      danger
+                      onClick={() => {
+                        setLayers((items) =>
+                          items.filter((layer) => layer.id !== selectedLayer.id),
+                        );
+                        setSelectedLayerId(undefined);
+                      }}
+                    >
+                      删除当前实例
+                    </Button>
+                  </Space>
+                </div>
+              )}
+            </>
           )}
         </>
       )}
