@@ -114,7 +114,9 @@ it("automatically recalculates A4 layout after design data loads", async () => {
     { timeout: 3000 },
   );
   expect(screen.getByText("设计图拼接")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "替换第 1 张图（左侧）" })).toBeInTheDocument();
+  expect(
+    screen.getByRole("button", { name: "替换第 1 张图（左侧）" }),
+  ).toBeInTheDocument();
   const horizontal = screen.getByRole("spinbutton", {
     name: "水平单轴缩放",
   });
@@ -157,9 +159,7 @@ it("renders settings in the independent host and opens artwork options without A
   );
   expect(host.querySelector(".cup-settings")).not.toBeNull();
   expect(screen.getByText("确定性圆台映射 · 不调用 AI")).toBeInTheDocument();
-  expect(
-    screen.getByRole("switch", { name: "保留透明底" }),
-  ).not.toBeChecked();
+  expect(screen.getByRole("switch", { name: "保留透明底" })).not.toBeChecked();
   expect(
     screen.getByRole("checkbox", { name: "辅助线（不进入彩图）" }),
   ).toBeChecked();
@@ -215,8 +215,75 @@ it("adds and switches independent cup profiles", async () => {
   fireEvent.change(screen.getByRole("spinbutton", { name: "口径" }), {
     target: { value: "55" },
   });
-  await waitFor(() => expect(screen.getByText(/口径 55 ·/)).toBeInTheDocument());
+  await waitFor(() =>
+    expect(screen.getByText(/口径 55 ·/)).toBeInTheDocument(),
+  );
   expect(screen.getAllByRole("switch", { name: /加入A4混排/ })).toHaveLength(2);
+}, 30000);
+it("shows a signed stitch gap control when two artwork images exist", async () => {
+  const first = new Blob(["first"], { type: "image/png" }),
+    second = new Blob(["second"], { type: "image/png" });
+  vi.mocked(loadDesigns).mockResolvedValueOnce([
+    {
+      id: "two-images",
+      name: "双图拼接",
+      cup: { ...DEFAULT_CUP },
+      source: first,
+      originalSource: first,
+      artworkSlots: [
+        {
+          id: "front",
+          role: "front",
+          blob: first,
+          enabled: true,
+          scale: 1,
+          x: 0,
+          y: 0,
+          rotation: 0,
+        },
+        {
+          id: "back",
+          role: "back",
+          blob: second,
+          enabled: true,
+          scale: 1,
+          x: 0,
+          y: 0,
+          rotation: 0,
+        },
+      ],
+      stitchedSource: true,
+      stitchGapPx: -24,
+      aiResults: [],
+      adaptationMode: "geometry",
+      fit: "contain",
+      scale: 1,
+      x: 0,
+      y: 0,
+      rotation: 0,
+      layers: [],
+      quantity: 1,
+      prompt: "",
+    },
+  ]);
+  render(
+    <CupWrapPrintComposer
+      active
+      settingsHost={null}
+      settings={DEFAULT_SETTINGS}
+    />,
+  );
+  expect(
+    await screen.findByRole("slider", {
+      name: "图与图之间的间隙滑动条",
+    }),
+  ).toHaveAttribute("aria-valuenow", "-24");
+  expect(
+    screen.getByRole("spinbutton", { name: "图与图之间的间隙 px" }),
+  ).toHaveValue("-24");
+  expect(
+    screen.getByText(/负数时第 2 张图位于顶层并覆盖第 1 张图/),
+  ).toBeInTheDocument();
 }, 30000);
 it("preserves a transparent background when transparent artwork is uploaded", async () => {
   vi.mocked(hasUsableTransparency).mockResolvedValueOnce(true);
@@ -229,11 +296,11 @@ it("preserves a transparent background when transparent artwork is uploaded", as
   );
   const input = container.querySelector('input[type="file"]')!;
   fireEvent.change(input, {
-    target: { files: [new File(["png"], "transparent.png", { type: "image/png" })] },
+    target: {
+      files: [new File(["png"], "transparent.png", { type: "image/png" })],
+    },
   });
   await waitFor(() =>
-    expect(
-      screen.getByRole("switch", { name: "保留透明底" }),
-    ).toBeChecked(),
+    expect(screen.getByRole("switch", { name: "保留透明底" })).toBeChecked(),
   );
 }, 30000);

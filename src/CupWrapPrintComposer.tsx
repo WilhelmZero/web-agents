@@ -173,6 +173,7 @@ const fresh = (): WrapDesign => ({
   cup: { ...DEFAULT_CUP },
   aiResults: [],
   artworkSlots: [],
+  stitchGapPx: 0,
   enabled: true,
   adaptationMode: "geometry",
   transparentOutput: false,
@@ -192,9 +193,9 @@ const fresh = (): WrapDesign => ({
 const hasArtwork = (design: WrapDesign) =>
   Boolean(
     design.source ||
-      design.adopted ||
-      design.layers.length ||
-      design.artworkSlots?.some((slot) => slot.enabled),
+    design.adopted ||
+    design.layers.length ||
+    design.artworkSlots?.some((slot) => slot.enabled),
   );
 const migrateDesign = (design: WrapDesign): WrapDesign => ({
   ...design,
@@ -204,6 +205,7 @@ const migrateDesign = (design: WrapDesign): WrapDesign => ({
   stitchedSource:
     design.stitchedSource ??
     Boolean(design.source && (design.artworkSlots?.length ?? 0) <= 1),
+  stitchGapPx: design.stitchGapPx ?? 0,
   enabled: design.enabled ?? true,
   canvasBackground:
     design.canvasBackground ??
@@ -211,7 +213,7 @@ const migrateDesign = (design: WrapDesign): WrapDesign => ({
   canvasBackgroundColor: design.canvasBackgroundColor ?? "#ffffff",
   artworkSlots:
     design.artworkSlots?.length || !design.source
-      ? design.artworkSlots ?? []
+      ? (design.artworkSlots ?? [])
       : [
           {
             id: crypto.randomUUID(),
@@ -253,7 +255,9 @@ export default function CupWrapPrintComposer({
     width: number;
     height: number;
   }>();
-  const [slotSizes, setSlotSizes] = useState<Record<string, { width: number; height: number }>>({});
+  const [slotSizes, setSlotSizes] = useState<
+    Record<string, { width: number; height: number }>
+  >({});
   useEffect(() => {
     try {
       localStorage.setItem("cup-wrap-print:model:v2", model);
@@ -280,7 +284,9 @@ export default function CupWrapPrintComposer({
     [layout, setLayout] = useState<PrintLayout>(),
     [tab, setTab] = useState("design"),
     [guide, setGuide] = useState(true),
-    [previewTool, setPreviewTool] = useState<"move" | "erase" | "restore">("move"),
+    [previewTool, setPreviewTool] = useState<"move" | "erase" | "restore">(
+      "move",
+    ),
     [brushSize, setBrushSize] = useState(0.045),
     [liveStroke, setLiveStroke] = useState<ArtworkMaskPoint[]>([]),
     [liveMove, setLiveMove] = useState<ArtworkMaskPoint>();
@@ -319,8 +325,11 @@ export default function CupWrapPrintComposer({
         }
       | { kind: "paint"; pointerId: number }
       | undefined
-    >(undefined);
-  const d = designs.find((design) => design.id === activeDesignId) ?? designs[0];
+    >(undefined),
+    stitchTimer = useRef<number | undefined>(undefined),
+    stitchRevision = useRef(0);
+  const d =
+    designs.find((design) => design.id === activeDesignId) ?? designs[0];
   const imageAdjustment =
     d.aiAdjustment ??
     ((d.adaptationMode ?? "geometry") === "geometry"
@@ -352,7 +361,11 @@ export default function CupWrapPrintComposer({
     Promise.all(
       (d.artworkSlots ?? []).map(async (slot) => {
         const image = await createImageBitmap(slot.blob);
-        const result = { id: slot.id, width: image.width, height: image.height };
+        const result = {
+          id: slot.id,
+          width: image.width,
+          height: image.height,
+        };
         image.close();
         return result;
       }),
@@ -386,7 +399,8 @@ export default function CupWrapPrintComposer({
           GAP_DEFAULTS_MIGRATION_KEY,
         );
         if (v.length) {
-          const restored = v.map((item) => migrateDesign({
+          const restored = v.map((item) =>
+            migrateDesign({
               ...item,
               aiAdjustment:
                 migrateOldGapDefaults &&
@@ -410,7 +424,8 @@ export default function CupWrapPrintComposer({
                 "第一张是原始图案，第二张是目标展开轮廓引导图。输出画布构图对应第二张图，不要把红色轮廓线或其他辅助标记画进结果。保持文字内容和角色身份，不拉伸文字与角色。根据目标展开范围调整完整角色的位置、等比大小和间距，在空白区域补充风格一致的小装饰，保持脸部、眼睛和肢体完整。"
                   ? fresh().prompt
                   : item.prompt,
-            }));
+            }),
+          );
           setDesigns(restored);
           setActiveDesignId(restored[0].id);
         } else setActiveDesignId((current) => current || designs[0].id);
@@ -506,6 +521,49 @@ export default function CupWrapPrintComposer({
       all.map((v) => (v.id === d.id ? { ...v, ...patch } : v)),
     );
     setLayout(undefined);
+  };
+  useEffect(
+    () => () => {
+      if (stitchTimer.current !== undefined)
+        window.clearTimeout(stitchTimer.current);
+    },
+    [],
+  );
+  const changeStitchGap = (value: number) => {
+    const gap = Math.round(value),
+      slots = (d.artworkSlots ?? []).filter((slot) => slot.enabled),
+      designId = d.id,
+      revision = ++stitchRevision.current;
+    update({
+      stitchGapPx: gap,
+      adopted: undefined,
+      layers: [],
+      aiResults: [],
+      aiFrames: [],
+      adoptedFrame: undefined,
+      localAdaptation: undefined,
+    });
+    if (stitchTimer.current !== undefined)
+      window.clearTimeout(stitchTimer.current);
+    if (slots.length < 2) return;
+    stitchTimer.current = window.setTimeout(() => {
+      stitchArtwork(
+        slots.map((slot) => slot.blob),
+        gap,
+      )
+        .then((source) => {
+          if (stitchRevision.current !== revision) return;
+          setDesigns((all) =>
+            all.map((design) =>
+              design.id === designId
+                ? { ...design, source, originalSource: source }
+                : design,
+            ),
+          );
+          setLayout(undefined);
+        })
+        .catch((cause) => setError(String(cause)));
+    }, 150);
   };
   async function openSeamPreview() {
     setSeamOpen(true);
@@ -624,6 +682,9 @@ export default function CupWrapPrintComposer({
   }
   async function upload(file: File, role: ArtworkRole = "front") {
     try {
+      stitchRevision.current++;
+      if (stitchTimer.current !== undefined)
+        window.clearTimeout(stitchTimer.current);
       if (
         !["image/png", "image/jpeg", "image/webp"].includes(file.type) ||
         file.size > 40 * 1024 * 1024
@@ -653,13 +714,16 @@ export default function CupWrapPrintComposer({
       ].sort((a) => (a.role === "front" ? -1 : 1));
       const source = await stitchArtwork(
         artworkSlots.filter((item) => item.enabled).map((item) => item.blob),
+        d.stitchGapPx ?? 0,
       );
       update({
         source,
         originalSource: source,
         artworkSlots,
         stitchedSource: true,
-        transparentOutput: Boolean(d.transparentOutput || sourceHasTransparency),
+        transparentOutput: Boolean(
+          d.transparentOutput || sourceHasTransparency,
+        ),
         backgroundColor:
           sourceHasTransparency || d.transparentOutput
             ? undefined
@@ -876,13 +940,19 @@ export default function CupWrapPrintComposer({
         type="info"
         showIcon
         message="默认使用一张图；上传两张时按顺序横向拼接"
-        description="系统保持两张图的宽高比，将第一张右边与第二张左边调整为相同高度后无缝连接。拼接完成后，缩放、移动、变形、蒙版、导出和 3D 模拟均将其视为一张图。"
+        description="系统保持两张图的宽高比，将第一张右边与第二张左边调整为相同高度后连接。负间隙会让第二张图覆盖第一张图；拼接完成后，后续操作均将其视为一张图。"
       />
       {(["front", "back"] as ArtworkRole[]).map((role) => {
         const slot = d.artworkSlots?.find((item) => item.role === role);
-        const label = role === "front" ? "第 1 张图（左侧）" : "第 2 张图（右侧）";
+        const label =
+          role === "front" ? "第 1 张图（左侧）" : "第 2 张图（右侧）";
         return (
-          <Card key={role} size="small" title={label} className="cup-artwork-slot">
+          <Card
+            key={role}
+            size="small"
+            title={label}
+            className="cup-artwork-slot"
+          >
             <Space wrap>
               <Upload
                 showUploadList={false}
@@ -909,7 +979,7 @@ export default function CupWrapPrintComposer({
                           stitchedSource: false,
                         });
                       } else
-                        stitchArtwork(remaining)
+                        stitchArtwork(remaining, d.stitchGapPx ?? 0)
                           .then((source) =>
                             update({
                               artworkSlots,
@@ -929,6 +999,31 @@ export default function CupWrapPrintComposer({
           </Card>
         );
       })}
+      {(d.artworkSlots ?? []).filter((slot) => slot.enabled).length > 1 && (
+        <div className="cup-field">
+          <span>图与图之间的间隙 px</span>
+          <Space wrap>
+            <Slider
+              ariaLabelForHandle="图与图之间的间隙滑动条"
+              style={{ width: 220 }}
+              min={-1000}
+              max={1000}
+              step={1}
+              value={d.stitchGapPx ?? 0}
+              onChange={changeStitchGap}
+            />
+            <InputNumber
+              aria-label="图与图之间的间隙 px"
+              min={-10000}
+              max={10000}
+              step={1}
+              value={d.stitchGapPx ?? 0}
+              onChange={(value) => changeStitchGap(value ?? 0)}
+            />
+          </Space>
+          <small>0 为无缝连接；负数时第 2 张图位于顶层并覆盖第 1 张图。</small>
+        </div>
+      )}
       <h3>图案适配方式</h3>
       <Select
         aria-label="图案适配方式"
@@ -957,12 +1052,12 @@ export default function CupWrapPrintComposer({
             description="严格按杯口径、杯底径和垂直高度计算扇形；保留原图内容与相对排版，不生成红线、文字或新角色，并自动留出安全边距防止边缘裁切。"
           />
           <Space>
-          <Switch
-            aria-label="保留透明底"
-            checked={!!d.transparentOutput}
-            onChange={(checked) => update({ transparentOutput: checked })}
-          />
-          <span>保留透明底</span>
+            <Switch
+              aria-label="保留透明底"
+              checked={!!d.transparentOutput}
+              onChange={(checked) => update({ transparentOutput: checked })}
+            />
+            <span>保留透明底</span>
           </Space>
           <p>
             上传透明图片时自动开启；关闭时输出纯白底。对于不透明图片，开启后只移除与边界连通且颜色均匀的背景；角色身体、眼睛和封闭区域中的白色或黑色会保留。
@@ -976,7 +1071,9 @@ export default function CupWrapPrintComposer({
             message="元素分割 + 等比排版 + 弧形安全检测 · 不调用生成式 AI"
             description="保留中央约 60% 的原始组合关系，中心文字、邻近角色与装饰作为整体固定；只扩展外围 20%–30% 的角色，并沿扇形上下弧线排列。最后才用小装饰填补主体之间的空隙，不重画、不拉伸元素。"
           />
-          <p>适用于透明底、白底或均匀纯色底图片。相互粘连的对象可在确认窗口中手动合并或重新分类。</p>
+          <p>
+            适用于透明底、白底或均匀纯色底图片。相互粘连的对象可在确认窗口中手动合并或重新分类。
+          </p>
           <Button
             type="primary"
             disabled={!d.source || !!busy}
@@ -1015,10 +1112,7 @@ export default function CupWrapPrintComposer({
               "gemini-3.1-flash-image",
             ].map((value) => ({ value, label: value }))}
           />
-          <Checkbox
-            checked
-            disabled
-          >
+          <Checkbox checked disabled>
             AI 扩图结果固定为透明背景
           </Checkbox>
           <Input.TextArea
@@ -1336,7 +1430,9 @@ export default function CupWrapPrintComposer({
       y: Math.max(0, Math.min(1, point.y / g!.height)),
     };
   };
-  const finishPreviewInteraction = (event: React.PointerEvent<SVGSVGElement>) => {
+  const finishPreviewInteraction = (
+    event: React.PointerEvent<SVGSVGElement>,
+  ) => {
     const interaction = previewInteraction.current;
     if (!interaction) return;
     if (interaction.kind === "paint" && liveStroke.length) {
@@ -1412,50 +1508,50 @@ export default function CupWrapPrintComposer({
   const enabledSlots = (d.artworkSlots ?? []).filter((slot) => slot.enabled);
   const slotOverflow = Boolean(
     g &&
-      !d.stitchedSource &&
-      enabledSlots.some((slot) => {
-        const size = slotSizes[slot.id];
-        if (!size) return false;
-        const placement =
-          d.adaptationMode === "original" && enabledSlots.length === 1
-            ? (() => {
-                const fit = containFit(g, size.width, size.height);
-                return {
-                  x: fit.cx + slot.x,
-                  y: fit.cy + slot.y,
-                  width: size.width * fit.scale * slot.scale,
-                  height: size.height * fit.scale * slot.scale,
-                  rotation: (slot.rotation * Math.PI) / 180,
-                };
-              })()
-            : artworkSlotPlacement(
-                g,
-                slot,
-                enabledSlots.length,
-                size.width,
-                size.height,
-                d.cup.safe,
-                d.cup.coverage,
-              );
-        const c = Math.cos(placement.rotation),
-          s = Math.sin(placement.rotation);
-        return [
-          [-1, -1],
-          [-1, 1],
-          [1, -1],
-          [1, 1],
-        ].some(([sx, sy]) => {
-          const x = (sx * placement.width) / 2,
-            y = (sy * placement.height) / 2;
-          return !inside(
-            {
-              x: placement.x + x * c - y * s,
-              y: placement.y + x * s + y * c,
-            },
-            g.points,
-          );
-        });
-      }),
+    !d.stitchedSource &&
+    enabledSlots.some((slot) => {
+      const size = slotSizes[slot.id];
+      if (!size) return false;
+      const placement =
+        d.adaptationMode === "original" && enabledSlots.length === 1
+          ? (() => {
+              const fit = containFit(g, size.width, size.height);
+              return {
+                x: fit.cx + slot.x,
+                y: fit.cy + slot.y,
+                width: size.width * fit.scale * slot.scale,
+                height: size.height * fit.scale * slot.scale,
+                rotation: (slot.rotation * Math.PI) / 180,
+              };
+            })()
+          : artworkSlotPlacement(
+              g,
+              slot,
+              enabledSlots.length,
+              size.width,
+              size.height,
+              d.cup.safe,
+              d.cup.coverage,
+            );
+      const c = Math.cos(placement.rotation),
+        s = Math.sin(placement.rotation);
+      return [
+        [-1, -1],
+        [-1, 1],
+        [1, -1],
+        [1, 1],
+      ].some(([sx, sy]) => {
+        const x = (sx * placement.width) / 2,
+          y = (sy * placement.height) / 2;
+        return !inside(
+          {
+            x: placement.x + x * c - y * s,
+            y: placement.y + x * s + y * c,
+          },
+          g.points,
+        );
+      });
+    }),
   );
   const sourceOverflow = legacySourceOverflow || slotOverflow;
   return (
@@ -1482,13 +1578,16 @@ export default function CupWrapPrintComposer({
           <Card
             key={design.id}
             size="small"
-            className={design.id === d.id ? "cup-design-card active" : "cup-design-card"}
+            className={
+              design.id === d.id ? "cup-design-card active" : "cup-design-card"
+            }
             onClick={() => setActiveDesignId(design.id)}
           >
             <Space direction="vertical" size={4}>
               <strong>{design.name || `杯型 ${index + 1}`}</strong>
               <span>
-                口径 {design.cup.top} · 底径 {design.cup.bottom} · 高 {design.cup.height} mm
+                口径 {design.cup.top} · 底径 {design.cup.bottom} · 高{" "}
+                {design.cup.height} mm
               </span>
               <Space onClick={(event) => event.stopPropagation()}>
                 <Switch
@@ -1526,7 +1625,9 @@ export default function CupWrapPrintComposer({
                   icon={<DeleteOutlined />}
                   aria-label={`删除杯型 ${design.name}`}
                   onClick={() => {
-                    const next = designs.filter((item) => item.id !== design.id);
+                    const next = designs.filter(
+                      (item) => item.id !== design.id,
+                    );
                     setDesigns(next);
                     if (d.id === design.id) setActiveDesignId(next[0].id);
                   }}
@@ -1716,7 +1817,9 @@ export default function CupWrapPrintComposer({
                   <Button
                     icon={<UndoOutlined />}
                     disabled={!d.maskStrokes?.length}
-                    onClick={() => update({ maskStrokes: d.maskStrokes?.slice(0, -1) })}
+                    onClick={() =>
+                      update({ maskStrokes: d.maskStrokes?.slice(0, -1) })
+                    }
                   >
                     撤销画笔
                   </Button>
@@ -1736,7 +1839,10 @@ export default function CupWrapPrintComposer({
                       value={Math.round(imageAdjustment.scale * 100)}
                       onChange={(value) =>
                         update({
-                          aiAdjustment: { ...imageAdjustment, scale: value / 100 },
+                          aiAdjustment: {
+                            ...imageAdjustment,
+                            scale: value / 100,
+                          },
                         })
                       }
                     />
@@ -1875,7 +1981,10 @@ export default function CupWrapPrintComposer({
                   {liveStroke.length > 0 && (
                     <polyline
                       points={liveStroke
-                        .map((point) => `${point.x * g.width},${point.y * g.height}`)
+                        .map(
+                          (point) =>
+                            `${point.x * g.width},${point.y * g.height}`,
+                        )
                         .join(" ")}
                       fill="none"
                       stroke={previewTool === "erase" ? "#000" : "#fff"}

@@ -126,6 +126,10 @@ const translations: Record<string, string> = {
   "当前覆盖角度不足 180°，正面与背面无法在实物杯身上严格相隔 180°；系统已将两图放在可印刷范围的两端。":
     "The current coverage is below 180°, so the front and back cannot be exactly 180° apart on the physical cup. The two artworks have been placed at the ends of the printable area.",
   原始正背拼接: "Original front/back composition",
+  "图与图之间的间隙 px": "Gap between images (px)",
+  图与图之间的间隙滑动条: "Gap between images slider",
+  "0 为无缝连接；负数时第 2 张图位于顶层并覆盖第 1 张图。":
+    "0 joins edge-to-edge; negative values place image 2 above and overlapping image 1.",
   正面图等比缩放: "Front artwork uniform scale",
   背面图等比缩放: "Back artwork uniform scale",
   "正面图水平微调 mm": "Front artwork horizontal offset mm",

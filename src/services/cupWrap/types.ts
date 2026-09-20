@@ -95,6 +95,8 @@ export interface WrapDesign {
   artworkSlots?: ArtworkSlot[];
   /** True when source is the left-to-right composite of artworkSlots. */
   stitchedSource?: boolean;
+  /** Pixel gap between the first and second stitched source images. Negative values overlap. */
+  stitchGapPx?: number;
   maskStrokes?: ArtworkMaskStroke[];
   enabled?: boolean;
   adopted?: Blob;

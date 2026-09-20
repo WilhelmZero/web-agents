@@ -3,28 +3,42 @@ export interface StitchSize {
   height: number;
 }
 
-export function stitchedDimensions(sizes: StitchSize[]) {
-  if (!sizes.length) return { width: 0, height: 0, parts: [] as StitchSize[] };
+export function stitchedDimensions(sizes: StitchSize[], gap = 0) {
+  if (!sizes.length)
+    return { width: 0, height: 0, parts: [] as StitchSize[], gap: 0 };
   const height = Math.max(...sizes.map((size) => size.height));
   const parts = sizes.map((size) => ({
-    width: Math.max(1, Math.round((size.width * height) / size.height)),
-    height,
-  }));
+      width: Math.max(1, Math.round((size.width * height) / size.height)),
+      height,
+    })),
+    normalizedGap =
+      parts.length > 1
+        ? Math.max(
+            Math.round(gap),
+            -Math.min(...parts.map((part) => part.width)) + 1,
+          )
+        : 0;
   return {
-    width: parts.reduce((sum, part) => sum + part.width, 0),
+    width:
+      parts.reduce((sum, part) => sum + part.width, 0) +
+      normalizedGap * (parts.length - 1),
     height,
     parts,
+    gap: normalizedGap,
   };
 }
 
-/** Joins images edge-to-edge after equalizing their seam height. */
-export async function stitchArtwork(blobs: Blob[]): Promise<Blob> {
+/** Joins images after equalizing their seam height; later images paint on top. */
+export async function stitchArtwork(blobs: Blob[], gap = 0): Promise<Blob> {
   if (!blobs.length) throw new Error("没有可拼接的图片");
   if (blobs.length === 1) return blobs[0];
-  const images = await Promise.all(blobs.map((blob) => createImageBitmap(blob)));
+  const images = await Promise.all(
+    blobs.map((blob) => createImageBitmap(blob)),
+  );
   try {
     const layout = stitchedDimensions(
       images.map((image) => ({ width: image.width, height: image.height })),
+      gap,
     );
     if (layout.width * layout.height > 60_000_000)
       throw new Error("拼接图片超过 6000 万像素，请先降低图片分辨率");
@@ -34,7 +48,7 @@ export async function stitchArtwork(blobs: Blob[]): Promise<Blob> {
     images.forEach((image, index) => {
       const part = layout.parts[index];
       ctx.drawImage(image, x, 0, part.width, part.height);
-      x += part.width;
+      x += part.width + layout.gap;
     });
     return canvas.convertToBlob({ type: "image/png" });
   } finally {
