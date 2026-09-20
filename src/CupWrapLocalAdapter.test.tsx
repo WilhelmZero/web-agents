@@ -73,22 +73,32 @@ it("shows row dividers and supports right-click duplicate and delete", () => {
   );
 
   const preview = screen.getByLabelText("本地排布预览"),
-    pathInput = screen.getByText("路径条数").closest("label")!.querySelector("input")!;
+    pathInput = screen
+      .getByText("路径条数")
+      .closest("label")!
+      .querySelector("input")!;
   expect(pathInput).toHaveValue("3");
   expect(preview.querySelectorAll("polyline")).toHaveLength(2);
   expect(screen.getByText("路径 2 偏移 mm")).toBeInTheDocument();
 
-  fireEvent.contextMenu(preview.querySelector("image")!, {
-    clientX: 100,
-    clientY: 120,
+  fireEvent.drop(preview, {
+    clientX: 80,
+    clientY: 80,
+    dataTransfer: { getData: () => "ghost" },
   });
-  fireEvent.click(screen.getByRole("button", { name: "复制主体" }));
   expect(preview.querySelectorAll("image")).toHaveLength(2);
 
   fireEvent.contextMenu(preview.querySelector("image")!, {
     clientX: 100,
     clientY: 120,
   });
+  fireEvent.click(screen.getByRole("button", { name: "复制主体" }));
+  expect(preview.querySelectorAll("image")).toHaveLength(3);
+
+  fireEvent.contextMenu(preview.querySelector("image")!, {
+    clientX: 100,
+    clientY: 120,
+  });
   fireEvent.click(screen.getByRole("button", { name: "删除主体" }));
-  expect(preview.querySelectorAll("image")).toHaveLength(1);
-});
+  expect(preview.querySelectorAll("image")).toHaveLength(2);
+}, 10_000);

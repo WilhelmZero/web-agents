@@ -94,7 +94,13 @@ describe("local cup layout", () => {
     for (const l of a.layers) {
       const object = input.objects.find((o) => o.id === l.sourceObjectId)!;
       const h = (l.width * object.rect.height) / object.rect.width;
-      for (const point of rotatedBoundaryPoints(l.x, l.y, l.width, h, l.rotation)) {
+      for (const point of rotatedBoundaryPoints(
+        l.x,
+        l.y,
+        l.width,
+        h,
+        l.rotation,
+      )) {
         expect(inside(point, g.points)).toBe(true);
         expect(distanceToEdge(point, g.points)).toBeGreaterThanOrEqual(4);
       }
@@ -186,10 +192,12 @@ describe("local cup layout", () => {
     expect(anchor.autoX).toBe(anchor.x);
     expect(anchor.autoY).toBe(anchor.y);
     expect(pathLayers.length).toBeGreaterThan(0);
-    expect(new Set(pathLayers.map((layer) => layer.pathIndex)).size).toBeGreaterThan(1);
     expect(
-      pathLayers.every((layer) => Number.isFinite(layer.rotation)),
-    ).toBe(true);
+      new Set(pathLayers.map((layer) => layer.pathIndex)).size,
+    ).toBeGreaterThan(1);
+    expect(pathLayers.every((layer) => Number.isFinite(layer.rotation))).toBe(
+      true,
+    );
   });
 
   it("computes concentric paths for cylinders and tapered cups", () => {
@@ -210,10 +218,7 @@ describe("local cup layout", () => {
       expect(dividers[0].v).toBeGreaterThan(paths[0].v);
       expect(dividers[0].v).toBeLessThan(paths[1].v);
       const shifted = fixedPathPoints(cup, 3, 20, 2, [0, 5, 0]);
-      expect(shifted[1].v - paths[1].v).toBeCloseTo(
-        5 / geometry(cup).slant,
-        8,
-      );
+      expect(shifted[1].v - paths[1].v).toBeCloseTo(5 / geometry(cup).slant, 8);
     }
   });
 
@@ -241,10 +246,18 @@ describe("local cup layout", () => {
     expect(first.layers.map(({ id, x, y }) => [id, x, y])).toEqual(
       second.layers.map(({ id, x, y }) => [id, x, y]),
     );
-    expect(pathLayers.some((layer) => layer.sourceObjectId === "ghost-a")).toBe(true);
-    expect(pathLayers.some((layer) => layer.sourceObjectId === "ghost-b")).toBe(true);
+    expect(pathLayers.some((layer) => layer.sourceObjectId === "ghost-a")).toBe(
+      true,
+    );
+    expect(pathLayers.some((layer) => layer.sourceObjectId === "ghost-b")).toBe(
+      true,
+    );
     expect(pathLayers.length).toBeGreaterThan(2);
     expect(new Set(pathLayers.map((layer) => layer.pathIndex)).size).toBe(4);
+    for (let pathIndex = 0; pathIndex < 4; pathIndex++)
+      expect(
+        pathLayers.filter((layer) => layer.pathIndex === pathIndex).length,
+      ).toBeGreaterThanOrEqual(2);
   });
 
   it("uses the typical subject height for automatic path count", () => {
@@ -275,7 +288,9 @@ describe("local cup layout", () => {
       DEFAULT_CUP,
     );
     expect(r.pathCount).toBeGreaterThanOrEqual(4);
-    expect(r.layers.some((layer) => layer.sourceObjectId === "title")).toBe(true);
+    expect(r.layers.some((layer) => layer.sourceObjectId === "title")).toBe(
+      true,
+    );
     expect(
       new Set(
         r.layers
@@ -285,7 +300,7 @@ describe("local cup layout", () => {
     ).toBe(r.pathCount);
   });
 
-  it("does not let one unplaceable subject block later subjects or decorations hide the failure", () => {
+  it("relocates an edge-mapped title before reducing it or dropping it", () => {
     const r = arrangeLocal(
       {
         sourceWidth: 1000,
@@ -306,8 +321,12 @@ describe("local cup layout", () => {
       },
       DEFAULT_CUP,
     );
-    expect(r.layers.some((layer) => layer.sourceObjectId === "small-main")).toBe(true);
-    expect(r.unplaced).toContain("edge-anchor");
-    expect(r.layers.some((layer) => layer.sourceObjectId === "star")).toBe(false);
+    expect(
+      r.layers.some((layer) => layer.sourceObjectId === "small-main"),
+    ).toBe(true);
+    expect(
+      r.layers.some((layer) => layer.sourceObjectId === "edge-anchor"),
+    ).toBe(true);
+    expect(r.unplaced).not.toContain("edge-anchor");
   });
 });

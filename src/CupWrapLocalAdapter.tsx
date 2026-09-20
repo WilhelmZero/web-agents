@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { PointerEvent as ReactPointerEvent } from "react";
+import type {
+  DragEvent as ReactDragEvent,
+  PointerEvent as ReactPointerEvent,
+} from "react";
 import {
   Alert,
   Button,
@@ -58,6 +61,7 @@ function LayoutPreview({
   onSelect,
   onLayersChange,
   onReplace,
+  onInsert,
   onDuplicate,
   onDelete,
 }: {
@@ -74,6 +78,7 @@ function LayoutPreview({
   onSelect: (id: string) => void;
   onLayersChange: (layers: LocalAdaptation["layers"]) => void;
   onReplace: (layerId: string, objectId: string) => void;
+  onInsert: (objectId: string, x: number, y: number) => void;
   onDuplicate: (layerId: string) => void;
   onDelete: (layerId: string) => void;
 }) {
@@ -101,14 +106,36 @@ function LayoutPreview({
       [cup, pathCount, averageHeight, pathGap, pathOffsets],
     ),
     drag = useRef<
-      { id: string; startX: number; startY: number; x: number; y: number } | undefined
+      | { id: string; startX: number; startY: number; x: number; y: number }
+      | undefined
     >(undefined);
-  const point = (event: ReactPointerEvent<SVGImageElement>) => {
-    const svg = event.currentTarget.ownerSVGElement!,
-      p = svg.createSVGPoint();
-    p.x = event.clientX;
-    p.y = event.clientY;
-    return p.matrixTransform(svg.getScreenCTM()!.inverse());
+  const clientPoint = (
+    svg: SVGSVGElement,
+    clientX: number,
+    clientY: number,
+  ) => {
+    const rect = svg.getBoundingClientRect(),
+      width = rect.width || g.width,
+      height = rect.height || g.height,
+      safeClientX = Number.isFinite(clientX) ? clientX : rect.left + width / 2,
+      safeClientY = Number.isFinite(clientY) ? clientY : rect.top + height / 2;
+    return {
+      x: ((safeClientX - rect.left) / width) * g.width,
+      y: ((safeClientY - rect.top) / height) * g.height,
+    };
+  };
+  const point = (event: ReactPointerEvent<SVGImageElement>) =>
+    clientPoint(
+      event.currentTarget.ownerSVGElement!,
+      event.clientX,
+      event.clientY,
+    );
+  const insertDroppedObject = (event: ReactDragEvent<SVGSVGElement>) => {
+    event.preventDefault();
+    const objectId = event.dataTransfer.getData("application/x-cup-object");
+    if (!objectId) return;
+    const p = clientPoint(event.currentTarget, event.clientX, event.clientY);
+    onInsert(objectId, p.x, p.y);
   };
   useEffect(() => {
     if (!contextMenu) return;
@@ -122,96 +149,117 @@ function LayoutPreview({
   }, [contextMenu]);
   return (
     <>
-    <svg
-      aria-label="本地排布预览"
-      viewBox={`0 0 ${g.width} ${g.height}`}
-      style={{
-        width: "100%",
-        maxHeight: 320,
-        background: "#eee",
-        marginTop: 12,
-      }}
-    >
-      <path
-        d={pathData(g.points)}
-        fill={background}
-        stroke="#999"
-        strokeDasharray="1 1"
-      />
-      {showPaths &&
-        dividers.map((path) => (
-          <polyline
-            key={path.pathIndex}
-            points={path.points.map((p) => `${p.x},${p.y}`).join(" ")}
-            fill="none"
-            stroke="#1677ff"
-            strokeWidth="0.35"
-            strokeDasharray="2 1"
-            pointerEvents="none"
-          />
-        ))}
-      {layers.map((l) => {
-        const id = l.sourceObjectId ?? l.id.split("-copy-")[0],
-          o = byId.get(id),
-          url = urls[id];
-        if (!o || !url) return null;
-        const h = (l.width * o.rect.height) / o.rect.width;
-        return (
-          <image
-            key={l.id}
-            href={url}
-            x={l.x - l.width / 2}
-            y={l.y - h / 2}
-            width={l.width}
-            height={h}
-            transform={`rotate(${l.rotation} ${l.x} ${l.y})`}
-            opacity={selectedId === l.id ? 0.78 : 1}
-            stroke={selectedId === l.id ? "#1677ff" : undefined}
-            style={{ cursor: "move", outline: selectedId === l.id ? "1px solid #1677ff" : undefined }}
-            onPointerDown={(event) => {
-              if (event.button === 2) return;
-              event.preventDefault();
-              event.currentTarget.setPointerCapture(event.pointerId);
-              const p = point(event);
-              drag.current = { id: l.id, startX: p.x, startY: p.y, x: l.x, y: l.y };
-              onSelect(l.id);
-            }}
-            onPointerMove={(event) => {
-              const state = drag.current;
-              if (!state || state.id !== l.id) return;
-              const p = point(event);
-              onLayersChange(
-                layers.map((layer) =>
-                  layer.id === l.id
-                    ? {
-                        ...layer,
-                        x: state.x + p.x - state.startX,
-                        y: state.y + p.y - state.startY,
-                        manual: true,
-                      }
-                    : layer,
-                ),
-              );
-            }}
-            onPointerUp={() => {
-              drag.current = undefined;
-            }}
-            onContextMenu={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              onSelect(l.id);
-              setContextMenu({ id: l.id, x: event.clientX, y: event.clientY });
-            }}
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={(event) => {
-              event.preventDefault();
-              const objectId = event.dataTransfer.getData("application/x-cup-object");
-              if (objectId) onReplace(l.id, objectId);
-            }}
-          />
-        );
-      })}
-    </svg>
+      <svg
+        aria-label="本地排布预览"
+        viewBox={`0 0 ${g.width} ${g.height}`}
+        style={{
+          width: "100%",
+          maxHeight: 320,
+          background: "#eee",
+          marginTop: 12,
+        }}
+        onDragOver={(event) => {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "copy";
+        }}
+        onDrop={insertDroppedObject}
+      >
+        <path
+          d={pathData(g.points)}
+          fill={background}
+          stroke="#999"
+          strokeDasharray="1 1"
+        />
+        {showPaths &&
+          dividers.map((path) => (
+            <polyline
+              key={path.pathIndex}
+              points={path.points.map((p) => `${p.x},${p.y}`).join(" ")}
+              fill="none"
+              stroke="#1677ff"
+              strokeWidth="0.35"
+              strokeDasharray="2 1"
+              pointerEvents="none"
+            />
+          ))}
+        {layers.map((l) => {
+          const id = l.sourceObjectId ?? l.id.split("-copy-")[0],
+            o = byId.get(id),
+            url = urls[id];
+          if (!o || !url) return null;
+          const h = (l.width * o.rect.height) / o.rect.width;
+          return (
+            <image
+              key={l.id}
+              href={url}
+              x={l.x - l.width / 2}
+              y={l.y - h / 2}
+              width={l.width}
+              height={h}
+              transform={`rotate(${l.rotation} ${l.x} ${l.y})`}
+              opacity={selectedId === l.id ? 0.78 : 1}
+              stroke={selectedId === l.id ? "#1677ff" : undefined}
+              style={{
+                cursor: "move",
+                outline: selectedId === l.id ? "1px solid #1677ff" : undefined,
+              }}
+              onPointerDown={(event) => {
+                if (event.button === 2) return;
+                event.preventDefault();
+                event.currentTarget.setPointerCapture(event.pointerId);
+                const p = point(event);
+                drag.current = {
+                  id: l.id,
+                  startX: p.x,
+                  startY: p.y,
+                  x: l.x,
+                  y: l.y,
+                };
+                onSelect(l.id);
+              }}
+              onPointerMove={(event) => {
+                const state = drag.current;
+                if (!state || state.id !== l.id) return;
+                const p = point(event);
+                onLayersChange(
+                  layers.map((layer) =>
+                    layer.id === l.id
+                      ? {
+                          ...layer,
+                          x: state.x + p.x - state.startX,
+                          y: state.y + p.y - state.startY,
+                          manual: true,
+                        }
+                      : layer,
+                  ),
+                );
+              }}
+              onPointerUp={() => {
+                drag.current = undefined;
+              }}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onSelect(l.id);
+                setContextMenu({
+                  id: l.id,
+                  x: event.clientX,
+                  y: event.clientY,
+                });
+              }}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const objectId = event.dataTransfer.getData(
+                  "application/x-cup-object",
+                );
+                if (objectId) onReplace(l.id, objectId);
+              }}
+            />
+          );
+        })}
+      </svg>
       {contextMenu && (
         <div
           role="menu"
@@ -276,7 +324,7 @@ export default function CupWrapLocalAdapter({
     [busy, setBusy] = useState(""),
     [error, setError] = useState(""),
     [fill, setFill] = useState(
-      initial?.fill === 40 ? 70 : initial?.fill ?? 70,
+      initial?.fill === 40 ? 70 : (initial?.fill ?? 70),
     ),
     [scale, setScale] = useState(initial?.scale ?? 1),
     [seed, setSeed] = useState(initial?.seed ?? 1),
@@ -305,9 +353,9 @@ export default function CupWrapLocalAdapter({
     [selectedObjects, setSelectedObjects] = useState<string[]>([]),
     [selectedLayerId, setSelectedLayerId] = useState<string>();
   const active = useMemo(
-    () => analysis?.objects.filter((o) => o.role !== "excluded").length ?? 0,
-    [analysis],
-  ),
+      () => analysis?.objects.filter((o) => o.role !== "excluded").length ?? 0,
+      [analysis],
+    ),
     selectedLayer = layers.find((layer) => layer.id === selectedLayerId);
   const deleteLayer = (layerId: string) => {
     setLayers((items) => items.filter((layer) => layer.id !== layerId));
@@ -344,6 +392,41 @@ export default function CupWrapLocalAdapter({
       ),
     );
     setError("已替换当前实例；请检查新主体与相邻元素是否冲突。");
+  };
+  const insertLayer = (objectId: string, x: number, y: number) => {
+    const object = analysis?.objects.find((item) => item.id === objectId);
+    if (!object || object.role === "excluded") return;
+    const ratios = layers.flatMap((layer) => {
+        const sourceObject = analysis?.objects.find(
+          (item) => item.id === layer.sourceObjectId,
+        );
+        return sourceObject?.rect.width
+          ? [layer.width / sourceObject.rect.width]
+          : [];
+      }),
+      visualRatio = ratios.length
+        ? [...ratios].sort((a, b) => a - b)[Math.floor(ratios.length / 2)]
+        : (geometry(cup).width / Math.max(1, analysis?.sourceWidth ?? 1)) *
+          scale,
+      width = object.rect.width * visualRatio,
+      layer = {
+        id: `manual-insert-${crypto.randomUUID()}`,
+        blob: object.blob,
+        sourceObjectId: object.id,
+        x,
+        y,
+        width,
+        rotation: 0,
+        autoX: x,
+        autoY: y,
+        autoWidth: width,
+        autoRotation: 0,
+        locked: true,
+        manual: true,
+      };
+    setLayers((items) => [...items, layer]);
+    setSelectedLayerId(layer.id);
+    setError("");
   };
   async function analyze() {
     setBusy("正在识别物体");
@@ -480,7 +563,8 @@ export default function CupWrapLocalAdapter({
       }
     >
       <p>
-        全程在浏览器本地处理，不调用生成式 AI，也不会重画或拉伸元素。请确认主体和可复制的小装饰；相互粘连的内容会作为一个完整物体。
+        全程在浏览器本地处理，不调用生成式
+        AI，也不会重画或拉伸元素。请确认主体和可复制的小装饰；相互粘连的内容会作为一个完整物体。
       </p>
       <Space wrap>
         <Button loading={busy === "正在识别物体"} onClick={analyze}>
@@ -521,10 +605,11 @@ export default function CupWrapLocalAdapter({
               <div
                 key={o.id}
                 draggable={o.role !== "excluded"}
-                onDragStart={(event) =>
-                  event.dataTransfer.setData("application/x-cup-object", o.id)
-                }
-                title="拖到预览中的元素上可替换该实例"
+                onDragStart={(event) => {
+                  event.dataTransfer.effectAllowed = "copy";
+                  event.dataTransfer.setData("application/x-cup-object", o.id);
+                }}
+                title="拖到预览空白处可新增，拖到已有元素上可替换"
                 style={{
                   border: "1px solid #ddd",
                   borderRadius: 8,
@@ -649,8 +734,7 @@ export default function CupWrapLocalAdapter({
             <Space wrap style={{ marginLeft: 8 }}>
               {Array.from(
                 {
-                  length:
-                    pathMode === "auto" ? actualPathCount : pathCount,
+                  length: pathMode === "auto" ? actualPathCount : pathCount,
                 },
                 (_unused, index) => (
                   <label key={index}>
@@ -735,11 +819,13 @@ export default function CupWrapLocalAdapter({
                 onSelect={setSelectedLayerId}
                 onLayersChange={setLayers}
                 onReplace={replaceLayer}
+                onInsert={insertLayer}
                 onDuplicate={duplicateLayer}
                 onDelete={deleteLayer}
               />
               <p>
-                当前使用 {actualPathCount} 条主体路径，主体位于相邻辅助线之间。拖动可实时微调；右键可复制或删除主体。
+                当前使用 {actualPathCount}{" "}
+                条主体路径，主体位于相邻辅助线之间。可将上方素材拖到空白处新增，或拖到已有元素上替换；拖动实例可实时微调，右键可复制或删除。
               </p>
               {selectedLayer && (
                 <div className="cup-local-layer-editor">
@@ -826,7 +912,8 @@ export default function CupWrapLocalAdapter({
                                   x: layer.autoX ?? layer.x,
                                   y: layer.autoY ?? layer.y,
                                   width: layer.autoWidth ?? layer.width,
-                                  rotation: layer.autoRotation ?? layer.rotation,
+                                  rotation:
+                                    layer.autoRotation ?? layer.rotation,
                                   manual: false,
                                 }
                               : layer,

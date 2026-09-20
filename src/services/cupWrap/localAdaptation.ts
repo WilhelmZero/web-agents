@@ -300,7 +300,10 @@ export function fixedPathPoints(
       offset = Number.isFinite(pathOffsets[pathIndex])
         ? pathOffsets[pathIndex]
         : 0,
-      position = Math.max(safe, Math.min(g.slant - safe, evenlyDistributed + offset)),
+      position = Math.max(
+        safe,
+        Math.min(g.slant - safe, evenlyDistributed + offset),
+      ),
       v = position / g.slant;
     return {
       pathIndex,
@@ -345,11 +348,7 @@ export function automaticPathCount(
     ),
   );
 }
-function tangentRotation(
-  g: ReturnType<typeof geometry>,
-  u: number,
-  v: number,
-) {
+function tangentRotation(g: ReturnType<typeof geometry>, u: number, v: number) {
   const d = 0.001,
     a = warpPoint(g, Math.max(0, u - d), v, 1),
     b = warpPoint(g, Math.min(1, u + d), v, 1);
@@ -392,7 +391,8 @@ export function arrangeLocal(
     contentBottom = Math.max(0, ...active.map((o) => o.rect.y + o.rect.height)),
     contentWidth = Math.max(1, contentRight - contentLeft),
     contentHeight = Math.max(1, contentBottom - contentTop),
-    mm = Math.min(usableW / contentWidth, usableH / contentHeight) * input.scale,
+    mm =
+      Math.min(usableW / contentWidth, usableH / contentHeight) * input.scale,
     sourceOrder = [...active].sort(
       (a, b) =>
         a.rect.y + a.rect.height / 2 - (b.rect.y + b.rect.height / 2) ||
@@ -433,10 +433,18 @@ export function arrangeLocal(
     unplaced: string[] = [],
     placedSources = new Set<string>();
   const bounds = (points: { x: number; y: number }[]) => ({
-    x: (Math.min(...points.map((p) => p.x)) + Math.max(...points.map((p) => p.x))) / 2,
-    y: (Math.min(...points.map((p) => p.y)) + Math.max(...points.map((p) => p.y))) / 2,
-    w: Math.max(...points.map((p) => p.x)) - Math.min(...points.map((p) => p.x)),
-    h: Math.max(...points.map((p) => p.y)) - Math.min(...points.map((p) => p.y)),
+    x:
+      (Math.min(...points.map((p) => p.x)) +
+        Math.max(...points.map((p) => p.x))) /
+      2,
+    y:
+      (Math.min(...points.map((p) => p.y)) +
+        Math.max(...points.map((p) => p.y))) /
+      2,
+    w:
+      Math.max(...points.map((p) => p.x)) - Math.min(...points.map((p) => p.x)),
+    h:
+      Math.max(...points.map((p) => p.y)) - Math.min(...points.map((p) => p.y)),
   });
   const fits = (
     x: number,
@@ -449,13 +457,17 @@ export function arrangeLocal(
   ) => {
     const points = rotatedBoundaryPoints(x, y, w, h, rotation),
       box = bounds(points);
-    return points.every(
-      (p) => inside(p, g.points) && distanceToEdge(p, g.points) >= edgeSafe,
-    ) &&
-    !boxes.some(
-      (b) =>
-        Math.abs(box.x - b.x) < ((box.w + b.w) / 2) * collisionScale + itemGap &&
-        Math.abs(box.y - b.y) < ((box.h + b.h) / 2) * collisionScale + itemGap,
+    return (
+      points.every(
+        (p) => inside(p, g.points) && distanceToEdge(p, g.points) >= edgeSafe,
+      ) &&
+      !boxes.some(
+        (b) =>
+          Math.abs(box.x - b.x) <
+            ((box.w + b.w) / 2) * collisionScale + itemGap &&
+          Math.abs(box.y - b.y) <
+            ((box.h + b.h) / 2) * collisionScale + itemGap,
+      )
     );
   };
   const addLayer = (
@@ -503,37 +515,63 @@ export function arrangeLocal(
           1,
           (anchor.rect.y + anchor.rect.height / 2 - contentTop) / contentHeight,
         ),
-      ),
-      p = warpPoint(g, u, v, 1),
-      rotation = tangentRotation(g, u, v);
+      );
     let width = anchor.rect.width * mm,
       placed = false;
-    // Keep the mapped source position, but scale a large title down just
-    // enough to fit instead of silently dropping the most important element.
+    // Prefer the mapped source position. If the fan boundary or another row
+    // makes that exact point invalid, move the title to the nearest valid
+    // point before reducing it. The title is the most important element and
+    // must not silently disappear merely because its rectangular source box
+    // touches a curved edge.
+    const offsets = [0, -0.04, 0.04, -0.08, 0.08, -0.12, 0.12, -0.18, 0.18],
+      candidates = offsets
+        .flatMap((dv) =>
+          offsets.map((du) => ({
+            u: Math.max(0.02, Math.min(0.98, u + du)),
+            v: Math.max(0.02, Math.min(0.98, v + dv)),
+            distance: du * du + dv * dv,
+          })),
+        )
+        .sort((a, b) => a.distance - b.distance);
     for (const factor of AUTO_LAYOUT_SCALE_FACTORS) {
       if (placed) break;
       const candidateWidth = width * factor,
-        candidateHeight = (candidateWidth * anchor.rect.height) / anchor.rect.width;
-      if (!fits(p.x, p.y, candidateWidth, candidateHeight, rotation)) continue;
-      addLayer(
-        `anchor-${anchor.id}`,
-        anchor,
-        p.x,
-        p.y,
-        candidateWidth,
-        rotation,
-        undefined,
-        u,
-      );
-      placed = true;
+        candidateHeight =
+          (candidateWidth * anchor.rect.height) / anchor.rect.width;
+      for (const candidate of candidates) {
+        const candidatePoint = warpPoint(g, candidate.u, candidate.v, 1),
+          rotation = tangentRotation(g, candidate.u, candidate.v);
+        if (
+          !fits(
+            candidatePoint.x,
+            candidatePoint.y,
+            candidateWidth,
+            candidateHeight,
+            rotation,
+            Math.max(1, safe * 0.35),
+          )
+        )
+          continue;
+        addLayer(
+          `anchor-${anchor.id}`,
+          anchor,
+          candidatePoint.x,
+          candidatePoint.y,
+          candidateWidth,
+          rotation,
+          undefined,
+          candidate.u,
+        );
+        placed = true;
+        break;
+      }
     }
     if (!placed) unplaced.push(anchor.id);
   }
   let subjectCursor = 0;
   for (const path of paths) {
     if (!pathSubjects.length) break;
-    const arcLength =
-        g.topArc * (1 - path.v) + g.bottomArc * path.v,
+    const arcLength = g.topArc * (1 - path.v) + g.bottomArc * path.v,
       capacity = Math.max(
         1,
         Math.floor(
@@ -542,11 +580,19 @@ export function arrangeLocal(
         ),
       );
     for (let slot = 0; slot < capacity; slot++) {
-      const distance = safe +
-          ((slot + 0.5) * Math.max(1, arcLength - safe * 2)) / capacity,
+      const distance =
+          safe + ((slot + 0.5) * Math.max(1, arcLength - safe * 2)) / capacity,
         u = Math.max(0, Math.min(1, distance / Math.max(0.01, arcLength))),
-        p = warpPoint(g, u, path.v, 1),
-        rotation = tangentRotation(g, u, path.v);
+        towardMiddle = path.v < 0.5 ? 1 : -1,
+        searchPoints = [
+          { du: 0, dv: 0 },
+          { du: -0.18 / capacity, dv: 0 },
+          { du: 0.18 / capacity, dv: 0 },
+          { du: 0, dv: towardMiddle * 0.025 },
+          { du: -0.28 / capacity, dv: towardMiddle * 0.04 },
+          { du: 0.28 / capacity, dv: towardMiddle * 0.04 },
+          { du: 0, dv: towardMiddle * 0.065 },
+        ];
       // A single oversized/colliding subject must not block every following
       // slot. Try each source once and advance the cycle on every attempt.
       for (let attempt = 0; attempt < pathSubjects.length; attempt++) {
@@ -562,36 +608,44 @@ export function arrangeLocal(
           if (placed) break;
           const candidateWidth = width * factor,
             candidateHeight = height * factor;
-          if (
-            !fits(
-              p.x,
-              p.y,
-              candidateWidth,
-              candidateHeight,
-              rotation,
-              Math.max(1, safe * 0.4),
-              0.82,
+          for (const search of searchPoints) {
+            const candidateU = Math.max(0.01, Math.min(0.99, u + search.du)),
+              candidateV = Math.max(0.01, Math.min(0.99, path.v + search.dv)),
+              candidatePoint = warpPoint(g, candidateU, candidateV, 1),
+              rotation = tangentRotation(g, candidateU, candidateV);
+            if (
+              !fits(
+                candidatePoint.x,
+                candidatePoint.y,
+                candidateWidth,
+                candidateHeight,
+                rotation,
+                0,
+                0.68,
+              )
             )
-          )
-            continue;
-          addLayer(
-            `path-${path.pathIndex}-${slot}-${o.id}`,
-            o,
-            p.x,
-            p.y,
-            candidateWidth,
-            rotation,
-            path.pathIndex,
-            u,
-          );
-          placed = true;
+              continue;
+            addLayer(
+              `path-${path.pathIndex}-${slot}-${o.id}`,
+              o,
+              candidatePoint.x,
+              candidatePoint.y,
+              candidateWidth,
+              rotation,
+              path.pathIndex,
+              candidateU,
+            );
+            placed = true;
+            break;
+          }
         }
         if (placed) break;
       }
     }
   }
   for (const o of mainOrder)
-    if (!placedSources.has(o.id) && !unplaced.includes(o.id)) unplaced.push(o.id);
+    if (!placedSources.has(o.id) && !unplaced.includes(o.id))
+      unplaced.push(o.id);
   // Decorative fillers are subordinate to subjects. Leaving them out while
   // subjects are missing makes the failure visible and prevents a sparse
   // subject layout from being disguised by a cloud of tiny decorations.
