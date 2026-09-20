@@ -90,11 +90,7 @@ function AdjustmentControl({
   );
 }
 const layerRank = (layer: LocalAdaptation["layers"][number]) =>
-  layer.layerRole === "decoration"
-    ? 0
-    : layer.layerRole === "anchor"
-      ? 2
-      : 1;
+  layer.layerRole === "decoration" ? 0 : layer.layerRole === "anchor" ? 2 : 1;
 const orderLayers = (
   layers: LocalAdaptation["layers"],
   objects: LocalObject[] = [],
@@ -329,7 +325,31 @@ function LayoutPreview({
       [cup, pathCount, averageHeight, pathGap, pathOffsets],
     ),
     drag = useRef<
-      | { id: string; startX: number; startY: number; x: number; y: number }
+      | {
+          mode: "move";
+          id: string;
+          startX: number;
+          startY: number;
+          x: number;
+          y: number;
+        }
+      | {
+          mode: "scale";
+          id: string;
+          x: number;
+          y: number;
+          startDistance: number;
+          width: number;
+          baseWidth: number;
+        }
+      | {
+          mode: "rotate";
+          id: string;
+          x: number;
+          y: number;
+          startAngle: number;
+          rotation: number;
+        }
       | undefined
     >(undefined);
   const clientPoint = (
@@ -347,12 +367,54 @@ function LayoutPreview({
       y: ((safeClientY - rect.top) / height) * g.height,
     };
   };
-  const point = (event: ReactPointerEvent<SVGImageElement>) =>
+  const point = (event: ReactPointerEvent<SVGElement>) =>
     clientPoint(
       event.currentTarget.ownerSVGElement!,
       event.clientX,
       event.clientY,
     );
+  const updateTransform = (event: ReactPointerEvent<SVGElement>) => {
+    const state = drag.current;
+    if (!state) return;
+    const p = point(event);
+    if (state.mode === "move") {
+      onLayersChange(
+        layers.map((layer) =>
+          layer.id === state.id
+            ? {
+                ...layer,
+                x: state.x + p.x - state.startX,
+                y: state.y + p.y - state.startY,
+                manual: true,
+              }
+            : layer,
+        ),
+      );
+      return;
+    }
+    if (state.mode === "scale") {
+      const distance = Math.hypot(p.x - state.x, p.y - state.y),
+        ratio = distance / Math.max(0.001, state.startDistance),
+        width = Math.max(
+          state.baseWidth * 0.9,
+          Math.min(state.baseWidth * 1.1, state.width * ratio),
+        );
+      onLayersChange(
+        layers.map((layer) =>
+          layer.id === state.id ? { ...layer, width, manual: true } : layer,
+        ),
+      );
+      return;
+    }
+    const angle = (Math.atan2(p.y - state.y, p.x - state.x) * 180) / Math.PI,
+      raw = state.rotation + angle - state.startAngle,
+      rotation = ((((raw + 180) % 360) + 360) % 360) - 180;
+    onLayersChange(
+      layers.map((layer) =>
+        layer.id === state.id ? { ...layer, rotation, manual: true } : layer,
+      ),
+    );
+  };
   const insertDroppedObject = (event: ReactDragEvent<SVGSVGElement>) => {
     event.preventDefault();
     const objectId = event.dataTransfer.getData("application/x-cup-object");
@@ -438,6 +500,7 @@ function LayoutPreview({
                 event.currentTarget.setPointerCapture(event.pointerId);
                 const p = point(event);
                 drag.current = {
+                  mode: "move",
                   id: l.id,
                   startX: p.x,
                   startY: p.y,
@@ -446,21 +509,7 @@ function LayoutPreview({
                 };
               }}
               onPointerMove={(event) => {
-                const state = drag.current;
-                if (!state || state.id !== l.id) return;
-                const p = point(event);
-                onLayersChange(
-                  layers.map((layer) =>
-                    layer.id === l.id
-                      ? {
-                          ...layer,
-                          x: state.x + p.x - state.startX,
-                          y: state.y + p.y - state.startY,
-                          manual: true,
-                        }
-                      : layer,
-                  ),
-                );
+                if (drag.current?.id === l.id) updateTransform(event);
               }}
               onPointerUp={() => {
                 drag.current = undefined;
@@ -488,6 +537,130 @@ function LayoutPreview({
             />
           );
         })}
+        {(() => {
+          const layer = layers.find((item) => item.id === selectedId),
+            object = layer
+              ? byId.get(layer.sourceObjectId ?? layer.id.split("-copy-")[0])
+              : undefined;
+          if (!layer || !object) return null;
+          const height = (layer.width * object.rect.height) / object.rect.width,
+            handleRadius = Math.max(
+              1.2,
+              Math.min(2.6, Math.max(g.width, g.height) * 0.008),
+            ),
+            rotationOffset = handleRadius * 4,
+            corners = [
+              { key: "左上", x: -layer.width / 2, y: -height / 2 },
+              { key: "右上", x: layer.width / 2, y: -height / 2 },
+              { key: "右下", x: layer.width / 2, y: height / 2 },
+              { key: "左下", x: -layer.width / 2, y: height / 2 },
+            ];
+          return (
+            <g
+              data-selection-for={layer.id}
+              transform={`translate(${layer.x} ${layer.y}) rotate(${layer.rotation})`}
+              pointerEvents={layer.locked ? "none" : "auto"}
+            >
+              <rect
+                x={-layer.width / 2}
+                y={-height / 2}
+                width={layer.width}
+                height={height}
+                fill="none"
+                stroke={layer.locked ? "#999" : "#1677ff"}
+                strokeWidth="0.65"
+                strokeDasharray={layer.locked ? "2 1" : undefined}
+                vectorEffect="non-scaling-stroke"
+              />
+              {!layer.locked && layer.layerRole !== "decoration" && (
+                <>
+                  <line
+                    x1={0}
+                    y1={-height / 2}
+                    x2={0}
+                    y2={-height / 2 - rotationOffset}
+                    stroke="#1677ff"
+                    strokeWidth="0.65"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                  <circle
+                    role="button"
+                    tabIndex={0}
+                    aria-label="旋转所选元素"
+                    cx={0}
+                    cy={-height / 2 - rotationOffset}
+                    r={handleRadius}
+                    fill="#fff"
+                    stroke="#1677ff"
+                    strokeWidth="0.8"
+                    style={{ cursor: "grab" }}
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      event.currentTarget.setPointerCapture?.(event.pointerId);
+                      const p = point(event);
+                      drag.current = {
+                        mode: "rotate",
+                        id: layer.id,
+                        x: layer.x,
+                        y: layer.y,
+                        startAngle:
+                          (Math.atan2(p.y - layer.y, p.x - layer.x) * 180) /
+                          Math.PI,
+                        rotation: layer.rotation,
+                      };
+                    }}
+                    onPointerMove={updateTransform}
+                    onPointerUp={() => {
+                      drag.current = undefined;
+                    }}
+                  />
+                  {corners.map((corner) => (
+                    <circle
+                      key={corner.key}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`等比缩放控制点 ${corner.key}`}
+                      cx={corner.x}
+                      cy={corner.y}
+                      r={handleRadius}
+                      fill="#fff"
+                      stroke="#1677ff"
+                      strokeWidth="0.8"
+                      style={{
+                        cursor: `${corner.key === "左上" || corner.key === "右下" ? "nwse" : "nesw"}-resize`,
+                      }}
+                      onPointerDown={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        event.currentTarget.setPointerCapture?.(
+                          event.pointerId,
+                        );
+                        const p = point(event);
+                        drag.current = {
+                          mode: "scale",
+                          id: layer.id,
+                          x: layer.x,
+                          y: layer.y,
+                          startDistance: Math.hypot(
+                            p.x - layer.x,
+                            p.y - layer.y,
+                          ),
+                          width: layer.width,
+                          baseWidth: layer.autoWidth ?? layer.width,
+                        };
+                      }}
+                      onPointerMove={updateTransform}
+                      onPointerUp={() => {
+                        drag.current = undefined;
+                      }}
+                    />
+                  ))}
+                </>
+              )}
+            </g>
+          );
+        })()}
       </svg>
       {contextMenu && (
         <div
@@ -1196,8 +1369,12 @@ export default function CupWrapLocalAdapter({
                       {
                         key: "width" as const,
                         label: "宽度 mm",
-                        min: 0.1,
-                        max: geometry(cup).width,
+                        min:
+                          (selectedLayer.autoWidth ?? selectedLayer.width) *
+                          0.9,
+                        max:
+                          (selectedLayer.autoWidth ?? selectedLayer.width) *
+                          1.1,
                         step: 0.1,
                       },
                       {
@@ -1207,30 +1384,37 @@ export default function CupWrapLocalAdapter({
                         max: 180,
                         step: 1,
                       },
-                    ].map((control) => (
-                      <AdjustmentControl
-                        key={control.key}
-                        label={control.label}
-                        min={control.min}
-                        max={control.max}
-                        step={control.step}
-                        value={selectedLayer[control.key]}
-                        disabled={selectedLayer.locked}
-                        onChange={(value) =>
-                          setLayers((items) =>
-                            items.map((layer) =>
-                              layer.id === selectedLayer.id
-                                ? {
-                                    ...layer,
-                                    [control.key]: value,
-                                    manual: true,
-                                  }
-                                : layer,
-                            ),
-                          )
-                        }
-                      />
-                    ))}
+                    ]
+                      .filter(
+                        (control) =>
+                          selectedLayer.layerRole !== "decoration" ||
+                          control.key === "x" ||
+                          control.key === "y",
+                      )
+                      .map((control) => (
+                        <AdjustmentControl
+                          key={control.key}
+                          label={control.label}
+                          min={control.min}
+                          max={control.max}
+                          step={control.step}
+                          value={selectedLayer[control.key]}
+                          disabled={selectedLayer.locked}
+                          onChange={(value) =>
+                            setLayers((items) =>
+                              items.map((layer) =>
+                                layer.id === selectedLayer.id
+                                  ? {
+                                      ...layer,
+                                      [control.key]: value,
+                                      manual: true,
+                                    }
+                                  : layer,
+                              ),
+                            )
+                          }
+                        />
+                      ))}
                     <Button
                       disabled={selectedLayer.locked}
                       onClick={() =>

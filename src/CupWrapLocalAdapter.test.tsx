@@ -92,12 +92,8 @@ it("shows row dividers and supports right-click duplicate and delete", async () 
   expect(pathInput).toHaveValue("3");
   expect(preview.querySelectorAll("polyline")).toHaveLength(2);
   expect(screen.getByText("路径 2 偏移 mm")).toBeInTheDocument();
-  expect(
-    screen.getByRole("button", { name: "智能填充小装饰" }),
-  ).toBeEnabled();
-  expect(
-    screen.getByRole("button", { name: "采用无损排布" }),
-  ).toBeEnabled();
+  expect(screen.getByRole("button", { name: "智能填充小装饰" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "采用无损排布" })).toBeEnabled();
   expect(screen.getByText("物体 1（60×70px）")).toBeInTheDocument();
 
   fireEvent.drop(preview, {
@@ -145,6 +141,59 @@ it("shows row dividers and supports right-click duplicate and delete", async () 
   }))
     expect(control).toHaveAttribute("aria-checked", "false");
 
+  const selectedGroup = preview.querySelector<SVGGElement>(
+      "[data-selection-for]",
+    )!,
+    selectedImage = preview.querySelector<SVGImageElement>(
+      `image[data-layer-id="${selectedGroup.dataset.selectionFor}"]`,
+    )!,
+    initialWidth = Number(selectedImage.getAttribute("width")),
+    scaleHandle = screen.getByRole("button", {
+      name: "等比缩放控制点 右下",
+    });
+  fireEvent.pointerDown(scaleHandle, {
+    pointerId: 2,
+    clientX: 100,
+    clientY: 100,
+  });
+  fireEvent.pointerMove(scaleHandle, {
+    pointerId: 2,
+    clientX: 108,
+    clientY: 108,
+  });
+  fireEvent.pointerUp(scaleHandle, { pointerId: 2 });
+  expect(
+    Number(
+      preview
+        .querySelector<SVGImageElement>(
+          `image[data-layer-id="${selectedGroup.dataset.selectionFor}"]`,
+        )!
+        .getAttribute("width"),
+    ),
+  ).toBeGreaterThan(initialWidth);
+
+  const rotateHandle = screen.getByRole("button", {
+    name: "旋转所选元素",
+  });
+  fireEvent.pointerDown(rotateHandle, {
+    pointerId: 3,
+    clientX: 80,
+    clientY: 50,
+  });
+  fireEvent.pointerMove(rotateHandle, {
+    pointerId: 3,
+    clientX: 110,
+    clientY: 80,
+  });
+  fireEvent.pointerUp(rotateHandle, { pointerId: 3 });
+  expect(
+    preview
+      .querySelector<SVGImageElement>(
+        `image[data-layer-id="${selectedGroup.dataset.selectionFor}"]`,
+      )!
+      .getAttribute("transform"),
+  ).not.toContain("rotate(0 ");
+
   fireEvent.click(
     within(
       panel.querySelector<HTMLElement>(`[data-layer-id="${firstId}"]`)!,
@@ -185,11 +234,26 @@ it("shows row dividers and supports right-click duplicate and delete", async () 
   fireEvent.click(screen.getByRole("button", { name: "删除主体" }));
   expect(preview.querySelectorAll("image")).toHaveLength(2);
 
+  fireEvent.drop(preview, {
+    clientX: 120,
+    clientY: 80,
+    dataTransfer: { getData: () => "star" },
+  });
+  expect(
+    screen.queryByRole("button", { name: "旋转所选元素" }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: /等比缩放控制点/ }),
+  ).not.toBeInTheDocument();
+  expect(
+    within(document.querySelector(".cup-local-layer-editor")!).getAllByRole(
+      "slider",
+    ),
+  ).toHaveLength(2);
+
   fireEvent.click(screen.getByRole("button", { name: "Close" }));
   expect(
     (await screen.findAllByText("确认关闭无损元素排版？")).length,
   ).toBeGreaterThan(0);
-  fireEvent.click(
-    screen.getAllByRole("button", { name: "继续编辑" }).at(-1)!,
-  );
+  fireEvent.click(screen.getAllByRole("button", { name: "继续编辑" }).at(-1)!);
 }, 20_000);

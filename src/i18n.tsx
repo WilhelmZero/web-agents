@@ -126,8 +126,8 @@ const translations: Record<string, string> = {
   "当前覆盖角度不足 180°，正面与背面无法在实物杯身上严格相隔 180°；系统已将两图放在可印刷范围的两端。":
     "The current coverage is below 180°, so the front and back cannot be exactly 180° apart on the physical cup. The two artworks have been placed at the ends of the printable area.",
   原始正背拼接: "Original front/back composition",
-  "正面图等比缩放": "Front artwork uniform scale",
-  "背面图等比缩放": "Back artwork uniform scale",
+  正面图等比缩放: "Front artwork uniform scale",
+  背面图等比缩放: "Back artwork uniform scale",
   "正面图水平微调 mm": "Front artwork horizontal offset mm",
   "背面图水平微调 mm": "Back artwork horizontal offset mm",
   "正面图垂直微调 mm": "Front artwork vertical offset mm",
@@ -179,6 +179,11 @@ const translations: Record<string, string> = {
   锁定全部: "Lock all",
   解锁全部: "Unlock all",
   移到最顶层: "Move to top",
+  旋转所选元素: "Rotate selected item",
+  "等比缩放控制点 左上": "Proportional scale handle · top left",
+  "等比缩放控制点 右上": "Proportional scale handle · top right",
+  "等比缩放控制点 右下": "Proportional scale handle · bottom right",
+  "等比缩放控制点 左下": "Proportional scale handle · bottom left",
   "确认关闭无损元素排版？": "Close lossless element layout?",
   "尚未采用的排布和微调将会丢失。":
     "Unapplied layout and adjustment changes will be lost.",
@@ -195,7 +200,7 @@ const translations: Record<string, string> = {
   删除当前实例: "Delete this instance",
   复制主体: "Duplicate subject",
   删除主体: "Delete subject",
-  "拖到预览中的元素上可替换该实例":
+  拖到预览中的元素上可替换该实例:
     "Drag onto an item in the preview to replace that instance",
   "最大主体按原图位置映射并跨路径占位；其他主体按固定顺序沿多条同心弧线路径循环排列。主体排布不使用随机数，小装饰仍可随机填缝。":
     "The largest subject keeps its mapped source position and reserves every intersected path. Other subjects cycle in a fixed order along concentric arc paths. Subject placement is deterministic; only small decoration gap filling is randomized.",
