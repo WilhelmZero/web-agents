@@ -12,6 +12,7 @@ import { work } from "./services/cupWrap/client";
 import { loadDesigns } from "./services/cupWrap/storage";
 import { DEFAULT_CUP } from "./services/cupWrap/geometry";
 import { hasUsableTransparency } from "./services/backgroundRemoval";
+import { adaptArtwork } from "./services/cupWrap/ai";
 vi.mock("./services/cupWrap/client", () => ({
   work: vi.fn((input: { kind: string }) =>
     Promise.resolve(
@@ -32,6 +33,9 @@ vi.mock("./services/cupWrap/pdf", () => ({
 }));
 vi.mock("./services/backgroundRemoval", () => ({
   hasUsableTransparency: vi.fn(() => Promise.resolve(false)),
+}));
+vi.mock("./services/cupWrap/ai", () => ({
+  adaptArtwork: vi.fn(),
 }));
 vi.mock("./CupWrapSeamPreview", () => ({
   default: ({ open, onClose }: { open: boolean; onClose: () => void }) =>
@@ -146,6 +150,68 @@ it("automatically recalculates A4 layout after design data loads", async () => {
       ),
     { timeout: 3000 },
   );
+}, 30000);
+it("keeps rectangular AI output as a candidate until the user applies geometry mapping", async () => {
+  const original = new Blob(["original-stitch"], { type: "image/png" });
+  vi.mocked(loadDesigns).mockResolvedValueOnce([{
+    id: "geometry-ai",
+    name: "扩图测试",
+    cup: { ...DEFAULT_CUP },
+    source: original,
+    originalSource: original,
+    sourceRevision: "v1",
+    stitchedSource: true,
+    aiResults: [],
+    adaptationMode: "ai-geometry",
+    fit: "contain", scale: 1, x: 0, y: 0, rotation: 0,
+    layers: [], quantity: 1, prompt: "",
+  }]);
+  vi.mocked(adaptArtwork).mockResolvedValue(new Blob(["candidate"], { type: "image/png" }));
+  render(<CupWrapPrintComposer active settingsHost={null} settings={DEFAULT_SETTINGS} />);
+  const requestSize = await screen.findByText(/请求尺寸 \d+ × \d+ px/);
+  const match = requestSize.textContent!.match(/请求尺寸 (\d+) × (\d+) px/)!;
+  vi.stubGlobal("createImageBitmap", async () => ({
+    width: Number(match[1]), height: Number(match[2]), close: vi.fn(),
+  }));
+  expect(screen.getByRole("textbox", { name: "矩形扩图提示词" }))
+    .toHaveValue("参考原图元素进行扩图，只用精灵和星星进行填充");
+  fireEvent.click(screen.getByRole("button", { name: "生成矩形扩图候选" }));
+  await waitFor(() => expect(document.querySelector(".ant-modal-confirm-btns .ant-btn-primary")).not.toBeNull());
+  fireEvent.click(document.querySelector(".ant-modal-confirm-btns .ant-btn-primary")!);
+  await screen.findByText(/候选 1 · gpt-image-2.5-sunburst/);
+  expect(adaptArtwork).toHaveBeenCalledWith(
+    expect.anything(), "gpt-image-2.5-sunburst", original,
+    "参考原图元素进行扩图，只用精灵和星星进行填充",
+    expect.any(AbortSignal),
+    expect.objectContaining({ transparent: true, size: `${match[1]}x${match[2]}` }),
+  );
+  expect(screen.getByRole("button", { name: "应用并几何映射" })).toBeEnabled();
+  expect(work).not.toHaveBeenCalledWith(
+    expect.objectContaining({ kind: "png", design: expect.objectContaining({ adopted: expect.any(Blob) }) }),
+    expect.anything(),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "应用并几何映射" }));
+  await waitFor(() => expect(work).toHaveBeenCalledWith(
+    expect.objectContaining({
+      kind: "png",
+      design: expect.objectContaining({ adaptationMode: "ai-geometry", adopted: expect.any(Blob) }),
+    }),
+    expect.any(AbortSignal),
+  ));
+  fireEvent.click(screen.getByRole("button", { name: "重试（使用当前提示词）" }));
+  await waitFor(() => expect(document.querySelector(".ant-modal-confirm-btns .ant-btn-primary")).not.toBeNull());
+  fireEvent.click(document.querySelector(".ant-modal-confirm-btns .ant-btn-primary")!);
+  await screen.findByText(/候选 2 · gpt-image-2.5-sunburst/);
+  expect(vi.mocked(adaptArtwork).mock.calls.map((call) => call[2]))
+    .toEqual([original, original]);
+  fireEvent.click(screen.getByRole("button", { name: "使用原图" }));
+  await waitFor(() => expect(work).toHaveBeenCalledWith(
+    expect.objectContaining({
+      kind: "png",
+      design: expect.objectContaining({ adaptationMode: "ai-geometry", adopted: undefined }),
+    }),
+    expect.any(AbortSignal),
+  ));
 }, 30000);
 it("renders settings in the independent host and opens artwork options without AI calls", async () => {
   const host = document.createElement("div");

@@ -86,6 +86,22 @@ export interface ArtworkMaskStroke {
   /** Brush diameter normalized against the shorter dieline side. */
   size: number;
 }
+export type GeometryOutpaintModel =
+  | "gpt-image-2.5-sunburst"
+  | "gpt-image-2.5-flare";
+export interface GeometryOutpaintCandidate {
+  id: string;
+  blob: Blob;
+  cupKey: string;
+  sourceRevision: string;
+  width: number;
+  height: number;
+  requestedWidth: number;
+  requestedHeight: number;
+  model: GeometryOutpaintModel;
+  prompt: string;
+  adjustment: ImageAdjustment;
+}
 export interface WrapDesign {
   id: string;
   name: string;
@@ -95,6 +111,7 @@ export interface WrapDesign {
   artworkSlots?: ArtworkSlot[];
   /** True when source is the left-to-right composite of artworkSlots. */
   stitchedSource?: boolean;
+  sourceRevision?: string;
   /** Pixel gap between the first and second stitched source images. Negative values overlap. */
   stitchGapPx?: number;
   maskStrokes?: ArtworkMaskStroke[];
@@ -102,13 +119,17 @@ export interface WrapDesign {
   adopted?: Blob;
   aiResults: Blob[];
   aiFrames?: ({ cupKey: string; transparent: boolean } | null)[];
+  geometryOutpaintPrompt?: string;
+  geometryOutpaintModel?: GeometryOutpaintModel;
+  geometryOutpaintCandidates?: GeometryOutpaintCandidate[];
+  appliedGeometryCandidateId?: string;
   adoptedFrame?: { cupKey: string; transparent: boolean };
   transparentOutput?: boolean;
   backgroundColor?: string;
   canvasBackground?: "white" | "transparent" | "color";
   canvasBackgroundColor?: string;
   aiAdjustment?: ImageAdjustment;
-  adaptationMode?: "original" | "geometry" | "ai" | "local";
+  adaptationMode?: "original" | "geometry" | "ai" | "ai-geometry" | "local";
   localAdaptation?: LocalAdaptation;
   fit: "contain" | "cover" | "tile";
   scale: number;

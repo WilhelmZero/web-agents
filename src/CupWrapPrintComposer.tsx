@@ -8,6 +8,7 @@ import {
   Image,
   Input,
   InputNumber,
+  message,
   Modal,
   Select,
   Slider,
@@ -39,6 +40,8 @@ import {
   type ArtworkMaskStroke,
   type ArtworkRole,
   type ImageAdjustment,
+  type GeometryOutpaintCandidate,
+  type GeometryOutpaintModel,
   type PrintSettings,
   type WrapDesign,
 } from "./services/cupWrap/types";
@@ -63,6 +66,11 @@ import CupWrapSeamPreview from "./CupWrapSeamPreview";
 import { hasUsableTransparency } from "./services/backgroundRemoval";
 import { artworkSlotPlacement } from "./services/cupWrap/artworkPlacement";
 import { stitchArtwork } from "./services/cupWrap/stitchArtwork";
+import {
+  chooseOutpaintSize,
+  DEFAULT_GEOMETRY_OUTPAINT_PROMPT,
+  idealOutpaintRatio,
+} from "./services/cupWrap/geometryOutpaint";
 const SHOW_MANUAL_ARTWORK_TOOLS = false;
 const PRINT_SETTINGS_KEY = "cup-wrap-print:settings:v3";
 const LEGACY_PRINT_SETTINGS_KEY = "cup-wrap-print:settings:v2";
@@ -171,7 +179,11 @@ const fresh = (): WrapDesign => ({
   id: crypto.randomUUID(),
   name: "杯身设计",
   cup: { ...DEFAULT_CUP },
+  sourceRevision: crypto.randomUUID(),
   aiResults: [],
+  geometryOutpaintPrompt: DEFAULT_GEOMETRY_OUTPAINT_PROMPT,
+  geometryOutpaintModel: "gpt-image-2.5-sunburst",
+  geometryOutpaintCandidates: [],
   artworkSlots: [],
   stitchGapPx: 0,
   enabled: true,
@@ -199,6 +211,11 @@ const hasArtwork = (design: WrapDesign) =>
   );
 const migrateDesign = (design: WrapDesign): WrapDesign => ({
   ...design,
+  sourceRevision: design.sourceRevision ?? crypto.randomUUID(),
+  geometryOutpaintPrompt:
+    design.geometryOutpaintPrompt ?? DEFAULT_GEOMETRY_OUTPAINT_PROMPT,
+  geometryOutpaintModel:
+    design.geometryOutpaintModel ?? "gpt-image-2.5-sunburst",
   // A single uploaded image uses the same unified source pipeline as a
   // stitched pair. Legacy one-slot projects are upgraded automatically so
   // geometry mapping is not bypassed by the old front/back placement branch.
@@ -280,6 +297,7 @@ export default function CupWrapPrintComposer({
     [error, setError] = useState(""),
     [preview, setPreview] = useState(""),
     [busy, setBusy] = useState(""),
+    [geometryBusy, setGeometryBusy] = useState<string | null>(null),
     [layoutBusy, setLayoutBusy] = useState(false),
     [layout, setLayout] = useState<PrintLayout>(),
     [tab, setTab] = useState("design"),
@@ -314,6 +332,7 @@ export default function CupWrapPrintComposer({
     }
   });
   const abort = useRef<AbortController | null>(null),
+    geometryJob = useRef<AbortController | null>(null),
     saveChain = useRef(Promise.resolve()),
     previewSvg = useRef<SVGSVGElement | null>(null),
     previewInteraction = useRef<
@@ -332,14 +351,19 @@ export default function CupWrapPrintComposer({
     designs.find((design) => design.id === activeDesignId) ?? designs[0];
   const imageAdjustment =
     d.aiAdjustment ??
-    ((d.adaptationMode ?? "geometry") === "geometry"
+    (["geometry", "ai-geometry"].includes(d.adaptationMode ?? "geometry")
       ? DEFAULT_GEOMETRY_ADJUSTMENT
       : DEFAULT_AI_ADJUSTMENT);
   useEffect(() => {
     let cancelled = false;
-    const blob =
-      d.adopted ||
-      (d.stitchedSource
+    const applied = d.geometryOutpaintCandidates?.find(
+      (candidate) => candidate.id === d.appliedGeometryCandidateId &&
+        candidate.cupKey === JSON.stringify(d.cup) &&
+        candidate.sourceRevision === d.sourceRevision,
+    );
+    const blob = d.adaptationMode === "ai-geometry"
+      ? applied?.blob ?? d.source
+      : d.adopted || (d.stitchedSource
         ? d.source
         : d.artworkSlots?.find((slot) => slot.enabled)?.blob || d.source);
     if (!blob) {
@@ -355,7 +379,8 @@ export default function CupWrapPrintComposer({
     return () => {
       cancelled = true;
     };
-  }, [d.source, d.adopted, d.artworkSlots]);
+  }, [d.source, d.adopted, d.artworkSlots, d.adaptationMode,
+    d.appliedGeometryCandidateId, d.geometryOutpaintCandidates, d.cup, d.sourceRevision]);
   useEffect(() => {
     let cancelled = false;
     Promise.all(
@@ -392,6 +417,19 @@ export default function CupWrapPrintComposer({
       return { g: null, error: String(e) };
     }
   }, [d.cup]);
+  const geometryOutpaintSize = useMemo(() => {
+    try {
+      if (!geo.g) return { value: null, error: geo.error };
+      return {
+        value: chooseOutpaintSize(
+          idealOutpaintRatio(geo.g, d.cup.safe, imageAdjustment),
+        ),
+        error: "",
+      };
+    } catch (e) {
+      return { value: null, error: String(e) };
+    }
+  }, [geo, d.cup.safe, imageAdjustment]);
   useEffect(() => {
     loadDesigns()
       .then((v) => {
@@ -536,7 +574,9 @@ export default function CupWrapPrintComposer({
       revision = ++stitchRevision.current;
     update({
       stitchGapPx: gap,
+      sourceRevision: crypto.randomUUID(),
       adopted: undefined,
+      appliedGeometryCandidateId: undefined,
       layers: [],
       aiResults: [],
       aiFrames: [],
@@ -556,7 +596,7 @@ export default function CupWrapPrintComposer({
           setDesigns((all) =>
             all.map((design) =>
               design.id === designId
-                ? { ...design, source, originalSource: source }
+                ? { ...design, source, originalSource: source, sourceRevision: crypto.randomUUID() }
                 : design,
             ),
           );
@@ -665,6 +705,80 @@ export default function CupWrapPrintComposer({
       ),
     );
   }
+  function confirmGeometryGenerate() {
+    const size = geometryOutpaintSize.value;
+    if (!size || !d.originalSource && !d.source) return;
+    Modal.confirm({
+      title: "将发起 1 次付费矩形扩图请求",
+      content: `模型：${d.geometryOutpaintModel ?? "gpt-image-2.5-sunburst"}；质量：high；尺寸：${size.width} × ${size.height} px。仅发送原始拼接图，完成后不会自动应用；该尺寸属于实验性高分辨率范围。`,
+      onOk: () => { void generateGeometryCandidate(); },
+    });
+  }
+  async function generateGeometryCandidate() {
+    if (geometryJob.current || !geometryOutpaintSize.value) return;
+    const input = d.originalSource ?? d.source;
+    if (!input) return;
+    const snapshot = {
+      id: d.id,
+      cupKey: JSON.stringify(d.cup),
+      sourceRevision: d.sourceRevision ?? "",
+      prompt: d.geometryOutpaintPrompt?.trim() || DEFAULT_GEOMETRY_OUTPAINT_PROMPT,
+      model: d.geometryOutpaintModel ?? "gpt-image-2.5-sunburst",
+      adjustment: { ...imageAdjustment, warp: 1 },
+      size: geometryOutpaintSize.value,
+    };
+    const controller = new AbortController();
+    geometryJob.current = controller;
+    setGeometryBusy(snapshot.id);
+    setError("");
+    let timedOut = false;
+    const timer = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, 180_000);
+    try {
+      const blob = await adaptArtwork(
+        settings,
+        snapshot.model,
+        input,
+        snapshot.prompt,
+        controller.signal,
+        {
+          transparent: true,
+          size: `${snapshot.size.width}x${snapshot.size.height}`,
+          requestSummary: "杯身矩形扩图 · 原始拼接图 · 单次请求，无自动重试",
+        },
+      );
+      const image = await createImageBitmap(blob);
+      const candidate: GeometryOutpaintCandidate = {
+        id: crypto.randomUUID(),
+        blob,
+        cupKey: snapshot.cupKey,
+        sourceRevision: snapshot.sourceRevision,
+        width: image.width,
+        height: image.height,
+        requestedWidth: snapshot.size.width,
+        requestedHeight: snapshot.size.height,
+        model: snapshot.model,
+        prompt: snapshot.prompt,
+        adjustment: snapshot.adjustment,
+      };
+      image.close();
+      setDesigns((all) => all.map((item) => item.id === snapshot.id
+        ? { ...item, geometryOutpaintCandidates: [...(item.geometryOutpaintCandidates ?? []), candidate] }
+        : item));
+      message.success("矩形扩图已完成，请查看对应杯型的候选图并手动应用");
+    } catch (e) {
+      if (timedOut) setError("矩形扩图超过 3 分钟，请检查请求记录后重试；当前设计未改变。");
+      else if (!controller.signal.aborted)
+        setError(`矩形扩图失败：${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      window.clearTimeout(timer);
+      geometryJob.current = null;
+      setGeometryBusy(null);
+    }
+  }
+  useEffect(() => () => geometryJob.current?.abort(), []);
   async function run(label: string, fn: (s: AbortSignal) => Promise<void>) {
     if (abort.current) return;
     const c = new AbortController();
@@ -719,6 +833,7 @@ export default function CupWrapPrintComposer({
       update({
         source,
         originalSource: source,
+        sourceRevision: crypto.randomUUID(),
         artworkSlots,
         stitchedSource: true,
         transparentOutput: Boolean(
@@ -729,6 +844,7 @@ export default function CupWrapPrintComposer({
             ? undefined
             : d.backgroundColor,
         adopted: undefined,
+        appliedGeometryCandidateId: undefined,
         layers: [],
         aiResults: [],
         aiFrames: [],
@@ -863,7 +979,9 @@ export default function CupWrapPrintComposer({
               onClick={() =>
                 update({
                   source: d.originalSource,
+                  sourceRevision: crypto.randomUUID(),
                   adopted: undefined,
+                  appliedGeometryCandidateId: undefined,
                   layers: [],
                 })
               }
@@ -976,6 +1094,9 @@ export default function CupWrapPrintComposer({
                           artworkSlots: [],
                           source: undefined,
                           originalSource: undefined,
+                          sourceRevision: crypto.randomUUID(),
+                          adopted: undefined,
+                          appliedGeometryCandidateId: undefined,
                           stitchedSource: false,
                         });
                       } else
@@ -985,6 +1106,9 @@ export default function CupWrapPrintComposer({
                               artworkSlots,
                               source,
                               originalSource: source,
+                              sourceRevision: crypto.randomUUID(),
+                              adopted: undefined,
+                              appliedGeometryCandidateId: undefined,
                               stitchedSource: true,
                             }),
                           )
@@ -1027,10 +1151,17 @@ export default function CupWrapPrintComposer({
       <Select
         aria-label="图案适配方式"
         value={d.adaptationMode ?? "geometry"}
-        onChange={(adaptationMode) => update({ adaptationMode })}
+        onChange={(adaptationMode) => update({
+          adaptationMode,
+          ...(adaptationMode === "ai-geometry" &&
+          !["geometry", "ai-geometry"].includes(d.adaptationMode ?? "geometry")
+            ? { aiAdjustment: { ...DEFAULT_GEOMETRY_ADJUSTMENT } }
+            : {}),
+        })}
         options={[
           { value: "original", label: "原图（手动调整）" },
           { value: "geometry", label: "原图几何映射（推荐）" },
+          { value: "ai-geometry", label: "AI 扩图 + 几何映射" },
           { value: "ai", label: "AI 扩图" },
           { value: "local", label: "无损元素排版（程序化）" },
         ]}
@@ -1061,6 +1192,60 @@ export default function CupWrapPrintComposer({
           <p>
             上传透明图片时自动开启；关闭时输出纯白底。对于不透明图片，开启后只移除与边界连通且颜色均匀的背景；角色身体、眼睛和封闭区域中的白色或黑色会保留。
           </p>
+        </>
+      ) : d.adaptationMode === "ai-geometry" ? (
+        <>
+          <Alert
+            type="info"
+            showIcon
+            title="原始拼接图扩成矩形 · 确认后才映射"
+            description="AI 只接收上传的原始拼接图。结果作为候选保存，不会自动替换当前预览；应用后使用下方几何映射参数和刀模裁切。"
+          />
+          {d.appliedGeometryCandidateId && !d.geometryOutpaintCandidates?.some(
+            (candidate) => candidate.id === d.appliedGeometryCandidateId &&
+              candidate.cupKey === JSON.stringify(d.cup) &&
+              candidate.sourceRevision === d.sourceRevision,
+          ) && <Alert type="warning" title="原图或杯型已变化，已暂时回到原图映射；请重新应用匹配的候选图。" />}
+          <Space wrap>
+            <span>模型</span>
+            <Select
+              aria-label="矩形扩图模型"
+              value={d.geometryOutpaintModel ?? "gpt-image-2.5-sunburst"}
+              onChange={(geometryOutpaintModel: GeometryOutpaintModel) =>
+                update({ geometryOutpaintModel })}
+              options={[
+                { value: "gpt-image-2.5-sunburst", label: "GPT Image 2.5 Sunburst" },
+                { value: "gpt-image-2.5-flare", label: "GPT Image 2.5 Flare" },
+              ]}
+            />
+            <span>质量 high · 透明 PNG</span>
+          </Space>
+          <Input.TextArea
+            aria-label="矩形扩图提示词"
+            rows={3}
+            value={d.geometryOutpaintPrompt ?? DEFAULT_GEOMETRY_OUTPAINT_PROMPT}
+            onChange={(event) => update({ geometryOutpaintPrompt: event.target.value })}
+          />
+          {geometryOutpaintSize.value ? (
+            <p>
+              最合适矩形比例 {geometryOutpaintSize.value.idealRatio.toFixed(3)}；
+              请求尺寸 {geometryOutpaintSize.value.width} × {geometryOutpaintSize.value.height} px。
+              {geometryOutpaintSize.value.ratioClamped &&
+                " 杯型比例超过模型的 1:3–3:1 范围，边缘仍会有剩余几何变形。"}
+              {" 高于 2560×1440 的尺寸属于模型实验范围。"}
+            </p>
+          ) : <Alert type="warning" title={geometryOutpaintSize.error} />}
+          <Space wrap>
+            <Button
+              type="primary"
+              disabled={!(d.originalSource ?? d.source) || !geometryOutpaintSize.value || !!geometryBusy}
+              onClick={confirmGeometryGenerate}
+            >
+              生成矩形扩图候选
+            </Button>
+            {geometryBusy === d.id && <><Spin size="small" />后台生成中；可切换站内页面<Button onClick={() => geometryJob.current?.abort()}>停止</Button></>}
+            {geometryBusy && geometryBusy !== d.id && <span>其他杯型正在后台生成；完成后可切回查看</span>}
+          </Space>
         </>
       ) : (d.adaptationMode ?? "geometry") === "local" ? (
         <>
@@ -1165,7 +1350,7 @@ export default function CupWrapPrintComposer({
       <p>底色只填充刀模内部；刀模外始终透明。</p>
       <h3>输出与 A4</h3>
       {hasArtwork(d) &&
-        (((d.adaptationMode ?? "geometry") === "geometry" &&
+        ((["geometry", "ai-geometry"].includes(d.adaptationMode ?? "geometry") &&
           (!d.artworkSlots?.length || d.stitchedSource)) ||
           d.stitchedSource ||
           (d.adopted && d.adoptedFrame) ||
@@ -1220,7 +1405,7 @@ export default function CupWrapPrintComposer({
               3,
             )}
             {number(
-              (d.adaptationMode ?? "geometry") === "geometry"
+              ["geometry", "ai-geometry"].includes(d.adaptationMode ?? "geometry")
                 ? "沿斜边方向缩放"
                 : "垂直单轴缩放",
               imageAdjustment.scaleY ?? 1,
@@ -1231,7 +1416,7 @@ export default function CupWrapPrintComposer({
               0.2,
               3,
             )}
-            {(d.adaptationMode ?? "geometry") === "geometry" && (
+            {["geometry", "ai-geometry"].includes(d.adaptationMode ?? "geometry") && (
               <>
                 {number(
                   "图案左侧留白 mm",
@@ -1323,7 +1508,7 @@ export default function CupWrapPrintComposer({
               onClick={() =>
                 update({
                   aiAdjustment:
-                    (d.adaptationMode ?? "geometry") === "geometry"
+                    ["geometry", "ai-geometry"].includes(d.adaptationMode ?? "geometry")
                       ? DEFAULT_GEOMETRY_ADJUSTMENT
                       : undefined,
                 })
@@ -1863,7 +2048,7 @@ export default function CupWrapPrintComposer({
                     />
                   </label>
                   <label>
-                    {(d.adaptationMode ?? "geometry") === "geometry"
+                    {["geometry", "ai-geometry"].includes(d.adaptationMode ?? "geometry")
                       ? "斜边方向缩放"
                       : "垂直缩放"}{" "}
                     {Math.round((imageAdjustment.scaleY ?? 1) * 100)}%
@@ -2145,6 +2330,47 @@ export default function CupWrapPrintComposer({
         </main>
         {!settingsHost && <aside>{panel}</aside>}
       </div>
+      {!!d.geometryOutpaintCandidates?.length && (
+        <Card title="矩形扩图候选（手动应用）">
+          <Space wrap align="start">
+            {d.geometryOutpaintCandidates.map((candidate, index) => {
+              const current = candidate.cupKey === JSON.stringify(d.cup) &&
+                candidate.sourceRevision === d.sourceRevision;
+              const sizeValid = candidate.width === candidate.requestedWidth &&
+                candidate.height === candidate.requestedHeight;
+              return (
+                <div key={candidate.id} className="cup-geometry-candidate">
+                  <BlobPreview blob={candidate.blob} />
+                  <p>候选 {index + 1} · {candidate.model}<br />{candidate.width} × {candidate.height} px</p>
+                  {!current && <p>原图或杯型已变化，不能直接应用</p>}
+                  {!sizeValid && <p>返回尺寸与请求不符，不能直接应用</p>}
+                  <Button
+                    type={d.appliedGeometryCandidateId === candidate.id ? "primary" : "default"}
+                    disabled={!current || !sizeValid}
+                    onClick={() => update({
+                      adopted: candidate.blob,
+                      adoptedFrame: undefined,
+                      appliedGeometryCandidateId: candidate.id,
+                      adaptationMode: "ai-geometry",
+                      aiAdjustment: { ...candidate.adjustment },
+                      maskStrokes: [],
+                      transparentOutput: true,
+                    })}
+                  >应用并几何映射</Button>
+                </div>
+              );
+            })}
+            <Space orientation="vertical">
+              <Button disabled={!!geometryBusy} onClick={confirmGeometryGenerate}>重试（使用当前提示词）</Button>
+              <Button onClick={() => update({
+                adopted: undefined,
+                appliedGeometryCandidateId: undefined,
+                adaptationMode: "ai-geometry",
+              })}>使用原图</Button>
+            </Space>
+          </Space>
+        </Card>
+      )}
       {d.aiResults.length > 0 && (
         <Card title="AI 扩图历史（最新结果已直接替换当前图）">
           <Space wrap>

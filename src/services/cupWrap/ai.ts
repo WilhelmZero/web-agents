@@ -11,7 +11,7 @@ export async function adaptArtwork(
   source: Blob,
   prompt: string,
   signal: AbortSignal,
-  options?: { transparent: boolean; size?: string },
+  options?: { transparent: boolean; size?: string; requestSummary?: string },
 ): Promise<Blob> {
   const gemini = model.startsWith("gemini-"),
     key = gemini ? settings.apiKey : settings.openAiApiKey;
@@ -19,7 +19,7 @@ export async function adaptArtwork(
   const id = startRequestConsoleEntry({
       model,
       connection: gemini ? settings.connectionMode : "direct",
-      requestSummary: "杯身刀模扩图 · 当前刀模图 · 单次请求，无自动重试",
+      requestSummary: options?.requestSummary ?? "杯身刀模扩图 · 当前刀模图 · 单次请求，无自动重试",
       requestPrompt: prompt,
       inputImages: [source],
     }),

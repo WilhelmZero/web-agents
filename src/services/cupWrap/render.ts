@@ -120,9 +120,21 @@ export async function renderDesign(
       img.close();
     }
   };
-  const source = d.adopted || d.source;
+  const appliedGeometryCandidate = d.geometryOutpaintCandidates?.find(
+    (candidate) => candidate.id === d.appliedGeometryCandidateId,
+  );
+  const validGeometryCandidate = appliedGeometryCandidate &&
+    appliedGeometryCandidate.cupKey === JSON.stringify(d.cup) &&
+    appliedGeometryCandidate.sourceRevision === d.sourceRevision &&
+    appliedGeometryCandidate.width === appliedGeometryCandidate.requestedWidth &&
+    appliedGeometryCandidate.height === appliedGeometryCandidate.requestedHeight;
+  const source = d.adaptationMode === "ai-geometry"
+    ? validGeometryCandidate ? appliedGeometryCandidate.blob : d.source
+    : d.adopted || d.source;
   const artworkSlots = (d.artworkSlots ?? []).filter((slot) => slot.enabled);
-  const geometric = (d.adaptationMode ?? "geometry") === "geometry";
+  const geometric = ["geometry", "ai-geometry"].includes(
+    d.adaptationMode ?? "geometry",
+  );
   const local =
     d.adaptationMode === "local" &&
     d.localAdaptation?.cupKey === JSON.stringify(d.cup)
@@ -190,8 +202,10 @@ export async function renderDesign(
       }
     }
     ctx.restore();
-  } else if (geometric && d.source) {
-    const original = await createImageBitmap(d.source);
+  } else if (geometric && source) {
+    const original = await createImageBitmap(
+      d.adaptationMode === "ai-geometry" ? source : d.source ?? source,
+    );
     let img = original;
     try {
       const foreground = await removeUniformBoundaryBackground(original);

@@ -65,3 +65,28 @@ it("does not automatically retry errors or record generated images", async () =>
     expect.objectContaining({ status: "failed" }),
   );
 });
+it.each(["gpt-image-2.5-sunburst", "gpt-image-2.5-flare"])(
+  "uses transparent high-quality custom-size PNG edits for %s",
+  async (model) => {
+    const fetcher = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: [{ b64_json: "AQID" }] }), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetcher);
+    await adaptArtwork(
+      { ...DEFAULT_SETTINGS, openAiApiKey: "test" },
+      model,
+      new Blob(["original"], { type: "image/png" }),
+      "参考原图元素进行扩图，只用精灵和星星进行填充",
+      new AbortController().signal,
+      { transparent: true, size: "2880x2880" },
+    );
+    const form = fetcher.mock.calls[0][1].body as FormData;
+    expect(form.get("model")).toBe(model);
+    expect(form.get("size")).toBe("2880x2880");
+    expect(form.get("quality")).toBe("high");
+    expect(form.get("background")).toBe("transparent");
+    expect(form.get("output_format")).toBe("png");
+    expect(form.getAll("image[]")).toHaveLength(1);
+    expect(await (form.getAll("image[]")[0] as Blob).text()).toBe("original");
+  },
+);
