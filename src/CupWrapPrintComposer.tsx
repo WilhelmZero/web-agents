@@ -710,7 +710,7 @@ export default function CupWrapPrintComposer({
     if (!size || !d.originalSource && !d.source) return;
     Modal.confirm({
       title: "将发起 1 次付费矩形扩图请求",
-      content: `模型：${d.geometryOutpaintModel ?? "gpt-image-2.5-sunburst"}；质量：high；尺寸：${size.width} × ${size.height} px。仅发送原始拼接图，完成后不会自动应用；该尺寸属于实验性高分辨率范围。`,
+      content: `模型：${d.geometryOutpaintModel ?? "gpt-image-2.5-sunburst"}；质量：high；尺寸：${size.width} × ${size.height} px。仅发送原始拼接图，生成成功且原图、杯型未变化时自动应用并几何映射；该尺寸属于实验性高分辨率范围。`,
       onOk: () => { void generateGeometryCandidate(); },
     });
   }
@@ -764,10 +764,27 @@ export default function CupWrapPrintComposer({
         adjustment: snapshot.adjustment,
       };
       image.close();
-      setDesigns((all) => all.map((item) => item.id === snapshot.id
-        ? { ...item, geometryOutpaintCandidates: [...(item.geometryOutpaintCandidates ?? []), candidate] }
-        : item));
-      message.success("矩形扩图已完成，请查看对应杯型的候选图并手动应用");
+      setDesigns((all) => all.map((item) => {
+        if (item.id !== snapshot.id) return item;
+        const current = candidate.cupKey === JSON.stringify(item.cup) &&
+          candidate.sourceRevision === item.sourceRevision;
+        const sizeValid = candidate.width === candidate.requestedWidth &&
+          candidate.height === candidate.requestedHeight;
+        return {
+          ...item,
+          geometryOutpaintCandidates: [...(item.geometryOutpaintCandidates ?? []), candidate],
+          ...(current && sizeValid ? {
+            adopted: candidate.blob,
+            adoptedFrame: undefined,
+            appliedGeometryCandidateId: candidate.id,
+            adaptationMode: "ai-geometry" as const,
+            aiAdjustment: { ...candidate.adjustment },
+            maskStrokes: [],
+            transparentOutput: true,
+          } : {}),
+        };
+      }));
+      message.success("矩形扩图已完成；原图和杯型匹配时已自动应用几何映射，请查看对应杯型");
     } catch (e) {
       if (timedOut) setError("矩形扩图超过 3 分钟，请检查请求记录后重试；当前设计未改变。");
       else if (!controller.signal.aborted)
@@ -1198,8 +1215,8 @@ export default function CupWrapPrintComposer({
           <Alert
             type="info"
             showIcon
-            title="原始拼接图扩成矩形 · 确认后才映射"
-            description="AI 只接收上传的原始拼接图。结果作为候选保存，不会自动替换当前预览；应用后使用下方几何映射参数和刀模裁切。"
+            title="原始拼接图扩成矩形 · 完成后自动映射"
+            description="AI 只接收上传的原始拼接图。生成成功且原图、杯型未变化时自动应用，并使用几何映射和刀模裁切；仍可恢复原图或选择历史结果。"
           />
           {d.appliedGeometryCandidateId && !d.geometryOutpaintCandidates?.some(
             (candidate) => candidate.id === d.appliedGeometryCandidateId &&
@@ -1241,7 +1258,7 @@ export default function CupWrapPrintComposer({
               disabled={!(d.originalSource ?? d.source) || !geometryOutpaintSize.value || !!geometryBusy}
               onClick={confirmGeometryGenerate}
             >
-              生成矩形扩图候选
+              生成并自动应用几何映射
             </Button>
             {geometryBusy === d.id && <><Spin size="small" />后台生成中；可切换站内页面<Button onClick={() => geometryJob.current?.abort()}>停止</Button></>}
             {geometryBusy && geometryBusy !== d.id && <span>其他杯型正在后台生成；完成后可切回查看</span>}
@@ -2331,7 +2348,7 @@ export default function CupWrapPrintComposer({
         {!settingsHost && <aside>{panel}</aside>}
       </div>
       {!!d.geometryOutpaintCandidates?.length && (
-        <Card title="矩形扩图候选（手动应用）">
+        <Card title="矩形扩图历史（完成后自动应用）">
           <Space wrap align="start">
             {d.geometryOutpaintCandidates.map((candidate, index) => {
               const current = candidate.cupKey === JSON.stringify(d.cup) &&

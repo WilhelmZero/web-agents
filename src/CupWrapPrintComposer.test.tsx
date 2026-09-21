@@ -151,7 +151,7 @@ it("automatically recalculates A4 layout after design data loads", async () => {
     { timeout: 3000 },
   );
 }, 30000);
-it("keeps rectangular AI output as a candidate until the user applies geometry mapping", async () => {
+it("automatically applies rectangular AI output and can restore the original", async () => {
   const original = new Blob(["original-stitch"], { type: "image/png" });
   vi.mocked(loadDesigns).mockResolvedValueOnce([{
     id: "geometry-ai",
@@ -175,7 +175,7 @@ it("keeps rectangular AI output as a candidate until the user applies geometry m
   }));
   expect(screen.getByRole("textbox", { name: "矩形扩图提示词" }))
     .toHaveValue("参考原图元素进行扩图，只用精灵和星星进行填充");
-  fireEvent.click(screen.getByRole("button", { name: "生成矩形扩图候选" }));
+  fireEvent.click(screen.getByRole("button", { name: "生成并自动应用几何映射" }));
   await waitFor(() => expect(document.querySelector(".ant-modal-confirm-btns .ant-btn-primary")).not.toBeNull());
   fireEvent.click(document.querySelector(".ant-modal-confirm-btns .ant-btn-primary")!);
   await screen.findByText(/候选 1 · gpt-image-2.5-sunburst/);
@@ -186,15 +186,14 @@ it("keeps rectangular AI output as a candidate until the user applies geometry m
     expect.objectContaining({ transparent: true, size: `${match[1]}x${match[2]}` }),
   );
   expect(screen.getByRole("button", { name: "应用并几何映射" })).toBeEnabled();
-  expect(work).not.toHaveBeenCalledWith(
-    expect.objectContaining({ kind: "png", design: expect.objectContaining({ adopted: expect.any(Blob) }) }),
-    expect.anything(),
-  );
-  fireEvent.click(screen.getByRole("button", { name: "应用并几何映射" }));
   await waitFor(() => expect(work).toHaveBeenCalledWith(
     expect.objectContaining({
       kind: "png",
-      design: expect.objectContaining({ adaptationMode: "ai-geometry", adopted: expect.any(Blob) }),
+      design: expect.objectContaining({
+        adaptationMode: "ai-geometry",
+        adopted: expect.any(Blob),
+        appliedGeometryCandidateId: expect.any(String),
+      }),
     }),
     expect.any(AbortSignal),
   ));
