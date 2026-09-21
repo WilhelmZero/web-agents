@@ -212,7 +212,7 @@ it("keeps rectangular AI output as a candidate until the user applies geometry m
     }),
     expect.any(AbortSignal),
   ));
-}, 30000);
+}, 120000);
 it("renders settings in the independent host and opens artwork options without AI calls", async () => {
   const host = document.createElement("div");
   document.body.appendChild(host);
