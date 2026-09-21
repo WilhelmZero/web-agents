@@ -1,10 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   AUTO_LAYOUT_SCALE_FACTORS,
   analyzePixels,
   automaticPathCount,
   arrangeLocal,
+  arrangeSmartDecorations,
   blankRatio,
+  decorationTargetCount,
   fixedPathDividerPoints,
   fixedPathPoints,
   respectsDecorationSpacing,
@@ -47,6 +49,12 @@ describe("local cup artwork analysis", () => {
     ).toBe(true);
   });
 
+  it("sizes decoration fill by free wrap area, not the number of source motifs", () => {
+    expect(decorationTargetCount(10000, 8, 70)).toBeGreaterThan(4);
+    expect(decorationTargetCount(10000, 8, 0)).toBe(0);
+    expect(decorationTargetCount(100000, 2, 100)).toBeLessThanOrEqual(64);
+  });
+
   it.each([
     [[255, 255, 255, 255] as const, "white"],
     [[20, 80, 160, 255] as const, "solid"],
@@ -81,6 +89,55 @@ describe("local cup layout", () => {
     h: number,
     role: "anchor" | "main" | "decoration",
   ): LocalObject => ({ id, blob, rect: { x, y, width: w, height: h }, role });
+
+  it("fills separated decoration gaps even when only one star was recognized", async () => {
+    vi.stubGlobal(
+      "OffscreenCanvas",
+      class {
+        constructor(
+          public width: number,
+          public height: number,
+        ) {}
+        getContext() {
+          return {
+            scale: () => {},
+            getImageData: () => {
+              const data = new Uint8ClampedArray(this.width * this.height * 4);
+              for (let y = this.height * 0.3; y < this.height * 0.7; y++)
+                for (let x = this.width * 0.3; x < this.width * 0.7; x++)
+                  data[(Math.floor(y) * this.width + Math.floor(x)) * 4 + 3] =
+                    255;
+              return { data };
+            },
+          };
+        }
+      },
+    );
+    try {
+      const result = await arrangeSmartDecorations(
+        {
+          sourceWidth: 500,
+          sourceHeight: 400,
+          objects: [object("star", 50, 50, 35, 35, "decoration")],
+          fill: 70,
+          scale: 0.75,
+          seed: 7,
+        },
+        DEFAULT_CUP,
+        [],
+      );
+      expect(result.length).toBeGreaterThan(4);
+      const height = geometry(DEFAULT_CUP).height;
+      expect(Math.min(...result.map((layer) => layer.y))).toBeLessThan(
+        height * 0.3,
+      );
+      expect(Math.max(...result.map((layer) => layer.y))).toBeGreaterThan(
+        height * 0.7,
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
   it("limits automatic per-subject scaling to ten percent", () => {
     expect(AUTO_LAYOUT_SCALE_FACTORS).toEqual([1, 0.95, 0.9]);
   });

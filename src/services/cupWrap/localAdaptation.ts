@@ -579,7 +579,7 @@ export function arrangeLocal(
         1,
         Math.floor(
           (Math.max(1, arcLength - safe * 2) + itemGap) /
-          Math.max(0.01, averageWidth + itemGap),
+            Math.max(0.01, averageWidth + itemGap),
         ),
       ),
       // Give the narrow final row one extra editable subject. The user can
@@ -590,14 +590,18 @@ export function arrangeLocal(
           safe + ((slot + 0.5) * Math.max(1, arcLength - safe * 2)) / capacity,
         u = Math.max(0, Math.min(1, distance / Math.max(0.01, arcLength))),
         towardMiddle = path.v < 0.5 ? 1 : -1,
+        // Keep every subject visually inside its own band. Larger vertical
+        // nudges made a four-path layout collapse into three apparent rows.
         searchPoints = [
           { du: 0, dv: 0 },
-          { du: -0.18 / capacity, dv: 0 },
-          { du: 0.18 / capacity, dv: 0 },
+          { du: -0.28 / capacity, dv: 0 },
+          { du: 0.28 / capacity, dv: 0 },
+          { du: -0.45 / capacity, dv: 0 },
+          { du: 0.45 / capacity, dv: 0 },
+          { du: 0, dv: towardMiddle * 0.018 },
+          { du: -0.3 / capacity, dv: towardMiddle * 0.018 },
+          { du: 0.3 / capacity, dv: towardMiddle * 0.018 },
           { du: 0, dv: towardMiddle * 0.025 },
-          { du: -0.28 / capacity, dv: towardMiddle * 0.04 },
-          { du: 0.28 / capacity, dv: towardMiddle * 0.04 },
-          { du: 0, dv: towardMiddle * 0.065 },
         ];
       // A single oversized/colliding subject must not block every following
       // slot. Try each source once and advance the cycle on every attempt.
@@ -627,7 +631,7 @@ export function arrangeLocal(
                 candidateHeight,
                 rotation,
                 0,
-                0.68,
+                0.55,
               )
             )
               continue;
@@ -735,8 +739,26 @@ export function respectsDecorationSpacing(
 ) {
   return placed.every(
     (other) =>
-      Math.hypot(x - other.x, y - other.y) >=
-      2 * Math.max(width, other.width),
+      Math.hypot(x - other.x, y - other.y) >= 2 * Math.max(width, other.width),
+  );
+}
+
+export function decorationTargetCount(
+  fanArea: number,
+  typicalWidth: number,
+  fill: number,
+) {
+  if (fill <= 0 || typicalWidth <= 0) return 0;
+  // Count available visual cells, rather than source decoration types. A
+  // single isolated star should be reusable across a large empty wrap.
+  return Math.min(
+    64,
+    Math.max(
+      1,
+      Math.round(
+        ((fanArea / (3.2 * typicalWidth) ** 2) * Math.min(100, fill)) / 100,
+      ),
+    ),
   );
 }
 
@@ -782,58 +804,106 @@ export async function arrangeSmartDecorations(
       const object = byId.get(layer.sourceObjectId ?? "");
       return object?.rect.width ? [layer.width / object.rect.width] : [];
     }),
-    visualRatio = median(ratios, Math.min(g.width / input.sourceWidth, g.height / input.sourceHeight) * input.scale),
-    targetCount = Math.min(
-      48,
-      Math.round((decorations.length * 4 * input.fill) / 100),
+    visualRatio = median(
+      ratios,
+      Math.min(g.width / input.sourceWidth, g.height / input.sourceHeight) *
+        input.scale,
     ),
+    fanArea =
+      Math.abs(
+        g.points.reduce((sum, point, index) => {
+          const next = g.points[(index + 1) % g.points.length];
+          return sum + point.x * next.y - next.x * point.y;
+        }, 0),
+      ) / 2,
+    targetCount = decorations.length
+      ? decorationTargetCount(
+          fanArea,
+          median(decorations.map((object) => object.rect.width * visualRatio)),
+          input.fill,
+        )
+      : 0,
     placed: { x: number; y: number; width: number }[] = [],
+    bandCounts = [0, 0, 0, 0],
     result: ArtLayer[] = [],
-    rng = random(input.seed);
+    rng = random(input.seed),
+    candidateCache = new Map<
+      string,
+      { x: number; y: number; score: number }[]
+    >();
   for (let index = 0; index < targetCount && decorations.length; index++) {
     const object = decorations[index % decorations.length],
       width = object.rect.width * visualRatio,
       height = object.rect.height * visualRatio,
-      step = Math.max(1, Math.min(width, height) / 3),
-      candidates: { x: number; y: number; score: number }[] = [];
-    for (let y = safe + height / 2; y <= g.height - safe - height / 2; y += step)
-      for (let x = safe + width / 2; x <= g.width - safe - width / 2; x += step) {
-        const boundary = boxBoundaryPoints(x, y, width, height);
-        if (!boundary.every((point) => inside(point, g.points))) continue;
-        if (!respectsDecorationSpacing(x, y, width, placed)) continue;
-        const empty = blankRatio(
-          alpha,
-          canvasWidth,
-          canvasHeight,
-          (x - width / 2) * rasterScale,
-          (y - height / 2) * rasterScale,
-          width * rasterScale,
-          height * rasterScale,
-        );
-        if (empty < 0.96) continue;
-        const ringEmpty = blankRatio(
-          alpha,
-          canvasWidth,
-          canvasHeight,
-          (x - width) * rasterScale,
-          (y - height) * rasterScale,
-          width * 2 * rasterScale,
-          height * 2 * rasterScale,
-        );
-        candidates.push({ x, y, score: 1 - ringEmpty + rng() * 0.0001 });
+      step = Math.max(1, Math.min(width, height) / 3);
+    let candidates = candidateCache.get(object.id);
+    if (!candidates) {
+      candidates = [];
+      for (
+        let y = safe + height / 2;
+        y <= g.height - safe - height / 2;
+        y += step
+      )
+        for (
+          let x = safe + width / 2;
+          x <= g.width - safe - width / 2;
+          x += step
+        ) {
+          const boundary = boxBoundaryPoints(x, y, width, height);
+          if (!boundary.every((point) => inside(point, g.points))) continue;
+          const empty = blankRatio(
+            alpha,
+            canvasWidth,
+            canvasHeight,
+            (x - width / 2) * rasterScale,
+            (y - height / 2) * rasterScale,
+            width * rasterScale,
+            height * rasterScale,
+          );
+          if (empty < 0.96) continue;
+          const ringEmpty = blankRatio(
+            alpha,
+            canvasWidth,
+            canvasHeight,
+            (x - width) * rasterScale,
+            (y - height) * rasterScale,
+            width * 2 * rasterScale,
+            height * 2 * rasterScale,
+          );
+          candidates.push({ x, y, score: 1 - ringEmpty + rng() * 0.0001 });
+        }
+      candidateCache.set(object.id, candidates);
+    }
+    // Spread into genuinely empty areas after first filling the gaps close
+    // to subjects. The two-width separation still prevents repeated motifs.
+    let best: (typeof candidates)[number] | undefined;
+    let bestScore = -Infinity;
+    for (const candidate of candidates) {
+      if (!respectsDecorationSpacing(candidate.x, candidate.y, width, placed))
+        continue;
+      const spread = placed.length
+        ? Math.min(
+            1,
+            Math.min(
+              ...placed.map((other) =>
+                Math.hypot(candidate.x - other.x, candidate.y - other.y),
+              ),
+            ) / Math.max(1, width * 5),
+          )
+        : 0;
+      const band = Math.min(3, Math.floor((candidate.y / g.height) * 4));
+      const score =
+        candidate.score * 0.45 +
+        spread * 0.4 -
+        (bandCounts[band] / Math.max(1, targetCount / 4)) * 0.7;
+      if (score > bestScore) {
+        best = candidate;
+        bestScore = score;
       }
-    candidates.sort((a, b) => b.score - a.score);
-    const best = candidates[0];
+    }
     if (!best) continue;
     placed.push({ x: best.x, y: best.y, width });
-    // Reserve the full decoration box so later inserts cannot occupy the
-    // same visual gap even when the PNG itself contains transparent pixels.
-    const x0 = Math.max(0, Math.floor((best.x - width / 2) * rasterScale)),
-      y0 = Math.max(0, Math.floor((best.y - height / 2) * rasterScale)),
-      x1 = Math.min(canvasWidth, Math.ceil((best.x + width / 2) * rasterScale)),
-      y1 = Math.min(canvasHeight, Math.ceil((best.y + height / 2) * rasterScale));
-    for (let py = y0; py < y1; py++)
-      alpha.fill(255, py * canvasWidth + x0, py * canvasWidth + x1);
+    bandCounts[Math.min(3, Math.floor((best.y / g.height) * 4))]++;
     result.push({
       id: `smart-decoration-${index}-${object.id}`,
       blob: object.blob,
