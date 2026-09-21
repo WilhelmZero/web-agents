@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CUP, geometry } from "./geometry";
-import { chooseOutpaintSize, idealOutpaintRatio } from "./geometryOutpaint";
+import { chooseOutpaintSize, idealOutpaintRatio, recommendedArtworkMode } from "./geometryOutpaint";
 
 const adjustment = {
   scale: 1, scaleX: 1, scaleY: 1, x: 0, y: 0, warp: 1,
@@ -9,6 +9,15 @@ const adjustment = {
 };
 
 describe("rectangular outpaint mapping", () => {
+  it("selects geometry for similar source proportions, otherwise AI outpaint", () => {
+    const target = idealOutpaintRatio(geometry(DEFAULT_CUP), DEFAULT_CUP.safe, adjustment);
+    expect(recommendedArtworkMode(target * 1000, 1000, target)).toBe("geometry");
+    expect(recommendedArtworkMode(target * 1099, 1000, target)).toBe("geometry");
+    expect(recommendedArtworkMode(target * 1110, 1000, target)).toBe("ai-geometry");
+    expect(recommendedArtworkMode(target * 890, 1000, target)).toBe("ai-geometry");
+    expect(recommendedArtworkMode(100, 100, target)).toBe("ai-geometry");
+    expect(() => recommendedArtworkMode(0, 100, target)).toThrow();
+  });
   it("balances arc magnification for upright, reversed and cylindrical cups", () => {
     for (const cup of [
       DEFAULT_CUP,

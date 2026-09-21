@@ -36,8 +36,20 @@
   font-size: 12px;
   color: #64748b;
 }
-.cup-artwork-slot {
-  margin-bottom: 10px;
+.cup-wrap-settings-sider .cup-wrap-panel-resize {
+  position: sticky;
+  top: 0;
+  float: left;
+  width: 10px;
+  height: calc(100vh - 72px);
+  margin-right: -10px;
+  z-index: 2;
+  cursor: col-resize;
+  touch-action: none;
+  background: linear-gradient(to right, transparent 3px, #d6dbe7 3px, #d6dbe7 5px, transparent 5px);
+}
+.cup-wrap-settings-sider .cup-wrap-panel-resize:hover {
+  background: linear-gradient(to right, transparent 3px, var(--ant-color-primary, #1677ff) 3px, var(--ant-color-primary, #1677ff) 5px, transparent 5px);
 }
 .cup-body {
   display: flex;
@@ -62,6 +74,11 @@
 }
 .cup-settings h3 {
   margin: 8px 0;
+}
+.cup-settings .cup-geometry-prompt {
+  width: 100%;
+  min-width: 0;
+  resize: vertical;
 }
 .cup-field {
   display: flex;

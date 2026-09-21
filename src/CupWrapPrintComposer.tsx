@@ -70,6 +70,7 @@ import {
   chooseOutpaintSize,
   DEFAULT_GEOMETRY_OUTPAINT_PROMPT,
   idealOutpaintRatio,
+  recommendedArtworkMode,
 } from "./services/cupWrap/geometryOutpaint";
 const SHOW_MANUAL_ARTWORK_TOOLS = false;
 const PRINT_SETTINGS_KEY = "cup-wrap-print:settings:v3";
@@ -847,9 +848,27 @@ export default function CupWrapPrintComposer({
         artworkSlots.filter((item) => item.enabled).map((item) => item.blob),
         d.stitchGapPx ?? 0,
       );
+      const stitchedImage = await createImageBitmap(source);
+      let adaptationMode = d.adaptationMode;
+      const mappingAdjustment = ["geometry", "ai-geometry"].includes(adaptationMode ?? "geometry")
+        ? d.aiAdjustment ?? DEFAULT_GEOMETRY_ADJUSTMENT
+        : DEFAULT_GEOMETRY_ADJUSTMENT;
+      try {
+        adaptationMode = recommendedArtworkMode(
+          stitchedImage.width,
+          stitchedImage.height,
+          idealOutpaintRatio(geometry(d.cup), d.cup.safe, mappingAdjustment),
+        );
+      } catch {
+        // An invalid cup can still accept an upload; the dimension controls show the error.
+      } finally {
+        stitchedImage.close();
+      }
       update({
         source,
         originalSource: source,
+        adaptationMode,
+        aiAdjustment: { ...mappingAdjustment },
         sourceRevision: crypto.randomUUID(),
         artworkSlots,
         stitchedSource: true,
@@ -873,6 +892,33 @@ export default function CupWrapPrintComposer({
       setError(String(e));
     }
     return false;
+  }
+  function removeArtwork(role: ArtworkRole) {
+    const artworkSlots = (d.artworkSlots ?? []).filter((item) => item.role !== role);
+    const remaining = artworkSlots.map((item) => item.blob);
+    if (!remaining.length) {
+      update({
+        artworkSlots: [],
+        source: undefined,
+        originalSource: undefined,
+        sourceRevision: crypto.randomUUID(),
+        adopted: undefined,
+        appliedGeometryCandidateId: undefined,
+        stitchedSource: false,
+      });
+      return;
+    }
+    stitchArtwork(remaining, d.stitchGapPx ?? 0)
+      .then((source) => update({
+        artworkSlots,
+        source,
+        originalSource: source,
+        sourceRevision: crypto.randomUUID(),
+        adopted: undefined,
+        appliedGeometryCandidateId: undefined,
+        stitchedSource: true,
+      }))
+      .catch((error) => setError(String(error)));
   }
   const number = (
     label: string,
@@ -1070,76 +1116,6 @@ export default function CupWrapPrintComposer({
           ))}
         </>
       )}
-      <h3>设计图拼接</h3>
-      <Alert
-        type="info"
-        showIcon
-        message="默认使用一张图；上传两张时按顺序横向拼接"
-        description="系统保持两张图的宽高比，将第一张右边与第二张左边调整为相同高度后连接。负间隙会让第二张图覆盖第一张图；拼接完成后，后续操作均将其视为一张图。"
-      />
-      {(["front", "back"] as ArtworkRole[]).map((role) => {
-        const slot = d.artworkSlots?.find((item) => item.role === role);
-        const label =
-          role === "front" ? "第 1 张图（左侧）" : "第 2 张图（右侧）";
-        return (
-          <Card
-            key={role}
-            size="small"
-            title={label}
-            className="cup-artwork-slot"
-          >
-            <Space wrap>
-              <Upload
-                showUploadList={false}
-                accept="image/png,image/jpeg,image/webp"
-                beforeUpload={(file) => upload(file as File, role)}
-              >
-                <Button>{slot ? `替换${label}` : `上传${label}`}</Button>
-              </Upload>
-              {slot ? (
-                <>
-                  <Button
-                    danger
-                    size="small"
-                    onClick={() => {
-                      const artworkSlots = (d.artworkSlots ?? []).filter(
-                        (item) => item.role !== role,
-                      );
-                      const remaining = artworkSlots.map((item) => item.blob);
-                      if (!remaining.length) {
-                        update({
-                          artworkSlots: [],
-                          source: undefined,
-                          originalSource: undefined,
-                          sourceRevision: crypto.randomUUID(),
-                          adopted: undefined,
-                          appliedGeometryCandidateId: undefined,
-                          stitchedSource: false,
-                        });
-                      } else
-                        stitchArtwork(remaining, d.stitchGapPx ?? 0)
-                          .then((source) =>
-                            update({
-                              artworkSlots,
-                              source,
-                              originalSource: source,
-                              sourceRevision: crypto.randomUUID(),
-                              adopted: undefined,
-                              appliedGeometryCandidateId: undefined,
-                              stitchedSource: true,
-                            }),
-                          )
-                          .catch((error) => setError(String(error)));
-                    }}
-                  >
-                    删除
-                  </Button>
-                </>
-              ) : null}
-            </Space>
-          </Card>
-        );
-      })}
       {(d.artworkSlots ?? []).filter((slot) => slot.enabled).length > 1 && (
         <div className="cup-stitch-gap">
           <strong>图与图之间的间隙 px</strong>
@@ -1183,6 +1159,7 @@ export default function CupWrapPrintComposer({
           { value: "local", label: "无损元素排版（程序化）" },
         ]}
       />
+      <small>上传后按图案与可映射区域的宽高比推荐：差距不超过 10% 使用几何映射，否则推荐 AI 扩图；仅选择模式，不会自动发起付费请求。可随时手动切换。</small>
       {d.adaptationMode === "original" ? (
         <Alert
           type="info"
@@ -1239,10 +1216,12 @@ export default function CupWrapPrintComposer({
           </Space>
           <Input.TextArea
             aria-label="矩形扩图提示词"
+            className="cup-geometry-prompt"
             rows={3}
             value={d.geometryOutpaintPrompt ?? DEFAULT_GEOMETRY_OUTPAINT_PROMPT}
             onChange={(event) => update({ geometryOutpaintPrompt: event.target.value })}
           />
+          {settingsHost && <small>拖动右侧设置栏的左边缘，可加宽提示词输入框。</small>}
           {geometryOutpaintSize.value ? (
             <p>
               最合适矩形比例 {geometryOutpaintSize.value.idealRatio.toFixed(3)}；
@@ -1858,6 +1837,8 @@ export default function CupWrapPrintComposer({
           >
             <Button disabled={!ready}>上传／替换第 1 张图</Button>
           </Upload>
+          {d.artworkSlots?.some((slot) => slot.role === "front") &&
+            <Button size="small" danger onClick={() => removeArtwork("front")}>删除第 1 张图</Button>}
           <Upload
             showUploadList={false}
             beforeUpload={(file) => upload(file as File, "back")}
@@ -1865,6 +1846,8 @@ export default function CupWrapPrintComposer({
           >
             <Button disabled={!ready}>上传／替换第 2 张图</Button>
           </Upload>
+          {d.artworkSlots?.some((slot) => slot.role === "back") &&
+            <Button size="small" danger onClick={() => removeArtwork("back")}>删除第 2 张图</Button>}
         </Space>
         <Space wrap>
           <Button

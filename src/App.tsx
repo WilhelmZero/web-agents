@@ -79,6 +79,7 @@ import {
   lazy,
   Suspense,
   type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import {
@@ -653,6 +654,24 @@ function AppContent() {
   const [petSettingsHost, setPetSettingsHost] = useState<HTMLElement | null>(null);
   const [aiPetSettingsHost, setAiPetSettingsHost] = useState<HTMLElement | null>(null);
   const [cupWrapSettingsHost, setCupWrapSettingsHost] = useState<HTMLElement | null>(null);
+  const [cupWrapPanelWidth, setCupWrapPanelWidth] = useState(330);
+  const beginCupWrapPanelResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = cupWrapPanelWidth;
+    const move = (pointer: PointerEvent) => {
+      setCupWrapPanelWidth(Math.max(330, Math.min(900, window.innerWidth - 360,
+        startWidth + startX - pointer.clientX)));
+    };
+    const stop = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("blur", stop);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("blur", stop);
+  };
   const [cupWrapOpened,setCupWrapOpened] = useState(() => readCreationTool(window.location.search)==="cup-wrap-print");
   useEffect(()=>{if(creationTool==="cup-wrap-print")setCupWrapOpened(true);},[creationTool]);
   const [inpaintSettingsHost, setInpaintSettingsHost] =
@@ -2501,7 +2520,12 @@ function AppContent() {
         {!compact && creationTool === "custom-monochrome-logo" && (<Sider width={330} theme="light" className="settings-sider"><div ref={setEngravingSettingsHost} /></Sider>)}
         {!compact && creationTool === "pet-letter-stickers" && (<Sider width={330} theme="light" className="settings-sider"><div ref={setPetSettingsHost} /></Sider>)}
         {!compact && creationTool === "ai-pet-letter-stickers" && (<Sider width={330} theme="light" className="settings-sider"><div ref={setAiPetSettingsHost} /></Sider>)}
-        {!compact && creationTool === "cup-wrap-print" && (<Sider width={330} theme="light" className="settings-sider"><div ref={setCupWrapSettingsHost} /></Sider>)}
+        {!compact && creationTool === "cup-wrap-print" && (
+          <Sider width={cupWrapPanelWidth} theme="light" className="settings-sider cup-wrap-settings-sider">
+            <div className="cup-wrap-panel-resize" role="separator" aria-label="拖动调整杯身设置栏宽度" onPointerDown={beginCupWrapPanelResize} />
+            <div ref={setCupWrapSettingsHost} />
+          </Sider>
+        )}
         {!compact && creationTool === "inpaint" && (
           <Sider width={330} theme="light" className="settings-sider">
             <div ref={setInpaintSettingsHost} />

@@ -117,10 +117,8 @@ it("automatically recalculates A4 layout after design data loads", async () => {
       ),
     { timeout: 3000 },
   );
-  expect(screen.getByText("设计图拼接")).toBeInTheDocument();
-  expect(
-    screen.getByRole("button", { name: "替换第 1 张图（左侧）" }),
-  ).toBeInTheDocument();
+  expect(screen.queryByText("设计图拼接")).not.toBeInTheDocument();
+  expect(screen.getAllByRole("button", { name: "上传／替换第 1 张图" })).toHaveLength(1);
   const horizontal = screen.getByRole("spinbutton", {
     name: "水平单轴缩放",
   });
@@ -371,6 +369,34 @@ it("preserves a transparent background when transparent artwork is uploaded", as
     },
   });
   await waitFor(() =>
-    expect(screen.getByRole("switch", { name: "保留透明底" })).toBeChecked(),
+    expect(work).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "png",
+        design: expect.objectContaining({ transparentOutput: true }),
+      }),
+      expect.any(AbortSignal),
+    ),
   );
+}, 30000);
+it("selects adaptation mode from the stitched artwork aspect on upload", async () => {
+  vi.stubGlobal("createImageBitmap", async (blob: Blob) => ({
+    width: blob instanceof File && blob.name === "near.png" ? 1364 : 1000,
+    height: 1000,
+    close: vi.fn(),
+  }));
+  const { container } = render(
+    <CupWrapPrintComposer active settingsHost={null} settings={DEFAULT_SETTINGS} />,
+  );
+  const uploadInput = container.querySelector('input[type="file"]')!;
+  fireEvent.change(uploadInput, {
+    target: { files: [new File(["near"], "near.png", { type: "image/png" })] },
+  });
+  await waitFor(() => expect(screen.getByText("原图几何映射（推荐）"))
+    .toBeInTheDocument());
+  fireEvent.change(container.querySelector('input[type="file"]')!, {
+    target: { files: [new File(["far"], "far.png", { type: "image/png" })] },
+  });
+  await waitFor(() => expect(screen.getByText("AI 扩图 + 几何映射"))
+    .toBeInTheDocument());
+  expect(screen.getByRole("textbox", { name: "矩形扩图提示词" })).toBeInTheDocument();
 }, 30000);

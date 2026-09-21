@@ -5,6 +5,18 @@ import { safeWarpRegion, scaleWarpRegion } from "./warp";
 export const DEFAULT_GEOMETRY_OUTPAINT_PROMPT =
   "参考原图元素进行扩图，只用精灵和星星进行填充";
 
+/** A close source aspect can be mapped without first expanding the artwork. */
+export function recommendedArtworkMode(
+  sourceWidth: number,
+  sourceHeight: number,
+  targetRatio: number,
+): "geometry" | "ai-geometry" {
+  if (sourceWidth <= 0 || sourceHeight <= 0 || !Number.isFinite(targetRatio) || targetRatio <= 0)
+    throw new Error("无法比较原图与刀模的宽高比");
+  const ratioDifference = Math.abs(sourceWidth / sourceHeight / targetRatio - 1);
+  return ratioDifference <= 0.1 ? "geometry" : "ai-geometry";
+}
+
 export interface OutpaintSize {
   width: number;
   height: number;
