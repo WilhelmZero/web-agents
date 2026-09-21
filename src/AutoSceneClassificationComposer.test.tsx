@@ -7,8 +7,10 @@ describe("AutoSceneClassificationComposer", () => {
   beforeEach(() => {
     localStorage.clear();
   });
-  afterEach(() => {
+  afterEach(async () => {
     cleanup();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setImmediate(resolve));
   });
 
   it("renders preset-group and folder-management controls", () => {
