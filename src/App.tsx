@@ -253,8 +253,8 @@ const CREATION_TOOL_ITEMS: Array<{
   {
     key: "logo-export",
     icon: <DownloadOutlined />,
-    label: "批量导出 Logo",
-    description: "从图片或 PSD 图层批量整理 Logo",
+    label: "PSD Logo 工具",
+    description: "免 Photoshop 替换智能对象，并批量导出 PSD 图层",
   },
   {
     key: "custom-monochrome-logo",

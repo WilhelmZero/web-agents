@@ -1,16 +1,17 @@
 import { CheckOutlined, DownloadOutlined, EyeInvisibleOutlined, EyeOutlined, FileImageOutlined, FileZipOutlined, LinkOutlined, SearchOutlined } from '@ant-design/icons';
-import { Alert, App, Button, Card, Checkbox, ColorPicker, Empty, Flex, Form, Image, Input, InputNumber, Radio, Segmented, Space, Switch, Tag, Typography, Upload } from 'antd';
+import { Alert, App, Button, Card, Checkbox, ColorPicker, Empty, Flex, Form, Image, Input, InputNumber, Radio, Segmented, Space, Spin, Switch, Tabs, Tag, Typography, Upload } from 'antd';
 import JSZip from 'jszip';
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { canvasToPngBlob, parsePsdLogoLayers, renderPsdLogoLayer, safePsdLayerName, type LogoFitMode, type LogoQualityMode, type PsdLogoLayer } from './services/psdLogoExport';
 import { downloadBlob } from './utils';
 import { reportTaskProgress } from './services/taskProgress';
 
 const { Title, Text, Paragraph } = Typography;
+const PsdSmartObjectReplacePanel = lazy(() => import('./PsdSmartObjectReplacePanel'));
 interface FileInfo { name: string; width: number; height: number }
 
-export default function PsdLogoExportComposer({ onSessionStateChange, settingsHost }: { onSessionStateChange?: (value: boolean) => void; settingsHost?: HTMLElement | null }) {
+function PsdLayerExportPanel({ onSessionStateChange, settingsHost }: { onSessionStateChange?: (value: boolean) => void; settingsHost?: HTMLElement | null }) {
   const { message } = App.useApp();
   const [layers, setLayers] = useState<PsdLogoLayer[]>([]); const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set()); const [activeId, setActiveId] = useState('');
   const [fileInfo, setFileInfo] = useState<FileInfo>(); const [query, setQuery] = useState(''); const [loading, setLoading] = useState(false); const [exporting, setExporting] = useState(false);
@@ -69,4 +70,16 @@ export default function PsdLogoExportComposer({ onSessionStateChange, settingsHo
       <Card className="psd-preview-panel" title="透明图层预览" extra={active && <Text type="secondary">{active.width} × {active.height}px</Text>}>{active ? <div className="psd-preview-canvas" style={background ? { background } : undefined}><Image src={active.previewUrl} alt={`${active.name} 预览`} /></div> : <Empty />}</Card></div> : null}
     {!settingsHost && <aside className="logo-settings">{settings}</aside>}
   </div>;
+}
+
+export default function PsdLogoExportComposer({ onSessionStateChange, settingsHost }: { onSessionStateChange?: (value: boolean) => void; settingsHost?: HTMLElement | null }) {
+  const [exportSession, setExportSession] = useState(false);
+  const [replaceSession, setReplaceSession] = useState(false);
+  const [activeTab, setActiveTab] = useState('replace');
+  useEffect(() => onSessionStateChange?.(exportSession || replaceSession), [exportSession, onSessionStateChange, replaceSession]);
+  const replaceSettings = <div className="settings-panel"><Title level={4}>免 Photoshop 替换</Title><Paragraph type="secondary">首版仅安全处理内嵌栅格智能对象。上传模板后，系统会先检查内容类型、变换、Warp 和智能滤镜。</Paragraph><Alert type="info" showIcon message="源文件只读" description="生成结果使用新文件名下载，不会覆盖上传的 PSD / PSB。" /></div>;
+  return <>{settingsHost && activeTab === 'replace' && createPortal(replaceSettings, settingsHost)}<Tabs activeKey={activeTab} onChange={setActiveTab} className="psd-tool-tabs" size="large" destroyOnHidden={false} items={[
+    { key: 'replace', label: '替换智能对象 Logo', children: <Suspense fallback={<Flex justify="center" style={{ padding: 60 }}><Spin description="正在加载 PSD 替换引擎…" /></Flex>}><PsdSmartObjectReplacePanel onSessionStateChange={setReplaceSession} /></Suspense> },
+    { key: 'export', label: '导出 PSD 图层', children: <PsdLayerExportPanel onSessionStateChange={setExportSession} settingsHost={activeTab === 'export' ? settingsHost : null} /> },
+  ]} /></>;
 }

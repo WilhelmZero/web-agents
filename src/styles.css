@@ -486,6 +486,12 @@ button, input, textarea { font: inherit; }
 .logo-replace-mode-card { border-color: #d8ccff; background: linear-gradient(120deg, #faf8ff, #f2f7ff); }
 .logo-replace-mode-card .ant-card-body { padding: 14px 18px; }
 .psd-logo-export-composer { display: grid; gap: 18px; }
+.psd-tool-tabs > .ant-tabs-nav { margin-bottom: 18px; }
+.psd-smart-replace-panel { display: grid; gap: 18px; }
+.psd-replace-result { display: grid; grid-template-columns: minmax(0, 1fr) 210px; gap: 18px; align-items: start; }
+.psd-replace-result > .transparent-grid { min-height: 280px; display: grid; place-items: center; overflow: auto; border: 1px solid var(--border-color, #e5e7eb); border-radius: 14px; }
+.psd-replace-result img { display: block; max-width: 100%; max-height: 640px; object-fit: contain; }
+@media (max-width: 760px) { .psd-replace-result { grid-template-columns: 1fr; } }
 .psd-export-hero { background: radial-gradient(circle at 80% 20%, rgba(55, 180, 255, .32), transparent 30%), linear-gradient(130deg, #101b32, #163d65 58%, #176ff2); }
 .psd-export-workspace { display: grid; grid-template-columns: minmax(280px, .75fr) minmax(0, 1.25fr); gap: 16px; min-height: 560px; }
 .psd-layer-panel .ant-card-body { padding: 14px; }
