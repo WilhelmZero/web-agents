@@ -30,7 +30,7 @@ export async function editAiPetLetter(options: {
   const requestId = startRequestConsoleEntry({
     model: options.model,
     connection: "direct",
-    requestSummary: `AI 萌宠字母贴纸 · 整幅生成 · ${width}×${height} · PNG`,
+    requestSummary: `字母贴纸生成 · 整幅生成 · ${width}×${height} · PNG`,
     requestPrompt: options.prompt,
     inputImages: [options.image, ...(options.mask ? [options.mask] : [])],
   });

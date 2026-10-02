@@ -12,6 +12,7 @@ import { vectorizeImageToSvg, type VectorTraceEngine } from './services/trueVect
 import { upscaleTransparentPng } from './services/imageUpscale';
 import { detectBorderMatte, restoreTransparentBackground, type RgbColor } from './services/transparentImageEdit';
 import { createId, downloadBlob, sanitizeFileName } from './utils';
+import { useLanguage } from './i18n';
 
 const { Text, Title, Paragraph } = Typography;
 const ACCEPTED = ['image/png', 'image/jpeg', 'image/webp'];
@@ -27,6 +28,7 @@ export default function BackgroundRemovalComposer({ openAiApiKey, onRequestKey, 
   apiKey: string; openAiApiKey: string; apiBaseUrl: string | null; connectionMode: 'direct' | 'proxy'; onRequestKey: () => void; onSessionStateChange?: (value: boolean) => void; settingsHost?: HTMLElement | null;
 }) {
   const { message } = App.useApp();
+  const { language } = useLanguage();
   const [items, setItems] = useState<Item[]>([]);
   const [busy, setBusy] = useState(false);
   const [settings, setSettings] = useState<RemovalSettings>(() => readLocalStorage<RemovalSettings>(STORAGE_KEYS.backgroundRemovalSettings, { mode: 'local', quality: 'high', gptBackground: 'auto', edgeExpansion: 2, edgeFeather: 1, autoVectorize: false, vectorEngine: 'auto', outputHd: false, hdScale: 2 }));
@@ -59,12 +61,12 @@ export default function BackgroundRemovalComposer({ openAiApiKey, onRequestKey, 
       } else if (settings.mode === 'gpt-direct') {
         if (item.aiResultUrl) URL.revokeObjectURL(item.aiResultUrl);
         patchItem(item.id, { aiResultBlob: undefined, aiResultUrl: undefined, matteColor: undefined });
-        intermediate = await editPaperTextOpenAi({ apiKey: openAiApiKey, model: 'gpt-image-1.5', image: item.file, prompt: buildGptDirectTransparentPrompt(), quality: settings.quality, background: 'transparent' });
+        intermediate = await editPaperTextOpenAi({ apiKey: openAiApiKey, model: 'gpt-image-1.5', image: item.file, prompt: buildGptDirectTransparentPrompt(language), quality: settings.quality, background: 'transparent' });
       } else if (settings.mode === 'gpt-hybrid' || settings.mode === 'gpt-color-key') {
         const matteColor = settings.gptBackground === 'auto' ? await chooseContrastingBackground(item.file) : settings.gptBackground;
         selectedMatteColor = matteColor;
         patchItem(item.id, { matteColor });
-        intermediate = await editPaperTextOpenAi({ apiKey: openAiApiKey, model: 'gpt-image-2', image: item.file, prompt: buildGptBackgroundRemovalPrompt(matteColor), quality: settings.quality });
+        intermediate = await editPaperTextOpenAi({ apiKey: openAiApiKey, model: 'gpt-image-2', image: item.file, prompt: buildGptBackgroundRemovalPrompt(matteColor, language), quality: settings.quality });
         const aiResultUrl = URL.createObjectURL(intermediate);
         if (item.aiResultUrl) URL.revokeObjectURL(item.aiResultUrl);
         patchItem(item.id, { aiResultBlob: intermediate, aiResultUrl });

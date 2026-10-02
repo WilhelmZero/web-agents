@@ -1789,8 +1789,9 @@ export default function CupWrapPrintComposer({
             <Space direction="vertical" size={4}>
               <strong>{design.name || `杯型 ${index + 1}`}</strong>
               <span>
-                口径 {design.cup.top} · 底径 {design.cup.bottom} · 高{" "}
-                {design.cup.height} mm
+                {language === "en-US"
+                  ? `Top diameter ${design.cup.top} · bottom diameter ${design.cup.bottom} · height ${design.cup.height} mm`
+                  : `口径 ${design.cup.top} · 底径 ${design.cup.bottom} · 高 ${design.cup.height} mm`}
               </span>
               <Space onClick={(event) => event.stopPropagation()}>
                 <Switch

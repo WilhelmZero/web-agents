@@ -40,11 +40,14 @@ import {
   DeleteOutlined,
 } from "@ant-design/icons";
 import {
+  DEFAULT_OUTPAINT_INSTRUCTIONS,
+  DEFAULT_OUTPAINT_INSTRUCTIONS_EN,
   DEFAULT_PREFERENCES,
   getTaskStorage,
   loadPreferences,
   savePreferences,
 } from "../services/engraving/storage";
+import { useLanguage } from "../i18n";
 import type { Preferences, SavedTask } from "../services/engraving/types";
 import { useEngravingUrl } from "./EngravingResultCard";
 import { runTaskQueue } from "../services/engraving/task-queue";
@@ -151,9 +154,19 @@ export default function BatchEngravingComposer({
   onConfigureKey: () => void;
   settingsHost?: HTMLElement | null;
 }) {
+  const { language } = useLanguage();
   const [slots, setSlots] = useState(initialSlots),
     [states, setStates] = useState<Record<string, State>>({});
   const [preferences, setPreferences] = useState(loadSharedPreferences);
+  useEffect(() => {
+    setPreferences((current) => {
+      const instructions = current.outpaint?.instructions || "";
+      if (instructions !== DEFAULT_OUTPAINT_INSTRUCTIONS && instructions !== DEFAULT_OUTPAINT_INSTRUCTIONS_EN) return current;
+      const localized = language === "en-US" ? DEFAULT_OUTPAINT_INSTRUCTIONS_EN : DEFAULT_OUTPAINT_INSTRUCTIONS;
+      if (localized === instructions) return current;
+      return { ...current, outpaint: { enabled: current.outpaint?.enabled === true, instructions: localized } };
+    });
+  }, [language]);
   const batchActive = useRef(false);
   const [selectedResults, setSelectedResults] = useState<string[]>([]);
   const [exportResults, setExportResults] =

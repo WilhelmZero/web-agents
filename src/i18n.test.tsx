@@ -13,6 +13,18 @@ function DynamicCount() {
   );
 }
 
+function CupAndStickerTranslationFixture() {
+  return <>
+    <label>图案缩放 {147}%</label>
+    <label>水平缩放 {100}%</label>
+    <label>斜边方向缩放 {100}%</label>
+    <div>矩形扩图历史（完成后自动应用）</div>
+    <div>候选 {2} · GPT Image</div>
+    <div>{`生成按参考图 ${1024}×${1536} 的比例进行；高清档等比本地放大，不裁切画面，也不会增加 AI 原生细节。`}</div>
+    <input aria-label="图片缩放滑动条" />
+  </>;
+}
+
 describe('语言层动态内容', () => {
   beforeEach(() => localStorage.clear());
   afterEach(() => cleanup());
@@ -29,5 +41,17 @@ describe('语言层动态内容', () => {
     await waitFor(() => expect(screen.getByTestId('count')).toHaveTextContent('0 images'));
     fireEvent.click(screen.getByRole('button', { name: '增加' }));
     await waitFor(() => expect(screen.getByTestId('count')).toHaveTextContent('1 images'));
+  });
+
+  it('translates split cup controls, outpainting history, and dynamic reference dimensions', async () => {
+    localStorage.setItem('scene-studio-language', 'en-US');
+    render(<LanguageProvider><CupAndStickerTranslationFixture /></LanguageProvider>);
+    expect(await screen.findByText('Artwork scale 147%')).toBeVisible();
+    expect(screen.getByText('Horizontal scale 100%')).toBeVisible();
+    expect(screen.getByText('Slanted-side scale 100%')).toBeVisible();
+    expect(screen.getByText('Rectangular outpainting history (applied automatically when complete)')).toBeVisible();
+    expect(screen.getByText('Candidate 2 · GPT Image')).toBeVisible();
+    expect(screen.getByText(/Generation follows the 1024×1536 reference ratio/)).toBeVisible();
+    expect(screen.getByRole('textbox', { name: 'Image scale slider' })).toBeVisible();
   });
 });

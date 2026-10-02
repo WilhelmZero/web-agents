@@ -128,6 +128,7 @@ const messages: Record<string, string> = {
   骑马: "Horse and rider",
   扩图补全主体: "Extend image to complete subjects",
   扩图要求: "Image extension instructions",
+  图片缩放: "Image scale",
   "例如：向图片上/下/左/右侧扩图，补全人物手臂和手肘/腿部，保留安全边距":
     "Example: extend the top, bottom, left or right to complete arms, elbows or legs, leaving a safe margin.",
   "补全照片边缘被截断的主体，画面外细节由AI推测；开启自动优化可检查完整性。":

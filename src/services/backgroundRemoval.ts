@@ -5,11 +5,17 @@ export interface BackgroundRemovalProgress {
 }
 export interface BackgroundRemovalTuning { edgeExpansion: number; edgeFeather: number }
 
-export function buildGptBackgroundRemovalPrompt(backgroundColor: string): string {
+export function buildGptBackgroundRemovalPrompt(backgroundColor: string, language: 'zh-CN' | 'en-US' = 'zh-CN'): string {
+  if (language === 'en-US') {
+    return `Precisely isolate the complete foreground subject. Preserve its composition, position, dimensions, proportions, pose, silhouette, colors, materials, text, logos, and every internal detail exactly. Do not redesign, repaint, crop, move, or complete the subject. Preserve fine hair, fur, translucent materials, holes, spokes, gaps, and small parts. Remove all background, cast shadows, background reflections, and color spill outside the subject, then replace every background area, including holes inside the subject, with one perfectly uniform solid color ${backgroundColor}. Create clean, natural, high-contrast edges between the subject and the ${backgroundColor} background. Do not add outlines, halos, checkerboards, gradients, textures, shadows, or background residue. Every background pixel must use exactly ${backgroundColor}, and that color must not spill into the subject. Return only the complete image without explanatory text.`;
+  }
   return `精确分离图片中的完整前景主体。保持主体的构图、位置、尺寸、比例、姿态、轮廓、颜色、材质、文字、Logo 和所有内部细节不变，不要重新设计、补画、裁切或移动主体。必须保留细发、绒毛、透明材质、镂空区域、轮辐、缝隙和细小零件。移除主体之外的全部背景、投影、背景反光和颜色溢出，把所有背景区域（包括主体内部孔洞）替换为完全均匀、准确的纯色 ${backgroundColor}。主体与 ${backgroundColor} 背景之间必须有清晰自然的高反差边缘；不要描边、光晕、棋盘格、渐变、纹理、阴影或残留背景。背景每一个像素都必须保持相同的 ${backgroundColor}，不得把该颜色混入主体。输出完整图片，不要添加说明文字。`;
 }
 
-export function buildGptDirectTransparentPrompt(): string {
+export function buildGptDirectTransparentPrompt(language?: 'zh-CN' | 'en-US'): string {
+  if (language === 'zh-CN') {
+    return '移除背景并返回带真实 Alpha 通道的透明 PNG。精确保留完整前景主体：保持原始几何结构、轮廓、位置、尺寸、比例、姿态、面部特征、手部、文字、Logo、颜色、材质、纹理、细发、半透明区域、孔洞及所有内部细节不变。不要重绘、变形、美化、修补、裁切、移动、放大或重新诠释主体的任何部分。只移除背景、背景反光和背景颜色溢出。保留自然平滑的抗锯齿边缘，不得出现光晕。背景必须真实透明，不能是白色、纯色或棋盘格图案。';
+  }
   return 'Remove the background and return a real transparent PNG with an alpha channel. Preserve the foreground subject exactly: keep its original geometry, silhouette, position, scale, proportions, pose, facial features, hands, text, logos, colors, materials, texture, fine hair, translucent areas, holes, and every internal detail unchanged. Do not redraw, reshape, beautify, repair, crop, move, enlarge, or reinterpret any part of the subject. Remove only the background, background reflections, and background color spill. Keep natural antialiased edges without halos. The background must be genuinely transparent, not white, solid color, or a checkerboard pattern.';
 }
 

@@ -271,7 +271,7 @@ const CREATION_TOOL_ITEMS: Array<{
   {
     key: "ai-pet-letter-stickers",
     icon: <ThunderboltOutlined />,
-    label: "AI 萌宠字母贴纸",
+    label: "字母贴纸生成",
     description: "用局部 AI 编辑自然替换 A–Z 字母并严格保护外围",
   },
   {
@@ -1748,7 +1748,7 @@ function AppContent() {
             <Text type="secondary">
               {settings.connectionMode === "proxy"
                 ? "Cloudflare 代理"
-                : "Gemini 直连"}
+                : "官方直连"}
             </Text>
           </div>
         </Sider>
@@ -2639,7 +2639,7 @@ function AppContent() {
           description={
             settings.connectionMode === "proxy"
               ? "Key 与代理地址保存在当前浏览器，请求将通过你配置的代理转发到 Gemini。"
-              : "Key 保存在当前浏览器，并由浏览器直接请求 Gemini。请勿在不受信任的设备上配置。"
+              : "Keys 保存在当前浏览器，并由浏览器直接请求 Gemini 与 OpenAI 官方接口。请勿在不受信任的设备上配置。"
           }
           style={{ marginBottom: 16 }}
         />
@@ -2655,7 +2655,7 @@ function AppContent() {
                 })
               }
               options={[
-                { label: "Gemini 官方直连", value: "direct" },
+                { label: "官方直连", value: "direct" },
                 { label: "Cloudflare 代理", value: "proxy" },
               ]}
             />

@@ -320,7 +320,7 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
   if (!active && !hydrated) return null;
   return <div className="ai-pet-letter-page">
     <section className="ai-pet-letter-hero">
-      <div><Tag color="purple">整幅 AI 生成</Tag><Title level={2}>AI 萌宠字母贴纸</Title><Text type="secondary">整幅画面统一交给 AI 重新生成，不做局部拼接；支持直接生成底色，或生成透明 PNG 后在本地上色。</Text></div>
+      <div><Tag color="purple">整幅 AI 生成</Tag><Title level={2}>字母贴纸生成</Title><Text type="secondary">整幅画面统一交给 AI 重新生成，不做局部拼接；支持直接生成底色，或生成透明 PNG 后在本地上色。</Text></div>
       <Space wrap>
         <Upload showUploadList={false} beforeUpload={uploadReference} accept="image/png,image/jpeg,image/webp"><Button icon={<CloudUploadOutlined />}>替换参考图</Button></Upload>
         <Button onClick={() => void loadDefault(true)}>恢复默认图</Button>

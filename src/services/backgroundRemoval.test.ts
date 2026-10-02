@@ -29,6 +29,17 @@ describe('dedicated background removal', () => {
     expect(prompt).toContain('geometry');
   });
 
+  it('provides fully localized English prompts for the English interface', async () => {
+    const { buildGptBackgroundRemovalPrompt, buildGptDirectTransparentPrompt } = await import('./backgroundRemoval');
+    const mattePrompt = buildGptBackgroundRemovalPrompt('#FF00FF', 'en-US');
+    const transparentPrompt = buildGptDirectTransparentPrompt('en-US');
+    expect(mattePrompt).toContain('uniform solid color #FF00FF');
+    expect(mattePrompt).toContain('holes inside the subject');
+    expect(mattePrompt).not.toMatch(/[\u3400-\u9fff]/);
+    expect(transparentPrompt).toContain('real transparent PNG');
+    expect(transparentPrompt).not.toMatch(/[\u3400-\u9fff]/);
+  });
+
   it('uses the quality matting model and returns a transparent PNG', async () => {
     const { removeImageBackground } = await import('./backgroundRemoval');
     const input = new Blob(['image'], { type: 'image/jpeg' });
