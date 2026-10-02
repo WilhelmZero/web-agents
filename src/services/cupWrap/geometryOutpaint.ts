@@ -4,6 +4,8 @@ import { safeWarpRegion, scaleWarpRegion } from "./warp";
 
 export const DEFAULT_GEOMETRY_OUTPAINT_PROMPT =
   "参考原图元素进行扩图，只用精灵和星星进行填充";
+export const DEFAULT_GEOMETRY_OUTPAINT_PROMPT_EN =
+  "Extend the image using elements from the original artwork, filling new areas only with the existing spirits and stars.";
 
 /** A close source aspect can be mapped without first expanding the artwork. */
 export function recommendedArtworkMode(

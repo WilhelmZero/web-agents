@@ -10,6 +10,7 @@ import { loadAiPetLetterPrompts, loadAiPetLetterSettings, loadAiPetLetterWorkspa
 import { normalizeQuality, qualityOptions, type AiPetLetterPrompt, type AiPetLetterSettings, type AiPetLetterTask } from "./services/aiPetLetters/types";
 import type { AppSettings } from "./types";
 import "./ai-pet-letter-stickers.css";
+import { useLanguage } from "./i18n";
 
 const { Text, Title } = Typography;
 const asset = (name: string) => `${import.meta.env.BASE_URL}ai-pet-letter-stickers/${name}`;
@@ -46,8 +47,9 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
   onConfigure: () => void;
 }) {
   const { message } = App.useApp();
+  const { language } = useLanguage();
   const [settings, setSettings] = useState<AiPetLetterSettings>(loadAiPetLetterSettings);
-  const [prompts, setPrompts] = useState<AiPetLetterPrompt[]>(() => loadAiPetLetterPrompts().map((item) => ({ ...item, defaultPrompt: adaptPromptOutputMode(item.defaultPrompt, settings.outputMode), currentPrompt: adaptPromptOutputMode(item.currentPrompt, settings.outputMode) })));
+  const [prompts, setPrompts] = useState<AiPetLetterPrompt[]>(() => loadAiPetLetterPrompts(language).map((item) => ({ ...item, defaultPrompt: adaptPromptOutputMode(item.defaultPrompt, settings.outputMode, language), currentPrompt: adaptPromptOutputMode(item.currentPrompt, settings.outputMode, language) })));
   const [referenceBlob, setReferenceBlob] = useState<Blob>();
   const [normalizedPreviewBlob, setNormalizedPreviewBlob] = useState<Blob>();
   const [referenceName, setReferenceName] = useState("默认 A 字母参考图");
@@ -73,6 +75,14 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
   const stopAll = useRef(false);
   const outputModeRef = useRef(settings.outputMode);
   outputModeRef.current = settings.outputMode;
+  useEffect(() => {
+    setPrompts((items) => items.map((item) => {
+      const zh = adaptPromptOutputMode(defaultPromptForLetter(item.letter, "zh-CN"), settings.outputMode, "zh-CN");
+      const en = adaptPromptOutputMode(defaultPromptForLetter(item.letter, "en-US"), settings.outputMode, "en-US");
+      const nextDefault = language === "en-US" ? en : zh;
+      return { ...item, defaultPrompt: nextDefault, currentPrompt: item.currentPrompt === zh || item.currentPrompt === en ? nextDefault : item.currentPrompt };
+    }));
+  }, [language, settings.outputMode]);
 
   useEffect(() => {
     if (!referenceBlob) return;
@@ -100,10 +110,10 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
     setReferenceBlob(ref); setReferenceName("默认 A 字母参考图"); setReferenceFingerprint(fingerprint); setReferenceDimensions(dimensions);
     setSettings((value) => ({ ...value, cropZoom: 1, cropX: 0, cropY: 0 }));
     if (resetPrompts) {
-      setPrompts(createDefaultPrompts().map((item) => ({ ...item, defaultPrompt: adaptPromptOutputMode(item.defaultPrompt, outputModeRef.current), currentPrompt: adaptPromptOutputMode(item.currentPrompt, outputModeRef.current) })));
+      setPrompts(createDefaultPrompts(language).map((item) => ({ ...item, defaultPrompt: adaptPromptOutputMode(item.defaultPrompt, outputModeRef.current, language), currentPrompt: adaptPromptOutputMode(item.currentPrompt, outputModeRef.current, language) })));
       setPromptsReferenceFingerprint(`${fingerprint}:1.000:0.000:0.000`);
     } else setPromptsReferenceFingerprint((value) => value || `${fingerprint}:1.000:0.000:0.000`);
-  }, []);
+  }, [language]);
 
   useEffect(() => {
     void (async () => {
@@ -290,7 +300,7 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
     <Segmented block value={settings.outputMode} options={[{ label: "直接生成底色", value: "direct-background" }, { label: "透明图后上色", value: "transparent-colorize" }]} onChange={(outputMode) => {
       const nextMode = outputMode as AiPetLetterSettings["outputMode"];
       setSettings((value) => ({ ...value, outputMode: nextMode, downloadVariant: nextMode === "direct-background" ? "colorized" : value.downloadVariant }));
-      setPrompts((items) => items.map((item) => ({ ...item, defaultPrompt: adaptPromptOutputMode(item.defaultPrompt, nextMode), currentPrompt: adaptPromptOutputMode(item.currentPrompt, nextMode) })));
+      setPrompts((items) => items.map((item) => ({ ...item, defaultPrompt: adaptPromptOutputMode(item.defaultPrompt, nextMode, language), currentPrompt: adaptPromptOutputMode(item.currentPrompt, nextMode, language) })));
     }} />
     {settings.outputMode === "transparent-colorize" ? <>
       <label>上色背景</label>
@@ -338,7 +348,7 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
       </Card>
     </section>
     <Card title="A–Z 最终提示词" extra={<Space wrap>{promptsStale ? <Tag color="warning">等待按参考图重建</Tag> : <Tag color="success">匹配当前参考图</Tag>}<Text type="secondary">界面文字会逐字提交，不追加隐藏提示词</Text><Button size="small" onClick={() => setPrompts((items) => items.map((item) => ({ ...item, selected: true })))}>全选</Button><Button size="small" onClick={() => setPrompts((items) => items.map((item) => ({ ...item, selected: false })))}>取消全选</Button></Space>}>
-      <Collapse items={prompts.map((item) => ({ key: item.letter, label: <Space><Checkbox checked={item.selected} onClick={(event) => event.stopPropagation()} onChange={(event) => setPrompts((items) => items.map((value) => value.letter === item.letter ? { ...value, selected: event.target.checked } : value))} /><Tag color="blue">{item.letter}</Tag><Text type="secondary">{statusLabel(tasks.find((task) => task.letter === item.letter)?.status)}</Text></Space>, children: <><Input.TextArea autoSize={{ minRows: 4, maxRows: 10 }} maxLength={3000} showCount value={item.currentPrompt} onChange={(event) => setPrompts((items) => items.map((value) => value.letter === item.letter ? { ...value, currentPrompt: event.target.value } : value))} /><Space className="ai-pet-prompt-actions"><Button icon={<ReloadOutlined />} onClick={() => setPrompts((items) => items.map((value) => value.letter === item.letter ? { ...value, currentPrompt: adaptPromptOutputMode(defaultPromptForLetter(item.letter), settings.outputMode) } : value))}>恢复默认</Button><Button loading={item.optimizing} icon={<ThunderboltOutlined />} onClick={() => void optimizeOne(item.letter)}>AI 优化</Button>{tasks.find((task) => task.letter === item.letter)?.status === "running" && <Button danger onClick={() => controllers.current.get(item.letter)?.abort()}>停止此图</Button>}<Button disabled={promptsStale} onClick={() => void processLetters([item.letter], true)}>重新生成</Button></Space></> }))} />
+      <Collapse items={prompts.map((item) => ({ key: item.letter, label: <Space><Checkbox checked={item.selected} onClick={(event) => event.stopPropagation()} onChange={(event) => setPrompts((items) => items.map((value) => value.letter === item.letter ? { ...value, selected: event.target.checked } : value))} /><Tag color="blue">{item.letter}</Tag><Text type="secondary">{statusLabel(tasks.find((task) => task.letter === item.letter)?.status)}</Text></Space>, children: <><Input.TextArea autoSize={{ minRows: 4, maxRows: 10 }} maxLength={3000} showCount value={item.currentPrompt} onChange={(event) => setPrompts((items) => items.map((value) => value.letter === item.letter ? { ...value, currentPrompt: event.target.value } : value))} /><Space className="ai-pet-prompt-actions"><Button icon={<ReloadOutlined />} onClick={() => setPrompts((items) => items.map((value) => value.letter === item.letter ? { ...value, currentPrompt: adaptPromptOutputMode(defaultPromptForLetter(item.letter, language), settings.outputMode, language) } : value))}>恢复默认</Button><Button loading={item.optimizing} icon={<ThunderboltOutlined />} onClick={() => void optimizeOne(item.letter)}>AI 优化</Button>{tasks.find((task) => task.letter === item.letter)?.status === "running" && <Button danger onClick={() => controllers.current.get(item.letter)?.abort()}>停止此图</Button>}<Button disabled={promptsStale} onClick={() => void processLetters([item.letter], true)}>重新生成</Button></Space></> }))} />
     </Card>
     <Card title="生成结果" extra={<Space><Checkbox checked={successful.length > 0 && successful.every((item) => selectedResults.includes(item.letter))} onChange={(event) => setSelectedResults(event.target.checked ? successful.map((item) => item.letter) : [])}>全选已有结果</Checkbox><Button icon={<DownloadOutlined />} onClick={() => void downloadSelected()}>下载所选（{selectedResults.length}）</Button><Button disabled={promptsStale || !tasks.some((task) => task.status === "failed" || task.status === "interrupted")} onClick={() => void processLetters(tasks.filter((task) => task.status === "failed" || task.status === "interrupted").map((task) => task.letter), true)}>重试失败</Button><Popconfirm title="清空所有生成任务和结果？" onConfirm={() => { stop(); setTasks([]); setSelectedResults([]); setPreview({ kind: "reference" }); }}><Button danger icon={<DeleteOutlined />}>清空结果</Button></Popconfirm></Space>}>
       {tasks.length ? <div className="ai-pet-letter-gallery">{tasks.map((task) => <Card key={`${task.letter}-${task.result?.createdAt || 0}`} size="small" className="ai-pet-letter-result" cover={task.result ? <ResultCover blob={task.result.compositeBlob} letter={task.letter} onOpen={() => setEnlarged({ letter: task.letter, current: 0 })} /> : <div className="ai-pet-letter-placeholder"><strong>{task.letter}</strong><span>{task.status === "running" ? "生成中…" : task.error || statusLabel(task.status)}</span></div>} actions={task.result ? [<Button type="text" key="view" onClick={() => { setPreview({ kind: "raw", letter: task.letter }); setCompareLetter(task.letter); }}>对比</Button>, <Button type="text" key="download" onClick={() => void downloadTask(task)}>下载</Button>, <Button type="text" key="retry" disabled={promptsStale} onClick={() => void processLetters([task.letter], true)}>重生</Button>] : undefined}><Card.Meta title={<Space><Checkbox checked={selectedResults.includes(task.letter)} disabled={!task.result} onChange={(event) => setSelectedResults((items) => event.target.checked ? [...new Set([...items, task.letter])] : items.filter((letter) => letter !== task.letter))} />{task.letter}<Tag color={task.status === "success" ? "success" : task.status === "failed" ? "error" : "default"}>{statusLabel(task.status)}</Tag></Space>} description={task.result && task.result.referenceFingerprint !== currentReferenceFingerprint ? "旧参考图" : task.result?.outputMode === "transparent-colorize" ? `透明原图 · ${task.result.backgroundColor || "#00aeff"} 上色` : task.retries ? `重试 ${task.retries} 次` : ""} /></Card>)}</div> : <Empty description="尚未生成；可以先编辑 26 条提示词" />}

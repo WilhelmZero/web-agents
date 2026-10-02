@@ -1,8 +1,11 @@
 import { AI_PET_LETTERS, type AiPetLetterOutputMode, type AiPetLetterPrompt } from "./types";
+import type { AppLanguage } from "../../i18n";
 
 const DIRECT_BACKGROUND_REQUIREMENT = "输出背景模式：直接生成完整蓝色底色，底色覆盖整个画布，不保留透明通道。";
 const TRANSPARENT_BACKGROUND_REQUIREMENT = "输出背景模式：背景必须完全透明并保留真实 Alpha 通道，只保留字母、萌宠和小贴纸；主体边缘干净，不得残留蓝边、白边、色块或背景阴影。";
-const OUTPUT_MODE_REQUIREMENT = /\s*输出背景模式：[^。]*。/g;
+const DIRECT_BACKGROUND_REQUIREMENT_EN = "Output background mode: generate a complete blue background covering the entire canvas, with no transparent channel.";
+const TRANSPARENT_BACKGROUND_REQUIREMENT_EN = "Output background mode: the background must be fully transparent with a genuine alpha channel. Keep only the letter, pets, and small stickers. Edges must be clean, with no blue fringe, white fringe, color blocks, or background shadows.";
+const OUTPUT_MODE_REQUIREMENT = /\s*(?:输出背景模式：[^。]*。|Output background mode:[^\n]*\.?)/gi;
 
 function referenceTargetPattern(letter: string) {
   return new RegExp(`(?:大写|字母|uppercase|letter)[\\s“"']*${letter}[\\s”"']*`, "i");
@@ -32,6 +35,7 @@ const interactionPoses = [
 ] as const;
 
 const fixedConstraints = `请把整幅图作为一张完整、连续的插画统一生成，不使用局部矩形重绘、像素回填、贴片或拼接效果，画面中不能出现矩形边界、色差、接缝或局部清晰度差异。直接趴在、抱住或贴住中央字母的萌宠可以根据新字形自然调整或换成参考图中另一只不同造型的萌宠，使爪子、身体与字形边缘产生可信互动；A–Z 各张成品应轮换不同萌宠和互动位置，避免每张都由同一只猫趴在顶部。其他外围角色保持参考图中的身份、造型、数量和大致位置。替换字母后若产生明显空白，可从参考图已有的糖果、星星、蝙蝠、月亮、爪印或蛛网中选择少量小贴纸自然填充，疏密与全图一致；不得在不空的区域额外堆叠，也不得遮挡或贴压字母、萌宠和其他主体。所有萌宠必须完整可见并保留完整肢体：角色之间不得互相遮挡、重叠、穿插或粘连，也不得被画布边缘裁切；脸部、眼睛、耳朵、爪子、身体和尾巴必须清楚完整，不能出现半只角色、重复肢体或残缺结构。字母不得压住角色的脸部、眼睛或主体躯干。保持全图统一的蓝色背景、线条粗细、色彩、光影、清晰度和扁平卡通贴纸画风。画面中不得出现目标字母以外的其他文字或字母。`;
+const fixedConstraintsEn = `Generate the entire image as one continuous illustration, with no local rectangular repainting, pixel patches, pasted pieces, seams, color shifts, or local sharpness differences. A pet resting on, hugging, or touching the central letter may be adjusted naturally to the new letterform, or replaced by a different pet already present in the reference, so paws and body interact credibly with the letter. Rotate pets and interaction positions across A–Z instead of reusing the same pet at the top. Preserve the identity, appearance, count, and approximate position of the other surrounding characters. If changing the letter creates obvious gaps, fill only those gaps with a small number of candies, stars, bats, moons, paw prints, or spider webs already found in the reference. Match the existing density and do not cover letters, pets, or other subjects. Every pet must remain fully visible with a complete face, eyes, ears, paws, body, and tail. Characters must not overlap, intersect, merge, or be cropped by the canvas. The letter must not cover a face, eyes, or torso. Preserve the reference's consistent line weight, colors, lighting, sharpness, and flat cartoon sticker style. Do not include any text or letter other than the target letter.`;
 
 function interactionDirection(letter: string): string {
   const index = Math.max(0, AI_PET_LETTERS.indexOf(letter.toUpperCase()));
@@ -41,25 +45,33 @@ function interactionDirection(letter: string): string {
   return `本张优先让参考图中的${pet}${pose}；若该角色与字形不适配，则改用${alternatePet}完成互动，但不要继续沿用相邻字母成品顶部的同一只萌宠。`;
 }
 
-export function defaultPromptForLetter(letter: string): string {
+export function defaultPromptForLetter(letter: string, language: AppLanguage = "zh-CN"): string {
   const target = letter.toUpperCase();
+  if (language === "en-US") {
+    const action = target === "A"
+      ? "Redraw the same central uppercase A from the reference and improve the interaction between the letter and the pet touching it"
+      : `Replace the central uppercase A in the reference with an uppercase ${target}`;
+    return `${action}. The new letter must preserve the original A's bold Apex-style appearance, orange gradient fill, black outline, visual height, width ratio, center position, and perspective. Choose one of the pets already present in the reference and pose it naturally against the new letter; vary the pet and interaction position across the alphabet. ${fixedConstraintsEn}\n${DIRECT_BACKGROUND_REQUIREMENT_EN}`;
+  }
   const action = target === "A"
     ? "重新绘制参考图中央相同的大写 A，并改善直接贴住 A 的萌宠与字母的互动关系"
     : `将参考图中央的大写 A 准确替换成大写 ${target}`;
   return `${action}。新字母必须沿用原 A 的 Apex 风格粗体字形观感、橙色渐变填充、黑色描边、视觉高度、宽度比例、中心位置和透视。${interactionDirection(target)}${fixedConstraints}\n${DIRECT_BACKGROUND_REQUIREMENT}`;
 }
 
-export function adaptPromptOutputMode(prompt: string, mode: AiPetLetterOutputMode): string {
+export function adaptPromptOutputMode(prompt: string, mode: AiPetLetterOutputMode, language: AppLanguage = "zh-CN"): string {
   let base = prompt.replace(OUTPUT_MODE_REQUIREMENT, "").trim();
   if (mode === "transparent-colorize") {
     base = base.replaceAll("保持全图统一的蓝色背景、", "保持全图统一的");
   }
-  return `${base}\n${mode === "transparent-colorize" ? TRANSPARENT_BACKGROUND_REQUIREMENT : DIRECT_BACKGROUND_REQUIREMENT}`;
+  const transparent = language === "en-US" ? TRANSPARENT_BACKGROUND_REQUIREMENT_EN : TRANSPARENT_BACKGROUND_REQUIREMENT;
+  const direct = language === "en-US" ? DIRECT_BACKGROUND_REQUIREMENT_EN : DIRECT_BACKGROUND_REQUIREMENT;
+  return `${base}\n${mode === "transparent-colorize" ? transparent : direct}`;
 }
 
-export function createDefaultPrompts(): AiPetLetterPrompt[] {
+export function createDefaultPrompts(language: AppLanguage = "zh-CN"): AiPetLetterPrompt[] {
   return AI_PET_LETTERS.map((letter) => {
-    const value = defaultPromptForLetter(letter);
+    const value = defaultPromptForLetter(letter, language);
     return { letter, defaultPrompt: value, currentPrompt: value, selected: true };
   });
 }

@@ -50,6 +50,7 @@ import { createEngravingApi, apiBase } from "./services/engraving/api";
 import {
   getTaskId,
   DEFAULT_OUTPAINT_INSTRUCTIONS,
+  DEFAULT_OUTPAINT_INSTRUCTIONS_EN,
   loadPreferences,
   savePreferences,
   loadTask,
@@ -75,6 +76,7 @@ import {
 } from "./services/engraving/results";
 import { buildPrompt } from "./services/engraving/prompts.mjs";
 import "./custom-monochrome-logo.css";
+import { useLanguage } from "./i18n";
 
 function useBlobUrl(blob?: Blob) {
   const [value, setValue] = useState<{ blob: Blob; url: string }>();
@@ -198,6 +200,15 @@ export function EngravingTaskComposer({
   } = store;
   const [localPreferences, setPreferences] = useState(readPreferences);
   const preferences = sharedPreferences || localPreferences;
+  const { language } = useLanguage();
+  useEffect(() => {
+    if (sharedPreferences) return;
+    setPreferences((current) => {
+      const instructions = current.outpaint?.instructions || "";
+      if (instructions !== DEFAULT_OUTPAINT_INSTRUCTIONS && instructions !== DEFAULT_OUTPAINT_INSTRUCTIONS_EN) return current;
+      return { ...current, outpaint: { enabled: current.outpaint?.enabled === true, instructions: language === "en-US" ? DEFAULT_OUTPAINT_INSTRUCTIONS_EN : DEFAULT_OUTPAINT_INSTRUCTIONS } };
+    });
+  }, [language, sharedPreferences]);
   const [task, setTask] = useState<SavedTask>({
     version: 1,
     fileName: "",
@@ -455,7 +466,7 @@ export function EngravingTaskComposer({
         ...snapshot.outpaint,
         instructions:
           route !== "portrait" &&
-          snapshot.outpaint.instructions === DEFAULT_OUTPAINT_INSTRUCTIONS
+          [DEFAULT_OUTPAINT_INSTRUCTIONS, DEFAULT_OUTPAINT_INSTRUCTIONS_EN].includes(snapshot.outpaint.instructions)
             ? ""
             : snapshot.outpaint.instructions,
       };

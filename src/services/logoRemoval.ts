@@ -4,6 +4,7 @@ import { analyzeLogoRemovalOpenAi, generateLogoRemovalOpenAi, verifyLogoRemovalO
 import { describeLogoRemovalScopes } from './logoRemovalScope';
 
 export const DEFAULT_LOGO_REMOVAL_PROMPT = `只去除分析结果明确列出的目标 Logo，不得删除或修改其他内容。用目标 Logo 下方原本应有的玻璃、木材或其他载体底材、液体、透明度、折射、反射、曲率、纹理、雕刻底材和环境光自然重建区域，不得留下文字残影、贴纸边缘、模糊块或明显修补痕迹。严格保持画布、构图、产品数量、杯型、杯口、杯身、杯底、把手、液体、泡沫、木盒结构与非目标木纹、内衬、人物、手势、遮挡、景深和光影位置不变。商品说明、尺寸标注、排版文字、背景装饰、前景徽标以及不属于目标载体的任何文字或图形必须完整保留。`;
+export const DEFAULT_LOGO_REMOVAL_PROMPT_EN = `Remove only the target Logos explicitly identified by the analysis. Do not delete or alter anything else. Reconstruct each removed area naturally using the underlying glass, wood, or other carrier material together with the original liquid, transparency, refraction, reflection, curvature, texture, engraving substrate, and ambient light. Leave no text ghosting, sticker edge, blurred patch, or visible repair. Keep the canvas, composition, product count, cup shape, rim, body, base, handle, liquid, foam, wooden-box structure, non-target wood grain, lining, people, gestures, occlusion, depth of field, and lighting positions unchanged. Preserve all product descriptions, dimension labels, layout text, background decorations, foreground badges, and any text or graphics that do not belong to the target carrier.`;
 
 export function buildLogoRemovalAnalysisPrompt(scopes: LogoRemovalScope | readonly LogoRemovalScope[], customScope = '') {
   const scopeDescription = describeLogoRemovalScopes({ scopes: Array.isArray(scopes) ? scopes : [scopes], customScope });

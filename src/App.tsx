@@ -324,6 +324,19 @@ const CREATION_TOOL_ITEMS: Array<{
   },
 ];
 
+const PRIMARY_CREATION_TOOLS = new Set<CreationTool>([
+  "cup-wrap-print",
+  "scene",
+  "scene-replace",
+  "logo-removal",
+  "custom-monochrome-logo",
+  "ai-pet-letter-stickers",
+  "paper-text",
+  "background-removal",
+  "outpaint",
+  "inpaint",
+]);
+
 function SettingsPanel({
   settings,
   onChange,
@@ -619,6 +632,9 @@ function AppContent() {
   const [creationTool, setCreationTool] = useState<CreationTool>(() =>
     readCreationTool(window.location.search),
   );
+  const [moreToolsOpen, setMoreToolsOpen] = useState(
+    () => !PRIMARY_CREATION_TOOLS.has(readCreationTool(window.location.search)),
+  );
   const [showPinnedHome, setShowPinnedHome] = useState(
     () =>
       !isCreationTool(new URLSearchParams(window.location.search).get("tool")),
@@ -774,6 +790,7 @@ function AppContent() {
   const navigateToCreationTool = useCallback(
     (tool: CreationTool) => {
       if (tool === creationTool && !showPinnedHome) return;
+      if (!PRIMARY_CREATION_TOOLS.has(tool)) setMoreToolsOpen(true);
       setShowPinnedHome(false);
       setCreationTool(tool);
       window.history.pushState(
@@ -800,9 +817,9 @@ function AppContent() {
     );
   }, [pinnedCreationTools]);
 
-  const creationToolMenuItems = useMemo(
-    () =>
-      CREATION_TOOL_ITEMS.map((item) => ({
+  const { primaryCreationToolMenuItems, moreCreationToolMenuItems } = useMemo(
+    () => {
+      const items = CREATION_TOOL_ITEMS.map((item) => ({
         ...item,
         label: (
           <span className="creation-tool-menu-label">
@@ -812,9 +829,9 @@ function AppContent() {
             {!item.disabled && (
               <Tooltip
                 title={
-                  pinnedCreationTools.includes(item.key)
-                    ? "取消置顶"
-                    : "置顶常用功能"
+                  language === "en-US"
+                    ? pinnedCreationTools.includes(item.key) ? "Unpin" : "Pin to favorites"
+                    : pinnedCreationTools.includes(item.key) ? "取消置顶" : "置顶常用功能"
                 }
               >
                 <button
@@ -824,7 +841,9 @@ function AppContent() {
                       ? "tool-pin-button is-pinned"
                       : "tool-pin-button"
                   }
-                  aria-label={`${pinnedCreationTools.includes(item.key) ? "取消置顶" : "置顶"}${item.label}`}
+                  aria-label={language === "en-US"
+                    ? `${pinnedCreationTools.includes(item.key) ? "Unpin" : "Pin"} ${item.key}`
+                    : `${pinnedCreationTools.includes(item.key) ? "取消置顶" : "置顶"}${item.label}`}
                   onClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
@@ -841,8 +860,13 @@ function AppContent() {
             )}
           </span>
         ),
-      })),
-    [pinnedCreationTools, togglePinnedCreationTool],
+      }));
+      return {
+        primaryCreationToolMenuItems: items.filter((item) => PRIMARY_CREATION_TOOLS.has(item.key)),
+        moreCreationToolMenuItems: items.filter((item) => !PRIMARY_CREATION_TOOLS.has(item.key)),
+      };
+    },
+    [language, pinnedCreationTools, togglePinnedCreationTool],
   );
 
   useEffect(() => {
@@ -1676,6 +1700,8 @@ function AppContent() {
           <Menu
             mode="inline"
             selectedKeys={showPinnedHome ? [] : [creationTool]}
+            openKeys={moreToolsOpen ? ["more-tools"] : []}
+            onOpenChange={(keys) => setMoreToolsOpen(keys.includes("more-tools"))}
             onClick={({ key }) => {
               if (isCreationTool(key)) navigateToCreationTool(key);
             }}
@@ -1685,12 +1711,20 @@ function AppContent() {
                 type: "group",
                 label: "创作工具",
                 children: [
-                  ...creationToolMenuItems,
+                  ...primaryCreationToolMenuItems,
                   {
-                    key: "video",
-                    icon: <VideoCameraOutlined />,
-                    label: "视频生成",
-                    disabled: true,
+                    key: "more-tools",
+                    icon: <AppstoreOutlined />,
+                    label: "更多工具",
+                    children: [
+                      ...moreCreationToolMenuItems,
+                      {
+                        key: "video",
+                        icon: <VideoCameraOutlined />,
+                        label: "视频生成",
+                        disabled: true,
+                      },
+                    ],
                   },
                 ],
               },

@@ -4,7 +4,16 @@ import { startRequestConsoleEntry, updateRequestConsoleEntry } from './requestCo
 
 export const SCENE_COMMON_CONSTRAINT = '严格要求杯子的外形、轮廓、比例、结构、尺寸、朝向及在图中的位置完全不变，禁止拉伸、压缩、弯曲、重塑或改变杯口、杯身、杯底；人物在图中的位置和人物动作、特别是人物手势不变，穿搭及背景氛围可改变，真实的景深效果';
 
+export const SCENE_COMMON_CONSTRAINT_EN = 'Keep the cup shape, silhouette, proportions, structure, dimensions, orientation, and position in the image completely unchanged. Do not stretch, compress, bend, reshape, or alter the rim, body, or base. Keep every person in the same position and preserve their pose, especially hand gestures. Clothing and the surrounding atmosphere may change, with realistic depth of field.';
+
 export const SCENE_MANUAL_DEFAULT_PROMPT = '根据上传产品自动识别杯型与真实用途，并智能匹配最符合该杯型使用习惯的欧美真实生活场景；小烈酒杯匹配家庭吧台、朋友聚会、派对小酌场景；无柄蛋杯匹配明亮厨房、早餐桌、Brunch场景；可乐罐杯匹配休闲厨房、咖啡角、夏日冷饮、轻松家居场景；啤酒杯匹配酒吧、后院BBQ、聚会餐桌、运动观赛场景；威士忌杯匹配家庭酒吧、书房、胡桃木桌面、品鉴场景。场景需自然合理、不违和，自动搭配正确饮品、桌面材质和少量辅助道具，严格要求杯子的外形、轮廓、比例、结构、尺寸、朝向及在图中的位置完全不变，禁止拉伸、压缩、弯曲、重塑或改变杯口、杯身、杯底；人物在图中的位置和人物动作、特别是人物手势不变，穿搭及背景氛围可改变，真实的景深效果';
+
+export const SCENE_MANUAL_DEFAULT_PROMPT_EN = 'Automatically identify the uploaded product\'s cup type and real use, then place it in a realistic Western lifestyle scene that fits that cup: a home bar, friends\' gathering, or party for shot glasses; a bright kitchen, breakfast table, or brunch for handleless egg cups; a casual kitchen, coffee corner, summer drink, or relaxed home setting for can glasses; a bar, backyard BBQ, gathering table, or sports-viewing setting for beer glasses; and a home bar, study, walnut tabletop, or tasting scene for whisky glasses. Keep the setting natural and credible, with the correct drink, tabletop material, and only a few supporting props. Keep the cup shape, silhouette, proportions, structure, dimensions, orientation, and position completely unchanged. Do not stretch, compress, bend, reshape, or alter the rim, body, or base. Keep people in the same positions and preserve their actions, especially hand gestures. Clothing and atmosphere may change, with realistic depth of field.';
+
+export function localizedScenePrompt(language: 'zh-CN' | 'en-US', autoRecommend: boolean) {
+  if (autoRecommend) return language === 'en-US' ? SCENE_COMMON_CONSTRAINT_EN : SCENE_COMMON_CONSTRAINT;
+  return language === 'en-US' ? SCENE_MANUAL_DEFAULT_PROMPT_EN : SCENE_MANUAL_DEFAULT_PROMPT;
+}
 
 export const CUP_SCENE_RULES = [
   '小烈酒杯：家庭吧台、朋友聚会、派对小酌场景',

@@ -3,6 +3,8 @@ import { taskResults } from "./results";
 import { OPENAI_ROOT } from "../openAiEndpoint";
 export const DEFAULT_OUTPAINT_INSTRUCTIONS =
   "向图片上/下/左/右侧扩图，补全人物手臂和手肘/腿部，保留安全边距";
+export const DEFAULT_OUTPAINT_INSTRUCTIONS_EN =
+  "Extend the image upward, downward, left, or right to complete arms, elbows, or legs while preserving a safe margin.";
 export const DEFAULT_PREFERENCES: Preferences = {
   streamPreview: true,
   baseUrl: OPENAI_ROOT,

@@ -69,9 +69,11 @@ import { stitchArtwork } from "./services/cupWrap/stitchArtwork";
 import {
   chooseOutpaintSize,
   DEFAULT_GEOMETRY_OUTPAINT_PROMPT,
+  DEFAULT_GEOMETRY_OUTPAINT_PROMPT_EN,
   idealOutpaintRatio,
   recommendedArtworkMode,
 } from "./services/cupWrap/geometryOutpaint";
+import { useLanguage } from "./i18n";
 const SHOW_MANUAL_ARTWORK_TOOLS = false;
 const PRINT_SETTINGS_KEY = "cup-wrap-print:settings:v3";
 const LEGACY_PRINT_SETTINGS_KEY = "cup-wrap-print:settings:v2";
@@ -98,6 +100,12 @@ const DEFAULT_GEOMETRY_ADJUSTMENT: ImageAdjustment = {
 };
 const AI_OUTPAINT_PROMPT =
   "给图片里的图案扩图填充，使完整图案自然覆盖扇形区域，并彻底移除此图像的白色、纯色或其他背景，将背景设为真正透明。保持原图中所有文字、角色和前景主体不变、不重画、不变形且完整无损。重新排布扩展出的周围元素：凡是靠近扇形上弧、下弧或左右斜边的角色、帽子、头部、手脚、扫帚、书本、灯笼、星星、月亮及其他装饰，都必须整体向内移动并完整显示，任何元素都不得被画布边缘或扇形边界裁切、截断、遮挡或只显示一部分。所有元素的完整外轮廓与扇形边界之间保留至少图像短边 3% 的透明安全距离；宁可缩小或调整外围元素的位置，也不能裁掉任何元素。主体边缘干净、连续、平滑，无白边、无残留底色、无刀模线、无描边框，输出透明 PNG。";
+const AI_OUTPAINT_PROMPT_EN =
+  "Outpaint the artwork so the complete design naturally covers the fan-shaped area, and completely remove any white, solid-color, or other background to create genuine transparency. Preserve every existing word, character, and foreground subject exactly as-is: do not redraw, distort, or damage them. Reposition extended peripheral elements inward so every character, hat, head, limb, broom, book, lantern, star, moon, and decoration near the top arc, bottom arc, or slanted sides remains fully visible. Nothing may be cropped, cut off, obscured, or partially shown by the canvas or fan boundary. Keep each element's full outline at least 3% of the image's shorter side away from the fan boundary; shrink or reposition peripheral elements rather than cropping them. Produce a transparent PNG with clean, continuous, smooth subject edges and no white fringe, residual background, dieline, or outline frame.";
+const DEFAULT_LEGACY_CUP_PROMPT =
+  "保持中央主体、文字、角色和已有小图案的大小及比例不变，沿刀模轮廓只向外围空白扩展同风格背景和小装饰，并自然连接正面与背面图案。";
+const DEFAULT_LEGACY_CUP_PROMPT_EN =
+  "Keep the central subject, text, characters, and existing small motifs unchanged in size and proportion. Extend only matching background and small decorations into the empty outer area along the dieline, and connect the front and back artwork naturally.";
 function BlobPreview({ blob }: { blob: Blob }) {
   const [url, setUrl] = useState("");
   useEffect(() => {
@@ -201,7 +209,7 @@ const fresh = (): WrapDesign => ({
   layers: [],
   quantity: 1,
   prompt:
-    "保持中央主体、文字、角色和已有小图案的大小及比例不变，沿刀模轮廓只向外围空白扩展同风格背景和小装饰，并自然连接正面与背面图案。",
+    DEFAULT_LEGACY_CUP_PROMPT,
 });
 const hasArtwork = (design: WrapDesign) =>
   Boolean(
@@ -262,6 +270,7 @@ export default function CupWrapPrintComposer({
   settingsHost: HTMLElement | null;
   settings: AppSettings;
 }) {
+  const { language } = useLanguage();
   const [editor, setEditor] = useState(false),
     [localEditor, setLocalEditor] = useState(false),
     [model, setModel] = useState(
@@ -309,6 +318,20 @@ export default function CupWrapPrintComposer({
     [brushSize, setBrushSize] = useState(0.045),
     [liveStroke, setLiveStroke] = useState<ArtworkMaskPoint[]>([]),
     [liveMove, setLiveMove] = useState<ArtworkMaskPoint>();
+  useEffect(() => {
+    setDesigns((items) => items.map((item) => {
+      const current = item.geometryOutpaintPrompt?.trim();
+      const legacyPrompt = item.prompt?.trim();
+      const nextGeometryPrompt = current === DEFAULT_GEOMETRY_OUTPAINT_PROMPT || current === DEFAULT_GEOMETRY_OUTPAINT_PROMPT_EN
+        ? language === "en-US" ? DEFAULT_GEOMETRY_OUTPAINT_PROMPT_EN : DEFAULT_GEOMETRY_OUTPAINT_PROMPT
+        : item.geometryOutpaintPrompt;
+      const nextLegacyPrompt = legacyPrompt === DEFAULT_LEGACY_CUP_PROMPT || legacyPrompt === DEFAULT_LEGACY_CUP_PROMPT_EN
+        ? language === "en-US" ? DEFAULT_LEGACY_CUP_PROMPT_EN : DEFAULT_LEGACY_CUP_PROMPT
+        : item.prompt;
+      if (nextGeometryPrompt === item.geometryOutpaintPrompt && nextLegacyPrompt === item.prompt) return item;
+      return { ...item, geometryOutpaintPrompt: nextGeometryPrompt, prompt: nextLegacyPrompt };
+    }));
+  }, [language]);
   const [print, setPrint] = useState<PrintSettings>(() => {
     try {
       const saved = localStorage.getItem(PRINT_SETTINGS_KEY);
@@ -1299,7 +1322,7 @@ export default function CupWrapPrintComposer({
             aria-label="AI 扩图提示词"
             rows={4}
             readOnly
-            value={AI_OUTPAINT_PROMPT}
+            value={language === "en-US" ? AI_OUTPAINT_PROMPT_EN : AI_OUTPAINT_PROMPT}
           />
           <p>
             仅发送当前裁切包围盒中的扇形彩图，不再发送第二张刀模引导图。返回图会直接替换当前彩图，并由本地刀模路径再次精确裁切。

@@ -20,7 +20,7 @@ import { DEFAULT_LOGO_RESULT_INPAINT_PROMPT, normalizeLogoResultInpaintPrompt } 
 import { imageDimensions, outputAspectRatio, resizeImageBlob } from './services/logoOutputSizing';
 import { firstLogoRemovalResultPerSource, logoRemovalExportPath } from './services/logoRemovalExport';
 import {
-  DEFAULT_LOGO_REMOVAL_PROMPT, analyzeLogoRemovalTarget, buildLogoRemovalGenerationPrompt, generateLogoRemoval,
+  DEFAULT_LOGO_REMOVAL_PROMPT, DEFAULT_LOGO_REMOVAL_PROMPT_EN, analyzeLogoRemovalTarget, buildLogoRemovalGenerationPrompt, generateLogoRemoval,
   verifyLogoRemoval,
 } from './services/logoRemoval';
 import { normalizeLogoRemovalScopeConfig } from './services/logoRemovalScope';
@@ -30,6 +30,7 @@ import {
 } from './services/logoRemovalStore';
 import type { ImageModel, ImageSize, LogoRemovalAnalysis, LogoRemovalSettings, LogoRemovalTask, LogoRemovalVerification, OptimizerModel } from './types';
 import { downloadBlob, sanitizeFileName } from './utils';
+import { useLanguage } from './i18n';
 
 const { Title, Text, Paragraph } = Typography;
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
@@ -163,7 +164,13 @@ function ResultFolderCover({ resultKey, revision = 0, onOpen }: { resultKey?: st
 
 export default function LogoRemovalComposer(props: { apiKey: string; openAiApiKey: string; apiBaseUrl?: string | null; connectionMode: 'direct' | 'proxy'; onRequestKey: () => void; settingsHost?: HTMLElement | null }) {
   const { message } = App.useApp();
+  const { language } = useLanguage();
   const [settings, setSettings] = useState(loadSettings);
+  useEffect(() => {
+    setSettings((current) => [DEFAULT_LOGO_REMOVAL_PROMPT, DEFAULT_LOGO_REMOVAL_PROMPT_EN].includes(current.prompt.trim())
+      ? { ...current, prompt: language === 'en-US' ? DEFAULT_LOGO_REMOVAL_PROMPT_EN : DEFAULT_LOGO_REMOVAL_PROMPT }
+      : current);
+  }, [language]);
   const [groups, setGroups] = useState<FolderGroup[]>([]);
   const [tasks, setTasks] = useState<LogoRemovalTask[]>([]);
   const [sessionId, setSessionId] = useState<string>(() => crypto.randomUUID());

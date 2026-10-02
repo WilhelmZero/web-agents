@@ -14,8 +14,8 @@ import { buildOutpaintPrompt, closestAspectRatio, prepareOutpaintInput } from '.
 import { readLocalStorage } from './storage';
 import type { ImageModel, LogoAsset, PerImagePromptAssignment, SceneReplaceSettings, SceneReplaceTask } from './types';
 import { createId, downloadBlob, estimateImageCost, formatFileTimestamp, mimeExtension, normalizeSettingsForModel, sanitizeFileName } from './utils';
-import { BUILT_IN_SCENE_REPLACE_PRESETS, normalizeCustomScenePresets, SCENE_PRESET_EMOJIS, type SceneReplacePreset } from './services/sceneReplacePresets';
-import { recommendSceneTheme, SCENE_COMMON_CONSTRAINT, SCENE_MANUAL_DEFAULT_PROMPT } from './services/sceneThemeRecommendation';
+import { builtInSceneReplacePresets, normalizeCustomScenePresets, SCENE_PRESET_EMOJIS, type SceneReplacePreset } from './services/sceneReplacePresets';
+import { localizedScenePrompt, recommendSceneTheme, SCENE_COMMON_CONSTRAINT, SCENE_COMMON_CONSTRAINT_EN, SCENE_MANUAL_DEFAULT_PROMPT, SCENE_MANUAL_DEFAULT_PROMPT_EN } from './services/sceneThemeRecommendation';
 import { detectWhiteBackground } from './services/whiteBackgroundDetection';
 import { buildSceneReplacementPrompt } from './services/sceneReplacementPrompt';
 import { detectImageChange, resolveInsufficientImageChangeOutcome } from './services/imageChangeDetection';
@@ -25,6 +25,7 @@ import { perImagePromptFileKey } from './services/perImagePrompt';
 import { generateSceneReplacementBatch } from './services/geminiBatch';
 import { DEFAULT_GEMINI_CAPACITY_SETTINGS, getGeminiCapacitySettings, saveGeminiCapacitySettings, type GeminiCapacitySettings } from './services/geminiCapacity';
 import { desktopAssetFromFile, isElectronDesktop, submitDesktopJob } from './desktop/runtime';
+import { useLanguage } from './i18n';
 
 const { Text, Title, Paragraph } = Typography;
 const TYPES = ['image/png', 'image/jpeg', 'image/webp'];
@@ -34,6 +35,8 @@ const isOpenAiModel = (model: SceneModel) => model.startsWith('gpt-image-');
 const OUTPAINT_PRESETS = [{ label: '超宽屏 3200 × 1310', value: '3200x1310', width: 3200, height: 1310 }, { label: '横版 1800 × 1350', value: '1800x1350', width: 1800, height: 1350 }, { label: '自定义尺寸', value: 'custom' }];
 const DUAL_OUTPAINT_SIZES = [{ width: 3200, height: 1310 }, { width: 1800, height: 1350 }] as const;
 const MODEL_OPTIONS = [{ label: 'GPT（OpenAI 官方直连）', options: [{ value: 'gpt-image-2', label: 'GPT Image 2（推荐）' }, { value: 'gpt-image-2-2026-04-21', label: 'GPT Image 2（2026-04-21）' }] }, { label: 'Gemini', options: Object.entries(MODEL_CAPABILITIES).map(([value, item]) => ({ value, label: item.label })) }];
+const DEFAULT_OUTPAINT_PROMPT_ZH = '自然延展原图场景，补充画面之外合理存在的环境内容，保持真实摄影质感和自然景深。';
+const DEFAULT_OUTPAINT_PROMPT_EN = 'Extend the original scene naturally with plausible surroundings beyond the current frame. Preserve a realistic photographic look and natural depth of field.';
 
 function statusLabel(status: SceneReplaceTask['status']) {
   return status === 'waiting' ? '排队中' : status === 'running' ? '替换中' : status === 'success' ? '替换成功' : status === 'failed' ? '替换失败' : '已停止';
@@ -45,10 +48,11 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
   initialPrompt?: string; initialSettings?: Partial<SceneReplaceSettings>; perImagePromptPrefix?: string; exactPromptControl?: boolean; initialPerImagePrompts?: Record<string, PerImagePromptAssignment>; onPerImagePromptsChange?: (items: Record<string, PerImagePromptAssignment>) => void; automationStartToken?: string; automationRetryFailedToken?: string; automationStopToken?: string; onProgressChange?: (progress: { total: number; completed: number; failed: number; running: boolean }) => void; onResultsChange?: (tasks: SceneReplaceTask[]) => void;
 }) {
   const { message } = AntApp.useApp();
+  const { language } = useLanguage();
   const [settings, setSettings] = useState<SceneReplaceSettings>(() => ({ ...DEFAULT_SCENE_REPLACE_SETTINGS, ...readLocalStorage(STORAGE_KEYS.sceneReplaceSettings, {}), ...initialSettings }));
   const [capacitySettings, setCapacitySettings] = useState<GeminiCapacitySettings>(() => ({ ...DEFAULT_GEMINI_CAPACITY_SETTINGS, ...getGeminiCapacitySettings() }));
   const [scenes, setScenes] = useState<LogoAsset[]>([]);
-  const [prompt, setPrompt] = useState(() => settings.autoRecommendScene ? SCENE_COMMON_CONSTRAINT : SCENE_MANUAL_DEFAULT_PROMPT);
+  const [prompt, setPrompt] = useState(() => localizedScenePrompt(language, settings.autoRecommendScene));
   const submittedPrompt = exactPromptControl && initialPrompt !== undefined ? initialPrompt : prompt;
   const [whiteBackgroundSceneIds, setWhiteBackgroundSceneIds] = useState<string[]>([]);
   const [detectingWhiteSceneIds, setDetectingWhiteSceneIds] = useState<string[]>([]);
@@ -81,6 +85,17 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
   useEffect(() => { settingsRef.current = settings; localStorage.setItem(STORAGE_KEYS.sceneReplaceSettings, JSON.stringify(settings)); }, [settings]);
   useEffect(() => { localStorage.setItem(STORAGE_KEYS.sceneReplacePresets, JSON.stringify(customPresets)); }, [customPresets]);
   useEffect(() => { if (initialPrompt !== undefined) setPrompt(initialPrompt); }, [initialPrompt]);
+  useEffect(() => {
+    setSettings((current) => [DEFAULT_OUTPAINT_PROMPT_ZH, DEFAULT_OUTPAINT_PROMPT_EN].includes(current.outpaintPrompt.trim())
+      ? { ...current, outpaintPrompt: language === 'en-US' ? DEFAULT_OUTPAINT_PROMPT_EN : DEFAULT_OUTPAINT_PROMPT_ZH }
+      : current);
+  }, [language]);
+  useEffect(() => {
+    if (initialPrompt !== undefined) return;
+    setPrompt((current) => [SCENE_COMMON_CONSTRAINT, SCENE_COMMON_CONSTRAINT_EN, SCENE_MANUAL_DEFAULT_PROMPT, SCENE_MANUAL_DEFAULT_PROMPT_EN].includes(current.trim())
+      ? localizedScenePrompt(language, settings.autoRecommendScene)
+      : current);
+  }, [initialPrompt, language, settings.autoRecommendScene]);
   useEffect(() => onSessionStateChange?.(Boolean(scenes.length || tasks.length || prompt.trim())), [scenes.length, tasks.length, prompt, onSessionStateChange]);
 
   const clearResults = () => { setPlannedTaskCount(0); aborters.current.forEach((item) => item.abort()); retryTimers.current.forEach((timer) => window.clearTimeout(timer)); retryTimers.current.clear(); setTasks((current) => { current.forEach((item) => { if (item.resultUrl) URL.revokeObjectURL(item.resultUrl); if (item.outpaintUrl) URL.revokeObjectURL(item.outpaintUrl); item.outpaintResults?.forEach((result) => URL.revokeObjectURL(result.url)); }); return []; }); setCompareOriginalTaskIds(new Set()); setSelectedResultId(undefined); };
@@ -338,7 +353,7 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
   useEffect(() => { reportTaskProgress({ id: 'scene-replace', label: '场景替换', completed: done, total: progressTotal, failed: tasks.filter((task) => task.status === 'failed').length, running: busy }); }, [done, tasks, busy, progressTotal]);
   useEffect(() => { onProgressChange?.({ total: progressTotal, completed: done, failed: tasks.filter((task) => task.status === 'failed').length, running: busy }); onResultsChange?.(tasks); }, [tasks, done, busy, progressTotal, onProgressChange, onResultsChange]);
   const groups = useMemo(() => scenes.map((scene) => ({ scene, tasks: tasks.filter((item) => item.sceneId === scene.id) })).filter((item) => item.tasks.length), [scenes, tasks]);
-  const allPresets = useMemo(() => [...BUILT_IN_SCENE_REPLACE_PRESETS, ...customPresets], [customPresets]);
+  const allPresets = useMemo(() => [...builtInSceneReplacePresets(language), ...customPresets], [customPresets, language]);
   const resultItems = useMemo(() => tasks.flatMap((task) => { const scene = scenes.find((item) => item.id === task.sceneId); return scene ? [{ task, scene }] : []; }), [tasks, scenes]);
   const directPreviewItems = useMemo(() => resultItems.flatMap(({ task, scene }) => {
     const shownUrl = task.outpaintResults?.[0]?.url || task.outpaintUrl || task.resultUrl;

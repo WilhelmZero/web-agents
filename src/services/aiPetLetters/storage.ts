@@ -4,7 +4,8 @@ import {
   type AiPetLetterSettings,
   type AiPetLetterWorkspace,
 } from "./types";
-import { createDefaultPrompts } from "./prompts";
+import { adaptPromptOutputMode, createDefaultPrompts, defaultPromptForLetter } from "./prompts";
+import type { AppLanguage } from "../../i18n";
 
 const SETTINGS_KEY = "ai-pet-letter-stickers:settings:v1";
 const PROMPTS_KEY = "ai-pet-letter-stickers:prompts:v1";
@@ -12,6 +13,19 @@ const DB_NAME = "ai-pet-letter-stickers-v1";
 
 function isPreviousDefaultPrompt(value: string | undefined): boolean {
   return Boolean(value?.includes("其他角色和小装饰保持参考图中的身份、造型、数量和大致位置。"));
+}
+
+function isBuiltInDefaultPrompt(letter: string | undefined, value: string | undefined): boolean {
+  if (!letter || !value) return false;
+  const withoutOutputMode = (prompt: string) => prompt
+    .replace(/\s*输出背景模式：[^。]*。/g, "")
+    .replace(/\s*Output background mode:[^\n]*\.?/gi, "")
+    .trim();
+  return (["zh-CN", "en-US"] as const).some((language) => {
+    const base = defaultPromptForLetter(letter, language);
+    return withoutOutputMode(value) === withoutOutputMode(base) || value === base || (["direct-background", "transparent-colorize"] as const)
+      .some((mode) => withoutOutputMode(value) === withoutOutputMode(adaptPromptOutputMode(base, mode, language)));
+  });
 }
 
 export function loadAiPetLetterSettings(): AiPetLetterSettings {
@@ -26,15 +40,15 @@ export function saveAiPetLetterSettings(value: AiPetLetterSettings) {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(value));
 }
 
-export function loadAiPetLetterPrompts(): AiPetLetterPrompt[] {
-  const defaults = createDefaultPrompts();
+export function loadAiPetLetterPrompts(language: AppLanguage = "zh-CN"): AiPetLetterPrompt[] {
+  const defaults = createDefaultPrompts(language);
   try {
     const saved = JSON.parse(localStorage.getItem(PROMPTS_KEY) || "[]") as Partial<AiPetLetterPrompt>[];
     const byLetter = new Map(saved.map((item) => [item.letter, item]));
     return defaults.map((item) => {
       const savedItem = byLetter.get(item.letter);
       const legacyLocalComposite = savedItem?.currentPrompt?.includes("逐像素保持") || savedItem?.currentPrompt?.includes("局部编辑");
-      const shouldUpgradeDefault = legacyLocalComposite || isPreviousDefaultPrompt(savedItem?.currentPrompt);
+      const shouldUpgradeDefault = legacyLocalComposite || isPreviousDefaultPrompt(savedItem?.currentPrompt) || isBuiltInDefaultPrompt(savedItem?.letter, savedItem?.currentPrompt);
       return { ...item, ...savedItem, currentPrompt: shouldUpgradeDefault ? item.currentPrompt : savedItem?.currentPrompt || item.currentPrompt, defaultPrompt: item.defaultPrompt };
     });
   } catch {

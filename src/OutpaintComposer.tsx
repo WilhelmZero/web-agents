@@ -12,6 +12,7 @@ import { readLocalStorage } from './storage';
 import type { ImageModel, ImageSize } from './types';
 import { createId, downloadBlob, sanitizeFileName } from './utils';
 import OriginalCompareImage from './OriginalCompareImage';
+import { useLanguage } from './i18n';
 
 const { Text, Title, Paragraph } = Typography;
 type OpenAiImageModel = 'gpt-image-2' | 'gpt-image-2-2026-04-21';
@@ -19,7 +20,9 @@ type OutpaintModel = ImageModel | OpenAiImageModel;
 interface Settings { imageModel: OutpaintModel; imageSize: ImageSize; quality: 'high' | 'medium' | 'low'; width: number; height: number; concurrency: number; prompt: string }
 type PreviewMode = 'source' | 'result';
 interface Item { id: string; file: File; sourceUrl: string; status: 'waiting' | 'running' | 'success' | 'failed' | 'stopped'; resultBlob?: Blob; resultUrl?: string; error?: string }
-const DEFAULT_SETTINGS: Settings = { imageModel: 'gemini-3.1-flash-image', imageSize: '2K', quality: 'high', width: 3200, height: 1310, concurrency: 3, prompt: '自然延展原图场景，补充画面之外合理存在的环境内容，保持真实摄影质感和自然景深。' };
+const DEFAULT_OUTPAINT_PROMPT_ZH = '自然延展原图场景，补充画面之外合理存在的环境内容，保持真实摄影质感和自然景深。';
+const DEFAULT_OUTPAINT_PROMPT_EN = 'Extend the original scene naturally with plausible surroundings beyond the current frame. Preserve a realistic photographic look and natural depth of field.';
+const DEFAULT_SETTINGS: Settings = { imageModel: 'gemini-3.1-flash-image', imageSize: '2K', quality: 'high', width: 3200, height: 1310, concurrency: 3, prompt: DEFAULT_OUTPAINT_PROMPT_ZH };
 const PRESETS = [{ label: '超宽屏 3200 × 1310', value: '3200x1310', width: 3200, height: 1310 }, { label: '横版 1800 × 1350', value: '1800x1350', width: 1800, height: 1350 }, { label: '自定义尺寸', value: 'custom' }];
 const isOpenAiModel = (model: OutpaintModel): model is OpenAiImageModel => model.startsWith('gpt-image-');
 
@@ -27,12 +30,18 @@ export default function OutpaintComposer({ apiKey, openAiApiKey, apiBaseUrl, con
   apiKey: string; openAiApiKey: string; apiBaseUrl: string | null; connectionMode: 'direct' | 'proxy'; onRequestKey: () => void; onSessionStateChange?: (value: boolean) => void; settingsHost?: HTMLElement | null;
 }) {
   const { message } = App.useApp();
+  const { language } = useLanguage();
   const [settings, setSettings] = useState<Settings>(() => ({ ...DEFAULT_SETTINGS, ...readLocalStorage(STORAGE_KEYS.outpaintSettings, {}) }));
   const [items, setItems] = useState<Item[]>([]); const [busy, setBusy] = useState(false); const [previewModes, setPreviewModes] = useState<Record<string, PreviewMode>>({});
   const aborter = useRef<AbortController | undefined>(undefined);
   const patchSettings = (value: Partial<Settings>) => setSettings((current) => ({ ...current, ...value }));
   const patchItem = (id: string, value: Partial<Item>) => setItems((current) => current.map((item) => item.id === id ? { ...item, ...value } : item));
   useEffect(() => { localStorage.setItem(STORAGE_KEYS.outpaintSettings, JSON.stringify(settings)); }, [settings]);
+  useEffect(() => {
+    setSettings((current) => [DEFAULT_OUTPAINT_PROMPT_ZH, DEFAULT_OUTPAINT_PROMPT_EN].includes(current.prompt.trim())
+      ? { ...current, prompt: language === 'en-US' ? DEFAULT_OUTPAINT_PROMPT_EN : DEFAULT_OUTPAINT_PROMPT_ZH }
+      : current);
+  }, [language]);
   useEffect(() => onSessionStateChange?.(items.length > 0), [items.length, onSessionStateChange]);
   const completed = items.filter((item) => ['success', 'failed', 'stopped'].includes(item.status)).length; const successful = items.filter((item) => item.resultBlob);
   useEffect(() => reportTaskProgress({ id: 'outpaint', label: '扩图', completed, total: items.length, failed: items.filter((item) => item.status === 'failed').length, running: busy }), [completed, items, busy]);
