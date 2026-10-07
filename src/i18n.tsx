@@ -454,6 +454,8 @@ const translations: Record<string, string> = {
     "The key is stored in this browser and sent directly to Gemini by your browser. Do not configure it on an untrusted device.",
   "Keys 保存在当前浏览器，并由浏览器直接请求 Gemini 与 OpenAI 官方接口。请勿在不受信任的设备上配置。":
     "Keys are stored in this browser and sent directly to the official Gemini and OpenAI endpoints. Do not configure them on an untrusted device.",
+  "可从列表选择，也可直接输入完整模型名称。若服务提示不支持透明背景，请切换到 gpt-image-2.5-sunburst 或 gpt-image-2.5-flare。":
+    "Select a model or enter its full name. If the service reports that transparent backgrounds are unsupported, switch to gpt-image-2.5-sunburst or gpt-image-2.5-flare.",
   "Key 与代理地址保存在当前浏览器，请求将通过你配置的代理转发到 Gemini。":
     "The key and proxy URL are stored in this browser. Requests are forwarded to Gemini through your configured proxy.",
   把白底产品图放进真实世界: "Place clean product shots into the real world",

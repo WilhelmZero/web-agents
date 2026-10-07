@@ -56,6 +56,17 @@ export function apiBase(value: string): string {
   return url.href.replace(/\/+$/, "");
 }
 
+function rejectsTransparentBackground(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  return (
+    message.includes("background") &&
+    /not supported|unsupported|invalid[_ ]value|not allowed|不支持|不允许/.test(
+      message,
+    )
+  );
+}
+
 async function request(
   config: Config,
   path: string,
@@ -164,6 +175,10 @@ export function createEngravingApi(
   normalize = processInWorker,
   signal?: AbortSignal,
 ) {
+  // Compatible providers can expose the same model name with a smaller
+  // parameter surface. Remember a rejected transparency parameter for this
+  // API instance so a batch does not repeat the same harmless HTTP 400.
+  const modelsWithoutTransparentBackground = new Set<string>();
   async function analyze(
     image: Blob,
     config: Config,
@@ -302,31 +317,39 @@ export function createEngravingApi(
       const bitmap = await createImageBitmap(image);
       const ratio = bitmap.width / bitmap.height;
       bitmap.close();
-      const form = new FormData();
-      Object.entries({
-        model: config.imageModel,
-        prompt,
-        n: "1",
-        size:
-          ratio > 1.2 ? "1536x1024" : ratio < 0.83 ? "1024x1536" : "1024x1024",
-        quality: config.quality,
-        background: "transparent",
-        output_format: "png",
-      }).forEach(([key, value]) => form.append(key, value));
-      form.append(
-        "image[]",
-        image,
-        input.editMode ? "candidate.png" : "original.png",
-      );
-      if (hasReference) form.append("image[]", referenceImage, "reference.png");
-      if (useAnchor)
-        form.append("image[]", originalAnchor, "identity-original.png");
-      if (["gpt-image-1", "gpt-image-1.5"].includes(config.imageModel))
-        form.append("input_fidelity", "high");
-      if (config.streamPreview) {
-        form.append("stream", "true");
-        form.append("partial_images", "3");
-      }
+      const createForm = (transparentBackground: boolean) => {
+        const form = new FormData();
+        Object.entries({
+          model: config.imageModel,
+          prompt,
+          n: "1",
+          size:
+            ratio > 1.2
+              ? "1536x1024"
+              : ratio < 0.83
+                ? "1024x1536"
+                : "1024x1024",
+          quality: config.quality,
+          output_format: "png",
+        }).forEach(([key, value]) => form.append(key, value));
+        if (transparentBackground) form.append("background", "transparent");
+        form.append(
+          "image[]",
+          image,
+          input.editMode ? "candidate.png" : "original.png",
+        );
+        if (hasReference)
+          form.append("image[]", referenceImage, "reference.png");
+        if (useAnchor)
+          form.append("image[]", originalAnchor, "identity-original.png");
+        if (["gpt-image-1", "gpt-image-1.5"].includes(config.imageModel))
+          form.append("input_fidelity", "high");
+        if (config.streamPreview) {
+          form.append("stream", "true");
+          form.append("partial_images", "3");
+        }
+        return form;
+      };
       const id = startRequestConsoleEntry({
         requestPrompt: prompt,
         model: config.imageModel,
@@ -345,13 +368,34 @@ export function createEngravingApi(
       });
       const start = Date.now();
       try {
-        const response = await request(
-          config,
-          "/images/edits",
-          { method: "POST", body: form, signal },
-          300_000,
-          fetchImpl,
-        );
+        let usedBackgroundCompatibility =
+          modelsWithoutTransparentBackground.has(config.imageModel);
+        let response: Response;
+        try {
+          response = await request(
+            config,
+            "/images/edits",
+            {
+              method: "POST",
+              body: createForm(!usedBackgroundCompatibility),
+              signal,
+            },
+            300_000,
+            fetchImpl,
+          );
+        } catch (error) {
+          if (usedBackgroundCompatibility || !rejectsTransparentBackground(error))
+            throw error;
+          modelsWithoutTransparentBackground.add(config.imageModel);
+          usedBackgroundCompatibility = true;
+          response = await request(
+            config,
+            "/images/edits",
+            { method: "POST", body: createForm(false), signal },
+            300_000,
+            fetchImpl,
+          );
+        }
         let blobs: Blob[];
         if (
           response.headers.get("content-type")?.includes("text/event-stream")
@@ -390,6 +434,10 @@ export function createEngravingApi(
         const result = await normalize(blobs[0]);
         let referenceSuspect = false;
         const warnings = [...result.warnings];
+        if (usedBackgroundCompatibility)
+          warnings.push(
+            "当前模型或服务不支持原生透明背景参数，已自动使用兼容模式生成并交由本地流程清理背景。若需原生透明输出，请切换到 gpt-image-2.5-sunburst 或 gpt-image-2.5-flare。",
+          );
         try {
           if (input.styleReference !== false && referenceImage.size)
             await rejectReferenceOutput(result.buffer, referenceImage, signal);

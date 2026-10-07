@@ -703,7 +703,11 @@ export function EngravingTaskComposer({
         {" "}
         <Form.Item
           label="图片模型"
-          extra="可从列表选择，也可直接输入完整模型名称。"
+          extra={
+            language === "en-US"
+              ? "Select a model or enter its full name. If the service reports that transparent backgrounds are unsupported, switch to gpt-image-2.5-sunburst or gpt-image-2.5-flare."
+              : "可从列表选择，也可直接输入完整模型名称。若服务提示不支持透明背景，请切换到 gpt-image-2.5-sunburst 或 gpt-image-2.5-flare。"
+          }
         >
           <AutoComplete
             aria-label="图片模型"

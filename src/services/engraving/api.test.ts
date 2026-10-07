@@ -97,6 +97,53 @@ describe("compatible image API", () => {
       expect.objectContaining({ status: "success" }),
     );
   });
+  it("retries once without the transparent background parameter when a compatible provider rejects it", async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json(
+          {
+            error: {
+              message: "Transparent background is not supported for this model.",
+              code: "invalid_value",
+              param: "background",
+            },
+          },
+          { status: 400 },
+        ),
+      )
+      .mockImplementation(async () =>
+        Response.json({ data: [{ b64_json: btoa("png") }] }),
+      );
+    const normalize = vi.fn(async (buffer: Blob) => ({
+      buffer,
+      width: 200,
+      height: 100,
+      warnings: [],
+    }));
+    const api = createEngravingApi(fetcher as typeof fetch, normalize);
+    const first = await api.generate(input());
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(
+      (vi.mocked(fetcher as typeof fetch).mock.calls[0][1]!.body as FormData).get(
+        "background",
+      ),
+    ).toBe("transparent");
+    expect(
+      (vi.mocked(fetcher as typeof fetch).mock.calls[1][1]!.body as FormData).get(
+        "background",
+      ),
+    ).toBeNull();
+    expect(first.warnings.join(" ")).toContain("gpt-image-2.5-sunburst");
+
+    await api.generate(input());
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(
+      (vi.mocked(fetcher as typeof fetch).mock.calls[2][1]!.body as FormData).get(
+        "background",
+      ),
+    ).toBeNull();
+  });
   it("only lists models in connection tests and sends no image request or generation count", async () => {
     const fetcher = vi.fn(async () =>
       Response.json({ data: [{ id: "test" }] }),

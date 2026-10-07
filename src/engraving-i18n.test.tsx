@@ -101,3 +101,10 @@ it("translates score, round and export size while retaining user filename text",
     "Select result 生成结果.png",
   );
 });
+it("translates the transparent-background model compatibility hint", () => {
+  expect(
+    translateEngravingText(
+      "可从列表选择，也可直接输入完整模型名称。若服务提示不支持透明背景，请切换到 gpt-image-2.5-sunburst 或 gpt-image-2.5-flare。",
+    ),
+  ).toContain("gpt-image-2.5-sunburst");
+});

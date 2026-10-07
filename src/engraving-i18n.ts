@@ -105,6 +105,8 @@ const messages: Record<string, string> = {
   单图: "Single image",
   "可从列表选择，也可直接输入完整模型名称。":
     "Select a model or enter its full name.",
+  "可从列表选择，也可直接输入完整模型名称。若服务提示不支持透明背景，请切换到 gpt-image-2.5-sunburst 或 gpt-image-2.5-flare。":
+    "Select a model or enter its full name. If the service reports that transparent backgrounds are unsupported, switch to gpt-image-2.5-sunburst or gpt-image-2.5-flare.",
   选择或输入图片模型: "Select or enter an image model",
   审核模型: "Review model",
   生成质量: "Generation quality",
