@@ -10,6 +10,7 @@
     "dev:server": "node server/index.mjs",
     "start": "node server/index.mjs",
     "hash-password": "node scripts/hash-password.mjs",
+    "prebuild": "npm install --include=dev",
     "build": "tsc -b && vite build",
     "test": "vitest run",
     "test:server": "node --test server/*.test.mjs",
