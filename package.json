@@ -1,23 +1,21 @@
 {
   "name": "scene-studio",
-  "description": "Scene Studio desktop background image production queue",
+  "description": "Scene Studio hosted creative tools",
   "author": "WilhelmZero",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "main": "dist-electron/main.cjs",
   "scripts": {
     "dev": "vite",
+    "dev:server": "node server/index.mjs",
+    "start": "node server/index.mjs",
+    "hash-password": "node scripts/hash-password.mjs",
     "build": "tsc -b && vite build",
-    "build:electron": "node scripts/build-electron.mjs",
-    "build:desktop": "npm run build && npm run build:electron",
-    "desktop:dev": "npm run build:desktop && electron .",
-    "desktop:dir": "npm run build:desktop && electron-builder --dir --win",
-    "desktop:pack": "npm run build:desktop && electron-builder --win nsis zip --publish never",
     "test": "vitest run",
+    "test:server": "node --test server/*.test.mjs",
     "test:watch": "vitest",
     "typecheck": "tsc -b --pretty false && tsc -p worker/tsconfig.json --pretty false",
-    "typecheck:electron": "tsc -p electron/tsconfig.json --pretty false"
+    "typecheck:server": "node --check server/index.mjs && node --check server/store.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.1.0",
@@ -27,8 +25,10 @@
     "@xyflow/react": "^12.11.2",
     "ag-psd": "^27.0.0",
     "antd": "^6.1.0",
+    "express": "^5.2.1",
     "imagetracerjs": "^1.2.6",
     "jszip": "^3.10.1",
+    "mysql2": "^3.24.5",
     "pdf-lib": "^1.17.1",
     "pica": "^10.0.2",
     "react": "^19.2.0",
@@ -43,45 +43,11 @@
     "@types/react-dom": "^19.2.0",
     "@types/three": "^0.186.0",
     "@vitejs/plugin-react": "^5.1.0",
-    "electron": "^43.4.1",
-    "electron-builder": "^26.15.3",
     "fake-indexeddb": "^6.2.5",
     "jsdom": "^27.0.0",
     "prettier": "^3.9.6",
     "typescript": "^5.9.0",
     "vite": "^7.2.0",
     "vitest": "^4.0.0"
-  },
-  "build": {
-    "appId": "com.webagents.scenestudio",
-    "productName": "Scene Studio",
-    "directories": {
-      "output": "release"
-    },
-    "files": [
-      "dist/**/*",
-      "dist-electron/**/*",
-      "package.json",
-      "node_modules/sharp/**/*",
-      "node_modules/@img/**/*"
-    ],
-    "asar": true,
-    "asarUnpack": [
-      "node_modules/sharp/**/*",
-      "node_modules/@img/**/*"
-    ],
-    "win": {
-      "target": [
-        "nsis",
-        "zip"
-      ],
-      "artifactName": "Scene-Studio-${version}-${arch}.${ext}"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
-    }
   }
 }

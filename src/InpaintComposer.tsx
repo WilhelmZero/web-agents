@@ -29,6 +29,7 @@ import {
 } from 'antd';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { loadServerDocument, saveServerDocument, serverPersistenceEnabled } from './services/serverPersistence';
 import {
   DEFAULT_INPAINT_SETTINGS,
   MODEL_CAPABILITIES,
@@ -194,7 +195,27 @@ export default function InpaintComposer({
   const [error, setError] = useState<string>();
   const [optimizing, setOptimizing] = useState(false);
   const aborter = useRef<AbortController | undefined>(undefined);
+  const serverLoaded = useRef(false);
+  const serverWriter = useRef<Promise<void>>(Promise.resolve());
   const capability = MODEL_CAPABILITIES[settings.imageModel];
+
+  useEffect(() => {
+    if (!serverPersistenceEnabled()) return;
+    let alive = true;
+    void loadServerDocument<{ file?: File; maskGuide?: Blob; prompt: string; resultBlob?: Blob; resultMime?: string }>('inpaint:project').then((saved) => {
+      if (!alive || !saved) return;
+      if (saved.file) { setFile(saved.file); setPreviewUrl(URL.createObjectURL(saved.file)); }
+      if (saved.maskGuide) setMaskGuide(saved.maskGuide);
+      setPrompt(saved.prompt || '');
+      if (saved.resultBlob) { setResult({ blob: saved.resultBlob, url: URL.createObjectURL(saved.resultBlob), mimeType: saved.resultMime || saved.resultBlob.type }); setStatus('success'); }
+    }).finally(() => { serverLoaded.current = true; });
+    return () => { alive = false; };
+  }, []);
+  useEffect(() => {
+    if (!serverPersistenceEnabled() || !serverLoaded.current) return;
+    const snapshot = { file, maskGuide, prompt, resultBlob: result?.blob, resultMime: result?.mimeType };
+    serverWriter.current = serverWriter.current.catch(() => {}).then(() => saveServerDocument('inpaint:project', snapshot, 'inpaint'));
+  }, [file, maskGuide, prompt, result]);
 
   useEffect(() => localStorage.setItem(STORAGE_KEYS.inpaintSettings, JSON.stringify(settings)), [settings]);
   useEffect(() => onSessionStateChange?.(Boolean(file || prompt.trim() || result)), [file, prompt, result, onSessionStateChange]);

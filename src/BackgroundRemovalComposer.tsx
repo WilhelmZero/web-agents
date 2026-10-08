@@ -13,6 +13,7 @@ import { upscaleTransparentPng } from './services/imageUpscale';
 import { detectBorderMatte, restoreTransparentBackground, type RgbColor } from './services/transparentImageEdit';
 import { createId, downloadBlob, sanitizeFileName } from './utils';
 import { useLanguage } from './i18n';
+import { useServerCollection } from './services/serverCollection';
 
 const { Text, Title, Paragraph } = Typography;
 const ACCEPTED = ['image/png', 'image/jpeg', 'image/webp'];
@@ -30,6 +31,7 @@ export default function BackgroundRemovalComposer({ openAiApiKey, onRequestKey, 
   const { message } = App.useApp();
   const { language } = useLanguage();
   const [items, setItems] = useState<Item[]>([]);
+  useServerCollection('background-removal', items, setItems);
   const [busy, setBusy] = useState(false);
   const [settings, setSettings] = useState<RemovalSettings>(() => readLocalStorage<RemovalSettings>(STORAGE_KEYS.backgroundRemovalSettings, { mode: 'local', quality: 'high', gptBackground: 'auto', edgeExpansion: 2, edgeFeather: 1, autoVectorize: false, vectorEngine: 'auto', outputHd: false, hdScale: 2 }));
   const [previewCompareOriginal, setPreviewCompareOriginal] = useState(false);

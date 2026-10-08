@@ -35,6 +35,7 @@ const GOOGLE_API_ROOT = "https://generativelanguage.googleapis.com/v1beta";
 export function getGeminiApiRoot(
   proxyUrl = import.meta.env.VITE_GEMINI_PROXY_URL,
 ): string {
+  if (typeof window !== 'undefined' && window.__studioServerKeys) return GOOGLE_API_ROOT;
   const normalized = proxyUrl?.trim().replace(/\/+$/, "");
   if (!normalized) return GOOGLE_API_ROOT;
   return normalized.endsWith("/v1beta") ? normalized : `${normalized}/v1beta`;

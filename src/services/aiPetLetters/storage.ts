@@ -6,6 +6,7 @@ import {
 } from "./types";
 import { adaptPromptOutputMode, createDefaultPrompts, defaultPromptForLetter } from "./prompts";
 import type { AppLanguage } from "../../i18n";
+import { loadServerDocument, saveServerDocument, serverPersistenceEnabled } from '../serverPersistence';
 
 const SETTINGS_KEY = "ai-pet-letter-stickers:settings:v1";
 const PROMPTS_KEY = "ai-pet-letter-stickers:prompts:v1";
@@ -70,6 +71,7 @@ function openDb(): Promise<IDBDatabase> {
 }
 
 export async function loadAiPetLetterWorkspace(): Promise<AiPetLetterWorkspace | null> {
+  if (serverPersistenceEnabled()) return loadServerDocument<AiPetLetterWorkspace>('ai-pet-letter-stickers:workspace');
   const db = await openDb();
   return new Promise<AiPetLetterWorkspace | null>((resolve, reject) => {
     const request = db.transaction("workspace").objectStore("workspace").get("current");
@@ -79,6 +81,7 @@ export async function loadAiPetLetterWorkspace(): Promise<AiPetLetterWorkspace |
 }
 
 export async function saveAiPetLetterWorkspace(value: AiPetLetterWorkspace) {
+  if (serverPersistenceEnabled()) return saveServerDocument('ai-pet-letter-stickers:workspace', value, 'ai-pet-letter-stickers');
   const db = await openDb();
   return new Promise<void>((resolve, reject) => {
     const transaction = db.transaction("workspace", "readwrite");

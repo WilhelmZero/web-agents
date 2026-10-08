@@ -24,8 +24,9 @@ import { PerImagePromptEditor, usePerImagePrompts } from './usePerImagePrompts';
 import { perImagePromptFileKey } from './services/perImagePrompt';
 import { generateSceneReplacementBatch } from './services/geminiBatch';
 import { DEFAULT_GEMINI_CAPACITY_SETTINGS, getGeminiCapacitySettings, saveGeminiCapacitySettings, type GeminiCapacitySettings } from './services/geminiCapacity';
-import { desktopAssetFromFile, isElectronDesktop, submitDesktopJob } from './desktop/runtime';
 import { useLanguage } from './i18n';
+import { useServerCollection } from './services/serverCollection';
+import { useServerValue } from './services/serverValue';
 
 const { Text, Title, Paragraph } = Typography;
 const TYPES = ['image/png', 'image/jpeg', 'image/webp'];
@@ -49,10 +50,12 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
 }) {
   const { message } = AntApp.useApp();
   const { language } = useLanguage();
-  const [settings, setSettings] = useState<SceneReplaceSettings>(() => ({ ...DEFAULT_SCENE_REPLACE_SETTINGS, ...readLocalStorage(STORAGE_KEYS.sceneReplaceSettings, {}), ...initialSettings }));
+  const [settings, setSettings] = useState<SceneReplaceSettings>(() => ({ ...DEFAULT_SCENE_REPLACE_SETTINGS, ...readLocalStorage(STORAGE_KEYS.sceneReplaceSettings, {}), ...initialSettings, ...(window.__studioServerKeys ? { executionMode: 'realtime' as const } : {}) }));
   const [capacitySettings, setCapacitySettings] = useState<GeminiCapacitySettings>(() => ({ ...DEFAULT_GEMINI_CAPACITY_SETTINGS, ...getGeminiCapacitySettings() }));
   const [scenes, setScenes] = useState<LogoAsset[]>([]);
+  useServerCollection('scene-replace-scenes', scenes, setScenes);
   const [prompt, setPrompt] = useState(() => localizedScenePrompt(language, settings.autoRecommendScene));
+  useServerValue('scene-replace', 'prompt', prompt, setPrompt);
   const submittedPrompt = exactPromptControl && initialPrompt !== undefined ? initialPrompt : prompt;
   const [whiteBackgroundSceneIds, setWhiteBackgroundSceneIds] = useState<string[]>([]);
   const [detectingWhiteSceneIds, setDetectingWhiteSceneIds] = useState<string[]>([]);
@@ -68,6 +71,7 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
   const [presetEditorOpen, setPresetEditorOpen] = useState(false);
   const [presetDraft, setPresetDraft] = useState({ name: '', icon: '✨', content: '' });
   const [tasks, setTasks] = useState<SceneReplaceTask[]>([]);
+  useServerCollection('scene-replace-tasks', tasks, setTasks);
   const [streamingPromptAnalysis, setStreamingPromptAnalysis] = useState(false);
   const [plannedTaskCount, setPlannedTaskCount] = useState(0);
   const [selectedResultId, setSelectedResultId] = useState<string>();
@@ -104,7 +108,6 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
   const valid = (file: File) => { if (!TYPES.includes(file.type)) return void message.error(`${file.name}：仅支持 PNG、JPEG、WebP`); if (!file.size || file.size > MAX_SIZE) return void message.error(`${file.name}：文件需小于 20MB 且不能为空`); return true; };
   const recommendThemes = async (items: LogoAsset[]) => {
     const config = settingsRef.current; if (!config.autoRecommendScene || !items.length) return;
-    if (isElectronDesktop()) return;
     const pending = items.filter((item) => !sceneThemes[item.id] && !recommendingSceneIdsRef.current.has(item.id));
     if (!pending.length) return;
     const provider = config.sceneRecommendationProvider; const key = provider === 'openai' ? openAiApiKey : apiKey;
@@ -275,18 +278,6 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
     const config = settingsRef.current;
     const eligible = settings.autoSkipWhiteBackground ? scenes.filter((scene) => !whiteBackgroundSceneIds.includes(scene.id)) : scenes;
     if (!eligible.length) return void message.warning('没有可参与生成的场景图，请关闭白底图跳过开关或上传非白底图'); if (!submittedPrompt.trim()) return void message.warning('请选择预设或填写目标场景提示词');
-    if (isElectronDesktop()) {
-      const outputRoot = await window.desktop?.pickOutputDirectory(); if (!outputRoot) return;
-      try {
-        const groups = eligible.map((scene) => {
-          const asset = desktopAssetFromFile(scene.file); const relativeParts = (asset.relativePath || scene.name).split(/[\\/]+/); relativeParts.pop();
-          return { id: scene.id, name: scene.name, relativePath: relativeParts.join('/'), scenes: [asset], prompt: exactPromptControl ? submittedPrompt : [sceneThemes[scene.id], prompt].filter(Boolean).join('；') };
-        });
-        await submitDesktopJob({ name: `场景替换 ${new Date().toLocaleString()}`, outputRoot, globalConcurrency: config.concurrency, apiBaseUrl, groups, config: { tool: 'scene-replace', settings: { ...config, perImagePromptEnabled: exactPromptControl ? false : config.perImagePromptEnabled || config.autoRecommendScene, autoRecommendScene: exactPromptControl ? false : config.autoRecommendScene }, prompt: submittedPrompt, perImagePromptPrefix: exactPromptControl ? undefined : perImagePromptPrefix, exactPromptControl } });
-        window.dispatchEvent(new Event('desktop-task-created')); message.success('任务已提交到桌面后台，关闭窗口或刷新页面也会继续运行');
-      } catch (error) { message.error(error instanceof Error ? error.message : '创建桌面后台任务失败'); }
-      return;
-    }
     if (isOpenAiModel(config.imageModel) ? !openAiApiKey : !apiKey) return onRequestKey(); if (!isOpenAiModel(config.imageModel) && connectionMode === 'proxy' && !apiBaseUrl) { message.warning('请先配置代理地址'); return onRequestKey(); }
     if (config.autoOutpaint && (isOpenAiModel(config.outpaintImageModel) ? !openAiApiKey : !apiKey)) return onRequestKey();
     if (config.autoOutpaint && !isOpenAiModel(config.outpaintImageModel) && connectionMode === 'proxy' && !apiBaseUrl) { message.warning('请先配置 Gemini 代理地址'); return onRequestKey(); }
@@ -323,7 +314,7 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
       if (eligible.some((scene) => !assignments[perImagePromptFileKey(scene.file)]?.prompt.trim())) return void message.warning('存在未完成的逐图提示词，请先分析或填写');
     }
     clearResults(); setPlannedTaskCount(eligible.length * config.copiesPerScene); const nextTasks = createTasksForScenes(eligible, assignments, config); setTasks(nextTasks);
-    if (config.executionMode === 'batch') void executeBatch(nextTasks, config);
+    if (config.executionMode === 'batch' && !window.__studioServerKeys) void executeBatch(nextTasks, config);
   };
   const lastAutomationStart = useRef<string | undefined>(undefined);
   useEffect(() => { if (!automationStartToken || lastAutomationStart.current === automationStartToken || !scenes.length || !prompt.trim()) return; lastAutomationStart.current = automationStartToken; void start(); }, [automationStartToken, scenes.length, prompt]);
@@ -410,7 +401,7 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
   const selectedOutpaintPreset = OUTPAINT_PRESETS.find((item) => item.width === settings.outpaintWidth && item.height === settings.outpaintHeight)?.value || 'custom';
   const eligibleSceneCount = settings.autoSkipWhiteBackground ? scenes.length - whiteBackgroundSceneIds.length : scenes.length;
   const panel = <div className="settings-panel scene-replace-settings-panel"><Flex justify="space-between"><Title level={4} style={{ margin: 0 }}>场景替换设置</Title><Tag color="cyan">SCENE</Tag></Flex><Form layout="vertical" style={{ marginTop: 20 }}>
-    {!isOpenAiModel(settings.imageModel) && <><Form.Item label="Gemini 执行方式"><Radio.Group value={settings.executionMode} onChange={(event) => patch({ executionMode: event.target.value })}><Radio value="realtime">实时生成</Radio><Radio value="batch">Batch 异步批量</Radio></Radio.Group>{settings.executionMode === 'batch' && <Alert type="info" showIcon style={{ marginTop: 10 }} title="Batch 使用独立限额，费用约为实时接口的 50%" description="适合无人值守批量任务；完成可能需要数分钟至 24 小时。当前批次采用小批量内嵌请求，总大小需低于 20MB，并需保持页面开启以自动取回结果。" />}</Form.Item><Form.Item label="Gemini 容量保护"><Flex justify="space-between" align="center"><Text>503 时暂停所有标签并指数退避</Text><Switch checked={capacitySettings.enabled} onChange={(enabled) => patchCapacity({ enabled })} /></Flex>{capacitySettings.enabled && <Space direction="vertical" style={{ width: '100%', marginTop: 10 }}><Flex justify="space-between"><Text>容量重试次数</Text><InputNumber min={1} max={20} value={capacitySettings.retryLimit} onChange={(retryLimit) => patchCapacity({ retryLimit: retryLimit || 8 })} /></Flex><Flex justify="space-between"><Text>首次等待</Text><InputNumber min={1} max={300} addonAfter="秒" value={capacitySettings.baseDelaySeconds} onChange={(baseDelaySeconds) => patchCapacity({ baseDelaySeconds: baseDelaySeconds || 15 })} /></Flex><Flex justify="space-between"><Text>最长等待</Text><InputNumber min={30} max={3600} addonAfter="秒" value={capacitySettings.maxDelaySeconds} onChange={(maxDelaySeconds) => patchCapacity({ maxDelaySeconds: maxDelaySeconds || 600 })} /></Flex></Space>}</Form.Item></>}
+    {!isOpenAiModel(settings.imageModel) && <><Form.Item label="Gemini 执行方式"><Radio.Group value={settings.executionMode} onChange={(event) => patch({ executionMode: event.target.value })}><Radio value="realtime">实时生成</Radio><Radio value="batch" disabled={Boolean(window.__studioServerKeys)}>Batch 异步批量</Radio></Radio.Group>{settings.executionMode === 'batch' && <Alert type="info" showIcon style={{ marginTop: 10 }} title="Batch 使用独立限额，费用约为实时接口的 50%" description="适合无人值守批量任务；完成可能需要数分钟至 24 小时。当前批次采用小批量内嵌请求，总大小需低于 20MB，并需保持页面开启以自动取回结果。" />}</Form.Item><Form.Item label="Gemini 容量保护"><Flex justify="space-between" align="center"><Text>503 时暂停所有标签并指数退避</Text><Switch checked={capacitySettings.enabled} onChange={(enabled) => patchCapacity({ enabled })} /></Flex>{capacitySettings.enabled && <Space direction="vertical" style={{ width: '100%', marginTop: 10 }}><Flex justify="space-between"><Text>容量重试次数</Text><InputNumber min={1} max={20} value={capacitySettings.retryLimit} onChange={(retryLimit) => patchCapacity({ retryLimit: retryLimit || 8 })} /></Flex><Flex justify="space-between"><Text>首次等待</Text><InputNumber min={1} max={300} addonAfter="秒" value={capacitySettings.baseDelaySeconds} onChange={(baseDelaySeconds) => patchCapacity({ baseDelaySeconds: baseDelaySeconds || 15 })} /></Flex><Flex justify="space-between"><Text>最长等待</Text><InputNumber min={30} max={3600} addonAfter="秒" value={capacitySettings.maxDelaySeconds} onChange={(maxDelaySeconds) => patchCapacity({ maxDelaySeconds: maxDelaySeconds || 600 })} /></Flex></Space>}</Form.Item></>}
     <Form.Item label="逐图分配提示词"><Flex justify="space-between" align="center"><Text>生成前分析每张图并精简适用条件</Text><Switch checked={exactPromptControl ? false : settings.perImagePromptEnabled} disabled={exactPromptControl} onChange={(perImagePromptEnabled) => patch({ perImagePromptEnabled })} /></Flex>{!exactPromptControl && settings.perImagePromptEnabled && <Flex justify="space-between" align="center" style={{ marginTop: 10 }}><Text>分析完成后自动生成</Text><Switch checked={settings.autoGenerateAfterPromptAnalysis} onChange={(autoGenerateAfterPromptAnalysis) => patch({ autoGenerateAfterPromptAnalysis })} /></Flex>}</Form.Item>
     <Form.Item label="提示词简化"><Flex justify="space-between" align="center"><Text>逐图删除木盒、多小图等无关通用限制</Text><Switch checked={exactPromptControl ? false : settings.simplifyPromptConstraints} disabled={exactPromptControl || !settings.perImagePromptEnabled} onChange={(simplifyPromptConstraints) => patch({ simplifyPromptConstraints })} /></Flex></Form.Item>
     <Form.Item label="生成图变化检测"><Flex justify="space-between" align="center"><Text>变化不足 20% 时自动重新生成</Text><Switch checked={settings.detectInsufficientSceneChange} onChange={(detectInsufficientSceneChange) => patch({ detectInsufficientSceneChange })} /></Flex></Form.Item>

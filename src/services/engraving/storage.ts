@@ -1,6 +1,7 @@
 import type { Preferences, SavedTask } from "./types";
 import { taskResults } from "./results";
 import { OPENAI_ROOT } from "../openAiEndpoint";
+import { loadServerDocument, saveServerDocument, serverPersistenceEnabled } from "../serverPersistence";
 export const DEFAULT_OUTPAINT_INSTRUCTIONS =
   "向图片上/下/左/右侧扩图，补全人物手臂和手肘/腿部，保留安全边距";
 export const DEFAULT_OUTPAINT_INSTRUCTIONS_EN =
@@ -132,6 +133,7 @@ export function createTaskStorage(scope = "") {
   let pending: Promise<void> = Promise.resolve();
 
   async function readTask(id: string): Promise<SavedTask | undefined> {
+    if (serverPersistenceEnabled()) return await loadServerDocument<SavedTask>(`custom-logo:${id}`) || undefined;
     const db = await database();
     try {
       return await new Promise((resolve, reject) => {
@@ -148,6 +150,15 @@ export function createTaskStorage(scope = "") {
     }
   }
   async function writeTask(id: string, snapshot: SavedTask) {
+    if (serverPersistenceEnabled()) {
+      await saveServerDocument(`custom-logo:${id}`, snapshot, 'custom-monochrome-logo');
+      if (snapshot.original || taskResults(snapshot).length) {
+        const history = await loadServerDocument<TaskHistoryEntry[]>('custom-logo:history') || [];
+        const entry = { id, fileName: snapshot.fileName, updatedAt: Date.now(), count: taskResults(snapshot).length };
+        await saveServerDocument('custom-logo:history', [entry, ...history.filter((item) => item.id !== id)], 'custom-monochrome-logo');
+      }
+      return;
+    }
     const db = await database();
     try {
       await new Promise<void>((resolve, reject) => {
@@ -176,6 +187,7 @@ export function createTaskStorage(scope = "") {
   // A document holds its writer lock until unload. Duplicated tabs inherit sessionStorage,
   // but cannot acquire the same lock and therefore fork before any writes.
   async function claim(id: string): Promise<boolean> {
+    if (serverPersistenceEnabled()) return true;
     if (!navigator.locks) return false;
     return new Promise((resolve, reject) => {
       void navigator.locks
@@ -200,11 +212,12 @@ export function createTaskStorage(scope = "") {
     await claim(id);
     currentId = id;
     sessionStorage.setItem(CURRENT, id);
+    if (serverPersistenceEnabled()) await saveServerDocument('custom-logo:current', id, 'custom-monochrome-logo');
   }
   function ensureReady(): Promise<void> {
     if (!initialized)
       initialized = (async () => {
-        const previous = sessionStorage.getItem(CURRENT);
+        const previous = sessionStorage.getItem(CURRENT) || (serverPersistenceEnabled() ? await loadServerDocument<string>('custom-logo:current') : null);
         if (previous && (await claim(previous))) {
           currentId = previous;
           return;
@@ -242,6 +255,7 @@ export function createTaskStorage(scope = "") {
   }
   async function listTaskHistory(): Promise<TaskHistoryEntry[]> {
     await ensureReady();
+    if (serverPersistenceEnabled()) return (await loadServerDocument<TaskHistoryEntry[]>('custom-logo:history') || []).sort((a, b) => b.updatedAt - a.updatedAt);
     const db = await database();
     try {
       return await new Promise((resolve, reject) => {

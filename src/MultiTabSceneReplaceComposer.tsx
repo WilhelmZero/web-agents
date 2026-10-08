@@ -75,11 +75,6 @@ import {
   putMultiTabResult,
   readMultiTabGroupResults,
 } from "./services/multiTabResultStore";
-import {
-  desktopAssetFromFile,
-  isElectronDesktop,
-  submitDesktopJob,
-} from "./desktop/runtime";
 
 const { Title, Text, Paragraph } = Typography;
 const DB_NAME = "scene-studio.multi-tab-scene-replace.v1";
@@ -833,75 +828,6 @@ export default function MultiTabSceneReplaceComposer(
     message.success(`已为 ${targets.length} 个文件夹分配场景建议`);
   };
   const open = async (only?: Group) => {
-    if (isElectronDesktop()) {
-      if (!groups.length || !prompt.trim())
-        return void message.warning("请选择场景文件夹并填写公共提示词");
-      const selected = (only ? [only] : groups)
-        .map((group) => ({
-          ...group,
-          files: autoSkipWhiteBackground
-            ? group.files.filter(
-                (file) => !whiteBackgroundFileKeys.includes(fileKey(file)),
-              )
-            : group.files,
-        }))
-        .filter((group) => group.files.length);
-      if (!selected.length)
-        return void message.warning("所选分组全部是白底图，没有可执行的任务");
-      const outputRoot = await window.desktop?.pickOutputDirectory();
-      if (!outputRoot) return;
-      try {
-        const desktopGroups = selected.map((group) => ({
-          id: group.id,
-          name: group.name,
-          relativePath: group.path,
-          scenes: group.files.map(desktopAssetFromFile),
-          prompt: buildFolderScenePrompt(
-            prompt,
-            folderSuggestionMode ? folderSuggestions[group.id] : undefined,
-            exactPromptControl,
-          ),
-        }));
-        const id = await submitDesktopJob({
-          name: `多文件夹场景替换 ${new Date().toLocaleString()}`,
-          outputRoot,
-          globalConcurrency: concurrency,
-          startPaused: !only,
-          apiBaseUrl: props.apiBaseUrl,
-          groups: desktopGroups,
-          config: {
-            tool: "scene-replace",
-            settings: {
-              ...storedSceneSettings,
-              autoRecommendScene: exactPromptControl
-                ? false
-                : folderSuggestionMode
-                  ? false
-                  : autoRecommendScene,
-              autoSkipWhiteBackground,
-              perImagePromptEnabled: exactPromptControl
-                ? false
-                : perImagePromptEnabled || autoRecommendScene,
-              autoGenerateAfterPromptAnalysis: true,
-              simplifyPromptConstraints: exactPromptControl
-                ? false
-                : simplifyPromptConstraints,
-              detectInsufficientSceneChange,
-            },
-            prompt: exactPromptControl ? prompt : prompt.trim(),
-            exactPromptControl,
-          },
-        });
-        setActiveBatch(id);
-        window.dispatchEvent(new Event("desktop-task-created"));
-        message.success("全部文件夹已加入桌面后台队列，不再创建子标签");
-      } catch (error) {
-        message.error(
-          error instanceof Error ? error.message : "创建桌面批次失败",
-        );
-      }
-      return;
-    }
     if (!groups.length || !prompt.trim())
       return void message.warning("请选择场景文件夹并填写公共提示词");
     const stored = readLocalStorage<SceneReplaceSettings>(
@@ -994,12 +920,6 @@ export default function MultiTabSceneReplaceComposer(
     });
   };
   const startAll = async () => {
-    if (isElectronDesktop()) {
-      if (!activeBatch) return void message.warning("请先创建桌面后台批次");
-      await window.desktop?.resumeJob(activeBatch);
-      window.dispatchEvent(new Event("desktop-task-created"));
-      return void message.success("桌面后台队列已开始执行");
-    }
     if (!activeBatch) return void message.warning("请先打开工作标签");
     const batch = await read(activeBatch);
     if (!batch) return;

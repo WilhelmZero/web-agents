@@ -12,6 +12,8 @@ import { readLocalStorage } from './storage';
 import { inspectVectorEligibility, vectorizeImageToSvg } from './services/trueVectorExport';
 import { prepareTransparentImageForEdit, restoreTransparentBackground } from './services/transparentImageEdit';
 import OriginalCompareImage from './OriginalCompareImage';
+import { useServerCollection } from './services/serverCollection';
+import { useServerValue } from './services/serverValue';
 
 const { Title, Text, Paragraph } = Typography;
 type Provider = 'openai' | 'gemini';
@@ -59,11 +61,13 @@ const DEFAULT_PAPER_TEXT_SETTINGS: PaperTextSettings = {
 export default function PaperTextComposer({ apiKey, openAiApiKey, apiBaseUrl, onRequestKey, onSessionStateChange, settingsHost }: { apiKey: string; openAiApiKey: string; apiBaseUrl: string | null; onRequestKey: () => void; onSessionStateChange?: (value: boolean) => void; settingsHost?: HTMLElement | null }) {
   const { message } = App.useApp();
   const [items, setItems] = useState<Item[]>([]);
+  useServerCollection('paper-text', items, setItems);
   const [activeId, setActiveId] = useState<string>();
   const [paperSettings, setPaperSettings] = useState<PaperTextSettings>(() => readLocalStorage(STORAGE_KEYS.paperTextSettings, DEFAULT_PAPER_TEXT_SETTINGS));
   const { languageProvider, imageProvider, openAiTextModel, openAiImageModel, geminiTextModel, geminiImageModel, quality, concurrency } = paperSettings;
   const patchSettings = (value: Partial<PaperTextSettings>) => setPaperSettings((current) => ({ ...current, ...value }));
   const [commonPrompt, setCommonPrompt] = useState('');
+  useServerValue('paper-text', 'prompt', commonPrompt, setCommonPrompt);
   const [busy, setBusy] = useState(false);
   const [vectorizing, setVectorizing] = useState(false);
   const [compareIds, setCompareIds] = useState<Set<string>>(() => new Set());

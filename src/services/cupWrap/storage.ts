@@ -1,4 +1,5 @@
 import type { WrapDesign } from "./types";
+import { loadServerDocument, saveServerDocument, serverPersistenceEnabled } from '../serverPersistence';
 async function db() {
   return new Promise<IDBDatabase>((resolve, reject) => {
     const r = indexedDB.open("cup-wrap-print-v1", 1);
@@ -8,6 +9,7 @@ async function db() {
   });
 }
 export async function loadDesigns(): Promise<WrapDesign[]> {
+  if (serverPersistenceEnabled()) return await loadServerDocument<WrapDesign[]>('cup-wrap-print:designs') || [];
   const d = await db();
   return new Promise<WrapDesign[]>((resolve, reject) => {
     const r = d.transaction("designs").objectStore("designs").get("current");
@@ -16,6 +18,7 @@ export async function loadDesigns(): Promise<WrapDesign[]> {
   }).finally(() => d.close());
 }
 export async function saveDesigns(designs: WrapDesign[]) {
+  if (serverPersistenceEnabled()) return saveServerDocument('cup-wrap-print:designs', designs, 'cup-wrap-print');
   const d = await db();
   return new Promise<void>((resolve, reject) => {
     const t = d.transaction("designs", "readwrite");

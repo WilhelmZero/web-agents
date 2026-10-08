@@ -66,7 +66,6 @@ import {
   putMultiTabResult,
   readMultiTabGroupResults,
 } from "./services/multiTabResultStore";
-import { desktopAssetFromFile, isElectronDesktop, submitDesktopJob } from "./desktop/runtime";
 
 const { Title, Text, Paragraph } = Typography;
 const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
@@ -922,28 +921,6 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
     if (!groups.length)
       return void message.warning("请先选择包含各组图片的根文件夹");
     if (!logos.length) return void message.warning("请先上传公共 Logo");
-    if (isElectronDesktop()) {
-      const outputRoot = await window.desktop?.pickOutputDirectory();
-      if (!outputRoot) return;
-      try {
-        const sharedLogos = logos.map(desktopAssetFromFile);
-        const id = await submitDesktopJob({
-          name: `多文件夹 Logo 替换 ${new Date().toLocaleString()}`,
-          outputRoot,
-          globalConcurrency,
-          startPaused: true,
-          apiBaseUrl: props.apiBaseUrl,
-          groups: groups.map((group) => ({ id: group.id, name: group.name, relativePath: group.path, scenes: group.files.map(desktopAssetFromFile), logos: sharedLogos, oldLogo: oldLogo ? desktopAssetFromFile(oldLogo) : undefined })),
-          config: { tool: "logo-replace", settings: { ...storedLogoSettings, useOldLogoReference: Boolean(oldLogo), perImagePromptEnabled, autoGenerateAfterPromptAnalysis: true, distinctLogoPerOccurrence } },
-        });
-        setActiveBatchId(id);
-        window.dispatchEvent(new Event("desktop-task-created"));
-        message.success("全部文件夹已加入桌面后台队列，不再创建子标签");
-      } catch (error) {
-        message.error(error instanceof Error ? error.message : "创建桌面批次失败");
-      }
-      return;
-    }
     const id = `batch-${Date.now()}`;
     const placeholders = groups.map((_group, index) =>
       window.open("", `scene-studio-logo-worker-${id}-${index}`),
@@ -1005,14 +982,6 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
   };
   const openSingleWorker = async (group: FolderGroup) => {
     if (!logos.length) return void message.warning("请先上传公共 Logo");
-    if (isElectronDesktop()) {
-      try {
-        const outputRoot = await window.desktop?.pickOutputDirectory(); if (!outputRoot) return;
-        const id = await submitDesktopJob({ name: `${group.name} · Logo 替换`, outputRoot, globalConcurrency, apiBaseUrl: props.apiBaseUrl, groups: [{ id: group.id, name: group.name, relativePath: group.path, scenes: group.files.map(desktopAssetFromFile), logos: logos.map(desktopAssetFromFile), oldLogo: oldLogo ? desktopAssetFromFile(oldLogo) : undefined }], config: { tool: "logo-replace", settings: { ...storedLogoSettings, useOldLogoReference: Boolean(oldLogo), perImagePromptEnabled, autoGenerateAfterPromptAnalysis: true, distinctLogoPerOccurrence } } });
-        setActiveBatchId(id); window.dispatchEvent(new Event("desktop-task-created")); message.success(`${group.name} 已加入桌面后台队列`);
-      } catch (error) { message.error(error instanceof Error ? error.message : "创建桌面批次失败"); }
-      return;
-    }
     const placeholder = window.open(
       "",
       `scene-studio-logo-worker-${group.id}-${Date.now()}`,
@@ -1121,12 +1090,6 @@ export default function MultiTabLogoReplaceComposer(props: Props) {
     message.success("公共新 Logo 与旧 Logo 参考已同步到子标签");
   };
   const startAllWorkers = async () => {
-    if (isElectronDesktop()) {
-      if (!activeBatchId) return void message.warning("请先创建桌面后台批次");
-      await window.desktop?.resumeJob(activeBatchId);
-      window.dispatchEvent(new Event("desktop-task-created"));
-      return void message.success("桌面后台队列已开始执行");
-    }
     if (!activeBatchId)
       return void message.warning("请先保存批次并打开工作标签");
     const batch = await readBatch(activeBatchId);

@@ -10,7 +10,6 @@ import {
   CopyOutlined,
   CodeOutlined,
   DeleteOutlined,
-  DesktopOutlined,
   DownloadOutlined,
   EditOutlined,
   ExperimentOutlined,
@@ -110,7 +109,8 @@ import WorkflowComposer from "./WorkflowComposer";
 import CombinedReplaceComposer from "./CombinedReplaceComposer";
 import RequestConsoleDrawer from "./RequestConsoleDrawer";
 import GeneratingImage from "./GeneratingImage";
-import DesktopTaskCenter from "./DesktopTaskCenter";
+import { useServerCollection } from "./services/serverCollection";
+import { useServerValue } from "./services/serverValue";
 import OriginalCompareImage from "./OriginalCompareImage";
 import GlobalGenerationStats from "./GlobalGenerationStats";
 import IconVectorSplitComposer from "./IconVectorSplitComposer";
@@ -588,9 +588,16 @@ function AppContent() {
   const screens = Grid.useBreakpoint();
   const compact = !screens.xl;
   useEffect(() => installFolderDropUploadSupport(), []);
-  const [settings, setSettings] = useState<AppSettings>(() =>
-    readLocalStorage(STORAGE_KEYS.settings, DEFAULT_SETTINGS),
-  );
+  const [settings, setSettings] = useState<AppSettings>(() => {
+    const stored = readLocalStorage(STORAGE_KEYS.settings, DEFAULT_SETTINGS);
+    return {
+      ...stored,
+      apiKey: window.__studioServerKeys?.gemini ? '__server_managed__' : stored.apiKey === '__server_managed__' ? '' : stored.apiKey,
+      openAiApiKey: window.__studioServerKeys?.openai ? '__server_managed__' : stored.openAiApiKey === '__server_managed__' ? '' : stored.openAiApiKey,
+      connectionMode: 'direct',
+      proxyUrl: '',
+    };
+  });
   const [products, setProducts] = useState<ProductImage[]>([]);
   const [prompts, setPrompts] = useState<PromptItem[]>([
     { id: createId(), content: "" },
@@ -628,6 +635,9 @@ function AppContent() {
     ...presets,
   ];
   const [tasks, setTasks] = useState<GenerationTask[]>([]);
+  useServerCollection('scene-products', products, setProducts);
+  useServerCollection('scene-tasks', tasks, setTasks);
+  useServerValue('scene', 'prompts', prompts, setPrompts);
   const [activePromptId, setActivePromptId] = useState(prompts[0].id);
   const [creationTool, setCreationTool] = useState<CreationTool>(() =>
     readCreationTool(window.location.search),
@@ -653,7 +663,6 @@ function AppContent() {
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [keyOpen, setKeyOpen] = useState(false);
-  const [desktopTaskCenterOpen, setDesktopTaskCenterOpen] = useState(false);
   const [requestConsoleOpen, setRequestConsoleOpen] = useState(false);
   const [globalProgress, setGlobalProgress] = useState<TaskProgress[]>([]);
   const [notificationPermission, setNotificationPermission] = useState<
@@ -768,12 +777,6 @@ function AppContent() {
   const [optimizingAll, setOptimizingAll] = useState(false);
   const [testingProxy, setTestingProxy] = useState(false);
   const runningIds = useRef(new Set<string>());
-  useEffect(() => {
-    const openDesktopCenter = () => setDesktopTaskCenterOpen(true);
-    window.addEventListener("desktop-task-created", openDesktopCenter);
-    return () =>
-      window.removeEventListener("desktop-task-created", openDesktopCenter);
-  }, []);
 
   const navigateToHome = useCallback(() => {
     if (showPinnedHome) return;
@@ -1538,16 +1541,6 @@ function AppContent() {
             >
               控制台
             </Button>
-            {window.desktop && (
-              <Button
-                type="primary"
-                ghost
-                icon={<DesktopOutlined />}
-                onClick={() => setDesktopTaskCenterOpen(true)}
-              >
-                后台任务
-              </Button>
-            )}
             {globalTotal > 0 && (
               <Tooltip
                 title={runningProgress
@@ -1602,43 +1595,15 @@ function AppContent() {
               </Button>
             )}
             <Button
-              type={
-                window.desktop
-                  ? "default"
-                  : settings.apiKey || settings.openAiApiKey
-                    ? "default"
-                    : "primary"
-              }
-              icon={
-                window.desktop ? (
-                  <KeyOutlined />
-                ) : settings.apiKey || settings.openAiApiKey ? (
-                  <CheckCircleFilled />
-                ) : (
-                  <KeyOutlined />
-                )
-              }
-              onClick={() =>
-                window.desktop
-                  ? setDesktopTaskCenterOpen(true)
-                  : setKeyOpen(true)
-              }
+              type={settings.apiKey || settings.openAiApiKey ? "default" : "primary"}
+              icon={settings.apiKey || settings.openAiApiKey ? <CheckCircleFilled /> : <KeyOutlined />}
+              onClick={() => setKeyOpen(true)}
             >
-              {window.desktop
-                ? "桌面 Key 设置"
-                : settings.apiKey || settings.openAiApiKey
-                  ? "Key 已配置"
-                  : "配置 API Key"}
+              {settings.apiKey || settings.openAiApiKey ? "Key 已配置" : "配置 API Key"}
             </Button>
           </Space>
         </Flex>
       </Header>
-      {window.desktop && (
-        <DesktopTaskCenter
-          open={desktopTaskCenterOpen}
-          onClose={() => setDesktopTaskCenterOpen(false)}
-        />
-      )}
 
       <Layout
         className={`workspace-layout${showPinnedHome ? " is-tool-home" : ""}${creationTool === "workflow" && !showPinnedHome ? " is-workflow" : ""}`}
@@ -2685,8 +2650,10 @@ function AppContent() {
             </Form.Item>
           )}
           <Form.Item label="Gemini API Key" style={{ marginBottom: 0 }}>
+            {window.__studioServerKeys?.gemini && <Alert type="success" showIcon title="Gemini Key 已由服务器环境变量配置" />}
             <Input.Password
-              value={settings.apiKey}
+              value={window.__studioServerKeys?.gemini ? '' : settings.apiKey}
+              disabled={window.__studioServerKeys?.gemini}
               onChange={(event) =>
                 patchSettings({ apiKey: event.target.value.trim() })
               }
@@ -2708,11 +2675,13 @@ function AppContent() {
           <Divider titlePlacement="start">OpenAI</Divider>
           <Form.Item
             label="OpenAI API Key"
-            extra="请求地址：https://api.openai.com/v1，不经过中转站"
+            extra="所有请求经本站服务器安全转发；环境变量优先。"
             style={{ marginBottom: 0 }}
           >
+            {window.__studioServerKeys?.openai && <Alert type="success" showIcon title="OpenAI Key 已由服务器环境变量配置" />}
             <Input.Password
-              value={settings.openAiApiKey}
+              value={window.__studioServerKeys?.openai ? '' : settings.openAiApiKey}
+              disabled={window.__studioServerKeys?.openai}
               onChange={(event) =>
                 patchSettings({ openAiApiKey: event.target.value.trim() })
               }

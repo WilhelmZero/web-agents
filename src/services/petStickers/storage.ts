@@ -4,6 +4,7 @@ import {
   type PetResult,
   type PetSettings,
 } from "./types";
+import { loadServerDocument, saveServerDocument, serverPersistenceEnabled } from '../serverPersistence';
 const KEY = "pet-letter-stickers:settings:v1";
 export function readSettings(): PetSettings {
   try {
@@ -36,6 +37,7 @@ function db(): Promise<IDBDatabase> {
   });
 }
 export async function loadWorkspace(): Promise<SavedWorkspace | undefined> {
+  if (serverPersistenceEnabled()) return await loadServerDocument<SavedWorkspace>('pet-letter-stickers:workspace') || undefined;
   const d = await db();
   try {
     return await new Promise((res, rej) => {
@@ -52,6 +54,7 @@ export async function loadWorkspace(): Promise<SavedWorkspace | undefined> {
 }
 let saves = Promise.resolve();
 export function saveWorkspace(value: SavedWorkspace) {
+  if (serverPersistenceEnabled()) return saveServerDocument('pet-letter-stickers:workspace', value, 'pet-letter-stickers');
   const snapshot = structuredClone(value);
   const next = saves
     .catch(() => {})

@@ -8,5 +8,6 @@ release/
 !.env.example
 worker/.dev.vars*
 .wrangler/
+.local-data/
 vite.config.js
 vite.config.d.ts

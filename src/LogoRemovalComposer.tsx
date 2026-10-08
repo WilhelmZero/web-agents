@@ -12,7 +12,6 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import OriginalCompareImage from './OriginalCompareImage';
 import { MaskCanvas } from './InpaintComposer';
 import { MODEL_CAPABILITIES } from './constants';
-import { desktopAssetFromFile, isElectronDesktop, submitDesktopJob } from './desktop/runtime';
 import { reportTaskProgress } from './services/taskProgress';
 import { generateInpaintImage } from './services/gemini';
 import { generateLogoResultInpaintOpenAi } from './services/logoReplaceOpenAi';
@@ -362,11 +361,6 @@ export default function LogoRemovalComposer(props: { apiKey: string; openAiApiKe
     if (settings.scopes.includes('other') && !settings.customScope.trim()) return void message.warning('请填写其他去除范围');
     const providerNeeds = [settings.analysisProvider, settings.imageProvider, ...(settings.verificationEnabled ? [settings.verificationProvider] : [])];
     if (providerNeeds.includes('gemini') && !props.apiKey || providerNeeds.includes('openai') && !props.openAiApiKey) return props.onRequestKey();
-    if (isElectronDesktop()) {
-      const outputRoot = await window.desktop?.pickOutputDirectory(); if (!outputRoot) return;
-      const id = await submitDesktopJob({ name: `去除 Logo ${new Date().toLocaleString()}`, outputRoot, globalConcurrency: settings.concurrency, apiBaseUrl: props.apiBaseUrl, groups: groups.map((group) => ({ id: group.id, name: group.name, relativePath: group.path, scenes: group.files.map(desktopAssetFromFile) })), config: { tool: 'logo-removal', settings } });
-      window.dispatchEvent(new Event('desktop-task-created')); message.success(`后台任务已创建：${id}`); return;
-    }
     setTasks((current) => current.length ? current.map((task) => ['failed', 'stopped'].includes(task.status) ? { ...task, status: 'waiting', stage: '等待重试', error: undefined } : task) : createTasks());
     setStartedAt((value) => value || Date.now()); setEndedAt(undefined); setPaused(false); setRunning(true);
   }, [createTasks, groups, message, props, settings]);
