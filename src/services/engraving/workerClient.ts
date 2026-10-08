@@ -65,6 +65,16 @@ function execute(
       reject(error);
     };
     const abort = () => fail(new DOMException("已取消", "AbortError"));
+    const fallbackUpload = async (cause: string) => {
+      cleanup();
+      try {
+        // A stale or blocked worker asset must not prevent a normal image upload.
+        const { normalizeImage } = await import("./image");
+        resolve(await normalizeImage(blob, 4096, false, true));
+      } catch (error) {
+        reject(new Error(`${cause}；备用处理失败：${error instanceof Error ? error.message : String(error)}`));
+      }
+    };
     try {
       worker = new Worker(new URL("./worker.ts", import.meta.url), {
         type: "module",
@@ -93,6 +103,10 @@ function execute(
       };
       worker.onerror = (event) => {
         event.preventDefault();
+        if (upload && !params && !/out of memory|allocation failed/i.test(event.message || "")) {
+          void fallbackUpload("本地图像处理线程无法加载" + (event.message ? `：${event.message}` : ""));
+          return;
+        }
         fail(
           new Error(
             "本地图像处理线程中断。请降低输出尺寸或DPI；若页面刚更新，请在保存结果后刷新。" +
@@ -104,6 +118,10 @@ function execute(
         fail(new Error("本地图像数据传递失败，请降低输出尺寸后重试。"));
       worker.postMessage({ blob, params, upload });
     } catch (error) {
+      if (upload && !params) {
+        void fallbackUpload("无法启动本地图像处理线程");
+        return;
+      }
       fail(
         new Error(
           "无法启动本地图像处理：" +

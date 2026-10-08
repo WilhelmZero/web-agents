@@ -175,7 +175,10 @@ export async function createStudioServer(env = process.env, dependencies = {}) {
     if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ error: 'Empty file' });
     const mime = String(req.get('content-type') || 'application/octet-stream').split(';')[0];
     if (!/^(image\/|application\/(pdf|octet-stream|zip))/.test(mime)) return res.status(415).json({ error: 'Unsupported asset type' });
-    const name = path.basename(String(req.get('x-file-name') || 'asset')).slice(0, 255);
+    let submittedName;
+    try { submittedName = decodeURIComponent(String(req.get('x-file-name') || 'asset')); }
+    catch { return res.status(400).json({ error: 'Invalid file name' }); }
+    const name = path.basename(submittedName.replaceAll('\\', '/')).slice(0, 255);
     const filePath = path.join(canonicalDataDir, randomUUID());
     await writeFile(filePath, req.body, { flag: 'wx', mode: 0o600 });
     const id = await store.createAsset({ tool: cleanTool(req.get('x-tool')), mime, name, path: filePath, expiresAt: req.get('x-asset-role') === 'result' ? new Date(Date.now() + RETENTION_MS) : null });

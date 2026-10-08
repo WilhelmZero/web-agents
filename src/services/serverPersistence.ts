@@ -11,7 +11,7 @@ async function encode(value: unknown, tool: string, field = ''): Promise<unknown
     if (known) return { [MARKER]: known, type: value.type, name: value instanceof File ? value.name : null, modified: value instanceof File ? value.lastModified : null };
     const response = await fetch('/api/assets', {
       method: 'POST',
-      headers: { 'Content-Type': value.type || 'application/octet-stream', 'X-Tool': tool, 'X-File-Name': value instanceof File ? value.name : 'asset', 'X-Asset-Role': /result|candidate|generated|outpaint|ai/i.test(field) ? 'result' : 'source' },
+      headers: { 'Content-Type': value.type || 'application/octet-stream', 'X-Tool': tool, 'X-File-Name': encodeURIComponent(value instanceof File ? value.name : 'asset'), 'X-Asset-Role': /result|candidate|generated|outpaint|ai/i.test(field) ? 'result' : 'source' },
       body: value,
     });
     if (!response.ok) throw new Error(`服务器素材保存失败（HTTP ${response.status}）`);

@@ -120,6 +120,7 @@ import AiPetLetterStickerComposer from "./AiPetLetterStickerComposer";
 const CupWrapPrintComposer = lazy(() => import("./CupWrapPrintComposer"));
 import { useLanguage } from "./i18n";
 import { readLocalStorage } from "./storage";
+import { managedKeyValue, type ServerKeyStatus } from "./aiTransport";
 import {
   downloadAllZip,
   downloadGroupZip,
@@ -588,17 +589,31 @@ function AppContent() {
   const screens = Grid.useBreakpoint();
   const compact = !screens.xl;
   useEffect(() => installFolderDropUploadSupport(), []);
+  const [serverKeys, setServerKeys] = useState<ServerKeyStatus | undefined>(() => window.__studioServerKeys);
   const [settings, setSettings] = useState<AppSettings>(() => {
     const stored = readLocalStorage(STORAGE_KEYS.settings, DEFAULT_SETTINGS);
     return {
       ...stored,
-      apiKey: window.__studioServerKeys?.gemini ? '__server_managed__' : stored.apiKey === '__server_managed__' ? '' : stored.apiKey,
-      openAiApiKey: window.__studioServerKeys?.openai ? '__server_managed__' : stored.openAiApiKey === '__server_managed__' ? '' : stored.openAiApiKey,
+      apiKey: managedKeyValue(Boolean(window.__studioServerKeys?.gemini), stored.apiKey),
+      openAiApiKey: managedKeyValue(Boolean(window.__studioServerKeys?.openai), stored.openAiApiKey),
       connectionMode: 'direct',
       proxyUrl: '',
     };
   });
   const [products, setProducts] = useState<ProductImage[]>([]);
+  useEffect(() => {
+    const syncServerKeys = () => {
+      const next = window.__studioServerKeys;
+      setServerKeys(next);
+      setSettings((current) => ({
+        ...current,
+        apiKey: managedKeyValue(Boolean(next?.gemini), current.apiKey),
+        openAiApiKey: managedKeyValue(Boolean(next?.openai), current.openAiApiKey),
+      }));
+    };
+    window.addEventListener('studio:server-keys', syncServerKeys);
+    return () => window.removeEventListener('studio:server-keys', syncServerKeys);
+  }, []);
   const [prompts, setPrompts] = useState<PromptItem[]>([
     { id: createId(), content: "" },
   ]);
@@ -2605,7 +2620,7 @@ function AppContent() {
           style={{ marginBottom: 16 }}
         />
         <Form layout="vertical">
-          {!window.__studioServerKeys && <>
+          {!serverKeys && <>
           <Form.Item label="连接方式">
             <Segmented
               block
@@ -2648,10 +2663,10 @@ function AppContent() {
           )}
           </>}
           <Form.Item label="Gemini API Key" style={{ marginBottom: 0 }}>
-            {window.__studioServerKeys?.gemini && <Alert type="success" showIcon title="Gemini Key 已由服务器环境变量配置" />}
+            {serverKeys?.gemini && <Alert type="success" showIcon title="Gemini Key 已由服务器环境变量配置" />}
             <Input.Password
-              value={window.__studioServerKeys?.gemini ? '' : settings.apiKey}
-              disabled={window.__studioServerKeys?.gemini}
+              value={serverKeys?.gemini ? '' : settings.apiKey}
+              disabled={serverKeys?.gemini}
               onChange={(event) =>
                 patchSettings({ apiKey: event.target.value.trim() })
               }
@@ -2676,10 +2691,10 @@ function AppContent() {
             extra="所有请求经本站服务器安全转发；环境变量优先。"
             style={{ marginBottom: 0 }}
           >
-            {window.__studioServerKeys?.openai && <Alert type="success" showIcon title="OpenAI Key 已由服务器环境变量配置" />}
+            {serverKeys?.openai && <Alert type="success" showIcon title="OpenAI Key 已由服务器环境变量配置" />}
             <Input.Password
-              value={window.__studioServerKeys?.openai ? '' : settings.openAiApiKey}
-              disabled={window.__studioServerKeys?.openai}
+              value={serverKeys?.openai ? '' : settings.openAiApiKey}
+              disabled={serverKeys?.openai}
               onChange={(event) =>
                 patchSettings({ openAiApiKey: event.target.value.trim() })
               }

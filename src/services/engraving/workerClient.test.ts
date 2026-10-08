@@ -1,4 +1,5 @@
 import { it, expect, vi, afterEach } from "vitest";
+vi.mock("./image", () => ({ normalizeImage: vi.fn() }));
 const instances: FakeWorker[] = [];
 class FakeWorker {
   onmessage?: (e: { data: unknown }) => void;
@@ -27,6 +28,7 @@ afterEach(() => {
   vi.useRealTimers();
   instances.length = 0;
   vi.resetModules();
+  vi.clearAllMocks();
 });
 it("bounds all local image work at two and removes cancelled queued work", async () => {
   vi.stubGlobal("Worker", FakeWorker);
@@ -60,6 +62,19 @@ it("reports worker details and frees the slot after a crash", async () => {
   const next = processInWorker(new Blob());
   instances[1].done();
   await next;
+});
+it("normalizes an uploaded image on the main thread when the worker asset fails to load", async () => {
+  vi.stubGlobal("Worker", FakeWorker);
+  const { normalizeImage } = await import("./image");
+  const result = { buffer: new Blob(["png"]), width: 1, height: 1, warnings: [] };
+  vi.mocked(normalizeImage).mockResolvedValue(result);
+  const { processInWorker } = await import("./workerClient");
+  const blob = new Blob(["image"]);
+  const pending = processInWorker(blob, undefined, undefined, true);
+  instances[0].onerror?.({ message: "", preventDefault: vi.fn() });
+  await expect(pending).resolves.toBe(result);
+  expect(normalizeImage).toHaveBeenCalledWith(blob, 4096, false, true);
+  expect(instances[0].terminate).toHaveBeenCalledOnce();
 });
 it("terminates an active operation on cancellation without retrying", async () => {
   vi.stubGlobal("Worker", FakeWorker);

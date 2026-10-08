@@ -35,7 +35,7 @@ test('login protects routes and server key takes precedence over browser fallbac
   const env = {
     SESSION_SECRET: 'a-secure-session-secret-of-at-least-32-characters',
     APP_USERS_JSON: JSON.stringify({ admin: { passwordHash: passwordHash('valid-password-12345'), admin: true } }),
-    APP_DATA_DIR: directory, OPENAI_API_KEY: 'server-key', NODE_ENV: 'test',
+    APP_DATA_DIR: directory, OPENAI_API_KEY: 'server-key', GEMINI_API_KEY: 'gemini-server-key', NODE_ENV: 'test',
   };
   const stateStore = fakeStore();
   const instance = await createStudioServer(env, { store: stateStore });
@@ -56,11 +56,15 @@ test('login protects routes and server key takes precedence over browser fallbac
     assert.equal(login.status, 200);
     const cookie = login.headers.get('set-cookie').split(';')[0];
     const config = await fetch(`${base}/api/config`, { headers: { Cookie: cookie } });
-    assert.deepEqual(await config.json(), { openai: true, gemini: false });
+    assert.deepEqual(await config.json(), { openai: true, gemini: true });
     const documentPut = await fetch(`${base}/api/documents/custom-logo%3Acurrent`, { method: 'PUT', headers: { Cookie: cookie, 'Content-Type': 'application/json' }, body: JSON.stringify('task:example') });
     assert.equal(documentPut.status, 200);
     const documentGet = await fetch(`${base}/api/documents/custom-logo%3Acurrent`, { headers: { Cookie: cookie } });
     assert.equal(await documentGet.json(), 'task:example');
+    const assetResponse = await fetch(`${base}/api/assets`, { method: 'POST', headers: { Cookie: cookie, 'Content-Type': 'image/png', 'X-Tool': 'custom-monochrome-logo', 'X-File-Name': encodeURIComponent('客户图案.png') }, body: Buffer.from('png') });
+    assert.equal(assetResponse.status, 201);
+    const uploadedAsset = await assetResponse.json();
+    assert.equal((await stateStore.getAsset(uploadedAsset.id)).name, '客户图案.png');
     const response = await fetch(`${base}/api/ai/openai/v1/images/generations`, { method: 'POST', headers: { Cookie: cookie, 'Content-Type': 'application/json', 'X-Client-Api-Key': 'browser-key', 'X-Tool': 'scene' }, body: JSON.stringify({ model: 'gpt-image-2', prompt: 'test' }) });
     assert.equal(response.status, 200, await response.text());
     assert.equal(seenKey, 'Bearer server-key');

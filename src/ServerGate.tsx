@@ -14,19 +14,35 @@ export default function ServerGate({ children }: { children: React.ReactNode }) 
   const [usage, setUsage] = useState<Array<Record<string, unknown>>>([]);
   const [busy, setBusy] = useState(false);
 
+  async function refreshConfig() {
+    const response = await fetch('/api/config', { credentials: 'same-origin', cache: 'no-store' });
+    if (!response.ok) return;
+    window.__studioServerKeys = await response.json() as ServerKeyStatus;
+    window.dispatchEvent(new Event('studio:server-keys'));
+  }
+
   async function loadSession() {
     try {
       const response = await fetch('/api/auth/session', { credentials: 'same-origin' });
       if (!response.ok) return setSession(null);
       const user = await response.json() as Session;
-      const configResponse = await fetch('/api/config', { credentials: 'same-origin' });
-      window.__studioServerKeys = configResponse.ok ? await configResponse.json() as ServerKeyStatus : { openai: false, gemini: false };
+      await refreshConfig();
       setSession(user);
     } catch { setSession(null); }
     finally { setChecking(false); }
   }
 
   useEffect(() => { void loadSession(); }, []);
+  useEffect(() => {
+    if (!session) return;
+    const refresh = () => { if (document.visibilityState === 'visible') void refreshConfig().catch(() => {}); };
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, [session]);
   useEffect(() => {
     if (!open || !session) return;
     const refresh = async () => {
