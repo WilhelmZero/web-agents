@@ -2598,17 +2598,14 @@ function AppContent() {
         okText="保存到本地"
       >
         <Alert
-          type="warning"
+          type="info"
           showIcon
-          title="Keys 会保存在当前浏览器"
-          description={
-            settings.connectionMode === "proxy"
-              ? "Key 与代理地址保存在当前浏览器，请求将通过你配置的代理转发到 Gemini。"
-              : "Keys 保存在当前浏览器，并由浏览器直接请求 Gemini 与 OpenAI 官方接口。请勿在不受信任的设备上配置。"
-          }
+          title="本站服务器转发 AI 请求"
+          description="服务器环境变量中的 Key 优先。未配置时，此窗口的备用 Key 保存在当前浏览器，仅通过 HTTPS 发送给本站服务器；请勿在不受信任的设备上配置。"
           style={{ marginBottom: 16 }}
         />
         <Form layout="vertical">
+          {!window.__studioServerKeys && <>
           <Form.Item label="连接方式">
             <Segmented
               block
@@ -2649,6 +2646,7 @@ function AppContent() {
               </Space.Compact>
             </Form.Item>
           )}
+          </>}
           <Form.Item label="Gemini API Key" style={{ marginBottom: 0 }}>
             {window.__studioServerKeys?.gemini && <Alert type="success" showIcon title="Gemini Key 已由服务器环境变量配置" />}
             <Input.Password

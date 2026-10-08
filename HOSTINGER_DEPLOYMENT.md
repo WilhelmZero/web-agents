@@ -2,7 +2,7 @@
 
 ## Application
 
-Deploy this repository as a Hostinger Business **Node.js Web App**. Build command: `npm ci && npm run build`. Start command: `npm start`. The app listens on `PORT` supplied by Hostinger and serves the Vite build through Express. Use Node.js 22 or newer.
+Deploy this repository as a Hostinger Business **Node.js Web App**. In the GitHub import wizard choose the `codex/hostinger-studio-migration` branch, the **Other** framework preset, npm, build command `npm run build`, and entry file `server/index.mjs`; leave output directory empty. Hostinger installs dependencies separately. The app listens on `PORT` supplied by Hostinger and serves the Vite build through Express. Use Node.js 22 or newer.
 
 Do not use the GitHub Pages build for the hosted version: it has no login, private storage, or server queue. Keep the current Pages site untouched until the new site is verified and a rollback is available.
 
@@ -14,7 +14,7 @@ Generate each password hash with `npm run hash-password` and enter the password 
 
 `OPENAI_API_KEY` and `GEMINI_API_KEY` are optional server secrets. If a provider's env key is absent, a logged-in user can supply that provider's key in the site's settings window. It is sent only to this server and encrypted while its job is pending, then removed from the database when the job finishes. Require HTTPS before using browser keys.
 
-For a temporary Hostinger domain, set `APP_ORIGIN` to that exact HTTPS origin. Change it to `https://studio.lifelightenup.com` when binding the final domain. The origin setting protects POST requests and must not include a trailing slash.
+For the current temporary Hostinger domain, set `APP_ORIGIN=https://floralwhite-cheetah-150627.hostingersite.com`. Change it to `https://studio.lifelightenup.com` when binding the final domain. The origin setting protects POST requests and must not include a trailing slash. Ignore/remove Hostinger's suggested `VITE_GEMINI_PROXY_URL`; the hosted app does not use a browser-side proxy address.
 
 ## Release sequence
 
