@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "vite",
     "dev:server": "node server/index.mjs",
-    "start": "node server/index.mjs",
+    "start": "node server/entry.mjs",
     "hash-password": "node scripts/hash-password.mjs",
     "prebuild": "npm install --include=dev",
     "build": "tsc -b && vite build",
