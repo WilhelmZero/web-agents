@@ -12,7 +12,7 @@ import { readLocalStorage } from './storage';
 import { inspectVectorEligibility, vectorizeImageToSvg } from './services/trueVectorExport';
 import { prepareTransparentImageForEdit, restoreTransparentBackground } from './services/transparentImageEdit';
 import OriginalCompareImage from './OriginalCompareImage';
-import { useServerCollection } from './services/serverCollection';
+import { useArchiveResults } from './services/resultArchive';
 import { useServerValue } from './services/serverValue';
 
 const { Title, Text, Paragraph } = Typography;
@@ -61,7 +61,7 @@ const DEFAULT_PAPER_TEXT_SETTINGS: PaperTextSettings = {
 export default function PaperTextComposer({ apiKey, openAiApiKey, apiBaseUrl, onRequestKey, onSessionStateChange, settingsHost }: { apiKey: string; openAiApiKey: string; apiBaseUrl: string | null; onRequestKey: () => void; onSessionStateChange?: (value: boolean) => void; settingsHost?: HTMLElement | null }) {
   const { message } = App.useApp();
   const [items, setItems] = useState<Item[]>([]);
-  useServerCollection('paper-text', items, setItems);
+  useArchiveResults('paper-text', items.map((item) => ({ id: item.id, status: item.status, resultBlob: item.resultBlob, name: `${sanitizeFileName(item.file.name)}_文字修改.png` })));
   const [activeId, setActiveId] = useState<string>();
   const [paperSettings, setPaperSettings] = useState<PaperTextSettings>(() => readLocalStorage(STORAGE_KEYS.paperTextSettings, DEFAULT_PAPER_TEXT_SETTINGS));
   const { languageProvider, imageProvider, openAiTextModel, openAiImageModel, geminiTextModel, geminiImageModel, quality, concurrency } = paperSettings;

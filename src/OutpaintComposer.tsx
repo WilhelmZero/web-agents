@@ -13,7 +13,7 @@ import type { ImageModel, ImageSize } from './types';
 import { createId, downloadBlob, sanitizeFileName } from './utils';
 import OriginalCompareImage from './OriginalCompareImage';
 import { useLanguage } from './i18n';
-import { useServerCollection } from './services/serverCollection';
+import { useArchiveResults } from './services/resultArchive';
 
 const { Text, Title, Paragraph } = Typography;
 type OpenAiImageModel = 'gpt-image-2' | 'gpt-image-2-2026-04-21';
@@ -34,7 +34,7 @@ export default function OutpaintComposer({ apiKey, openAiApiKey, apiBaseUrl, con
   const { language } = useLanguage();
   const [settings, setSettings] = useState<Settings>(() => ({ ...DEFAULT_SETTINGS, ...readLocalStorage(STORAGE_KEYS.outpaintSettings, {}) }));
   const [items, setItems] = useState<Item[]>([]); const [busy, setBusy] = useState(false); const [previewModes, setPreviewModes] = useState<Record<string, PreviewMode>>({});
-  useServerCollection('outpaint', items, setItems);
+  useArchiveResults('outpaint', items.map((item) => ({ id: item.id, status: item.status, resultBlob: item.resultBlob, name: `${sanitizeFileName(item.file.name)}_扩图.png` })));
   const aborter = useRef<AbortController | undefined>(undefined);
   const patchSettings = (value: Partial<Settings>) => setSettings((current) => ({ ...current, ...value }));
   const patchItem = (id: string, value: Partial<Item>) => setItems((current) => current.map((item) => item.id === id ? { ...item, ...value } : item));

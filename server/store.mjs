@@ -44,6 +44,14 @@ export function createStore(env = process.env) {
         document_key VARCHAR(160) PRIMARY KEY, content_json LONGTEXT NOT NULL,
         updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)
       )`);
+      await pool.query(`CREATE TABLE IF NOT EXISTS studio_results (
+        id CHAR(36) PRIMARY KEY, operation_id VARCHAR(160) NOT NULL UNIQUE,
+        tool VARCHAR(80) NOT NULL, username VARCHAR(64) NOT NULL,
+        name VARCHAR(255) NOT NULL, asset_id CHAR(36) NOT NULL,
+        job_id CHAR(36) NULL, export_json LONGTEXT NULL,
+        created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+        INDEX(tool, created_at), INDEX(username, created_at), INDEX(asset_id)
+      )`);
       await pool.query("INSERT INTO studio_usage (job_id, source, tool, provider, model, username, status, image_count, upstream_status, attempts) SELECT id, source, tool, provider, model, username, 'interrupted', image_count, response_status, attempts FROM studio_jobs WHERE status='running'");
       await pool.query("UPDATE studio_jobs SET status='interrupted', encrypted_key=NULL, completed_at=NOW(), error_message='Server restarted during upstream request; result is unknown, so automatic retry was skipped to avoid duplicate charges' WHERE status='running'");
     },
@@ -87,6 +95,34 @@ export function createStore(env = process.env) {
     },
     async assetsForJob(id) {
       const [rows] = await pool.execute('SELECT id, name, mime, expired FROM studio_assets WHERE job_id=?', [id]);
+      return rows;
+    },
+    async createResult(input) {
+      const id = randomUUID();
+      await pool.execute(`INSERT INTO studio_results (id, operation_id, tool, username, name, asset_id, job_id, export_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE id=id`,
+      [id, input.operationId, input.tool, input.username, input.name, input.assetId, input.jobId || null, JSON.stringify(input.exportSpec || {})]);
+      return this.getResultByOperation(input.operationId);
+    },
+    async getResultByOperation(operationId) {
+      const [rows] = await pool.execute(`SELECT r.*, a.mime, a.expired, a.expires_at
+        FROM studio_results r JOIN studio_assets a ON a.id=r.asset_id WHERE r.operation_id=?`, [operationId]);
+      return rows[0] || null;
+    },
+    async getResult(id) {
+      const [rows] = await pool.execute(`SELECT r.*, a.mime, a.expired, a.expires_at
+        FROM studio_results r JOIN studio_assets a ON a.id=r.asset_id WHERE r.id=?`, [id]);
+      return rows[0] || null;
+    },
+    async listResults({ tool, status, limit = 40, offset = 0 } = {}) {
+      const clauses = []; const values = [];
+      if (tool) { clauses.push('r.tool=?'); values.push(tool); }
+      if (status === 'available') clauses.push('a.expired=0');
+      if (status === 'expired') clauses.push('a.expired=1');
+      const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+      const [rows] = await pool.execute(`SELECT r.*, a.mime, a.expired, a.expires_at
+        FROM studio_results r JOIN studio_assets a ON a.id=r.asset_id ${where}
+        ORDER BY r.created_at DESC LIMIT ? OFFSET ?`, [...values, limit, offset]);
       return rows;
     },
     async expiredAssets() {

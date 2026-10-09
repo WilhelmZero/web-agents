@@ -5,6 +5,7 @@ export function createMemoryStore() {
   const jobs = new Map();
   const assets = new Map();
   const documents = new Map();
+  const results = new Map();
   const usage = [];
   return {
     async init() {}, async close() {},
@@ -24,6 +25,18 @@ export function createMemoryStore() {
     async createAsset(value) { const id = randomUUID(); assets.set(id, { id, job_id: value.jobId || null, tool: value.tool, mime: value.mime, name: value.name, file_path: value.path, expires_at: value.expiresAt || null, expired: false, created_at: new Date() }); return id; },
     async getAsset(id) { return assets.get(id) || null; },
     async assetsForJob(id) { return [...assets.values()].filter((asset) => asset.job_id === id); },
+    async createResult(input) {
+      const prior = [...results.values()].find((item) => item.operation_id === input.operationId);
+      if (prior) return { ...assets.get(prior.asset_id), ...prior };
+      const value = { id: randomUUID(), operation_id: input.operationId, tool: input.tool, username: input.username, name: input.name, asset_id: input.assetId, job_id: input.jobId || null, export_json: JSON.stringify(input.exportSpec || {}), created_at: new Date() };
+      results.set(value.id, value);
+      return { ...assets.get(value.asset_id), ...value };
+    },
+    async getResultByOperation(id) { const item = [...results.values()].find((value) => value.operation_id === id); return item ? { ...assets.get(item.asset_id), ...item } : null; },
+    async getResult(id) { const item = results.get(id); return item ? { ...assets.get(item.asset_id), ...item } : null; },
+    async listResults({ tool, status, limit = 40, offset = 0 } = {}) {
+      return [...results.values()].filter((item) => (!tool || item.tool === tool) && (!status || status === 'all' || Boolean(assets.get(item.asset_id)?.expired) === (status === 'expired'))).reverse().slice(offset, offset + limit).map((item) => ({ ...assets.get(item.asset_id), ...item }));
+    },
     async expiredAssets() { return [...assets.values()].filter((asset) => !asset.expired && asset.expires_at && asset.expires_at < new Date()); },
     async orphanAssets() { return []; },
     async markAssetExpired(id) { const asset = assets.get(id); if (asset) { asset.expired = true; asset.file_path = null; } },

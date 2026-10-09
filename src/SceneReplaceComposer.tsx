@@ -25,7 +25,7 @@ import { perImagePromptFileKey } from './services/perImagePrompt';
 import { generateSceneReplacementBatch } from './services/geminiBatch';
 import { DEFAULT_GEMINI_CAPACITY_SETTINGS, getGeminiCapacitySettings, saveGeminiCapacitySettings, type GeminiCapacitySettings } from './services/geminiCapacity';
 import { useLanguage } from './i18n';
-import { useServerCollection } from './services/serverCollection';
+import { useArchiveResults } from './services/resultArchive';
 import { useServerValue } from './services/serverValue';
 
 const { Text, Title, Paragraph } = Typography;
@@ -53,7 +53,6 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
   const [settings, setSettings] = useState<SceneReplaceSettings>(() => ({ ...DEFAULT_SCENE_REPLACE_SETTINGS, ...readLocalStorage(STORAGE_KEYS.sceneReplaceSettings, {}), ...initialSettings, ...(window.__studioServerKeys ? { executionMode: 'realtime' as const } : {}) }));
   const [capacitySettings, setCapacitySettings] = useState<GeminiCapacitySettings>(() => ({ ...DEFAULT_GEMINI_CAPACITY_SETTINGS, ...getGeminiCapacitySettings() }));
   const [scenes, setScenes] = useState<LogoAsset[]>([]);
-  useServerCollection('scene-replace-scenes', scenes, setScenes);
   const [prompt, setPrompt] = useState(() => localizedScenePrompt(language, settings.autoRecommendScene));
   useServerValue('scene-replace', 'prompt', prompt, setPrompt);
   const submittedPrompt = exactPromptControl && initialPrompt !== undefined ? initialPrompt : prompt;
@@ -71,7 +70,10 @@ export default function SceneReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl,
   const [presetEditorOpen, setPresetEditorOpen] = useState(false);
   const [presetDraft, setPresetDraft] = useState({ name: '', icon: '✨', content: '' });
   const [tasks, setTasks] = useState<SceneReplaceTask[]>([]);
-  useServerCollection('scene-replace-tasks', tasks, setTasks);
+  useArchiveResults('scene-replace', tasks.flatMap((task) => [
+    { id: task.id, status: task.status, resultBlob: task.resultBlob, name: `scene-replace_${task.sceneIndex + 1}_${task.copyIndex + 1}.${mimeExtension(task.resultMimeType)}` },
+    ...(task.outpaintStatus === 'success' ? (task.outpaintResults || []).map((result, index) => ({ id: `${task.id}-outpaint-${index}`, status: 'success', resultBlob: result.blob, name: `scene-replace_${task.sceneIndex + 1}_outpaint_${result.width}x${result.height}.${mimeExtension(result.blob.type)}` })) : []),
+  ]));
   const [streamingPromptAnalysis, setStreamingPromptAnalysis] = useState(false);
   const [plannedTaskCount, setPlannedTaskCount] = useState(0);
   const [selectedResultId, setSelectedResultId] = useState<string>();

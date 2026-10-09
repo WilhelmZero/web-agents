@@ -6,7 +6,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { editAiPetLetter, AiPetLetterApiError, optimizeAiPetLetterPrompts, regenerateAiPetLetterPromptsFromReference } from "./services/aiPetLetters/api";
 import { colorizeTransparentResult, constrainDimensions, downloadBlob, fingerprintBlob, normalizeHexColor, normalizeReference, readImageDimensions, referenceDownloadDimensions, resizeForDownload, type ImageDimensions } from "./services/aiPetLetters/image";
 import { adaptPromptOutputMode, completeReferenceGeneratedPrompt, createDefaultPrompts, defaultPromptForLetter, promptOptimizerInstruction, validateReferenceGeneratedPrompt } from "./services/aiPetLetters/prompts";
-import { loadAiPetLetterPrompts, loadAiPetLetterSettings, loadAiPetLetterWorkspace, saveAiPetLetterPrompts, saveAiPetLetterSettings, saveAiPetLetterWorkspace } from "./services/aiPetLetters/storage";
+import { loadAiPetLetterPrompts, loadAiPetLetterSettings, saveAiPetLetterPrompts, saveAiPetLetterSettings } from "./services/aiPetLetters/storage";
+import { useArchiveResults } from './services/resultArchive';
 import { normalizeQuality, qualityOptions, type AiPetLetterPrompt, type AiPetLetterSettings, type AiPetLetterTask } from "./services/aiPetLetters/types";
 import type { AppSettings } from "./types";
 import "./ai-pet-letter-stickers.css";
@@ -57,6 +58,7 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
   const [referenceDimensions, setReferenceDimensions] = useState<ImageDimensions>({ width: 3840, height: 2160 });
   const [promptsReferenceFingerprint, setPromptsReferenceFingerprint] = useState("");
   const [tasks, setTasks] = useState<AiPetLetterTask[]>([]);
+  useArchiveResults('ai-pet-letter-stickers', tasks.map((task) => ({ id: `${task.letter}-${task.result?.createdAt || 0}`, status: task.status, resultBlob: task.result?.compositeBlob, sourceBlob: task.result?.rawBlob, name: `${task.letter}.png`, exportSpec: { kind: 'ai-pet-letter', width: task.result?.width, height: task.result?.height } })));
   const [hydrated, setHydrated] = useState(false);
   const [preview, setPreview] = useState<{ kind: "reference" | "raw"; letter?: string }>({ kind: "reference" });
   const [compareLetter, setCompareLetter] = useState<string>();
@@ -116,33 +118,11 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
   }, [language]);
 
   useEffect(() => {
-    void (async () => {
-      try {
-        const workspace = await loadAiPetLetterWorkspace();
-        if (workspace?.referenceBlob) {
-          setReferenceBlob(workspace.referenceBlob); setReferenceName(workspace.referenceName || "已恢复参考图");
-          setReferenceFingerprint(workspace.referenceFingerprint || await fingerprintBlob(workspace.referenceBlob));
-          setReferenceDimensions(await readImageDimensions(workspace.referenceBlob));
-          setPromptsReferenceFingerprint(workspace.promptsReferenceFingerprint || "");
-          const restored = workspace.tasks.map((task): AiPetLetterTask => task.status === "running" || task.status === "waiting" ? { ...task, status: "interrupted", error: "页面刷新时任务尚未完成" } : task);
-          setTasks(restored);
-          setRequestCount(restored.reduce((sum, task) => sum + (task.startedAt ? 1 + task.retries : 0), 0));
-          setRetryCount(restored.reduce((sum, task) => sum + task.retries, 0));
-          setStartedAt(restored.reduce<number | undefined>((min, task) => task.startedAt && (!min || task.startedAt < min) ? task.startedAt : min, undefined));
-          if ((workspace.referenceName || "").startsWith("默认 A 字母参考图")) await loadDefault(false);
-        } else await loadDefault(true);
-      } catch { await loadDefault(true); }
-      setHydrated(true);
-    })();
+    void loadDefault(true).finally(() => setHydrated(true));
   }, [loadDefault]);
 
   useEffect(() => saveAiPetLetterSettings(settings), [settings]);
   useEffect(() => saveAiPetLetterPrompts(prompts), [prompts]);
-  useEffect(() => {
-    if (!hydrated) return;
-    const id = window.setTimeout(() => void saveAiPetLetterWorkspace({ referenceBlob, referenceFingerprint, referenceName, promptsReferenceFingerprint, tasks, updatedAt: Date.now() }), 400);
-    return () => clearTimeout(id);
-  }, [hydrated, promptsReferenceFingerprint, referenceBlob, referenceFingerprint, referenceName, tasks]);
 
   const updateTask = useCallback((letter: string, patch: Partial<AiPetLetterTask>) => setTasks((items) => items.map((item) => item.letter === letter ? { ...item, ...patch } : item)), []);
 

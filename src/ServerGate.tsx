@@ -1,17 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Button, Card, Form, Input, List, Modal, Space, Tag, Typography, message } from 'antd';
+import { Button, Card, Form, Input, message } from 'antd';
 import type { ServerKeyStatus } from './aiTransport';
 
 interface Session { username: string; admin: boolean }
-interface Asset { id: string; name: string; expired: boolean }
-interface Job { id: string; tool: string; provider: string; model: string; status: string; imageCount: number; error?: string; createdAt: string; assets: Asset[] }
 
 export default function ServerGate({ children }: { children: React.ReactNode }) {
   const [checking, setChecking] = useState(true);
   const [session, setSession] = useState<Session | null>(null);
-  const [open, setOpen] = useState(false);
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [usage, setUsage] = useState<Array<Record<string, unknown>>>([]);
   const [busy, setBusy] = useState(false);
 
   async function refreshConfig() {
@@ -34,6 +29,11 @@ export default function ServerGate({ children }: { children: React.ReactNode }) 
 
   useEffect(() => { void loadSession(); }, []);
   useEffect(() => {
+    const reportArchiveError = (event: Event) => message.error(`生成结果归档失败：${(event as CustomEvent<string>).detail}`);
+    window.addEventListener('studio:archive-error', reportArchiveError);
+    return () => window.removeEventListener('studio:archive-error', reportArchiveError);
+  }, []);
+  useEffect(() => {
     if (!session) return;
     const refresh = () => { if (document.visibilityState === 'visible') void refreshConfig().catch(() => {}); };
     window.addEventListener('focus', refresh);
@@ -43,20 +43,6 @@ export default function ServerGate({ children }: { children: React.ReactNode }) 
       document.removeEventListener('visibilitychange', refresh);
     };
   }, [session]);
-  useEffect(() => {
-    if (!open || !session) return;
-    const refresh = async () => {
-      const response = await fetch('/api/jobs');
-      if (response.ok) setJobs(await response.json() as Job[]);
-      if (session.admin) {
-        const usageResponse = await fetch('/api/admin/usage');
-        if (usageResponse.ok) setUsage(await usageResponse.json() as Array<Record<string, unknown>>);
-      }
-    };
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), 5000);
-    return () => window.clearInterval(timer);
-  }, [open, session]);
 
   async function login(values: { username: string; password: string }) {
     setBusy(true);
@@ -78,18 +64,5 @@ export default function ServerGate({ children }: { children: React.ReactNode }) 
       </Form>
     </Card>
   </div>;
-  return <>
-    {children}
-    <Button type="primary" style={{ position: 'fixed', right: 22, bottom: 22, zIndex: 1000 }} onClick={() => setOpen(true)}>服务器任务</Button>
-    <Modal title={`服务器任务 · ${session.username}`} open={open} onCancel={() => setOpen(false)} footer={<Button onClick={async () => { await fetch('/api/auth/logout', { method: 'POST' }); setSession(null); setOpen(false); }}>退出登录</Button>} width={800}>
-      <List dataSource={jobs} locale={{ emptyText: '暂无服务器任务' }} pagination={{ pageSize: 8 }} renderItem={(job) => <List.Item actions={job.status === 'queued' ? [<Button key="cancel" danger size="small" onClick={async () => { const response = await fetch(`/api/jobs/${job.id}/cancel`, { method: 'POST' }); if (response.ok) setJobs((current) => current.map((item) => item.id === job.id ? { ...item, status: 'cancelled' } : item)); else message.warning('任务已开始，不能取消排队状态'); }}>取消排队</Button>] : undefined}>
-        <List.Item.Meta title={<Space><Typography.Text>{job.tool}</Typography.Text><Tag>{job.provider}</Tag><Tag color={job.status === 'success' ? 'green' : job.status === 'failed' ? 'red' : 'blue'}>{job.status}</Tag></Space>} description={<>
-          <div>{job.model} · {new Date(job.createdAt).toLocaleString()} · 图片 {job.imageCount}</div>
-          {job.error && <Typography.Text type="danger">{job.error}</Typography.Text>}
-          <Space wrap>{job.assets.map((asset) => asset.expired ? <Tag key={asset.id}>图片已过期</Tag> : <Button key={asset.id} size="small" href={`/api/assets/${asset.id}`} target="_blank">{asset.name}</Button>)}</Space>
-        </>} />
-      </List.Item>} />
-      {session.admin && <details><summary>用量统计</summary><pre style={{ maxHeight: 260, overflow: 'auto' }}>{JSON.stringify(usage, null, 2)}</pre></details>}
-    </Modal>
-  </>;
+  return <>{children}</>;
 }

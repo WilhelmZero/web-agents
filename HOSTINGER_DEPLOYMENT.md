@@ -14,6 +14,8 @@ Generate each password hash with `npm run hash-password` and enter the password 
 
 `OPENAI_API_KEY` and `GEMINI_API_KEY` are optional server secrets. If a provider's env key is absent, a logged-in user can supply that provider's key in the site's settings window. It is sent only to this server and encrypted while its job is pending, then removed from the database when the job finishes. Require HTTPS before using browser keys.
 
+Other projects can use the separate server-to-server gateway only after configuring `STUDIO_INTEGRATIONS_JSON`. Give every project its own high-entropy token, store only its SHA-256 digest in Hostinger, and keep the token in that project's server environment. See [Studio AI gateway integration](docs/STUDIO_AI_GATEWAY.md). The browser key fallback is not available to external integrations.
+
 For the current temporary Hostinger domain, set `APP_ORIGIN=https://floralwhite-cheetah-150627.hostingersite.com`. Change it to `https://studio.lifelightenup.com` when binding the final domain. The origin setting protects POST requests and must not include a trailing slash. Ignore/remove Hostinger's suggested `VITE_GEMINI_PROXY_URL`; the hosted app does not use a browser-side proxy address.
 
 ## Release sequence

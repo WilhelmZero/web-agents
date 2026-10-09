@@ -109,10 +109,11 @@ import WorkflowComposer from "./WorkflowComposer";
 import CombinedReplaceComposer from "./CombinedReplaceComposer";
 import RequestConsoleDrawer from "./RequestConsoleDrawer";
 import GeneratingImage from "./GeneratingImage";
-import { useServerCollection } from "./services/serverCollection";
+import { useArchiveResults } from "./services/resultArchive";
 import { useServerValue } from "./services/serverValue";
 import OriginalCompareImage from "./OriginalCompareImage";
 import GlobalGenerationStats from "./GlobalGenerationStats";
+import ResultsPage from "./ResultsPage";
 import IconVectorSplitComposer from "./IconVectorSplitComposer";
 import CustomMonochromeLogoComposer from "./CustomMonochromeLogoComposer";
 import PetLetterStickerComposer from "./PetLetterStickerComposer";
@@ -160,6 +161,7 @@ import type {
 import {
   buildTasks,
   createId,
+  mimeExtension,
   estimateImageCost,
   normalizeSettingsForModel,
   sanitizeFileName,
@@ -174,11 +176,12 @@ const ACCEPTED_TYPES = ["image/png", "image/jpeg", "image/webp"];
 const CREATION_TOOL_ITEMS: Array<{
   key: CreationTool;
   label: string;
+  englishLabel?: string;
   description: string;
   icon: ReactNode;
   disabled?: boolean;
 }> = [
-  { key: "cup-wrap-print", icon: <ScissorOutlined />, label: "杯身刀模与打印排版", description: "精确展开、图案适配与 1:1 TIF / A4 输出" },
+  { key: "cup-wrap-print", icon: <ScissorOutlined />, label: "杯身刀模与打印排版", englishLabel: 'Cup Wrap & Print Layout', description: "精确展开、图案适配与 1:1 TIF / A4 输出" },
   {
     key: "scene-logo-replace",
     icon: <SwapOutlined />,
@@ -195,12 +198,14 @@ const CREATION_TOOL_ITEMS: Array<{
     key: "scene",
     icon: <FileImageOutlined />,
     label: "场景图生成",
+    englishLabel: 'Scene Generation',
     description: "批量生成风格统一的商业场景图",
   },
   {
     key: "scene-replace",
     icon: <PictureOutlined />,
     label: "场景替换",
+    englishLabel: 'Scene Replacement',
     description: "保留主体姿态并替换主题与环境",
   },
   {
@@ -225,6 +230,7 @@ const CREATION_TOOL_ITEMS: Array<{
     key: "logo-removal",
     icon: <DeleteOutlined />,
     label: "去除 Logo",
+    englishLabel: 'Logo Removal',
     description: "批量识别并自然去除产品表面的 Logo",
   },
   {
@@ -261,6 +267,7 @@ const CREATION_TOOL_ITEMS: Array<{
     key: "custom-monochrome-logo",
     icon: <ScissorOutlined />,
     label: "客户定制黑白 Logo",
+    englishLabel: 'Custom Black-and-White Logo',
     description: "照片雕刻、自动审核优化与黑白 PNG 输出",
   },
   {
@@ -273,6 +280,7 @@ const CREATION_TOOL_ITEMS: Array<{
     key: "ai-pet-letter-stickers",
     icon: <ThunderboltOutlined />,
     label: "字母贴纸生成",
+    englishLabel: 'Letter Sticker Generation',
     description: "用局部 AI 编辑自然替换 A–Z 字母并严格保护外围",
   },
   {
@@ -285,12 +293,14 @@ const CREATION_TOOL_ITEMS: Array<{
     key: "paper-text",
     icon: <EditOutlined />,
     label: "花纸文字修改",
+    englishLabel: 'Decal Text Editing',
     description: "识别并批量修改花纸中的文字内容",
   },
   {
     key: "background-removal",
     icon: <HighlightOutlined />,
     label: "去除背景",
+    englishLabel: 'Background Removal',
     description: "智能抠图、透明化并支持矢量输出",
   },
   {
@@ -303,6 +313,7 @@ const CREATION_TOOL_ITEMS: Array<{
     key: "outpaint",
     icon: <ExpandOutlined />,
     label: "扩图",
+    englishLabel: 'Outpainting',
     description: "按目标比例自然补全图片边界",
   },
   {
@@ -315,6 +326,7 @@ const CREATION_TOOL_ITEMS: Array<{
     key: "inpaint",
     icon: <HighlightOutlined />,
     label: "局部重绘",
+    englishLabel: 'Inpainting',
     description: "框选局部区域并进行精细重绘",
   },
   {
@@ -650,13 +662,13 @@ function AppContent() {
     ...presets,
   ];
   const [tasks, setTasks] = useState<GenerationTask[]>([]);
-  useServerCollection('scene-products', products, setProducts);
-  useServerCollection('scene-tasks', tasks, setTasks);
+  useArchiveResults('scene', tasks.map((task) => ({ id: task.id, status: task.status, resultBlob: task.resultBlob, name: `scene_${task.productIndex + 1}_${task.promptIndex + 1}.${mimeExtension(task.resultMimeType)}` })));
   useServerValue('scene', 'prompts', prompts, setPrompts);
   const [activePromptId, setActivePromptId] = useState(prompts[0].id);
   const [creationTool, setCreationTool] = useState<CreationTool>(() =>
     readCreationTool(window.location.search),
   );
+  const [resultsOpen, setResultsOpen] = useState(() => new URLSearchParams(window.location.search).get('page') === 'results');
   const [moreToolsOpen, setMoreToolsOpen] = useState(
     () => !PRIMARY_CREATION_TOOLS.has(readCreationTool(window.location.search)),
   );
@@ -794,30 +806,44 @@ function AppContent() {
   const runningIds = useRef(new Set<string>());
 
   const navigateToHome = useCallback(() => {
-    if (showPinnedHome) return;
+    if (showPinnedHome && !resultsOpen) return;
     const url = new URL(window.location.href);
     url.searchParams.delete("tool");
+    url.searchParams.delete('page');
     setShowPinnedHome(true);
+    setResultsOpen(false);
     window.history.pushState(
       { ...window.history.state, creationTool: undefined },
       "",
       `${url.pathname}${url.search}${url.hash}`,
     );
-  }, [showPinnedHome]);
+  }, [showPinnedHome, resultsOpen]);
+
+  const navigateToResults = useCallback(() => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('tool');
+    url.searchParams.set('page', 'results');
+    setResultsOpen(true);
+    setShowPinnedHome(false);
+    window.history.pushState({ ...window.history.state, page: 'results' }, '', `${url.pathname}${url.search}${url.hash}`);
+  }, []);
 
   const navigateToCreationTool = useCallback(
     (tool: CreationTool) => {
-      if (tool === creationTool && !showPinnedHome) return;
+      if (tool === creationTool && !showPinnedHome && !resultsOpen) return;
       if (!PRIMARY_CREATION_TOOLS.has(tool)) setMoreToolsOpen(true);
+      setResultsOpen(false);
       setShowPinnedHome(false);
       setCreationTool(tool);
+      const nextUrl = new URL(window.location.href);
+      nextUrl.searchParams.delete('page');
       window.history.pushState(
         { ...window.history.state, creationTool: tool },
         "",
-        setCreationToolInUrl(window.location.href, tool),
+        setCreationToolInUrl(nextUrl.toString(), tool),
       );
     },
-    [creationTool, showPinnedHome],
+    [creationTool, showPinnedHome, resultsOpen],
   );
 
   const togglePinnedCreationTool = useCallback((tool: CreationTool) => {
@@ -838,11 +864,13 @@ function AppContent() {
   const { primaryCreationToolMenuItems, moreCreationToolMenuItems } = useMemo(
     () => {
       const items = CREATION_TOOL_ITEMS.map((item) => ({
-        ...item,
+        key: item.key,
+        icon: item.icon,
+        disabled: item.disabled,
         label: (
           <span className="creation-tool-menu-label">
-            <Tooltip title={item.label} placement="right">
-              <span className="creation-tool-menu-title">{item.label}</span>
+            <Tooltip title={language === 'en-US' ? item.englishLabel || item.label : item.label} placement="right">
+              <span className="creation-tool-menu-title">{language === 'en-US' ? item.englishLabel || item.label : item.label}</span>
             </Tooltip>
             {!item.disabled && (
               <Tooltip
@@ -890,7 +918,9 @@ function AppContent() {
   useEffect(() => {
     const handlePopState = () => {
       const tool = new URLSearchParams(window.location.search).get("tool");
-      setShowPinnedHome(!isCreationTool(tool));
+      const page = new URLSearchParams(window.location.search).get('page');
+      setResultsOpen(page === 'results');
+      setShowPinnedHome(page !== 'results' && !isCreationTool(tool));
       setCreationTool(readCreationTool(window.location.search));
     };
     window.addEventListener("popstate", handlePopState);
@@ -1527,7 +1557,7 @@ function AppContent() {
             </button>
             <Divider orientation="vertical" className="header-divider" />
             <Tag icon={<AppstoreOutlined />} color="purple">
-              {showPinnedHome
+              {resultsOpen ? (language === 'en-US' ? 'Generated results' : '生成结果') : showPinnedHome
                 ? "常用创作工具"
                 : CREATION_TOOL_ITEMS.find((item) => item.key === creationTool)
                     ?.label || "创作工具"}
@@ -1679,10 +1709,11 @@ function AppContent() {
           )}
           <Menu
             mode="inline"
-            selectedKeys={showPinnedHome ? [] : [creationTool]}
+            selectedKeys={resultsOpen ? ['results'] : showPinnedHome ? [] : [creationTool]}
             openKeys={moreToolsOpen ? ["more-tools"] : []}
             onOpenChange={(keys) => setMoreToolsOpen(keys.includes("more-tools"))}
             onClick={({ key }) => {
+              if (key === 'results') navigateToResults();
               if (isCreationTool(key)) navigateToCreationTool(key);
             }}
             items={[
@@ -1714,10 +1745,9 @@ function AppContent() {
                 label: "管理",
                 children: [
                   {
-                    key: "history",
+                    key: "results",
                     icon: <MenuFoldOutlined />,
-                    label: "历史记录",
-                    disabled: true,
+                    label: language === 'en-US' ? 'Generated results' : '生成结果',
                   },
                 ],
               },
@@ -1735,7 +1765,8 @@ function AppContent() {
 
         <Content className="main-content">
           <div className="content-inner">
-            {showPinnedHome && (
+            {resultsOpen && <ResultsPage language={language} labels={Object.fromEntries(CREATION_TOOL_ITEMS.map((item) => [item.key, language === 'en-US' ? item.englishLabel || item.label : item.label]))} />}
+            {showPinnedHome && !resultsOpen && (
               <section className="tool-home">
                 <div className="tool-home-hero">
                   <div>
@@ -1791,7 +1822,7 @@ function AppContent() {
                 )}
               </section>
             )}
-            <div hidden={showPinnedHome}>
+            <div hidden={showPinnedHome || resultsOpen}>
               <div hidden={creationTool !== "workflow"}>
                 <WorkflowComposer
                   apiKey={settings.apiKey}
@@ -2447,6 +2478,7 @@ function AppContent() {
           </div>
         </Content>
 
+        {!resultsOpen && <>
         {!compact && creationTool === "scene" && (
           <Sider width={330} theme="light" className="settings-sider">
             {settingsPanel}
@@ -2550,6 +2582,7 @@ function AppContent() {
             <div ref={setProductDetailSettingsHost} />
           </Sider>
         )}
+        </>}
       </Layout>
 
       <RequestConsoleDrawer

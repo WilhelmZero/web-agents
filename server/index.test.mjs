@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { createHash, randomBytes } from 'node:crypto';
 import { createStudioServer } from './index.mjs';
 import { passwordHash } from './security.mjs';
 
@@ -10,6 +11,7 @@ function fakeStore() {
   const jobs = new Map();
   const assets = new Map();
   const documents = new Map();
+  const results = new Map();
   return {
     async init() {}, async close() {},
     async createJob(value) { const id = crypto.randomUUID(); jobs.set(id, { id, source: value.source, tool: value.tool, provider: value.provider, model: value.model, username: value.username, request_path: value.path, request_body_path: value.bodyPath, request_content_type: value.contentType, encrypted_key: value.encryptedKey, status: 'queued', attempts: 0, image_count: 0, created_at: new Date() }); return id; },
@@ -21,6 +23,10 @@ function fakeStore() {
     async createAsset(asset) { const id = crypto.randomUUID(); assets.set(id, { id, ...asset, expired: false, file_path: asset.path }); return id; },
     async getAsset(id) { return assets.get(id) || null; },
     async assetsForJob(id) { return [...assets.values()].filter((asset) => asset.jobId === id); },
+    async createResult(value) { const previous = [...results.values()].find((item) => item.operation_id === value.operationId); if (previous) return { ...assets.get(previous.asset_id), ...previous }; const row = { id: crypto.randomUUID(), operation_id: value.operationId, asset_id: value.assetId, tool: value.tool, username: value.username, name: value.name, job_id: value.jobId, export_json: JSON.stringify(value.exportSpec), created_at: new Date() }; results.set(row.id, row); return { ...assets.get(row.asset_id), ...row }; },
+    async getResultByOperation(id) { const row = [...results.values()].find((item) => item.operation_id === id); return row ? { ...assets.get(row.asset_id), ...row } : null; },
+    async getResult(id) { const row = results.get(id); return row ? { ...assets.get(row.asset_id), ...row } : null; },
+    async listResults({ tool, status, limit = 40, offset = 0 } = {}) { return [...results.values()].filter((row) => (!tool || row.tool === tool) && (!status || Boolean(assets.get(row.asset_id).expired) === (status === 'expired'))).slice(offset, offset + limit).map((row) => ({ ...assets.get(row.asset_id), ...row })); },
     async expiredAssets() { return [...assets.values()].filter((asset) => asset.expiresAt && asset.expiresAt < new Date() && !asset.expired).map((asset) => ({ id: asset.id, file_path: asset.file_path })); },
     async orphanAssets() { return []; }, async expiredJobFiles() { return []; },
     async markAssetExpired(id) { const asset = assets.get(id); asset.expired = true; asset.file_path = null; },
@@ -61,10 +67,20 @@ test('login protects routes and server key takes precedence over browser fallbac
     assert.equal(documentPut.status, 200);
     const documentGet = await fetch(`${base}/api/documents/custom-logo%3Acurrent`, { headers: { Cookie: cookie } });
     assert.equal(await documentGet.json(), 'task:example');
-    const assetResponse = await fetch(`${base}/api/assets`, { method: 'POST', headers: { Cookie: cookie, 'Content-Type': 'image/png', 'X-Tool': 'custom-monochrome-logo', 'X-File-Name': encodeURIComponent('客户图案.png') }, body: Buffer.from('png') });
+    const assetResponse = await fetch(`${base}/api/assets`, { method: 'POST', headers: { Cookie: cookie, 'Content-Type': 'image/png', 'X-Tool': 'custom-monochrome-logo', 'X-File-Name': encodeURIComponent('客户图案.png'), 'X-Asset-Role': 'result' }, body: Buffer.from('png') });
     assert.equal(assetResponse.status, 201);
     const uploadedAsset = await assetResponse.json();
     assert.equal((await stateStore.getAsset(uploadedAsset.id)).name, '客户图案.png');
+    assert.equal((await fetch(`${base}/api/results`)).status, 401);
+    const archive = await fetch(`${base}/api/results`, { method: 'POST', headers: { Cookie: cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ operationId: 'custom-monochrome-logo:job-1', tool: 'custom-monochrome-logo', assetId: uploadedAsset.id, name: '最终成品.png', exportSpec: { kind: 'engraving' } }) });
+    assert.equal(archive.status, 201, await archive.text());
+    const archived = await (await fetch(`${base}/api/results/operation/custom-monochrome-logo%3Ajob-1`, { headers: { Cookie: cookie } })).json();
+    assert.equal(archived.name, '最终成品.png');
+    assert.equal(archived.username, 'admin');
+    const repeated = await fetch(`${base}/api/results`, { method: 'POST', headers: { Cookie: cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ operationId: 'custom-monochrome-logo:job-1', tool: 'custom-monochrome-logo', assetId: uploadedAsset.id }) });
+    assert.equal(repeated.status, 200);
+    assert.equal((await repeated.json()).id, archived.id);
+    assert.equal((await (await fetch(`${base}/api/results?tool=custom-monochrome-logo&status=available`, { headers: { Cookie: cookie } })).json()).length, 1);
     const response = await fetch(`${base}/api/ai/openai/v1/images/generations`, { method: 'POST', headers: { Cookie: cookie, 'Content-Type': 'application/json', 'X-Client-Api-Key': 'browser-key', 'X-Tool': 'scene' }, body: JSON.stringify({ model: 'gpt-image-2', prompt: 'test' }) });
     assert.equal(response.status, 200, await response.text());
     assert.equal(seenKey, 'Bearer server-key');
@@ -79,6 +95,50 @@ test('login protects routes and server key takes precedence over browser fallbac
     const expiredId = await stateStore.createAsset({ tool: 'scene', mime: 'image/png', name: 'old.png', path: expiredPath, expiresAt: new Date(0) });
     await instance.cleanup();
     assert.equal((await fetch(`${base}/api/assets/${expiredId}`, { headers: { Cookie: cookie } })).status, 410);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await instance.close();
+  }
+});
+
+test('integration credentials isolate projects and set trusted usage source', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'studio-integration-test-'));
+  const alphaToken = randomBytes(32).toString('base64url');
+  const betaToken = randomBytes(32).toString('base64url');
+  const digest = (token) => createHash('sha256').update(token).digest('hex');
+  const env = {
+    SESSION_SECRET: 'a-secure-session-secret-of-at-least-32-characters',
+    APP_USERS_JSON: JSON.stringify({ admin: { passwordHash: passwordHash('valid-password-12345'), admin: true } }),
+    APP_DATA_DIR: directory, OPENAI_API_KEY: 'server-key', NODE_ENV: 'test',
+    STUDIO_INTEGRATIONS_JSON: JSON.stringify({ 'project-alpha': digest(alphaToken), 'project-beta': digest(betaToken) }),
+  };
+  const stateStore = fakeStore();
+  const instance = await createStudioServer(env, { store: stateStore });
+  await new Promise((resolve) => instance.server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${instance.server.address().port}`;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => String(url).startsWith('https://api.openai.com')
+    ? new Response(JSON.stringify({ data: [{ b64_json: Buffer.from('generated').toString('base64') }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    : originalFetch(url, options);
+  try {
+    const endpoint = `${base}/api/integrations/ai/openai/v1/images/generations`;
+    const body = JSON.stringify({ model: 'gpt-image-2', prompt: 'test' });
+    const alpha = { Authorization: `Bearer ${alphaToken}`, 'X-Studio-Project': 'project-alpha', 'X-Tool': 'external-art', 'Content-Type': 'application/json' };
+    assert.equal((await fetch(endpoint, { method: 'POST', headers: { ...alpha, Authorization: `Bearer ${betaToken}` }, body })).status, 401);
+    assert.equal((await fetch(endpoint, { method: 'POST', headers: { ...alpha, 'X-Tool': 'Not Valid' }, body })).status, 400);
+    assert.equal((await fetch(`${base}/api/integrations/ai/openai/v1/models`, { method: 'POST', headers: alpha, body })).status, 404);
+    const response = await fetch(endpoint, { method: 'POST', headers: alpha, body });
+    assert.equal(response.status, 200, await response.text());
+    const id = response.headers.get('x-studio-job-id');
+    assert.ok(id);
+    const own = await (await fetch(`${base}/api/integrations/jobs/${id}`, { headers: alpha })).json();
+    assert.equal(own.source, 'integration:project-alpha');
+    assert.equal(own.imageCount, 1);
+    const beta = { Authorization: `Bearer ${betaToken}`, 'X-Studio-Project': 'project-beta' };
+    assert.equal((await fetch(`${base}/api/integrations/jobs/${id}`, { headers: beta })).status, 404);
+    assert.equal((await fetch(`${base}/api/integrations/jobs/${id}/response`, { headers: beta })).status, 404);
+    assert.equal((await fetch(`${base}/api/jobs/${id}`, { headers: alpha })).status, 401);
+    assert.equal((await fetch(`${base}/api/integrations/jobs/${id}/response`, { headers: alpha })).status, 200);
   } finally {
     globalThis.fetch = originalFetch;
     await instance.close();

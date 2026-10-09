@@ -9,7 +9,7 @@ import { beforeEach, afterEach, it, expect, vi } from "vitest";
 import CupWrapPrintComposer from "./CupWrapPrintComposer";
 import { DEFAULT_SETTINGS } from "./constants";
 import { work } from "./services/cupWrap/client";
-import { loadDesigns } from "./services/cupWrap/storage";
+import { loadDesignSettings as loadDesigns } from "./services/cupWrap/storage";
 import { DEFAULT_CUP } from "./services/cupWrap/geometry";
 import { hasUsableTransparency } from "./services/backgroundRemoval";
 import { adaptArtwork } from "./services/cupWrap/ai";
@@ -23,8 +23,8 @@ vi.mock("./services/cupWrap/client", () => ({
   ),
 }));
 vi.mock("./services/cupWrap/storage", () => ({
-  loadDesigns: vi.fn(() => Promise.resolve([])),
-  saveDesigns: vi.fn(() => Promise.resolve()),
+  loadDesignSettings: vi.fn(() => Promise.resolve([])),
+  saveDesignSettings: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("./services/cupWrap/pdf", () => ({
   exportPdf: vi.fn(),

@@ -27,3 +27,32 @@ export async function saveDesigns(designs: WrapDesign[]) {
     t.onerror = () => reject(t.error);
   }).finally(() => d.close());
 }
+
+// The hosted workspace retains cup parameters, but never restores uploaded or generated images.
+const SETTINGS_KEY = 'cup-wrap-print:settings-only:v1';
+function stripDesignImages(design: WrapDesign): WrapDesign {
+  return {
+    ...design,
+    source: undefined, originalSource: undefined, artworkSlots: undefined,
+    stitchedSource: false, sourceRevision: undefined, adopted: undefined,
+    aiResults: [], aiFrames: [], geometryOutpaintCandidates: [],
+    appliedGeometryCandidateId: undefined, adoptedFrame: undefined,
+    localAdaptation: undefined, layers: [],
+  };
+}
+export async function loadDesignSettings(): Promise<WrapDesign[]> {
+  const saved = serverPersistenceEnabled()
+    ? await loadServerDocument<WrapDesign[]>(SETTINGS_KEY)
+    : (() => { try { return JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null') as WrapDesign[] | null; } catch { return null; } })();
+  if (saved) return saved;
+  const legacy = await loadDesigns();
+  if (!legacy.length) return [];
+  const settings = legacy.map(stripDesignImages);
+  await saveDesignSettings(settings);
+  return settings;
+}
+export async function saveDesignSettings(designs: WrapDesign[]): Promise<void> {
+  const settingsOnly = designs.map(stripDesignImages);
+  if (serverPersistenceEnabled()) await saveServerDocument(SETTINGS_KEY, settingsOnly, 'cup-wrap-print');
+  else localStorage.setItem(SETTINGS_KEY, JSON.stringify(settingsOnly));
+}

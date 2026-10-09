@@ -1,8 +1,11 @@
-import { loadServerDocument, saveServerDocument, serverPersistenceEnabled } from './serverPersistence';
+import { serverPersistenceEnabled } from './serverPersistence';
+import { archiveFinalImage } from './resultArchive';
 
 const DB_NAME = 'scene-studio.logo-removal.v1';
 const DRAFTS = 'drafts';
 const RESULTS = 'results';
+const sessionDrafts = new Map<string, { sessionId: string; value: unknown; updatedAt: number }>();
+const sessionResults = new Map<string, StoredLogoRemovalResult>();
 
 export interface StoredLogoRemovalResult {
   key: string;
@@ -44,9 +47,7 @@ async function transact(storeName: string, mode: IDBTransactionMode, operation: 
 
 export async function saveLogoRemovalDraft<T>(sessionId: string, value: T) {
   if (serverPersistenceEnabled()) {
-    const draft = { sessionId, value, updatedAt: Date.now() };
-    await saveServerDocument(`logo-removal:draft:${sessionId}`, draft, 'logo-removal');
-    await saveServerDocument('logo-removal:latest', sessionId, 'logo-removal');
+    sessionDrafts.set(sessionId, { sessionId, value, updatedAt: Date.now() });
     return;
   }
   await transact(DRAFTS, 'readwrite', (store) => store.put({ sessionId, value, updatedAt: Date.now() }));
@@ -54,8 +55,7 @@ export async function saveLogoRemovalDraft<T>(sessionId: string, value: T) {
 
 export async function readLatestLogoRemovalDraft<T>() {
   if (serverPersistenceEnabled()) {
-    const latest = await loadServerDocument<string>('logo-removal:latest');
-    return latest ? await loadServerDocument<{ sessionId: string; value: T; updatedAt: number }>(`logo-removal:draft:${latest}`) || undefined : undefined;
+    return [...sessionDrafts.values()].sort((a, b) => b.updatedAt - a.updatedAt)[0] as { sessionId: string; value: T; updatedAt: number } | undefined;
   }
   const db = await openDb();
   const value = await new Promise<{ sessionId: string; value: T; updatedAt: number } | undefined>((resolve, reject) => {
@@ -70,17 +70,15 @@ export async function readLatestLogoRemovalDraft<T>() {
 export async function putLogoRemovalResult(input: Omit<StoredLogoRemovalResult, 'updatedAt'>) {
   if (serverPersistenceEnabled()) {
     const result = { ...input, updatedAt: Date.now() };
-    await saveServerDocument(`logo-removal:result:${input.key}`, result, 'logo-removal');
-    const indexKey = `logo-removal:session:${input.sessionId}`;
-    const keys = await loadServerDocument<string[]>(indexKey) || [];
-    await saveServerDocument(indexKey, [...new Set([...keys, input.key])], 'logo-removal');
+    sessionResults.set(input.key, result);
+    if (input.kind === 'result') await archiveFinalImage('logo-removal', { id: `${input.key}:${result.updatedAt}`, status: 'success', resultBlob: input.blob, name: `logo-removal_${input.taskId}.${input.mimeType.includes('jpeg') ? 'jpg' : 'png'}` });
     return;
   }
   await transact(RESULTS, 'readwrite', (store) => store.put({ ...input, updatedAt: Date.now() }));
 }
 
 export async function readLogoRemovalResult(key: string) {
-  if (serverPersistenceEnabled()) return await loadServerDocument<StoredLogoRemovalResult>(`logo-removal:result:${key}`) || undefined;
+  if (serverPersistenceEnabled()) return sessionResults.get(key);
   const db = await openDb();
   const value = await new Promise<StoredLogoRemovalResult | undefined>((resolve, reject) => {
     const request = db.transaction(RESULTS).objectStore(RESULTS).get(key);
@@ -93,9 +91,7 @@ export async function readLogoRemovalResult(key: string) {
 
 export async function readLogoRemovalSessionResults(sessionId: string) {
   if (serverPersistenceEnabled()) {
-    const keys = await loadServerDocument<string[]>(`logo-removal:session:${sessionId}`) || [];
-    const values = (await Promise.all(keys.map(readLogoRemovalResult))).filter((item): item is StoredLogoRemovalResult => Boolean(item));
-    return values.sort((a, b) => a.updatedAt - b.updatedAt);
+    return [...sessionResults.values()].filter((item) => item.sessionId === sessionId).sort((a, b) => a.updatedAt - b.updatedAt);
   }
   const db = await openDb();
   const values = await new Promise<StoredLogoRemovalResult[]>((resolve, reject) => {
@@ -109,10 +105,8 @@ export async function readLogoRemovalSessionResults(sessionId: string) {
 
 export async function deleteLogoRemovalSession(sessionId: string) {
   if (serverPersistenceEnabled()) {
-    const keys = await loadServerDocument<string[]>(`logo-removal:session:${sessionId}`) || [];
-    await Promise.all(keys.map((key) => saveServerDocument(`logo-removal:result:${key}`, null, 'logo-removal')));
-    await saveServerDocument(`logo-removal:session:${sessionId}`, [], 'logo-removal');
-    await saveServerDocument(`logo-removal:draft:${sessionId}`, null, 'logo-removal');
+    sessionDrafts.delete(sessionId);
+    for (const [key, item] of sessionResults) if (item.sessionId === sessionId) sessionResults.delete(key);
     return;
   }
   const db = await openDb();

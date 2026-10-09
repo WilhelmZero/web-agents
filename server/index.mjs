@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { createStore } from './store.mjs';
 import { createMemoryStore } from './memory-store.mjs';
 import { createSession, decryptTemporaryKey, encryptTemporaryKey, readUsers, verifyPassword, verifySession } from './security.mjs';
+import { readIntegrationKeys, verifyIntegrationKey } from './integration-auth.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
@@ -74,9 +75,19 @@ function publicJob(job, assets = []) {
   };
 }
 
+function publicResult(row) {
+  return {
+    id: row.id, operationId: row.operation_id, tool: row.tool, username: row.username,
+    name: row.name, assetId: row.asset_id, jobId: row.job_id,
+    mime: row.mime, expired: Boolean(row.expired), expiresAt: row.expires_at,
+    createdAt: row.created_at, exportSpec: JSON.parse(row.export_json || '{}'),
+  };
+}
+
 export async function createStudioServer(env = process.env, dependencies = {}) {
   if (!env.SESSION_SECRET || env.SESSION_SECRET.length < 32) throw new Error('SESSION_SECRET needs at least 32 characters');
   const users = readUsers(env.APP_USERS_JSON);
+  const integrationKeys = readIntegrationKeys(env.STUDIO_INTEGRATIONS_JSON);
   const dataDir = path.resolve(env.APP_DATA_DIR || path.join(root, '.local-data'));
   if (env.NODE_ENV === 'production' && (!path.isAbsolute(env.APP_DATA_DIR || '') || dataDir.startsWith(root + path.sep) || /[\\/]hbuilds[\\/]|[\\/]public_html[\\/]/.test(dataDir))) {
     throw new Error('APP_DATA_DIR must be an absolute private path outside deployment directories');
@@ -125,13 +136,64 @@ export async function createStudioServer(env = process.env, dependencies = {}) {
     if (!user) return res.status(401).json({ error: 'Login required' });
     res.json(user);
   });
+  const integrationRate = new Map();
   app.use('/api', (req, res, next) => {
+    if (req.path.startsWith('/integrations/')) {
+      if (!integrationKeys.size) return res.status(503).json({ error: 'Integration API is not configured' });
+      const project = String(req.get('x-studio-project') || '');
+      if (!verifyIntegrationKey(integrationKeys, project, req.get('authorization'))) return res.status(401).json({ error: 'Invalid integration credentials' });
+      const now = Date.now();
+      const rate = integrationRate.get(project) || { started: now, count: 0 };
+      if (now - rate.started >= 60_000) { rate.started = now; rate.count = 0; }
+      if (rate.count >= 30) return res.status(429).json({ error: 'Integration rate limit exceeded' });
+      rate.count++;
+      integrationRate.set(project, rate);
+      req.integrationProject = project;
+      return next();
+    }
     const user = verifySession(safeCookie(req, 'studio_session'), env.SESSION_SECRET, users);
     if (!user) return res.status(401).json({ error: 'Login required' });
     req.studioUser = user;
     next();
   });
   app.get('/api/config', (_req, res) => res.json({ openai: Boolean(env.OPENAI_API_KEY), gemini: Boolean(env.GEMINI_API_KEY) }));
+  app.get('/api/results', async (req, res, next) => { try {
+    const tool = typeof req.query.tool === 'string' && req.query.tool !== 'all' ? cleanTool(req.query.tool) : undefined;
+    const status = req.query.status === 'available' || req.query.status === 'expired' ? req.query.status : undefined;
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 40));
+    const offset = Math.max(0, Number(req.query.offset) || 0);
+    res.json((await store.listResults({ tool, status, limit, offset })).map(publicResult));
+  } catch (error) { next(error); } });
+  app.get('/api/results/operation/:operationId', async (req, res, next) => { try {
+    const result = await store.getResultByOperation(req.params.operationId);
+    if (!result) return res.status(404).json({ error: 'Result not found' });
+    res.json(publicResult(result));
+  } catch (error) { next(error); } });
+  app.get('/api/results/:id', async (req, res, next) => { try {
+    const result = await store.getResult(req.params.id);
+    if (!result) return res.status(404).json({ error: 'Result not found' });
+    res.json(publicResult(result));
+  } catch (error) { next(error); } });
+  app.post('/api/results', express.json({ limit: '1mb' }), async (req, res, next) => { try {
+    const operationId = String(req.body?.operationId || '');
+    const tool = String(req.body?.tool || '');
+    const assetId = String(req.body?.assetId || '');
+    if (!/^[a-zA-Z0-9:_-]{1,160}$/.test(operationId) || cleanTool(tool) !== tool || !/^[a-f0-9-]{36}$/.test(assetId)) return res.status(400).json({ error: 'Invalid result identifiers' });
+    const previous = await store.getResultByOperation(operationId);
+    if (previous) return previous.tool === tool ? res.json(publicResult(previous)) : res.status(409).json({ error: 'Operation belongs to a different tool' });
+    const asset = await store.getAsset(assetId);
+    if (!asset || asset.expired || !asset.file_path || !asset.expires_at && !asset.expiresAt || asset.tool !== tool || !asset.mime.startsWith('image/')) return res.status(400).json({ error: 'Final image asset is missing or has no retention deadline' });
+    const name = String(req.body?.name || asset.name).slice(0, 255);
+    const jobId = typeof req.body?.jobId === 'string' ? req.body.jobId : null;
+    if (jobId) {
+      const job = await store.getJob(jobId);
+      if (!job || job.tool !== tool) return res.status(400).json({ error: 'Job does not belong to this tool' });
+    }
+    const exportSpec = req.body?.exportSpec && typeof req.body.exportSpec === 'object' && !Array.isArray(req.body.exportSpec) ? req.body.exportSpec : {};
+    if (JSON.stringify(exportSpec).length > 800000) return res.status(413).json({ error: 'Export parameters too large' });
+    const result = await store.createResult({ operationId, tool, username: req.studioUser.username, name, assetId, jobId, exportSpec });
+    res.status(201).json(publicResult(result));
+  } catch (error) { next(error); } });
   app.get('/api/jobs', async (_req, res, next) => { try {
     const jobs = await store.listJobs();
     res.json(await Promise.all(jobs.map(async (job) => publicJob(job, await store.assetsForJob(job.id)))));
@@ -259,6 +321,48 @@ export async function createStudioServer(env = process.env, dependencies = {}) {
     if (!job) return res.status(202).json({ jobId: id, status: 'running' });
     if (!job.response_body_path) return res.status(502).json({ jobId: id, error: job.error_message || 'AI request failed' });
     res.status(job.response_status).type(job.response_content_type).send(await readFile(job.response_body_path));
+  } catch (error) { next(error); } });
+
+  app.post(/^\/api\/integrations\/ai\/(openai|gemini)\/(.+)$/, express.raw({ type: '*/*', limit: MAX_REQUEST_BYTES }), async (req, res, next) => { try {
+    const provider = req.params[0];
+    const apiPath = allowedAiPath(provider, `/${req.params[1]}${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`);
+    if (!apiPath) return res.status(404).json({ error: 'Unsupported AI endpoint' });
+    if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ error: 'Missing request body' });
+    const tool = String(req.get('x-tool') || '');
+    if (cleanTool(tool) !== tool || tool === 'unknown') return res.status(400).json({ error: 'X-Tool must be a stable lowercase tool ID' });
+    if (!(provider === 'openai' ? env.OPENAI_API_KEY : env.GEMINI_API_KEY)) return res.status(503).json({ error: `${provider} server key is not configured` });
+    const bodyPath = path.join(canonicalDataDir, `${randomUUID()}.request`);
+    await writeFile(bodyPath, req.body, { flag: 'wx', mode: 0o600 });
+    const contentType = String(req.get('content-type') || 'application/json');
+    const id = await store.createJob({
+      source: `integration:${req.integrationProject}`, tool, provider,
+      model: modelName(contentType, req.body, provider, apiPath), username: `integration:${req.integrationProject}`,
+      path: apiPath, bodyPath, contentType, encryptedKey: null,
+    });
+    res.set('X-Studio-Job-Id', id);
+    void drain().catch((error) => console.error('AI queue failed:', error.message));
+    const job = await waitForCompletion(id);
+    if (!job) return res.status(202).json({ jobId: id, status: 'running' });
+    if (!job.response_body_path) return res.status(502).json({ jobId: id, error: job.error_message || 'AI request failed' });
+    res.status(job.response_status).type(job.response_content_type).send(await readFile(job.response_body_path));
+  } catch (error) { next(error); } });
+  app.get('/api/integrations/jobs/:id', async (req, res, next) => { try {
+    const job = await store.getJob(req.params.id);
+    if (!job || job.source !== `integration:${req.integrationProject}`) return res.status(404).json({ error: 'Job not found' });
+    res.json(publicJob(job));
+  } catch (error) { next(error); } });
+  app.get('/api/integrations/jobs/:id/response', async (req, res, next) => { try {
+    const job = await store.getJob(req.params.id);
+    if (!job || job.source !== `integration:${req.integrationProject}`) return res.status(404).json({ error: 'Job not found' });
+    if (job.status === 'queued' || job.status === 'running') return res.status(202).json({ jobId: job.id, status: job.status });
+    if (!job.response_body_path) return res.status(502).json({ jobId: job.id, error: job.error_message || 'AI request failed' });
+    res.status(job.response_status).type(job.response_content_type).send(await readFile(job.response_body_path));
+  } catch (error) { next(error); } });
+  app.post('/api/integrations/jobs/:id/cancel', async (req, res, next) => { try {
+    const job = await store.getJob(req.params.id);
+    if (!job || job.source !== `integration:${req.integrationProject}`) return res.status(404).json({ error: 'Job not found' });
+    if (!await store.cancelQueuedJob(job.id)) return res.status(409).json({ error: 'Only queued jobs can be cancelled' });
+    res.json({ ok: true });
   } catch (error) { next(error); } });
 
   async function cleanup() {

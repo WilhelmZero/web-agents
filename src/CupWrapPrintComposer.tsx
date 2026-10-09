@@ -46,7 +46,8 @@ import {
   type WrapDesign,
 } from "./services/cupWrap/types";
 import { work } from "./services/cupWrap/client";
-import { loadDesigns, saveDesigns } from "./services/cupWrap/storage";
+import { loadDesignSettings, saveDesignSettings } from "./services/cupWrap/storage";
+import { archiveFinalImage } from './services/resultArchive';
 import {
   placementError,
   type PrintLayout,
@@ -455,7 +456,7 @@ export default function CupWrapPrintComposer({
     }
   }, [geo, d.cup.safe, imageAdjustment]);
   useEffect(() => {
-    loadDesigns()
+    loadDesignSettings()
       .then((v) => {
         const migrateOldGapDefaults = !localStorage.getItem(
           GAP_DEFAULTS_MIGRATION_KEY,
@@ -502,7 +503,7 @@ export default function CupWrapPrintComposer({
     const timer = setTimeout(() => {
       saveChain.current = saveChain.current
         .catch(() => {})
-        .then(() => saveDesigns(designs))
+        .then(() => saveDesignSettings(designs))
         .catch((e) => setError(`保存失败：${e}`));
     }, 350);
     return () => clearTimeout(timer);
@@ -834,6 +835,12 @@ export default function CupWrapPrintComposer({
       abort.current = null;
       setBusy("");
     }
+  }
+  async function archiveCurrentDesign(design: WrapDesign, signal: AbortSignal) {
+    if (!design.source && !design.adopted && !design.layers.length) return;
+    const snapshot: WrapDesign = structuredClone({ ...design, originalSource: undefined, aiResults: [], aiFrames: [], geometryOutpaintCandidates: design.geometryOutpaintCandidates?.filter((candidate) => candidate.id === design.appliedGeometryCandidateId) });
+    const blob = await work<Blob>({ kind: 'png', design: snapshot, dpi: print.dpi, bleed: print.bleed, cutLine: print.cutLine, preview: false }, signal);
+    await archiveFinalImage('cup-wrap-print', { id: crypto.randomUUID(), status: 'success', resultBlob: blob, name: `${design.name}.png`, exportSpec: { kind: 'cup-wrap', design: snapshot, print: { ...print } } });
   }
   async function upload(file: File, role: ArtworkRole = "front") {
     try {
@@ -1904,6 +1911,8 @@ export default function CupWrapPrintComposer({
                   new Blob([bytes], { type: "image/tiff" }),
                   `${d.name}.tif`,
                 );
+                try { await archiveCurrentDesign(d, signal); }
+                catch (error) { window.dispatchEvent(new CustomEvent('studio:archive-error', { detail: error instanceof Error ? error.message : String(error) })); }
               })
             }
           >
@@ -1912,7 +1921,7 @@ export default function CupWrapPrintComposer({
           <Button
             disabled={!g || !!busy}
             onClick={() =>
-              run("正在导出 PDF", async (signal) =>
+              run("正在导出 PDF", async (signal) => {
                 download(
                   await exportPdf(
                     [structuredClone(d)],
@@ -1921,8 +1930,10 @@ export default function CupWrapPrintComposer({
                     signal,
                   ),
                   `${d.name}.pdf`,
-                ),
-              )
+                );
+                try { await archiveCurrentDesign(d, signal); }
+                catch (error) { window.dispatchEvent(new CustomEvent('studio:archive-error', { detail: error instanceof Error ? error.message : String(error) })); }
+              })
             }
           >
             1:1 PDF
