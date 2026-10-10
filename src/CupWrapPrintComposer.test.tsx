@@ -176,9 +176,9 @@ it("automatically applies rectangular AI output and can restore the original", a
   fireEvent.click(screen.getByRole("button", { name: "生成并自动应用几何映射" }));
   await waitFor(() => expect(document.querySelector(".ant-modal-confirm-btns .ant-btn-primary")).not.toBeNull());
   fireEvent.click(document.querySelector(".ant-modal-confirm-btns .ant-btn-primary")!);
-  await screen.findByText(/候选 1 · gpt-image-2.5-sunburst/);
+  await screen.findByText(/候选 1 · gpt-image-2.5-flare/);
   expect(adaptArtwork).toHaveBeenCalledWith(
-    expect.anything(), "gpt-image-2.5-sunburst", original,
+    expect.anything(), "gpt-image-2.5-flare", original,
     "参考原图元素进行扩图，只用精灵和星星进行填充",
     expect.any(AbortSignal),
     expect.objectContaining({ transparent: true, size: `${match[1]}x${match[2]}` }),
@@ -198,7 +198,7 @@ it("automatically applies rectangular AI output and can restore the original", a
   fireEvent.click(screen.getByRole("button", { name: "重试（使用当前提示词）" }));
   await waitFor(() => expect(document.querySelector(".ant-modal-confirm-btns .ant-btn-primary")).not.toBeNull());
   fireEvent.click(document.querySelector(".ant-modal-confirm-btns .ant-btn-primary")!);
-  await screen.findByText(/候选 2 · gpt-image-2.5-sunburst/);
+  await screen.findByText(/候选 2 · gpt-image-2.5-flare/);
   expect(vi.mocked(adaptArtwork).mock.calls.map((call) => call[2]))
     .toEqual([original, original]);
   fireEvent.click(screen.getByRole("button", { name: "使用原图" }));

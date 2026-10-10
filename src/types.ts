@@ -4,6 +4,18 @@ export type ImageModel =
   | "gemini-3-pro-image"
   | "gemini-2.5-flash-image";
 
+export type OpenAiImageModel =
+  | "gpt-image-2.5-flare"
+  | "gpt-image-2.5-sunburst"
+  | "gpt-image-2"
+  | "gpt-image-2-2026-04-21";
+
+export type OpenAiLanguageModel =
+  | "gpt-6-luna"
+  | "gpt-5.6-luna"
+  | "gpt-5.6-terra"
+  | "gpt-5.6-sol";
+
 export type OptimizerModel =
   "gemini-3.1-flash-lite" | "gemini-3.1-flash" | "gemini-2.5-flash";
 
@@ -53,15 +65,15 @@ export interface LogoRemovalSettings {
   scope?: LogoRemovalScope;
   analysisProvider: AiProvider;
   analysisModel: OptimizerModel;
-  openAiAnalysisModel: "gpt-5.6-sol" | "gpt-5.6-terra" | "gpt-5.6-luna";
+  openAiAnalysisModel: OpenAiLanguageModel;
   imageProvider: AiProvider;
   imageModel: ImageModel;
-  openAiImageModel: "gpt-image-2" | "gpt-image-2-2026-04-21";
+  openAiImageModel: OpenAiImageModel;
   imageSize: ImageSize;
   verificationEnabled: boolean;
   verificationProvider: AiProvider;
   verificationModel: OptimizerModel;
-  openAiVerificationModel: "gpt-5.6-sol" | "gpt-5.6-terra" | "gpt-5.6-luna";
+  openAiVerificationModel: OpenAiLanguageModel;
   prompt: string;
   concurrency: number;
   copiesPerImage: number;
@@ -147,8 +159,8 @@ export interface AppSettings {
   openAiApiKey: string;
   connectionMode: "direct" | "proxy";
   proxyUrl: string;
-  imageModel: ImageModel;
-  optimizerModel: OptimizerModel;
+  imageModel: ImageModel | OpenAiImageModel;
+  optimizerModel: OptimizerModel | OpenAiLanguageModel;
   aspectRatio: string;
   imageSize: ImageSize;
   concurrency: number;
@@ -273,8 +285,8 @@ export interface LogoPair {
 }
 
 export interface LogoSettings {
-  imageModel: ImageModel;
-  optimizerModel: OptimizerModel;
+  imageModel: ImageModel | OpenAiImageModel;
+  optimizerModel: OptimizerModel | OpenAiLanguageModel;
   ratioMode: "original" | "fixed" | "custom";
   aspectRatio: string;
   imageSize: ImageSize;
@@ -299,7 +311,7 @@ export interface LogoReplaceSettings {
   useOldLogoReference: boolean;
   imageProvider: "gemini" | "openai";
   imageModel: ImageModel;
-  openAiImageModel: "gpt-image-2";
+  openAiImageModel: OpenAiImageModel;
   ratioMode: "original" | "fixed" | "custom";
   aspectRatio: string;
   imageSize: ImageSize;
@@ -325,7 +337,7 @@ export interface LogoReplaceSettings {
   strictTextVerification: boolean;
   languageProvider: "gemini" | "openai";
   verificationModel: OptimizerModel;
-  openAiLanguageModel: "gpt-5.6-sol" | "gpt-5.6-terra" | "gpt-5.6-luna";
+  openAiLanguageModel: OpenAiLanguageModel;
   verificationRetries: number;
   autoRetryErrors: boolean;
   errorRetryLimit: number;
@@ -342,7 +354,7 @@ export interface ObjectPreservationOptions {
 }
 
 export interface ObjectReplaceSettings {
-  imageModel: ImageModel;
+  imageModel: ImageModel | OpenAiImageModel;
   ratioMode: "original" | "fixed";
   aspectRatio: string;
   imageSize: ImageSize;
@@ -376,12 +388,11 @@ export interface SceneReplaceSettings {
   autoRecommendScene: boolean;
   sceneRecommendationProvider: "gemini" | "openai";
   sceneRecommendationModel: OptimizerModel;
-  openAiSceneRecommendationModel:
-    "gpt-5.6-sol" | "gpt-5.6-terra" | "gpt-5.6-luna";
+  openAiSceneRecommendationModel: OpenAiLanguageModel;
   promptOptimizerProvider: "gemini" | "openai";
   promptOptimizerModel: OptimizerModel;
-  openAiPromptOptimizerModel: "gpt-5.6-sol" | "gpt-5.6-terra" | "gpt-5.6-luna";
-  imageModel: ImageModel | "gpt-image-2" | "gpt-image-2-2026-04-21";
+  openAiPromptOptimizerModel: OpenAiLanguageModel;
+  imageModel: ImageModel | OpenAiImageModel;
   imageQuality: "high" | "medium" | "low";
   ratioMode: "original" | "fixed" | "auto" | "unspecified";
   aspectRatio: string;
@@ -394,7 +405,7 @@ export interface SceneReplaceSettings {
   errorRetryDelaySeconds: number;
   autoOutpaint: boolean;
   outpaintBothSizes: boolean;
-  outpaintImageModel: ImageModel | "gpt-image-2" | "gpt-image-2-2026-04-21";
+  outpaintImageModel: ImageModel | OpenAiImageModel;
   outpaintImageSize: ImageSize;
   outpaintQuality: "high" | "medium" | "low";
   outpaintWidth: number;
@@ -470,7 +481,7 @@ export interface SceneClassificationPresetGroup {
 export interface SceneClassificationSettings {
   provider: AiProvider;
   geminiModel: OptimizerModel;
-  openAiModel: "gpt-5.6-sol" | "gpt-5.6-terra" | "gpt-5.6-luna";
+  openAiModel: OpenAiLanguageModel;
   concurrency: number;
   autoRetryErrors: boolean;
   errorRetryLimit: number;
@@ -550,7 +561,7 @@ export interface LogoClassificationSettings extends SceneClassificationSettings 
 export interface AutoLogoGenerationSettings {
   imageProvider: AiProvider;
   imageModel: ImageModel;
-  openAiImageModel: "gpt-image-2";
+  openAiImageModel: OpenAiImageModel;
   ratioMode: AutomaticOutputRatioMode;
   aspectRatio: string;
   openAiOutputSize: OpenAiImageOutputSize;
@@ -703,22 +714,22 @@ export interface LogoReplaceDevTask {
   retryCount: number;
 }
 export interface InpaintSettings {
-  imageModel: ImageModel;
-  optimizerModel: OptimizerModel;
+  imageModel: ImageModel | OpenAiImageModel;
+  optimizerModel: OptimizerModel | OpenAiLanguageModel;
   ratioMode: "original" | "fixed";
   aspectRatio: string;
   imageSize: ImageSize;
 }
 
 export interface CupResizeSettings {
-  imageModel: ImageModel | "gpt-image-2" | "gpt-image-2-2026-04-21";
+  imageModel: ImageModel | OpenAiImageModel;
   imageSize: ImageSize;
   imageQuality: "high" | "medium" | "low";
 }
 
 export interface ProductDetailSettings {
-  analyzerModel: OptimizerModel;
-  imageModel: ImageModel;
+  analyzerModel: OptimizerModel | OpenAiLanguageModel;
+  imageModel: ImageModel | OpenAiImageModel;
   ratioMode: "original" | "fixed";
   aspectRatio: string;
   imageSize: ImageSize;

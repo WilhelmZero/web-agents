@@ -39,9 +39,12 @@ import {
 } from './constants';
 import GeneratingImage from './GeneratingImage';
 import { generateInpaintImage, optimizePrompt } from './services/gemini';
+import { generateLogoResultInpaintOpenAi } from './services/logoReplaceOpenAi';
+import { optimizeScenePromptOpenAi } from './services/promptOptimizer';
+import { OPENAI_IMAGE_MODEL_OPTIONS, OPENAI_LANGUAGE_MODEL_OPTIONS } from './services/openAiModels';
 import { reportTaskProgress } from './services/taskProgress';
 import { readLocalStorage } from './storage';
-import type { InpaintSettings } from './types';
+import type { ImageModel, InpaintSettings, OpenAiImageModel, OptimizerModel } from './types';
 import {
   downloadBlob,
   estimateImageCost,
@@ -170,6 +173,7 @@ export function MaskCanvas({
 }
 export default function InpaintComposer({
   apiKey,
+  openAiApiKey,
   apiBaseUrl,
   connectionMode,
   onRequestKey,
@@ -177,6 +181,7 @@ export default function InpaintComposer({
   settingsHost,
 }: {
   apiKey: string;
+  openAiApiKey: string;
   apiBaseUrl: string | null;
   connectionMode: 'direct' | 'proxy';
   onRequestKey: () => void;
@@ -198,7 +203,10 @@ export default function InpaintComposer({
   const aborter = useRef<AbortController | undefined>(undefined);
   useServerValue('inpaint', 'prompt', prompt, setPrompt);
   useArchiveResults('inpaint', result ? [{ id: result.url.split('/').pop() || 'result', status: 'success', resultBlob: result.blob, name: `inpaint.${result.mimeType.includes('jpeg') ? 'jpg' : 'png'}` }] : []);
-  const capability = MODEL_CAPABILITIES[settings.imageModel];
+  const openAiImage = settings.imageModel.startsWith('gpt-image-');
+  const capability = openAiImage
+    ? { aspectRatios: ['1:1', '3:2', '2:3', '16:9', '9:16'], imageSizes: ['1K', '2K', '4K'] as InpaintSettings['imageSize'][] }
+    : MODEL_CAPABILITIES[settings.imageModel as ImageModel];
 
 
   useEffect(() => localStorage.setItem(STORAGE_KEYS.inpaintSettings, JSON.stringify(settings)), [settings]);
@@ -212,7 +220,7 @@ export default function InpaintComposer({
   const patchSettings = (patch: Partial<InpaintSettings>) => {
     setSettings((current) => {
       const next = { ...current, ...patch };
-      return patch.imageModel ? { ...next, ...normalizeSettingsForModel(patch.imageModel, next.aspectRatio, next.imageSize) } : next;
+      return patch.imageModel && !patch.imageModel.startsWith('gpt-image-') ? { ...next, ...normalizeSettingsForModel(patch.imageModel as ImageModel, next.aspectRatio, next.imageSize) } : next;
     });
   };
   const selectFile = (next: File) => {
@@ -229,19 +237,22 @@ export default function InpaintComposer({
     setStatus('idle');
     return false;
   };
-  const checkApi = () => {
-    if (!apiKey || (connectionMode === 'proxy' && !apiBaseUrl)) {
+  const checkApi = (model: string) => {
+    const openAi = model.startsWith('gpt-');
+    if (!(openAi ? openAiApiKey : apiKey) || (!openAi && connectionMode === 'proxy' && !apiBaseUrl)) {
       onRequestKey();
-      message.warning(!apiKey ? '请先配置 API Key' : '请先配置代理地址');
+      message.warning(!(openAi ? openAiApiKey : apiKey) ? '请先配置 API Key' : '请先配置代理地址');
       return false;
     }
     return true;
   };
   const optimize = async () => {
-    if (!checkApi() || !prompt.trim()) return void message.warning('请先输入提示词');
+    if (!checkApi(settings.optimizerModel) || !prompt.trim()) return void message.warning('请先输入提示词');
     setOptimizing(true);
     try {
-      setPrompt(await optimizePrompt({ apiKey, apiBaseUrl, model: settings.optimizerModel, prompt: `这是严格局部重绘任务，只能修改用户选定区域。${prompt}` }));
+      setPrompt(settings.optimizerModel.startsWith('gpt-')
+        ? await optimizeScenePromptOpenAi({ apiKey: openAiApiKey, model: settings.optimizerModel, prompt: `这是严格局部重绘任务，只能修改用户选定区域。${prompt}` })
+        : await optimizePrompt({ apiKey, apiBaseUrl, model: settings.optimizerModel as OptimizerModel, prompt: `这是严格局部重绘任务，只能修改用户选定区域。${prompt}` }));
     } catch (reason) {
       message.error(reason instanceof Error ? reason.message : '提示词优化失败');
     } finally {
@@ -249,7 +260,7 @@ export default function InpaintComposer({
     }
   };
   const generate = async () => {
-    if (!checkApi()) return;
+    if (!checkApi(settings.imageModel)) return;
     if (!file || !previewUrl) return void message.warning('请先上传一张图片');
     if (!maskGuide) return void message.warning('请先框选或涂抹需要修改的区域');
     if (!prompt.trim()) return void message.warning('请输入局部重绘要求');
@@ -262,10 +273,12 @@ export default function InpaintComposer({
     await Promise.resolve();
     setStatus('running');
     try {
-      const generated = await generateInpaintImage({
+      const generated = settings.imageModel.startsWith('gpt-image-')
+        ? await generateLogoResultInpaintOpenAi({ apiKey: openAiApiKey, model: settings.imageModel as OpenAiImageModel, image: file, maskGuide, prompt: prompt.trim(), signal: controller.signal })
+        : await generateInpaintImage({
         apiKey,
         apiBaseUrl,
-        model: settings.imageModel,
+        model: settings.imageModel as ImageModel,
         prompt: prompt.trim(),
         image: file,
         maskGuide,
@@ -308,15 +321,15 @@ export default function InpaintComposer({
       <Flex justify="space-between"><Title level={4} style={{ margin: 0 }}>重绘设置</Title><Tag color="magenta">单图</Tag></Flex>
       <Divider />
       <Form layout="vertical">
-        <Form.Item label="图片模型"><Select value={settings.imageModel} onChange={(imageModel) => patchSettings({ imageModel })} options={Object.entries(MODEL_CAPABILITIES).map(([value, item]) => ({ value, label: item.label }))} /></Form.Item>
+        <Form.Item label="图片模型"><Select value={settings.imageModel} onChange={(imageModel) => patchSettings({ imageModel })} options={[{ label: 'GPT', options: OPENAI_IMAGE_MODEL_OPTIONS }, { label: 'Gemini', options: Object.entries(MODEL_CAPABILITIES).map(([value, item]) => ({ value, label: item.label })) }]} /></Form.Item>
         <Form.Item label="画面比例">
           <Radio.Group value={settings.ratioMode} onChange={(event) => patchSettings({ ratioMode: event.target.value })}><Radio value="original">跟随原图</Radio><Radio value="fixed">指定比例</Radio></Radio.Group>
           {settings.ratioMode === 'fixed' && <Select style={{ marginTop: 10 }} value={settings.aspectRatio} onChange={(aspectRatio) => patchSettings({ aspectRatio })} options={capability.aspectRatios.map((value) => ({ value, label: value }))} />}
         </Form.Item>
         <Form.Item label="输出分辨率"><Segmented block value={settings.imageSize} onChange={(imageSize) => patchSettings({ imageSize: imageSize as InpaintSettings['imageSize'] })} options={capability.imageSizes} /></Form.Item>
-        <Form.Item label="提示词优化模型"><Select value={settings.optimizerModel} onChange={(optimizerModel) => patchSettings({ optimizerModel })} options={[{ value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite' }, { value: 'gemini-3.1-flash', label: 'Gemini 3.1 Flash' }, { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' }]} /></Form.Item>
+        <Form.Item label="提示词优化模型"><Select value={settings.optimizerModel} onChange={(optimizerModel) => patchSettings({ optimizerModel })} options={[...OPENAI_LANGUAGE_MODEL_OPTIONS, { value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite' }, { value: 'gemini-3.1-flash', label: 'Gemini 3.1 Flash' }, { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' }]} /></Form.Item>
       </Form>
-      <Card className="price-card" variant="borderless"><Statistic title="预计价格" prefix="$" precision={3} value={estimateImageCost(settings.imageModel, settings.imageSize, 1) + PRICING.models[settings.imageModel].inputImage * 2} /><Text type="secondary">按一次请求和两张输入参考图估算。</Text></Card>
+      <Card className="price-card" variant="borderless">{openAiImage ? <Text type="secondary">GPT 图片按实际输入与输出 token 计费。</Text> : <><Statistic title="预计价格" prefix="$" precision={3} value={estimateImageCost(settings.imageModel as ImageModel, settings.imageSize, 1) + PRICING.models[settings.imageModel as ImageModel].inputImage * 2} /><Text type="secondary">按一次请求和两张输入参考图估算。</Text></>}</Card>
     </div>
   );
 

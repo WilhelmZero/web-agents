@@ -14,6 +14,7 @@ import { prepareTransparentImageForEdit, restoreTransparentBackground } from './
 import OriginalCompareImage from './OriginalCompareImage';
 import { useArchiveResults } from './services/resultArchive';
 import { useServerValue } from './services/serverValue';
+import { OPENAI_IMAGE_MODEL_OPTIONS, OPENAI_LANGUAGE_MODEL_OPTIONS } from './services/openAiModels';
 
 const { Title, Text, Paragraph } = Typography;
 type Provider = 'openai' | 'gemini';
@@ -21,11 +22,7 @@ type ItemStatus = 'waiting' | 'recognizing' | 'recognized' | 'editing' | 'done' 
 interface Item { id: string; file: File; url: string; resultUrl?: string; resultBlob?: Blob; vectorBlob?: Blob; vectorStatus?: 'checking' | 'converting' | 'ready' | 'skipped' | 'error'; vectorError?: string; regions: PaperTextRegion[]; status: ItemStatus; error?: string; verification?: string }
 const ACCEPTED = ['image/png', 'image/jpeg', 'image/webp'];
 const textKey = (value: string) => value.replace(/\s+/g, ' ').trim().toLocaleLowerCase();
-const OPENAI_TEXT_MODELS = [
-  { value: 'gpt-5.6-luna', label: 'GPT-5.6 Luna（快速低成本）' },
-  { value: 'gpt-5.6-terra', label: 'GPT-5.6 Terra（均衡）' },
-  { value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol（最高能力）' },
-];
+const OPENAI_TEXT_MODELS = OPENAI_LANGUAGE_MODEL_OPTIONS;
 const GEMINI_TEXT_MODELS = [
   { value: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash（推荐）' },
   { value: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash' },
@@ -33,10 +30,7 @@ const GEMINI_TEXT_MODELS = [
   { value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite' },
   { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash（旧版）' },
 ];
-const OPENAI_IMAGE_MODELS = [
-  { value: 'gpt-image-2', label: 'GPT Image 2（推荐）' },
-  { value: 'gpt-image-2-2026-04-21', label: 'GPT Image 2（2026-04-21 固定版本）' },
-];
+const OPENAI_IMAGE_MODELS = OPENAI_IMAGE_MODEL_OPTIONS;
 const GEMINI_IMAGE_MODELS = [
   { value: 'gemini-3.1-flash-image', label: 'Gemini 3.1 Flash Image（推荐）' },
   { value: 'gemini-3.1-flash-lite-image', label: 'Gemini 3.1 Flash Lite Image（快速低成本）' },
@@ -54,7 +48,7 @@ interface PaperTextSettings {
   concurrency: number;
 }
 const DEFAULT_PAPER_TEXT_SETTINGS: PaperTextSettings = {
-  languageProvider: 'openai', imageProvider: 'openai', openAiTextModel: 'gpt-5.6-luna', openAiImageModel: 'gpt-image-2',
+  languageProvider: 'openai', imageProvider: 'openai', openAiTextModel: 'gpt-6-luna', openAiImageModel: 'gpt-image-2.5-flare',
   geminiTextModel: 'gemini-3.6-flash', geminiImageModel: 'gemini-3.1-flash-image', quality: 'high', concurrency: 4,
 };
 

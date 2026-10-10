@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import ResultsPage from './ResultsPage';
 
@@ -26,4 +26,23 @@ it('keeps a completed job model image separate from final result cards', async (
   expect(await screen.findByText('Model outputs (not final artwork):')).toBeTruthy();
   expect(screen.getByText('raw.png')).toBeTruthy();
   expect(screen.getByText('No new-version results yet')).toBeTruthy();
+});
+
+it('shows the admin usage dashboard from server statistics instead of raw JSON', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (url.startsWith('/api/results?') || url === '/api/jobs') return new Response('[]', { status: 200 });
+    if (url === '/api/auth/session') return new Response(JSON.stringify({ username: 'admin', admin: true }), { status: 200 });
+    if (url === '/api/admin/usage') return new Response(JSON.stringify([
+      { day: new Date().toISOString().slice(0, 10), source: 'studio', tool: 'scene', provider: 'openai', model: 'gpt-image-2.5-flare', status: 'success', requests: 2, images: 3, retries: 1 },
+    ]), { status: 200 });
+    throw new Error(`Unexpected ${url}`);
+  }));
+  render(<ResultsPage labels={{ scene: 'Scene generation' }} language="en-US" />);
+  expect(await screen.findByRole('region', { name: 'Usage dashboard' })).toBeInTheDocument();
+  expect(await screen.findByText('Images generated each day')).toBeInTheDocument();
+  expect(screen.getByText('Requests by provider')).toBeInTheDocument();
+  expect(screen.getByText('Scene generation')).toBeInTheDocument();
+  expect(screen.queryByText('Usage statistics')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByText('7 days'));
+  expect(screen.getByRole('img', { name: 'Daily generated images over the past 7 days' })).toBeInTheDocument();
 });

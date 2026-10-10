@@ -192,7 +192,7 @@ const fresh = (): WrapDesign => ({
   sourceRevision: crypto.randomUUID(),
   aiResults: [],
   geometryOutpaintPrompt: DEFAULT_GEOMETRY_OUTPAINT_PROMPT,
-  geometryOutpaintModel: "gpt-image-2.5-sunburst",
+  geometryOutpaintModel: "gpt-image-2.5-flare",
   geometryOutpaintCandidates: [],
   artworkSlots: [],
   stitchGapPx: 0,
@@ -225,7 +225,7 @@ const migrateDesign = (design: WrapDesign): WrapDesign => ({
   geometryOutpaintPrompt:
     design.geometryOutpaintPrompt ?? DEFAULT_GEOMETRY_OUTPAINT_PROMPT,
   geometryOutpaintModel:
-    design.geometryOutpaintModel ?? "gpt-image-2.5-sunburst",
+    design.geometryOutpaintModel ?? "gpt-image-2.5-flare",
   // A single uploaded image uses the same unified source pipeline as a
   // stitched pair. Legacy one-slot projects are upgraded automatically so
   // geometry mapping is not bypassed by the old front/back placement branch.
@@ -735,7 +735,7 @@ export default function CupWrapPrintComposer({
     if (!size || !d.originalSource && !d.source) return;
     Modal.confirm({
       title: "将发起 1 次付费矩形扩图请求",
-      content: `模型：${d.geometryOutpaintModel ?? "gpt-image-2.5-sunburst"}；质量：high；尺寸：${size.width} × ${size.height} px。仅发送原始拼接图，生成成功且原图、杯型未变化时自动应用并几何映射；该尺寸属于实验性高分辨率范围。`,
+      content: `模型：${d.geometryOutpaintModel ?? "gpt-image-2.5-flare"}；质量：high；尺寸：${size.width} × ${size.height} px。仅发送原始拼接图，生成成功且原图、杯型未变化时自动应用并几何映射；该尺寸属于实验性高分辨率范围。`,
       onOk: () => { void generateGeometryCandidate(); },
     });
   }
@@ -748,7 +748,7 @@ export default function CupWrapPrintComposer({
       cupKey: JSON.stringify(d.cup),
       sourceRevision: d.sourceRevision ?? "",
       prompt: d.geometryOutpaintPrompt?.trim() || DEFAULT_GEOMETRY_OUTPAINT_PROMPT,
-      model: d.geometryOutpaintModel ?? "gpt-image-2.5-sunburst",
+      model: d.geometryOutpaintModel ?? "gpt-image-2.5-flare",
       adjustment: { ...imageAdjustment, warp: 1 },
       size: geometryOutpaintSize.value,
     };
@@ -1234,12 +1234,12 @@ export default function CupWrapPrintComposer({
             <span>模型</span>
             <Select
               aria-label="矩形扩图模型"
-              value={d.geometryOutpaintModel ?? "gpt-image-2.5-sunburst"}
+              value={d.geometryOutpaintModel ?? "gpt-image-2.5-flare"}
               onChange={(geometryOutpaintModel: GeometryOutpaintModel) =>
                 update({ geometryOutpaintModel })}
               options={[
-                { value: "gpt-image-2.5-sunburst", label: "GPT Image 2.5 Sunburst" },
                 { value: "gpt-image-2.5-flare", label: "GPT Image 2.5 Flare" },
+                { value: "gpt-image-2.5-sunburst", label: "GPT Image 2.5 Sunburst" },
               ]}
             />
             <span>质量 high · 透明 PNG</span>

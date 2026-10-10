@@ -11,6 +11,6 @@ describe('normalizeLogoRemovalSettings', () => {
   it('keeps Gemini as the safe default for old settings without an image provider', () => {
     const settings = normalizeLogoRemovalSettings({ imageModel: 'gemini-3.1-flash-image' });
     expect(settings.imageProvider).toBe('gemini');
-    expect(settings.openAiImageModel).toBe('gpt-image-2');
+    expect(settings.openAiImageModel).toBe('gpt-image-2.5-flare');
   });
 });

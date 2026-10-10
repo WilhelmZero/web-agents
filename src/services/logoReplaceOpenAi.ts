@@ -5,6 +5,7 @@ import type {
   LogoVerificationResult,
   OpenAiImageOutputSize,
   SceneLogoStyle,
+  OpenAiImageModel,
 } from "../types";
 import { fileToBase64 } from "../utils";
 import {
@@ -26,7 +27,7 @@ async function openAiError(response: Response) {
 
 async function editImages(options: {
   apiKey: string;
-  model: "gpt-image-2" | "gpt-image-2-2026-04-21";
+  model: OpenAiImageModel;
   images: File[];
   prompt: string;
   quality?: "high" | "medium" | "low";
@@ -123,7 +124,7 @@ function outputText(data: unknown) {
 
 export function generateCupResizeOpenAi(options: {
   apiKey: string;
-  model: "gpt-image-2" | "gpt-image-2-2026-04-21";
+  model: OpenAiImageModel;
   compositeGuide: File;
   prompt: string;
   quality: "high" | "medium" | "low";
@@ -227,7 +228,7 @@ async function requestJson(options: {
 
 export function generateLogoReplacementOpenAi(options: {
   apiKey: string;
-  model: "gpt-image-2";
+  model: OpenAiImageModel;
   scene: File;
   oldLogo?: File;
   newLogo: File;
@@ -251,7 +252,7 @@ export function generateLogoReplacementOpenAi(options: {
 
 export function generateExactLogoReplacementOpenAi(options: {
   apiKey: string;
-  model: "gpt-image-2";
+  model: OpenAiImageModel;
   scene: File;
   oldLogo?: File;
   logos: File[];
@@ -338,7 +339,7 @@ export async function analyzeLogoRemovalOpenAi(options: {
 
 export function generateLogoRemovalOpenAi(options: {
   apiKey: string;
-  model: "gpt-image-2" | "gpt-image-2-2026-04-21";
+  model: OpenAiImageModel;
   scene: File;
   prompt: string;
   signal?: AbortSignal;
@@ -353,7 +354,7 @@ export function generateLogoRemovalOpenAi(options: {
 
 export function generateLogoResultInpaintOpenAi(options: {
   apiKey: string;
-  model: "gpt-image-2" | "gpt-image-2-2026-04-21";
+  model: OpenAiImageModel;
   image: File;
   maskGuide: Blob;
   prompt: string;
@@ -421,7 +422,7 @@ export async function verifyLogoRemovalOpenAi(options: {
 
 export function generateMultiLogoReplacementOpenAi(options: {
   apiKey: string;
-  model: "gpt-image-2";
+  model: OpenAiImageModel;
   scene: File;
   logos: File[];
   styles: SceneLogoStyle[];

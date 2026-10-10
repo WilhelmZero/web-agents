@@ -1212,6 +1212,7 @@ export default function MultiTabSceneReplaceComposer(
     actualRequests: actualSceneRequests,
     extraActualCost: outpaintActualCost.max,
   });
+  const usesGptImage25 = storedSceneSettings.imageModel.startsWith('gpt-image-2.5-') || (storedSceneSettings.autoOutpaint && storedSceneSettings.outpaintImageModel.startsWith('gpt-image-2.5-'));
   const sceneCostMetrics = {
     ...sceneCostMetricsBase,
     estimatedMinimum:
@@ -1946,21 +1947,21 @@ export default function MultiTabSceneReplaceComposer(
             <Flex gap={24} wrap style={{ marginTop: 16 }}>
               <Statistic
                 title="预计最低金额"
-                prefix="$"
-                precision={3}
-                value={sceneCostMetrics.estimatedMinimum}
+                prefix={usesGptImage25 ? undefined : '$'}
+                precision={usesGptImage25 ? undefined : 3}
+                value={usesGptImage25 ? '按量计费' : sceneCostMetrics.estimatedMinimum}
               />
               <Statistic
                 title="预计最差金额"
-                prefix="$"
-                precision={3}
-                value={sceneCostMetrics.estimatedWorst}
+                prefix={usesGptImage25 ? undefined : '$'}
+                precision={usesGptImage25 ? undefined : 3}
+                value={usesGptImage25 ? '按量计费' : sceneCostMetrics.estimatedWorst}
               />
               <Statistic
                 title="实际消费金额（实时预估）"
-                prefix="$"
-                precision={3}
-                value={sceneCostMetrics.actual}
+                prefix={usesGptImage25 ? undefined : '$'}
+                precision={usesGptImage25 ? undefined : 3}
+                value={usesGptImage25 ? '以服务端统计为准' : sceneCostMetrics.actual}
               />
               <Statistic
                 title="已发生生图请求"

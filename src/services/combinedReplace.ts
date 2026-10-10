@@ -1,4 +1,4 @@
-import type { ImageModel, ImageSize, OptimizerModel, SceneLogoStyle } from '../types';
+import type { ImageModel, ImageSize, OpenAiImageModel, OptimizerModel, SceneLogoStyle } from '../types';
 
 export type CombinedProvider = 'gemini' | 'openai';
 export type CombinedPairSource = 'matched' | 'manual' | 'random';
@@ -10,7 +10,7 @@ export interface CombinedVerification { passed: boolean; scenePassed: boolean; l
 export interface CombinedAttempt { id: string; index: number; createdAt: number; blob: Blob; url: string; prompt: string; model: string; durationMs: number; verification?: CombinedVerification }
 export interface CombinedReplaceSettings {
   analysisProvider: CombinedProvider; analysisModel: OptimizerModel; openAiAnalysisModel: string;
-  imageProvider: CombinedProvider; imageModel: ImageModel; openAiImageModel: 'gpt-image-2'; imageSize: ImageSize; quality: 'high' | 'medium' | 'low'; aspectRatio: string;
+  imageProvider: CombinedProvider; imageModel: ImageModel; openAiImageModel: OpenAiImageModel; imageSize: ImageSize; quality: 'high' | 'medium' | 'low'; aspectRatio: string;
   verificationProvider: CombinedProvider; verificationModel: OptimizerModel; openAiVerificationModel: string;
   concurrency: number; copiesPerScene: number; reuseAcrossScenes: boolean; smartAnalysis: boolean; autoIndividualPrompt: boolean; autoGenerateAfterAnalysis: boolean;
   repairRetries: number; autoRetryErrors: boolean; errorRetryLimit: number; errorRetryDelaySeconds: number;

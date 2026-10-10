@@ -11,6 +11,7 @@ import {
   CodeOutlined,
   DeleteOutlined,
   DownloadOutlined,
+  DownOutlined,
   EditOutlined,
   ExperimentOutlined,
   EyeOutlined,
@@ -21,6 +22,7 @@ import {
   GlobalOutlined,
   HighlightOutlined,
   KeyOutlined,
+  LogoutOutlined,
   MenuFoldOutlined,
   PlusOutlined,
   PictureOutlined,
@@ -40,6 +42,7 @@ import { Attachments } from "@ant-design/x";
 import {
   Alert,
   App as AntApp,
+  Avatar,
   Badge,
   Button,
   Card,
@@ -111,9 +114,14 @@ import RequestConsoleDrawer from "./RequestConsoleDrawer";
 import GeneratingImage from "./GeneratingImage";
 import { useArchiveResults } from "./services/resultArchive";
 import { useServerValue } from "./services/serverValue";
+import { OPENAI_IMAGE_MODEL_OPTIONS, OPENAI_LANGUAGE_MODEL_OPTIONS } from "./services/openAiModels";
+import { editPaperTextOpenAi } from "./services/paperText";
+import { optimizeScenePromptOpenAi } from "./services/promptOptimizer";
 import OriginalCompareImage from "./OriginalCompareImage";
 import GlobalGenerationStats from "./GlobalGenerationStats";
 import ResultsPage from "./ResultsPage";
+import OperatingDemandsPage, { DemandTodoButton, type Demand } from './OperatingDemandsPage';
+import { useStudioSession } from "./ServerGate";
 import IconVectorSplitComposer from "./IconVectorSplitComposer";
 import CustomMonochromeLogoComposer from "./CustomMonochromeLogoComposer";
 import PetLetterStickerComposer from "./PetLetterStickerComposer";
@@ -152,6 +160,7 @@ import type {
   CreationTool,
   GenerationTask,
   ImageModel,
+  OptimizerModel,
   IndividualPromptPreset,
   ProductImage,
   PromptItem,
@@ -172,6 +181,8 @@ const { Header, Sider, Content } = Layout;
 const { Text, Title, Paragraph } = Typography;
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
 const ACCEPTED_TYPES = ["image/png", "image/jpeg", "image/webp"];
+const isOpenAiImageModel = (model: string) => model.startsWith("gpt-image-");
+const isOpenAiLanguageModel = (model: string) => model.startsWith("gpt-");
 
 const CREATION_TOOL_ITEMS: Array<{
   key: CreationTool;
@@ -365,12 +376,12 @@ function SettingsPanel({
   onOptimizeAll: () => void;
   optimizingAll: boolean;
 }) {
-  const capability = MODEL_CAPABILITIES[settings.imageModel];
-  const cost = estimateImageCost(
-    settings.imageModel,
-    settings.imageSize,
-    taskCount,
-  );
+  const capability = isOpenAiImageModel(settings.imageModel)
+    ? { description: "GPT Image 根据原图自动选择输出尺寸；选择比例作为构图要求。", aspectRatios: ["1:1", "3:2", "2:3", "16:9", "9:16"], imageSizes: ["1K", "2K", "4K"] as AppSettings["imageSize"][] }
+    : MODEL_CAPABILITIES[settings.imageModel as ImageModel];
+  const cost = isOpenAiImageModel(settings.imageModel)
+    ? undefined
+    : estimateImageCost(settings.imageModel as ImageModel, settings.imageSize, taskCount);
 
   return (
     <div className="settings-panel">
@@ -385,13 +396,8 @@ function SettingsPanel({
         <Form.Item label="图片模型">
           <Select
             value={settings.imageModel}
-            onChange={(imageModel: ImageModel) => onChange({ imageModel })}
-            options={Object.entries(MODEL_CAPABILITIES).map(
-              ([value, item]) => ({
-                value,
-                label: item.label,
-              }),
-            )}
+            onChange={(imageModel: AppSettings["imageModel"]) => onChange({ imageModel })}
+            options={[{ label: "GPT", options: OPENAI_IMAGE_MODEL_OPTIONS }, { label: "Gemini", options: Object.entries(MODEL_CAPABILITIES).map(([value, item]) => ({ value, label: item.label })) }]}
           />
           <Text type="secondary" className="field-help">
             {capability.description}
@@ -407,16 +413,22 @@ function SettingsPanel({
             }))}
           />
         </Form.Item>
-        <Form.Item label="输出分辨率">
-          <Segmented
-            block
-            value={settings.imageSize}
-            onChange={(imageSize) =>
-              onChange({ imageSize: imageSize as AppSettings["imageSize"] })
-            }
-            options={capability.imageSizes}
-          />
-        </Form.Item>
+        {isOpenAiImageModel(settings.imageModel) ? (
+          <Form.Item label="输出分辨率">
+            <Text type="secondary">由 GPT Image 自动选择，不能通过 1K / 2K / 4K 设置控制。</Text>
+          </Form.Item>
+        ) : (
+          <Form.Item label="输出分辨率">
+            <Segmented
+              block
+              value={settings.imageSize}
+              onChange={(imageSize) =>
+                onChange({ imageSize: imageSize as AppSettings["imageSize"] })
+              }
+              options={capability.imageSizes}
+            />
+          </Form.Item>
+        )}
         <Form.Item label="任务组合">
           <Radio.Group
             value={settings.combinationMode}
@@ -450,6 +462,7 @@ function SettingsPanel({
             value={settings.optimizerModel}
             onChange={(optimizerModel) => onChange({ optimizerModel })}
             options={[
+              ...OPENAI_LANGUAGE_MODEL_OPTIONS,
               {
                 value: "gemini-3.1-flash-lite",
                 label: "Gemini 3.1 Flash Lite",
@@ -473,10 +486,10 @@ function SettingsPanel({
       <Card className="price-card" variant="borderless">
         <Flex justify="space-between" align="end">
           <Statistic
-            title="预计价格"
-            value={cost}
-            precision={Math.max(cost < 0.01 ? 4 : 3, 3)}
-            prefix="$"
+            title={cost === undefined ? "费用" : "预计价格"}
+            value={cost ?? "按实际用量计费"}
+            precision={cost === undefined ? undefined : Math.max(cost < 0.01 ? 4 : 3, 3)}
+            prefix={cost === undefined ? undefined : "$"}
           />
           <Tag>{taskCount} 个任务</Tag>
         </Flex>
@@ -598,6 +611,7 @@ function taskStatusText(status: GenerationTask["status"]): string {
 function AppContent() {
   const { message, modal } = AntApp.useApp();
   const { language, setLanguage } = useLanguage();
+  const studioSession = useStudioSession();
   const screens = Grid.useBreakpoint();
   const compact = !screens.xl;
   useEffect(() => installFolderDropUploadSupport(), []);
@@ -669,6 +683,10 @@ function AppContent() {
     readCreationTool(window.location.search),
   );
   const [resultsOpen, setResultsOpen] = useState(() => new URLSearchParams(window.location.search).get('page') === 'results');
+  const [demandsOpen, setDemandsOpen] = useState(() => new URLSearchParams(window.location.search).get('page') === 'demands');
+  const [focusedDemandId, setFocusedDemandId] = useState<string | null>(null);
+  const [logoDemandPrefill, setLogoDemandPrefill] = useState<{ id: string; assetId: string; prompt: string } | null>(null);
+  const [customizingDemand, setCustomizingDemand] = useState<Demand | null>(null);
   const [moreToolsOpen, setMoreToolsOpen] = useState(
     () => !PRIMARY_CREATION_TOOLS.has(readCreationTool(window.location.search)),
   );
@@ -806,33 +824,55 @@ function AppContent() {
   const runningIds = useRef(new Set<string>());
 
   const navigateToHome = useCallback(() => {
-    if (showPinnedHome && !resultsOpen) return;
+    if (showPinnedHome && !resultsOpen && !demandsOpen) return;
     const url = new URL(window.location.href);
     url.searchParams.delete("tool");
     url.searchParams.delete('page');
     setShowPinnedHome(true);
     setResultsOpen(false);
+    setDemandsOpen(false);
+    setCustomizingDemand(null);
     window.history.pushState(
       { ...window.history.state, creationTool: undefined },
       "",
       `${url.pathname}${url.search}${url.hash}`,
     );
-  }, [showPinnedHome, resultsOpen]);
+  }, [showPinnedHome, resultsOpen, demandsOpen]);
 
   const navigateToResults = useCallback(() => {
     const url = new URL(window.location.href);
     url.searchParams.delete('tool');
     url.searchParams.set('page', 'results');
     setResultsOpen(true);
+    setDemandsOpen(false);
+    setCustomizingDemand(null);
     setShowPinnedHome(false);
     window.history.pushState({ ...window.history.state, page: 'results' }, '', `${url.pathname}${url.search}${url.hash}`);
   }, []);
 
+  const navigateToDemands = useCallback((id?: string) => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('tool');
+    url.searchParams.set('page', 'demands');
+    setFocusedDemandId(id || null);
+    setCustomizingDemand(null);
+    setDemandsOpen(true);
+    setResultsOpen(false);
+    setShowPinnedHome(false);
+    window.history.pushState({ ...window.history.state, page: 'demands' }, '', `${url.pathname}${url.search}${url.hash}`);
+    if (id) window.setTimeout(() => document.getElementById(`demand-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 250);
+  }, []);
+
+  const canUseTool = useCallback((tool: CreationTool) => studioSession?.session.role !== 'custom' || Boolean(studioSession.session.allowedTools?.includes(tool)), [studioSession]);
+
   const navigateToCreationTool = useCallback(
     (tool: CreationTool) => {
-      if (tool === creationTool && !showPinnedHome && !resultsOpen) return;
+      if (!canUseTool(tool)) { message.error(language === 'en-US' ? 'Tool access denied' : '无权使用该创作工具'); return; }
+      if (tool === creationTool && !showPinnedHome && !resultsOpen && !demandsOpen) return;
       if (!PRIMARY_CREATION_TOOLS.has(tool)) setMoreToolsOpen(true);
       setResultsOpen(false);
+      setDemandsOpen(false);
+      setCustomizingDemand(null);
       setShowPinnedHome(false);
       setCreationTool(tool);
       const nextUrl = new URL(window.location.href);
@@ -843,7 +883,7 @@ function AppContent() {
         setCreationToolInUrl(nextUrl.toString(), tool),
       );
     },
-    [creationTool, showPinnedHome, resultsOpen],
+    [creationTool, showPinnedHome, resultsOpen, demandsOpen, canUseTool, language],
   );
 
   const togglePinnedCreationTool = useCallback((tool: CreationTool) => {
@@ -863,7 +903,7 @@ function AppContent() {
 
   const { primaryCreationToolMenuItems, moreCreationToolMenuItems } = useMemo(
     () => {
-      const items = CREATION_TOOL_ITEMS.map((item) => ({
+      const items = CREATION_TOOL_ITEMS.filter((item) => canUseTool(item.key)).map((item) => ({
         key: item.key,
         icon: item.icon,
         disabled: item.disabled,
@@ -912,7 +952,7 @@ function AppContent() {
         moreCreationToolMenuItems: items.filter((item) => !PRIMARY_CREATION_TOOLS.has(item.key)),
       };
     },
-    [language, pinnedCreationTools, togglePinnedCreationTool],
+    [language, pinnedCreationTools, togglePinnedCreationTool, canUseTool],
   );
 
   useEffect(() => {
@@ -920,7 +960,8 @@ function AppContent() {
       const tool = new URLSearchParams(window.location.search).get("tool");
       const page = new URLSearchParams(window.location.search).get('page');
       setResultsOpen(page === 'results');
-      setShowPinnedHome(page !== 'results' && !isCreationTool(tool));
+      setDemandsOpen(page === 'demands');
+      setShowPinnedHome(page !== 'results' && page !== 'demands' && !isCreationTool(tool));
       setCreationTool(readCreationTool(window.location.search));
     };
     window.addEventListener("popstate", handlePopState);
@@ -1117,9 +1158,9 @@ function AppContent() {
     (patch: Partial<AppSettings>) => {
       setSettings((current) => {
         const next = { ...current, ...patch };
-        if (patch.imageModel) {
+        if (patch.imageModel && !isOpenAiImageModel(patch.imageModel)) {
           const normalized = normalizeSettingsForModel(
-            patch.imageModel,
+            patch.imageModel as ImageModel,
             next.aspectRatio,
             next.imageSize,
           );
@@ -1249,12 +1290,13 @@ function AppContent() {
     });
 
   const runOptimization = async (items: PromptItem[]) => {
-    if (!settings.apiKey) {
+    const openAi = isOpenAiLanguageModel(settings.optimizerModel);
+    if (!(openAi ? settings.openAiApiKey : settings.apiKey)) {
       setKeyOpen(true);
       message.warning("请先配置 API Key");
       return;
     }
-    if (settings.connectionMode === "proxy" && !apiBaseUrl) {
+    if (!openAi && settings.connectionMode === "proxy" && !apiBaseUrl) {
       setKeyOpen(true);
       message.warning("请先配置代理地址");
       return;
@@ -1269,12 +1311,9 @@ function AppContent() {
         optimized: string;
       }> = [];
       for (const item of valid) {
-        const optimized = await optimizePrompt({
-          apiKey: settings.apiKey,
-          model: settings.optimizerModel,
-          prompt: item.content.trim(),
-          apiBaseUrl,
-        });
+        const optimized = openAi
+          ? await optimizeScenePromptOpenAi({ apiKey: settings.openAiApiKey, model: settings.optimizerModel, prompt: item.content.trim() })
+          : await optimizePrompt({ apiKey: settings.apiKey, model: settings.optimizerModel as OptimizerModel, prompt: item.content.trim(), apiBaseUrl });
         results.push({ id: item.id, original: item.content, optimized });
       }
       setOptimizationPreview(results);
@@ -1303,19 +1342,26 @@ function AppContent() {
     );
     try {
       const currentSettings = settingsRef.current;
-      const result = await generateSceneImage({
-        apiKey: currentSettings.apiKey,
-        model: currentSettings.imageModel,
-        prompt: task.prompt,
-        image: product.file,
-        aspectRatio: currentSettings.aspectRatio,
-        imageSize: currentSettings.imageSize,
-        signal: controller.signal,
-        apiBaseUrl:
-          currentSettings.connectionMode === "proxy"
-            ? currentSettings.proxyUrl.trim().replace(/\/+$/, "")
-            : null,
-      });
+      const result = isOpenAiImageModel(currentSettings.imageModel)
+        ? await editPaperTextOpenAi({
+          apiKey: currentSettings.openAiApiKey,
+          model: currentSettings.imageModel,
+          prompt: `基于提供的产品白底图生成商业场景图。保持产品外观、结构、颜色、Logo 和文字准确，不要复制产品。画面比例参考 ${currentSettings.aspectRatio}。场景要求：${task.prompt}`,
+          image: product.file,
+          quality: "high",
+          signal: controller.signal,
+        }).then((blob) => ({ blob, mimeType: blob.type || "image/png" }))
+        : await generateSceneImage({
+          apiKey: currentSettings.apiKey,
+          model: currentSettings.imageModel as ImageModel,
+          prompt: task.prompt,
+          image: product.file,
+          aspectRatio: currentSettings.aspectRatio,
+          imageSize: currentSettings.imageSize,
+          signal: controller.signal,
+          apiBaseUrl: currentSettings.connectionMode === "proxy"
+            ? currentSettings.proxyUrl.trim().replace(/\/+$/, "") : null,
+        });
       const resultUrl = URL.createObjectURL(result.blob);
       setTasks((current) =>
         current.map((item) =>
@@ -1368,12 +1414,13 @@ function AppContent() {
   }, [tasks, settings.concurrency, executeTask]);
 
   const startGeneration = () => {
-    if (!settings.apiKey) {
+    const openAi = isOpenAiImageModel(settings.imageModel);
+    if (!(openAi ? settings.openAiApiKey : settings.apiKey)) {
       setKeyOpen(true);
       message.warning("请先配置 API Key");
       return;
     }
-    if (settings.connectionMode === "proxy" && !apiBaseUrl) {
+    if (!openAi && settings.connectionMode === "proxy" && !apiBaseUrl) {
       setKeyOpen(true);
       message.warning("请先配置代理地址");
       return;
@@ -1490,6 +1537,32 @@ function AppContent() {
     setActivePromptId(targetId);
   };
 
+  const prefillFromDemand = async (demand: Demand, tool: CreationTool) => {
+    const source = demand.content.assets.find((asset) => asset.role === 'source');
+    if (!source) { message.warning(language === 'en-US' ? 'Upload a source image first' : '请先上传待处理原图'); return; }
+    const prompt = demand.analysis?.parameters.prompts[0] || demand.content.description;
+    if (tool === 'custom-monochrome-logo') {
+      setLogoDemandPrefill({ id: demand.id, assetId: source.assetId, prompt });
+      return;
+    }
+    if (tool !== 'scene') return;
+    try {
+      const response = await fetch(`/api/assets/${source.assetId}`, { credentials: 'same-origin' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const file = new File([await response.blob()], source.name || 'demand-source.png', { type: response.headers.get('content-type') || 'image/png' });
+      setProducts((current) => {
+        current.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+        return [{ id: createId(), file, name: file.name, mimeType: file.type, previewUrl: URL.createObjectURL(file) }];
+      });
+      const nextPrompts = demand.content.specifications.map((spec, index) => ({ id: createId(), content: demand.analysis?.parameters.prompts[index] || spec.content || demand.content.description }));
+      setPrompts(nextPrompts);
+      setActivePromptId(nextPrompts[0].id);
+      setTasks([]);
+      patchSettings({ combinationMode: 'cartesian' });
+      message.success(language === 'en-US' ? 'Request content loaded into Scene Generation' : '已将需求内容载入场景图生成');
+    } catch (error) { message.error((error as Error).message); }
+  };
+
   const downloadAll = async () => {
     const failed = tasks.filter((task) => task.status !== "success").length;
     if (!successCount) return void message.warning("暂无可下载的成功结果");
@@ -1557,7 +1630,7 @@ function AppContent() {
             </button>
             <Divider orientation="vertical" className="header-divider" />
             <Tag icon={<AppstoreOutlined />} color="purple">
-              {resultsOpen ? (language === 'en-US' ? 'Generated results' : '生成结果') : showPinnedHome
+              {demandsOpen ? (language === 'en-US' ? 'Image production requests' : '做图需求') : resultsOpen ? (language === 'en-US' ? 'Generated results' : '生成结果') : showPinnedHome
                 ? "常用创作工具"
                 : CREATION_TOOL_ITEMS.find((item) => item.key === creationTool)
                     ?.label || "创作工具"}
@@ -1574,6 +1647,7 @@ function AppContent() {
               ]}
             />
             <GlobalGenerationStats />
+            {studioSession && <DemandTodoButton language={language} onOpen={navigateToDemands} />}
             {creationTool === "scene" && tasks.length > 0 && (
               <Badge
                 status={isProcessing ? "processing" : "success"}
@@ -1646,6 +1720,17 @@ function AppContent() {
             >
               {settings.apiKey || settings.openAiApiKey ? "Key 已配置" : "配置 API Key"}
             </Button>
+            {studioSession && <Dropdown
+              trigger={["hover", "click"]}
+              placement="bottomRight"
+              menu={{ items: [{ key: "logout", icon: <LogoutOutlined />, label: language === "en-US" ? "Sign out" : "退出登录" }], onClick: () => void studioSession.signOut() }}
+            >
+              <button type="button" className="account-trigger" aria-label={`${language === "en-US" ? "Account" : "个人信息"}：${studioSession.session.username}`}>
+                <Avatar size={30}>{Array.from(studioSession.session.username).slice(0, 2).join("").toLocaleUpperCase()}</Avatar>
+                <span className="account-trigger-name">{studioSession.session.username}</span>
+                <DownOutlined className="account-trigger-chevron" />
+              </button>
+            </Dropdown>}
           </Space>
         </Flex>
       </Header>
@@ -1669,7 +1754,7 @@ function AppContent() {
                   const item = CREATION_TOOL_ITEMS.find(
                     (candidate) => candidate.key === tool,
                   );
-                  if (!item) return null;
+                  if (!item || !canUseTool(tool)) return null;
                   return (
                     <div
                       key={tool}
@@ -1709,18 +1794,23 @@ function AppContent() {
           )}
           <Menu
             mode="inline"
-            selectedKeys={resultsOpen ? ['results'] : showPinnedHome ? [] : [creationTool]}
+            selectedKeys={demandsOpen ? ['demands'] : resultsOpen ? ['results'] : showPinnedHome ? [] : [creationTool]}
             openKeys={moreToolsOpen ? ["more-tools"] : []}
             onOpenChange={(keys) => setMoreToolsOpen(keys.includes("more-tools"))}
             onClick={({ key }) => {
               if (key === 'results') navigateToResults();
+              if (key === 'demands') navigateToDemands();
               if (isCreationTool(key)) navigateToCreationTool(key);
             }}
             items={[
               {
+                key: 'operations', type: 'group', label: language === 'en-US' ? 'Operations tools' : '运营工具',
+                children: [{ key: 'demands', icon: <FileImageOutlined />, label: language === 'en-US' ? 'Image production requests' : '做图需求' }],
+              },
+              {
                 key: "create",
                 type: "group",
-                label: "创作工具",
+                label: language === 'en-US' ? 'Creative tools' : '创作工具',
                 children: [
                   ...primaryCreationToolMenuItems,
                   {
@@ -1766,7 +1856,10 @@ function AppContent() {
         <Content className="main-content">
           <div className="content-inner">
             {resultsOpen && <ResultsPage language={language} labels={Object.fromEntries(CREATION_TOOL_ITEMS.map((item) => [item.key, language === 'en-US' ? item.englishLabel || item.label : item.label]))} />}
-            {showPinnedHome && !resultsOpen && (
+            {demandsOpen && studioSession && <OperatingDemandsPage language={language} username={studioSession.session.username} admin={studioSession.session.admin}
+              focusedId={focusedDemandId} toolOptions={CREATION_TOOL_ITEMS.map((item) => ({ key: item.key, label: language === 'en-US' ? item.englishLabel || item.label : item.label }))}
+              onOpenTool={(tool, demand: Demand) => { if (!canUseTool(tool)) return; navigateToCreationTool(tool); setCustomizingDemand(demand); void prefillFromDemand(demand, tool); }} />}
+            {showPinnedHome && !resultsOpen && !demandsOpen && (
               <section className="tool-home">
                 <div className="tool-home-hero">
                   <div>
@@ -1788,7 +1881,7 @@ function AppContent() {
                       const item = CREATION_TOOL_ITEMS.find(
                         (candidate) => candidate.key === tool,
                       );
-                      if (!item) return null;
+                      if (!item || !canUseTool(tool)) return null;
                       return (
                         <button
                           type="button"
@@ -1822,7 +1915,13 @@ function AppContent() {
                 )}
               </section>
             )}
-            <div hidden={showPinnedHome || resultsOpen}>
+            {!canUseTool(creationTool) && !showPinnedHome && !resultsOpen && !demandsOpen && <Alert type="error" showIcon message={language === 'en-US' ? 'Tool access denied' : '无权使用该创作工具'} />}
+            {customizingDemand && !demandsOpen && !resultsOpen && <Card size="small" style={{ marginBottom: 16 }} title={language === 'en-US' ? 'Request context' : '做图需求内容'} extra={<Button size="small" onClick={() => navigateToDemands(customizingDemand.id)}>{language === 'en-US' ? 'Back to request' : '返回需求'}</Button>}>
+              <Typography.Paragraph>{customizingDemand.content.description}</Typography.Paragraph>
+              <Space wrap>{customizingDemand.content.assets.filter((asset) => asset.role === 'reference').map((asset) => <div key={asset.assetId}><Image src={`/api/assets/${asset.assetId}`} width={88} height={88} style={{ objectFit: 'contain' }} /><div>{asset.name}</div></div>)}</Space>
+              {customizingDemand.content.links.map((link) => <div key={link}><a href={link} target="_blank" rel="noreferrer">{link}</a></div>)}
+            </Card>}
+            <div hidden={showPinnedHome || resultsOpen || demandsOpen || !canUseTool(creationTool)}>
               <div hidden={creationTool !== "workflow"}>
                 <WorkflowComposer
                   apiKey={settings.apiKey}
@@ -1836,6 +1935,7 @@ function AppContent() {
               <div hidden={creationTool !== "logo"}>
                 <LogoComposer
                   apiKey={settings.apiKey}
+                  openAiApiKey={settings.openAiApiKey}
                   apiBaseUrl={apiBaseUrl}
                   connectionMode={settings.connectionMode}
                   onRequestKey={() => setKeyOpen(true)}
@@ -1924,7 +2024,7 @@ function AppContent() {
                 <IconVectorSplitComposer />
               </div>
               <div hidden={creationTool !== "custom-monochrome-logo"}>
-                <CustomMonochromeLogoComposer settingsHost={engravingSettingsHost} openAiApiKey={settings.openAiApiKey} onConfigureKey={() => setKeyOpen(true)} />
+                <CustomMonochromeLogoComposer settingsHost={engravingSettingsHost} openAiApiKey={settings.openAiApiKey} onConfigureKey={() => setKeyOpen(true)} demandPrefill={logoDemandPrefill} />
               </div>
               <div hidden={creationTool !== "pet-letter-stickers"}>
                 <PetLetterStickerComposer active={creationTool === "pet-letter-stickers"} settings={settings} settingsHost={petSettingsHost} onConfigure={() => setKeyOpen(true)} />
@@ -1963,6 +2063,7 @@ function AppContent() {
               <div hidden={creationTool !== "object-replace"}>
                 <ObjectReplaceComposer
                   apiKey={settings.apiKey}
+                  openAiApiKey={settings.openAiApiKey}
                   apiBaseUrl={apiBaseUrl}
                   connectionMode={settings.connectionMode}
                   onRequestKey={() => setKeyOpen(true)}
@@ -2005,6 +2106,7 @@ function AppContent() {
               <div hidden={creationTool !== "inpaint"}>
                 <InpaintComposer
                   apiKey={settings.apiKey}
+                  openAiApiKey={settings.openAiApiKey}
                   apiBaseUrl={apiBaseUrl}
                   connectionMode={settings.connectionMode}
                   onRequestKey={() => setKeyOpen(true)}
@@ -2015,6 +2117,7 @@ function AppContent() {
               <div hidden={creationTool !== "product-detail"}>
                 <ProductDetailComposer
                   apiKey={settings.apiKey}
+                  openAiApiKey={settings.openAiApiKey}
                   apiBaseUrl={apiBaseUrl}
                   connectionMode={settings.connectionMode}
                   onRequestKey={() => setKeyOpen(true)}

@@ -1,4 +1,4 @@
-import type { GeneratedImage, ImageModel, ImageSize, SceneLogoStyle } from '../types';
+import type { GeneratedImage, ImageModel, ImageSize, OpenAiImageModel, SceneLogoStyle } from '../types';
 import { fileToBase64 } from '../utils';
 import { isReplaceableLogoCarrier, type CombinedLogoProfile, type CombinedSceneAnalysis, type CombinedVerification } from './combinedReplace';
 import { startRequestConsoleEntry, updateRequestConsoleEntry } from './requestConsole';
@@ -64,7 +64,7 @@ export async function analyzeCombinedLogos(options: Base & { logos: File[]; logo
   return (parsed.logos || []).map((logo: any, index: number) => ({ logoId: options.logoIds[Math.max(0, Number(logo.index || index + 1) - 1)] || options.logoIds[index], summary: logo.summary || '', style: logo.style || '', colors: logo.colors || '', suitableFor: logo.suitableFor || [] }));
 }
 
-export async function generateCombinedReplacement(options: Base & { scene: File; logos: File[]; prompt: string; imageModel: ImageModel | 'gpt-image-2'; imageSize: ImageSize; quality: 'high' | 'medium' | 'low'; aspectRatio: string }): Promise<GeneratedImage> {
+export async function generateCombinedReplacement(options: Base & { scene: File; logos: File[]; prompt: string; imageModel: ImageModel | OpenAiImageModel; imageSize: ImageSize; quality: 'high' | 'medium' | 'low'; aspectRatio: string }): Promise<GeneratedImage> {
   const startedAt = performance.now(); const consoleId = startRequestConsoleEntry({ model: options.imageModel, connection: options.provider === 'openai' ? 'direct' : options.apiBaseUrl ? 'proxy' : 'direct', requestSummary: `Combined scene and logo edit - ${options.logos.length + 1} inputs` });
   try {
     let blob: Blob;

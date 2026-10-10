@@ -7,8 +7,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createStore } from './store.mjs';
 import { createMemoryStore } from './memory-store.mjs';
-import { createSession, decryptTemporaryKey, encryptTemporaryKey, readUsers, verifyPassword, verifySession } from './security.mjs';
+import { createSession, decryptTemporaryKey, encryptTemporaryKey, passwordHash, readUsers, verifyPassword, verifySession } from './security.mjs';
 import { readIntegrationKeys, verifyIntegrationKey } from './integration-auth.mjs';
+import { createDemandWorker, normalizedDemand, publicDemand, DEMAND_TYPES, DEMAND_PLATFORMS } from './demand-workflow.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
@@ -18,6 +19,17 @@ const providerHosts = {
   openai: 'https://api.openai.com',
   gemini: 'https://generativelanguage.googleapis.com',
 };
+const CREATIVE_TOOLS = new Set(['cup-wrap-print','workflow','scene','scene-replace','scene-logo-replace','scene-replace-tabs','auto-scene-classify','auto-logo-classify','cup-resize','logo','logo-replace','logo-replace-tabs','logo-removal','logo-export','icon-vector-split','custom-monochrome-logo','pet-letter-stickers','ai-pet-letter-stickers','paper-text','background-removal','spot-color-tiff','outpaint','object-replace','inpaint','product-detail']);
+const ROLES = new Set(['operator','artist','admin','custom']);
+
+function publicAccount(username, account) {
+  return { username, role: account.role || (account.admin ? 'admin' : 'operator'), admin: Boolean(account.admin),
+    allowedTools: account.role === 'custom' ? account.allowedTools || [] : [...CREATIVE_TOOLS], source: account.source || 'database', disabled: Boolean(account.disabled) };
+}
+
+function permitted(user, tool) {
+  return tool === 'operating-demand' || user?.role !== 'custom' || user.allowedTools?.includes(tool);
+}
 
 function cleanTool(value) {
   return /^[a-z0-9-]{1,64}$/.test(value || '') ? value : 'unknown';
@@ -97,6 +109,16 @@ export async function createStudioServer(env = process.env, dependencies = {}) {
   if (env.NODE_ENV === 'production' && env.ALLOW_MEMORY_STORE === '1') throw new Error('Memory store is forbidden in production');
   const store = dependencies.store || (env.ALLOW_MEMORY_STORE === '1' ? createMemoryStore() : createStore(env));
   await store.init();
+  for (const row of await (store.listAccounts?.() || [])) {
+    if (users.has(row.username)) continue;
+    let allowedTools = [];
+    try { allowedTools = JSON.parse(row.allowed_tools || '[]'); } catch { /* reject malformed saved permissions */ }
+    users.set(row.username, { passwordHash: (await store.getAccount(row.username))?.password_hash,
+      role: row.role, admin: row.role === 'admin', allowedTools, source: 'database', disabled: Boolean(row.disabled) });
+  }
+  for (const [username, account] of users) {
+    if (!account.role) users.set(username, { ...account, role: account.admin ? 'admin' : 'operator', source: 'environment' });
+  }
   const app = express();
   app.disable('x-powered-by');
   app.use((req, res, next) => {
@@ -117,7 +139,7 @@ export async function createStudioServer(env = process.env, dependencies = {}) {
     if (state.count >= 8) return res.status(429).json({ error: 'Too many login attempts; try again later' });
     const username = String(req.body?.username || '');
     const candidate = users.get(username);
-    if (!candidate || !verifyPassword(String(req.body?.password || ''), candidate.passwordHash)) {
+    if (!candidate || candidate.disabled || !verifyPassword(String(req.body?.password || ''), candidate.passwordHash)) {
       state.count++; attempts.set(ip, state);
       return res.status(401).json({ error: 'Invalid username or password' });
     }
@@ -125,7 +147,7 @@ export async function createStudioServer(env = process.env, dependencies = {}) {
     const token = createSession(username, env.SESSION_SECRET);
     const secure = env.NODE_ENV === 'production' ? '; Secure' : '';
     res.set('Set-Cookie', `studio_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=604800${secure}`);
-    return res.json({ username, admin: candidate.admin });
+    return res.json(publicAccount(username, candidate));
   });
   app.post('/api/auth/logout', (_req, res) => {
     res.set('Set-Cookie', `studio_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${env.NODE_ENV === 'production' ? '; Secure' : ''}`);
@@ -133,8 +155,8 @@ export async function createStudioServer(env = process.env, dependencies = {}) {
   });
   app.get('/api/auth/session', (req, res) => {
     const user = verifySession(safeCookie(req, 'studio_session'), env.SESSION_SECRET, users);
-    if (!user) return res.status(401).json({ error: 'Login required' });
-    res.json(user);
+    if (!user || users.get(user.username)?.disabled) return res.status(401).json({ error: 'Login required' });
+    res.json(publicAccount(user.username, users.get(user.username)));
   });
   const integrationRate = new Map();
   app.use('/api', (req, res, next) => {
@@ -152,31 +174,148 @@ export async function createStudioServer(env = process.env, dependencies = {}) {
       return next();
     }
     const user = verifySession(safeCookie(req, 'studio_session'), env.SESSION_SECRET, users);
-    if (!user) return res.status(401).json({ error: 'Login required' });
-    req.studioUser = user;
+    if (!user || users.get(user.username)?.disabled) return res.status(401).json({ error: 'Login required' });
+    req.studioUser = publicAccount(user.username, users.get(user.username));
     next();
   });
+  app.get('/api/accounts', async (req, res) => {
+    if (!req.studioUser.admin) return res.status(403).json({ error: 'Admin required' });
+    res.json([...users.entries()].map(([username, account]) => publicAccount(username, account)));
+  });
+  app.post('/api/accounts', express.json({ limit: '32kb' }), async (req, res, next) => { try {
+    if (!req.studioUser.admin) return res.status(403).json({ error: 'Admin required' });
+    const { username, password, role } = req.body || {};
+    const allowedTools = Array.isArray(req.body?.allowedTools) ? req.body.allowedTools.filter((tool) => CREATIVE_TOOLS.has(tool)) : [];
+    if (!/^[a-zA-Z0-9_.-]{2,64}$/.test(username || '') || !ROLES.has(role) || users.has(username) || typeof password !== 'string' || password.length < 12) return res.status(400).json({ error: 'Invalid or duplicate account; password needs at least 12 characters' });
+    const hash = passwordHash(password);
+    await store.createAccount({ username, passwordHash: hash, role, allowedTools });
+    users.set(username, { passwordHash: hash, role, admin: role === 'admin', allowedTools, source: 'database' });
+    res.status(201).json(publicAccount(username, users.get(username)));
+  } catch (error) { next(error); } });
+  app.put('/api/accounts/:username', express.json({ limit: '32kb' }), async (req, res, next) => { try {
+    if (!req.studioUser.admin) return res.status(403).json({ error: 'Admin required' });
+    const username = req.params.username;
+    const current = users.get(username);
+    if (!current || current.source !== 'database' || !ROLES.has(req.body?.role)) return res.status(400).json({ error: 'Account cannot be edited' });
+    if (username === req.studioUser.username && req.body?.disabled) return res.status(400).json({ error: 'Cannot disable own account' });
+    const allowedTools = Array.isArray(req.body?.allowedTools) ? req.body.allowedTools.filter((tool) => CREATIVE_TOOLS.has(tool)) : [];
+    if (req.body.password && (typeof req.body.password !== 'string' || req.body.password.length < 12)) return res.status(400).json({ error: 'Password needs at least 12 characters' });
+    const hash = req.body.password ? passwordHash(req.body.password) : null;
+    await store.updateAccount(username, { role: req.body.role, allowedTools, disabled: Boolean(req.body.disabled), passwordHash: hash });
+    users.set(username, { passwordHash: hash || current.passwordHash, role: req.body.role, admin: req.body.role === 'admin', allowedTools, source: 'database', disabled: Boolean(req.body.disabled) });
+    res.json({ ok: true });
+  } catch (error) { next(error); } });
+  app.get('/api/accounts/assignable', (req, res) => {
+    res.json([...users.entries()].filter(([, account]) => account.role === 'artist' && !account.disabled).map(([username]) => ({ username })));
+  });
+  let kickDemand = () => {};
+  const demandResponse = async (row) => publicDemand(row, await store.listDemandOperations(row.id));
+  app.get('/api/demand-presets', async (_req, res, next) => { try {
+    res.json((await store.listDemandPresets()).map((row) => JSON.parse(row.content_json)));
+  } catch (error) { next(error); } });
+  app.put('/api/demand-presets/:id', express.json({ limit: '256kb' }), async (req, res, next) => { try {
+    const value = req.body || {};
+    if (!/^[a-f0-9-]{36}$/.test(req.params.id) || (value.platform && !DEMAND_PLATFORMS.includes(value.platform)) || (value.type && !DEMAND_TYPES.includes(value.type))) return res.status(400).json({ error: 'Invalid preset' });
+    if (!String(value.name || '').trim() || !Array.isArray(value.requirements) || value.requirements.length > 20) return res.status(400).json({ error: 'Preset name and image requirements are required' });
+    const preset = { ...value, id: req.params.id, name: String(value.name).slice(0, 120) };
+    await store.saveDemandPreset(preset);
+    res.json(preset);
+  } catch (error) { next(error); } });
+  app.delete('/api/demand-presets/:id', async (req, res, next) => { try {
+    res.json({ deleted: await store.deleteDemandPreset(req.params.id) });
+  } catch (error) { next(error); } });
+  app.get('/api/demands', async (_req, res, next) => { try {
+    res.json(await Promise.all((await store.listDemands()).map(demandResponse)));
+  } catch (error) { next(error); } });
+  app.get('/api/demands/todos', async (req, res, next) => { try {
+    const rows = await store.listDemandTodos(req.studioUser.username);
+    res.json(await Promise.all(rows.map(demandResponse)));
+  } catch (error) { next(error); } });
+  app.get('/api/demands/:id', async (req, res, next) => { try {
+    const row = await store.getDemand(req.params.id);
+    if (!row) return res.status(404).json({ error: 'Demand not found' });
+    res.json(await demandResponse(row));
+  } catch (error) { next(error); } });
+  app.post('/api/demands', express.json({ limit: '256kb' }), async (req, res, next) => { try {
+    if (req.body?.id && !/^[a-f0-9-]{36}$/.test(req.body.id)) return res.status(400).json({ error: 'Invalid demand ID' });
+    const content = normalizedDemand(req.body?.content);
+    for (const item of content.assets) {
+      const asset = await store.getAsset(item.assetId);
+      if (!asset || asset.tool !== 'operating-demand' || asset.expired || !asset.mime.startsWith('image/')) return res.status(400).json({ error: 'Invalid demand image' });
+    }
+    const assignee = req.body?.assignee || null;
+    if (assignee && (users.get(assignee)?.role !== 'artist' || users.get(assignee)?.disabled)) return res.status(400).json({ error: 'Assignee must be an active artist account' });
+    const row = await store.saveDemand({ id: req.body?.id, expectedRevision: req.body?.revision,
+      creator: req.studioUser.username, assignee, content });
+    if (!row) return res.status(409).json({ error: 'Demand changed; reload before saving' });
+    await store.createDemandOperation({ demandId: row.id, revision: row.revision, kind: 'analyze' });
+    kickDemand();
+    res.status(req.body?.id ? 200 : 201).json(await demandResponse(row));
+  } catch (error) { res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid demand' }); } });
+  app.put('/api/demands/:id/analysis', express.json({ limit: '64kb' }), async (req, res, next) => { try {
+    const row = await store.getDemand(req.params.id);
+    if (!row) return res.status(404).json({ error: 'Demand not found' });
+    if (row.revision !== req.body?.revision || !row.analysis_json) return res.status(409).json({ error: 'Analysis is stale or unavailable' });
+    const analysis = JSON.parse(row.analysis_json);
+    const model = req.body?.parameters?.model;
+    const prompts = req.body?.parameters?.prompts;
+    if (!['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'].includes(model) || !Array.isArray(prompts) || prompts.length !== JSON.parse(row.content_json).specifications.length) return res.status(400).json({ error: 'Invalid suggested parameters' });
+    analysis.parameters = { model, prompts: prompts.map((value) => String(value).slice(0, 4000)) };
+    await store.updateDemandAnalysis(row.id, row.revision, analysis);
+    res.json(await demandResponse(await store.getDemand(row.id)));
+  } catch (error) { next(error); } });
+  app.post('/api/demands/:id/execute', async (req, res, next) => { try {
+    const row = await store.getDemand(req.params.id);
+    if (!row) return res.status(404).json({ error: 'Demand not found' });
+    const analysis = row.analysis_json ? JSON.parse(row.analysis_json) : null;
+    if (!analysis?.executable || !permitted(req.studioUser, analysis.tool)) return res.status(403).json({ error: 'Automatic execution is not available for this demand' });
+    const operation = await store.createDemandOperation({ demandId: row.id, revision: row.revision, kind: 'execute', payload: { analysis } });
+    kickDemand();
+    res.status(202).json({ id: operation.id, status: operation.status });
+  } catch (error) { next(error); } });
+  app.post('/api/demands/:id/retry/:operationId', async (req, res, next) => { try {
+    const op = await store.getDemandOperation(req.params.operationId);
+    const row = await store.getDemand(req.params.id);
+    if (!row || !op || op.demand_id !== row.id || op.revision !== row.revision) return res.status(404).json({ error: 'Operation not found' });
+    if (op.kind === 'execute') {
+      const payload = JSON.parse(op.payload_json || '{}');
+      if (!permitted(req.studioUser, payload.analysis?.tool)) return res.status(403).json({ error: 'Tool access denied' });
+    }
+    if (!await store.retryDemandOperation(op.id)) return res.status(409).json({ error: 'Only failed or interrupted operations can be retried' });
+    kickDemand(); res.json({ ok: true });
+  } catch (error) { next(error); } });
+  app.post('/api/demands/:id/complete', async (req, res, next) => { try {
+    const row = await store.getDemand(req.params.id);
+    if (!row) return res.status(404).json({ error: 'Demand not found' });
+    if (row.assignee !== req.studioUser.username && !req.studioUser.admin) return res.status(403).json({ error: 'Assignee or admin required' });
+    await store.completeDemand(row.id);
+    res.json(await demandResponse(await store.getDemand(row.id)));
+  } catch (error) { next(error); } });
   app.get('/api/config', (_req, res) => res.json({ openai: Boolean(env.OPENAI_API_KEY), gemini: Boolean(env.GEMINI_API_KEY) }));
   app.get('/api/results', async (req, res, next) => { try {
     const tool = typeof req.query.tool === 'string' && req.query.tool !== 'all' ? cleanTool(req.query.tool) : undefined;
     const status = req.query.status === 'available' || req.query.status === 'expired' ? req.query.status : undefined;
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 40));
     const offset = Math.max(0, Number(req.query.offset) || 0);
-    res.json((await store.listResults({ tool, status, limit, offset })).map(publicResult));
+    if (tool && !permitted(req.studioUser, tool)) return res.status(403).json({ error: 'Tool access denied' });
+    res.json((await store.listResults({ tool, status, limit, offset })).filter((row) => permitted(req.studioUser, row.tool)).map(publicResult));
   } catch (error) { next(error); } });
   app.get('/api/results/operation/:operationId', async (req, res, next) => { try {
     const result = await store.getResultByOperation(req.params.operationId);
     if (!result) return res.status(404).json({ error: 'Result not found' });
+    if (!permitted(req.studioUser, result.tool)) return res.status(403).json({ error: 'Tool access denied' });
     res.json(publicResult(result));
   } catch (error) { next(error); } });
   app.get('/api/results/:id', async (req, res, next) => { try {
     const result = await store.getResult(req.params.id);
     if (!result) return res.status(404).json({ error: 'Result not found' });
+    if (!permitted(req.studioUser, result.tool)) return res.status(403).json({ error: 'Tool access denied' });
     res.json(publicResult(result));
   } catch (error) { next(error); } });
   app.post('/api/results', express.json({ limit: '1mb' }), async (req, res, next) => { try {
     const operationId = String(req.body?.operationId || '');
     const tool = String(req.body?.tool || '');
+    if (!permitted(req.studioUser, tool)) return res.status(403).json({ error: 'Tool access denied' });
     const assetId = String(req.body?.assetId || '');
     if (!/^[a-zA-Z0-9:_-]{1,160}$/.test(operationId) || cleanTool(tool) !== tool || !/^[a-f0-9-]{36}$/.test(assetId)) return res.status(400).json({ error: 'Invalid result identifiers' });
     const previous = await store.getResultByOperation(operationId);
@@ -196,27 +335,32 @@ export async function createStudioServer(env = process.env, dependencies = {}) {
   } catch (error) { next(error); } });
   app.get('/api/jobs', async (_req, res, next) => { try {
     const jobs = await store.listJobs();
-    res.json(await Promise.all(jobs.map(async (job) => publicJob(job, await store.assetsForJob(job.id)))));
+    res.json(await Promise.all(jobs.filter((job) => permitted(_req.studioUser, job.tool)).map(async (job) => publicJob(job, await store.assetsForJob(job.id)))));
   } catch (error) { next(error); } });
   app.get('/api/jobs/:id', async (req, res, next) => { try {
     const job = await store.getJob(req.params.id);
     if (!job) return res.status(404).json({ error: 'Job not found' });
+    if (!permitted(req.studioUser, job.tool)) return res.status(403).json({ error: 'Tool access denied' });
     res.json(publicJob(job, await store.assetsForJob(job.id)));
   } catch (error) { next(error); } });
   app.get('/api/jobs/:id/response', async (req, res, next) => { try {
     const job = await store.getJob(req.params.id);
     if (!job) return res.status(404).json({ error: 'Job not found' });
+    if (!permitted(req.studioUser, job.tool)) return res.status(403).json({ error: 'Tool access denied' });
     if (job.status === 'queued' || job.status === 'running') return res.status(202).json({ jobId: job.id, status: job.status });
     if (!job.response_body_path) return res.status(502).json({ jobId: job.id, error: job.error_message || 'AI request failed' });
     res.status(job.response_status).type(job.response_content_type).send(await readFile(job.response_body_path));
   } catch (error) { next(error); } });
   app.post('/api/jobs/:id/cancel', async (req, res, next) => { try {
+    const job = await store.getJob(req.params.id);
+    if (!job || !permitted(req.studioUser, job.tool)) return res.status(403).json({ error: 'Tool access denied' });
     if (!await store.cancelQueuedJob(req.params.id)) return res.status(409).json({ error: 'Only queued jobs can be cancelled' });
     res.json({ ok: true });
   } catch (error) { next(error); } });
   app.get('/api/assets/:id', async (req, res, next) => { try {
     const asset = await store.getAsset(req.params.id);
     if (!asset) return res.status(404).json({ error: 'Asset not found' });
+    if (!permitted(req.studioUser, asset.tool)) return res.status(403).json({ error: 'Tool access denied' });
     if (asset.expired || !asset.file_path) return res.status(410).json({ error: 'Asset expired' });
     const filePath = path.resolve(asset.file_path);
     if (!filePath.startsWith(canonicalDataDir + path.sep)) return res.status(500).json({ error: 'Invalid asset path' });
@@ -225,15 +369,20 @@ export async function createStudioServer(env = process.env, dependencies = {}) {
     createReadStream(filePath).on('error', next).pipe(res);
   } catch (error) { next(error); } });
   app.get('/api/documents/:key', async (req, res, next) => { try {
+    const tool = req.params.key.split(':')[0];
+    if (CREATIVE_TOOLS.has(tool) && !permitted(req.studioUser, tool)) return res.status(403).json({ error: 'Tool access denied' });
     const doc = await store.getDocument(req.params.key);
     res.json(doc ? JSON.parse(doc.content_json) : null);
   } catch (error) { next(error); } });
   app.put('/api/documents/:key', express.json({ limit: '8mb', strict: false }), async (req, res, next) => { try {
+    const tool = req.params.key.split(':')[0];
+    if (CREATIVE_TOOLS.has(tool) && !permitted(req.studioUser, tool)) return res.status(403).json({ error: 'Tool access denied' });
     if (!/^[a-z0-9:_-]{1,160}$/.test(req.params.key)) return res.status(400).json({ error: 'Invalid document key' });
     await store.putDocument(req.params.key, req.body);
     res.json({ ok: true });
   } catch (error) { next(error); } });
   app.post('/api/assets', express.raw({ type: '*/*', limit: MAX_REQUEST_BYTES }), async (req, res, next) => { try {
+    if (!permitted(req.studioUser, cleanTool(req.get('x-tool')))) return res.status(403).json({ error: 'Tool access denied' });
     if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ error: 'Empty file' });
     const mime = String(req.get('content-type') || 'application/octet-stream').split(';')[0];
     if (!/^(image\/|application\/(pdf|octet-stream|zip))/.test(mime)) return res.status(415).json({ error: 'Unsupported asset type' });
@@ -299,7 +448,28 @@ export async function createStudioServer(env = process.env, dependencies = {}) {
     return null;
   }
 
+  const demandWorker = createDemandWorker({ store, dataDir: canonicalDataDir, invokeAi: async ({ path: aiPath, contentType, bytes, model, tool, username }) => {
+    if (!env.OPENAI_API_KEY) throw new Error('Server OPENAI_API_KEY is required for background demand tasks');
+    const bodyPath = path.join(canonicalDataDir, `${randomUUID()}.request`);
+    await writeFile(bodyPath, bytes, { flag: 'wx', mode: 0o600 });
+    const jobId = await store.createJob({ source: 'operating-demand', tool, provider: 'openai', model, username,
+      path: aiPath, bodyPath, contentType, encryptedKey: null });
+    void drain().catch((error) => console.error('AI queue failed:', error.message));
+    const timeout = Date.now() + 11 * 60_000;
+    while (Date.now() < timeout) {
+      const job = await store.getJob(jobId);
+      if (job && !['queued', 'running'].includes(job.status)) {
+        if (job.status !== 'success' || !job.response_body_path) throw new Error(job.error_message || `AI request failed: HTTP ${job.response_status || 502}`);
+        return { response: await readFile(job.response_body_path), jobId };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+    throw new Error('AI request did not complete in time; check the server job before retrying');
+  } });
+  kickDemand = () => { if (store.claimDemandOperation) void demandWorker.drain().catch((error) => console.error('Demand queue failed:', error.message)); };
+
   app.post(/^\/api\/ai\/(openai|gemini)\/(.+)$/, express.raw({ type: '*/*', limit: MAX_REQUEST_BYTES }), async (req, res, next) => { try {
+    if (!permitted(req.studioUser, cleanTool(req.get('x-tool')))) return res.status(403).json({ error: 'Tool access denied' });
     const provider = req.params[0];
     const apiPath = allowedAiPath(provider, `/${req.params[1]}${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`);
     if (!apiPath) return res.status(404).json({ error: 'Unsupported AI endpoint' });
@@ -379,8 +549,11 @@ export async function createStudioServer(env = process.env, dependencies = {}) {
   cleanupTimer.unref();
   const queueTimer = setInterval(() => { void drain().catch((error) => console.error('AI queue failed:', error.message)); }, 3000);
   queueTimer.unref();
+  const demandTimer = setInterval(kickDemand, 3000);
+  demandTimer.unref();
   void cleanup().catch((error) => console.error('Startup cleanup failed:', error.message));
   void drain().catch((error) => console.error('Startup queue failed:', error.message));
+  kickDemand();
   const dist = path.join(root, 'dist');
   app.use(express.static(dist, { index: false }));
   app.get(/^(?!\/api\/).*/, (_req, res) => res.sendFile(path.join(dist, 'index.html')));
@@ -389,7 +562,7 @@ export async function createStudioServer(env = process.env, dependencies = {}) {
     if (!res.headersSent) res.status(error.status || 500).json({ error: error.status === 413 ? 'Upload too large' : 'Server request failed' });
   });
   const server = createServer(app);
-  return { app, store, server, cleanup, close: async () => { clearInterval(cleanupTimer); clearInterval(queueTimer); await new Promise((resolve) => server.listening ? server.close(resolve) : resolve()); await store.close(); } };
+  return { app, store, server, cleanup, close: async () => { clearInterval(cleanupTimer); clearInterval(queueTimer); clearInterval(demandTimer); await new Promise((resolve) => server.listening ? server.close(resolve) : resolve()); await store.close(); } };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

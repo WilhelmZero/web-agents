@@ -127,7 +127,9 @@ const MODEL_OPTIONS = [
   {
     label: "GPT",
     options: [
-      { value: "gpt-image-2", label: "GPT Image 2（推荐）" },
+      { value: "gpt-image-2.5-flare", label: "GPT Image 2.5 Flare（默认）" },
+      { value: "gpt-image-2.5-sunburst", label: "GPT Image 2.5 Sunburst" },
+      { value: "gpt-image-2", label: "GPT Image 2" },
       { value: "gpt-image-2-2026-04-21", label: "GPT Image 2（2026-04-21）" },
     ],
   },
@@ -145,6 +147,7 @@ const ANALYSIS_GEMINI_MODELS = [
   { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
 ];
 const ANALYSIS_OPENAI_MODELS = [
+  { value: "gpt-6-luna", label: "GPT-6 Luna（默认）" },
   { value: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
   { value: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
   { value: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
@@ -2073,21 +2076,21 @@ export default function AutoSceneClassificationComposer({
             <Flex gap={24} wrap style={{ marginTop: 14 }}>
               <Statistic
                 title="预计最低金额"
-                prefix="$"
-                precision={3}
-                value={cost.estimatedMinimum}
+                prefix={generationSettings.imageModel.startsWith('gpt-image-2.5-') ? undefined : '$'}
+                precision={generationSettings.imageModel.startsWith('gpt-image-2.5-') ? undefined : 3}
+                value={generationSettings.imageModel.startsWith('gpt-image-2.5-') ? '按量计费' : cost.estimatedMinimum}
               />
               <Statistic
                 title="预计最差金额"
-                prefix="$"
-                precision={3}
-                value={cost.estimatedWorst}
+                prefix={generationSettings.imageModel.startsWith('gpt-image-2.5-') ? undefined : '$'}
+                precision={generationSettings.imageModel.startsWith('gpt-image-2.5-') ? undefined : 3}
+                value={generationSettings.imageModel.startsWith('gpt-image-2.5-') ? '按量计费' : cost.estimatedWorst}
               />
               <Statistic
                 title="实际消费金额（实时预估）"
-                prefix="$"
-                precision={3}
-                value={cost.actual}
+                prefix={generationSettings.imageModel.startsWith('gpt-image-2.5-') ? undefined : '$'}
+                precision={generationSettings.imageModel.startsWith('gpt-image-2.5-') ? undefined : 3}
+                value={generationSettings.imageModel.startsWith('gpt-image-2.5-') ? '以服务端统计为准' : cost.actual}
               />
               <Statistic
                 title="开始时间"

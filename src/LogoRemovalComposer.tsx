@@ -30,23 +30,21 @@ import {
 import type { ImageModel, ImageSize, LogoRemovalAnalysis, LogoRemovalSettings, LogoRemovalTask, LogoRemovalVerification, OptimizerModel } from './types';
 import { downloadBlob, sanitizeFileName } from './utils';
 import { useLanguage } from './i18n';
+import { OPENAI_IMAGE_MODEL_OPTIONS, OPENAI_LANGUAGE_MODEL_OPTIONS } from './services/openAiModels';
 
 const { Title, Text, Paragraph } = Typography;
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 const SETTINGS_KEY = 'scene-studio.logo-removal.settings.v1';
-const GPT_IMAGE_MODELS: LogoRemovalSettings['openAiImageModel'][] = ['gpt-image-2', 'gpt-image-2-2026-04-21'];
-const GPT_IMAGE_MODEL_OPTIONS = [
-  { value: 'gpt-image-2', label: 'GPT Image 2（推荐）' },
-  { value: 'gpt-image-2-2026-04-21', label: 'GPT Image 2（2026-04-21）' },
-];
+const GPT_IMAGE_MODELS = OPENAI_IMAGE_MODEL_OPTIONS.map((option) => option.value);
+const GPT_IMAGE_MODEL_OPTIONS = OPENAI_IMAGE_MODEL_OPTIONS;
 
 interface FolderGroup { id: string; name: string; path: string; files: File[] }
 interface StoredDraft { groups: FolderGroup[]; tasks: LogoRemovalTask[]; settings: LogoRemovalSettings; startedAt?: number; endedAt?: number }
 
 const DEFAULT_SETTINGS: LogoRemovalSettings = {
-  scopes: ['cup-body'], customScope: '', analysisProvider: 'gemini', analysisModel: 'gemini-3.1-flash-lite', openAiAnalysisModel: 'gpt-5.6-luna',
-  imageProvider: 'gemini', imageModel: 'gemini-3.1-flash-image', openAiImageModel: 'gpt-image-2', imageSize: '1K',
-  verificationEnabled: true, verificationProvider: 'gemini', verificationModel: 'gemini-3.1-flash-lite', openAiVerificationModel: 'gpt-5.6-luna',
+  scopes: ['cup-body'], customScope: '', analysisProvider: 'openai', analysisModel: 'gemini-3.1-flash-lite', openAiAnalysisModel: 'gpt-6-luna',
+  imageProvider: 'openai', imageModel: 'gemini-3.1-flash-image', openAiImageModel: 'gpt-image-2.5-flare', imageSize: '1K',
+  verificationEnabled: true, verificationProvider: 'openai', verificationModel: 'gemini-3.1-flash-lite', openAiVerificationModel: 'gpt-6-luna',
   prompt: DEFAULT_LOGO_REMOVAL_PROMPT, concurrency: 2, copiesPerImage: 1, verificationRetries: 2,
   autoRetryErrors: true, errorRetryLimit: 2, errorRetryDelaySeconds: 30,
 };
@@ -403,7 +401,7 @@ export default function LogoRemovalComposer(props: { apiKey: string; openAiApiKe
         ]} />
         {settings.scopes.includes('other') ? <Input.TextArea rows={2} maxLength={200} showCount value={settings.customScope} onChange={(event) => setSettings((value) => ({ ...value, customScope: event.target.value }))} placeholder="填写需要去除 Logo 的载体或区域，例如：皮革收纳盒正面" style={{ marginTop: 10 }} /> : null}
       </Form.Item>
-      <Form.Item label="分析模型"><Space.Compact block><Select style={{ width: 100 }} value={settings.analysisProvider} onChange={(analysisProvider) => setSettings((value) => ({ ...value, analysisProvider }))} options={[{ value: 'gemini', label: 'Gemini' }, { value: 'openai', label: 'GPT' }]} /><Select style={{ width: '100%' }} value={settings.analysisProvider === 'openai' ? settings.openAiAnalysisModel : settings.analysisModel} onChange={(model: string) => setSettings((value) => settings.analysisProvider === 'openai' ? { ...value, openAiAnalysisModel: model as LogoRemovalSettings['openAiAnalysisModel'] } : { ...value, analysisModel: model as OptimizerModel })} options={(settings.analysisProvider === 'openai' ? ['gpt-5.6-luna', 'gpt-5.6-terra', 'gpt-5.6-sol'] : ['gemini-3.1-flash-lite', 'gemini-3.1-flash', 'gemini-2.5-flash']).map((value) => ({ value, label: value }))} /></Space.Compact></Form.Item>
+      <Form.Item label="分析模型"><Space.Compact block><Select style={{ width: 100 }} value={settings.analysisProvider} onChange={(analysisProvider) => setSettings((value) => ({ ...value, analysisProvider }))} options={[{ value: 'gemini', label: 'Gemini' }, { value: 'openai', label: 'GPT' }]} /><Select style={{ width: '100%' }} value={settings.analysisProvider === 'openai' ? settings.openAiAnalysisModel : settings.analysisModel} onChange={(model: string) => setSettings((value) => settings.analysisProvider === 'openai' ? { ...value, openAiAnalysisModel: model as LogoRemovalSettings['openAiAnalysisModel'] } : { ...value, analysisModel: model as OptimizerModel })} options={(settings.analysisProvider === 'openai' ? OPENAI_LANGUAGE_MODEL_OPTIONS.map((option) => option.value) : ['gemini-3.1-flash-lite', 'gemini-3.1-flash', 'gemini-2.5-flash']).map((value) => ({ value, label: value }))} /></Space.Compact></Form.Item>
       <Form.Item label="图片服务"><Segmented block value={settings.imageProvider} onChange={(imageProvider) => setSettings((value) => ({ ...value, imageProvider: imageProvider as LogoRemovalSettings['imageProvider'] }))} options={[{ value: 'gemini', label: 'Gemini' }, { value: 'openai', label: 'GPT' }]} /></Form.Item>
       <Form.Item label={settings.imageProvider === 'openai' ? 'GPT 图片模型' : '图片模型（Banana）'}>{settings.imageProvider === 'openai'
         ? <Select value={settings.openAiImageModel} onChange={(openAiImageModel) => setSettings((value) => ({ ...value, openAiImageModel }))} options={GPT_IMAGE_MODEL_OPTIONS} />
@@ -415,7 +413,7 @@ export default function LogoRemovalComposer(props: { apiKey: string; openAiApiKe
       <Form.Item label="全局并发"><InputNumber min={1} max={8} value={settings.concurrency} onChange={(concurrency) => setSettings((value) => ({ ...value, concurrency: concurrency || 1 }))} style={{ width: '100%' }} /></Form.Item>
       <Form.Item label="完整提示词"><Input.TextArea rows={9} value={settings.prompt} onChange={(event) => setSettings((value) => ({ ...value, prompt: event.target.value }))} /></Form.Item>
       <Form.Item label="生成后自动校验"><Switch checked={settings.verificationEnabled} onChange={(verificationEnabled) => setSettings((value) => ({ ...value, verificationEnabled }))} /></Form.Item>
-      {settings.verificationEnabled && <><Form.Item label="校验模型"><Space.Compact block><Select style={{ width: 100 }} value={settings.verificationProvider} onChange={(verificationProvider) => setSettings((value) => ({ ...value, verificationProvider }))} options={[{ value: 'gemini', label: 'Gemini' }, { value: 'openai', label: 'GPT' }]} /><Select style={{ width: '100%' }} value={settings.verificationProvider === 'openai' ? settings.openAiVerificationModel : settings.verificationModel} onChange={(model: string) => setSettings((value) => settings.verificationProvider === 'openai' ? { ...value, openAiVerificationModel: model as LogoRemovalSettings['openAiVerificationModel'] } : { ...value, verificationModel: model as OptimizerModel })} options={(settings.verificationProvider === 'openai' ? ['gpt-5.6-luna', 'gpt-5.6-terra', 'gpt-5.6-sol'] : ['gemini-3.1-flash-lite', 'gemini-3.1-flash', 'gemini-2.5-flash']).map((value) => ({ value, label: value }))} /></Space.Compact></Form.Item><Form.Item label="校验修复次数"><InputNumber min={0} max={5} value={settings.verificationRetries} onChange={(verificationRetries) => setSettings((value) => ({ ...value, verificationRetries: verificationRetries || 0 }))} style={{ width: '100%' }} /></Form.Item></>}
+      {settings.verificationEnabled && <><Form.Item label="校验模型"><Space.Compact block><Select style={{ width: 100 }} value={settings.verificationProvider} onChange={(verificationProvider) => setSettings((value) => ({ ...value, verificationProvider }))} options={[{ value: 'gemini', label: 'Gemini' }, { value: 'openai', label: 'GPT' }]} /><Select style={{ width: '100%' }} value={settings.verificationProvider === 'openai' ? settings.openAiVerificationModel : settings.verificationModel} onChange={(model: string) => setSettings((value) => settings.verificationProvider === 'openai' ? { ...value, openAiVerificationModel: model as LogoRemovalSettings['openAiVerificationModel'] } : { ...value, verificationModel: model as OptimizerModel })} options={(settings.verificationProvider === 'openai' ? OPENAI_LANGUAGE_MODEL_OPTIONS.map((option) => option.value) : ['gemini-3.1-flash-lite', 'gemini-3.1-flash', 'gemini-2.5-flash']).map((value) => ({ value, label: value }))} /></Space.Compact></Form.Item><Form.Item label="校验修复次数"><InputNumber min={0} max={5} value={settings.verificationRetries} onChange={(verificationRetries) => setSettings((value) => ({ ...value, verificationRetries: verificationRetries || 0 }))} style={{ width: '100%' }} /></Form.Item></>}
       <Form.Item label="接口失败自动重试"><Switch checked={settings.autoRetryErrors} onChange={(autoRetryErrors) => setSettings((value) => ({ ...value, autoRetryErrors }))} /></Form.Item>
       {settings.autoRetryErrors && <Row gutter={8}><Col span={12}><Form.Item label="次数"><InputNumber min={0} max={10} value={settings.errorRetryLimit} onChange={(errorRetryLimit) => setSettings((value) => ({ ...value, errorRetryLimit: errorRetryLimit || 0 }))} style={{ width: '100%' }} /></Form.Item></Col><Col span={12}><Form.Item label="间隔（秒）"><InputNumber min={1} max={3600} value={settings.errorRetryDelaySeconds} onChange={(errorRetryDelaySeconds) => setSettings((value) => ({ ...value, errorRetryDelaySeconds: errorRetryDelaySeconds || 30 }))} style={{ width: '100%' }} /></Form.Item></Col></Row>}
     </Form></div>;

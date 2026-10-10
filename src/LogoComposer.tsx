@@ -55,7 +55,10 @@ import {
   PRICING,
   STORAGE_KEYS,
 } from './constants';
-import { generateLogoComposite, optimizePrompt } from './services/gemini';
+import { buildGlassLogoEtchInstruction, generateLogoComposite, optimizePrompt } from './services/gemini';
+import { generateExactLogoReplacementOpenAi } from './services/logoReplaceOpenAi';
+import { optimizeScenePromptOpenAi } from './services/promptOptimizer';
+import { OPENAI_IMAGE_MODEL_OPTIONS, OPENAI_LANGUAGE_MODEL_OPTIONS } from './services/openAiModels';
 import {
   buildLogoPairs,
   buildLogoTasks,
@@ -70,6 +73,7 @@ import {
 } from './services/logoUtils';
 import { readLocalStorage } from './storage';
 import type {
+  ImageModel,
   LogoAsset,
   LogoGenerationTask,
   LogoInpaintMask,
@@ -77,6 +81,8 @@ import type {
   LogoPlacement,
   LogoPromptPreset,
   LogoSettings,
+  OpenAiImageModel,
+  OptimizerModel,
 } from './types';
 import {
   createId,
@@ -406,6 +412,7 @@ function AssetColumn({
 
 export default function LogoComposer({
   apiKey,
+  openAiApiKey,
   apiBaseUrl,
   connectionMode,
   onRequestKey,
@@ -413,6 +420,7 @@ export default function LogoComposer({
   settingsHost,
 }: {
   apiKey: string;
+  openAiApiKey: string;
   apiBaseUrl: string | null;
   connectionMode: 'direct' | 'proxy';
   onRequestKey: () => void;
@@ -457,7 +465,10 @@ export default function LogoComposer({
   const successCount = tasks.filter((task) => task.status === 'success').length;
   const isProcessing = tasks.some((task) => ['waiting', 'running'].includes(task.status));
   useEffect(() => { reportTaskProgress({ id: 'logo-compose', label: 'Logo 合成', completed: completedCount, total: tasks.length, failed: tasks.filter((task) => task.status === 'failed').length, running: isProcessing }); }, [completedCount, tasks, isProcessing]);
-  const capability = MODEL_CAPABILITIES[settings.imageModel];
+  const openAiImage = settings.imageModel.startsWith('gpt-image-');
+  const capability = openAiImage
+    ? { aspectRatios: ['1:1', '3:2', '2:3', '16:9', '9:16'], imageSizes: ['1K', '2K', '4K'] as LogoSettings['imageSize'][] }
+    : MODEL_CAPABILITIES[settings.imageModel as ImageModel];
   const allPresets: LogoPromptPreset[] = [
     ...(localizeBuiltInLogoPresets(language) as readonly LogoPromptPreset[]),
     ...customPresets,
@@ -539,8 +550,8 @@ export default function LogoComposer({
   const patchSettings = (patch: Partial<LogoSettings>) => {
     setSettings((current) => {
       const next = { ...current, ...patch };
-      if (patch.imageModel) {
-        const normalized = normalizeSettingsForModel(patch.imageModel, next.aspectRatio, next.imageSize);
+      if (patch.imageModel && !patch.imageModel.startsWith('gpt-image-')) {
+        const normalized = normalizeSettingsForModel(patch.imageModel as ImageModel, next.aspectRatio, next.imageSize);
         return { ...next, ...normalized };
       }
       return next;
@@ -548,20 +559,18 @@ export default function LogoComposer({
   };
 
   const runOptimization = async () => {
-    if (!apiKey) return onRequestKey();
-    if (connectionMode === 'proxy' && !apiBaseUrl) {
+    const openAi = settings.optimizerModel.startsWith('gpt-');
+    if (!(openAi ? openAiApiKey : apiKey)) return onRequestKey();
+    if (!openAi && connectionMode === 'proxy' && !apiBaseUrl) {
       message.warning('请先配置代理地址');
       return onRequestKey();
     }
     if (!prompt.trim()) return void message.warning('请先输入提示词');
     setOptimizing(true);
     try {
-      const result = await optimizePrompt({
-        apiKey,
-        model: settings.optimizerModel,
-        prompt: `这是 Logo 合成任务。${prompt.trim()}`,
-        apiBaseUrl,
-      });
+      const result = openAi
+        ? await optimizeScenePromptOpenAi({ apiKey: openAiApiKey, model: settings.optimizerModel, prompt: `这是 Logo 合成任务。${prompt.trim()}` })
+        : await optimizePrompt({ apiKey, model: settings.optimizerModel as OptimizerModel, prompt: `这是 Logo 合成任务。${prompt.trim()}`, apiBaseUrl });
       setOptimizedPrompt(result);
     } catch (error) {
       message.error(error instanceof Error ? error.message : '提示词优化失败');
@@ -590,9 +599,27 @@ export default function LogoComposer({
       const requestLogo = currentSettings.useGlassLogoEtchSkill
         ? await padLogoToSquare(pair.logo.file)
         : pair.logo.file;
-      const result = await generateLogoComposite({
+      const glassLogoEtch = currentSettings.useGlassLogoEtchSkill ? {
+        scaleRatio: currentSettings.glassEtchScaleRatio,
+        topMarginRatio: currentSettings.glassEtchTopMarginRatio,
+        logoColor: currentSettings.glassEtchLogoColor,
+        textureMode: currentSettings.glassEtchTextureMode,
+        applyAllCups: currentSettings.glassEtchApplyAllCups,
+        outputCoordinateMode: currentSettings.glassEtchOutputCoordinateMode,
+      } as const : undefined;
+      const result = currentSettings.imageModel.startsWith('gpt-image-')
+        ? await generateExactLogoReplacementOpenAi({
+          apiKey: openAiApiKey,
+          model: currentSettings.imageModel as OpenAiImageModel,
+          scene: pair.scene.file,
+          logos: [new File([requestLogo], 'logo.png', { type: requestLogo.type || 'image/png' }), ...(guide ? [new File([guide], 'placement-guide.png', { type: guide.type || 'image/png' })] : [])],
+          prompt: `第一张是原始场景，第二张是必须保持图形、颜色和文字准确的 Logo。${guide ? '第三张是定位或红色选区参考，仅用于确定修改位置，最终不要显示参考标记。' : ''}${glassLogoEtch ? buildGlassLogoEtchInstruction(glassLogoEtch) : '将 Logo 自然融入杯体，保持场景其余内容、透视和光影不变。'}${currentSettings.ratioMode === 'fixed' ? `目标画面比例：${currentSettings.aspectRatio}。` : ''}${promptRef.current}`,
+          signal: controller.signal,
+          requestLabel: 'Logo 合成',
+        })
+        : await generateLogoComposite({
         apiKey,
-        model: currentSettings.imageModel,
+        model: currentSettings.imageModel as ImageModel,
         prompt: promptRef.current,
         scene: pair.scene.file,
         logo: requestLogo,
@@ -603,14 +630,7 @@ export default function LogoComposer({
         imageSize: currentSettings.imageSize,
         signal: controller.signal,
         apiBaseUrl,
-        glassLogoEtch: currentSettings.useGlassLogoEtchSkill ? {
-          scaleRatio: currentSettings.glassEtchScaleRatio,
-          topMarginRatio: currentSettings.glassEtchTopMarginRatio,
-          logoColor: currentSettings.glassEtchLogoColor,
-          textureMode: currentSettings.glassEtchTextureMode,
-          applyAllCups: currentSettings.glassEtchApplyAllCups,
-          outputCoordinateMode: currentSettings.glassEtchOutputCoordinateMode,
-        } : undefined,
+        glassLogoEtch,
       });
       const resultUrl = URL.createObjectURL(result.blob);
       setTasks((current) => current.map((item) => item.id === task.id
@@ -636,8 +656,8 @@ export default function LogoComposer({
   }, [tasks, settings.concurrency, executeTask]);
 
   const startGeneration = () => {
-    if (!apiKey) return onRequestKey();
-    if (connectionMode === 'proxy' && !apiBaseUrl) {
+    if (!(settings.imageModel.startsWith('gpt-image-') ? openAiApiKey : apiKey)) return onRequestKey();
+    if (!settings.imageModel.startsWith('gpt-image-') && connectionMode === 'proxy' && !apiBaseUrl) {
       message.warning('请先配置代理地址');
       return onRequestKey();
     }
@@ -718,7 +738,7 @@ export default function LogoComposer({
           </Card>
         )}
         <Form.Item label="图片模型">
-          <Select value={settings.imageModel} onChange={(imageModel) => patchSettings({ imageModel })} options={Object.entries(MODEL_CAPABILITIES).map(([value, item]) => ({ value, label: item.label }))} />
+          <Select value={settings.imageModel} onChange={(imageModel) => patchSettings({ imageModel })} options={[{ label: 'GPT', options: OPENAI_IMAGE_MODEL_OPTIONS }, { label: 'Gemini', options: Object.entries(MODEL_CAPABILITIES).map(([value, item]) => ({ value, label: item.label })) }]} />
         </Form.Item>
         <Form.Item label="画面比例">
           <Radio.Group value={settings.ratioMode} onChange={(event) => patchSettings({ ratioMode: event.target.value })}>
@@ -738,6 +758,7 @@ export default function LogoComposer({
         </Form.Item>
         <Form.Item label="提示词优化模型">
           <Select value={settings.optimizerModel} onChange={(optimizerModel) => patchSettings({ optimizerModel })} options={[
+            ...OPENAI_LANGUAGE_MODEL_OPTIONS,
             { value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite' },
             { value: 'gemini-3.1-flash', label: 'Gemini 3.1 Flash' },
             { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
@@ -745,7 +766,7 @@ export default function LogoComposer({
         </Form.Item>
       </Form>
       <Card className="price-card" variant="borderless">
-        <Statistic title="预计价格" prefix="$" precision={3} value={estimateImageCost(settings.imageModel, settings.imageSize, taskCount) + taskCount * PRICING.models[settings.imageModel].inputImage} />
+        {openAiImage ? <Text type="secondary">GPT 图片按实际输入与输出 token 计费。</Text> : <Statistic title="预计价格" prefix="$" precision={3} value={estimateImageCost(settings.imageModel as ImageModel, settings.imageSize, taskCount) + taskCount * PRICING.models[settings.imageModel as ImageModel].inputImage} />}
         <Text type="secondary">按 {taskCount} 个独立请求估算，双图输入费用为近似值。</Text>
       </Card>
     </div>

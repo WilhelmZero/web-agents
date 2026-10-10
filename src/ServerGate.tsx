@@ -1,8 +1,12 @@
-import { useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 import { Button, Card, Form, Input, message } from 'antd';
 import type { ServerKeyStatus } from './aiTransport';
 
-interface Session { username: string; admin: boolean }
+interface Session { username: string; admin: boolean; role?: 'operator' | 'artist' | 'admin' | 'custom'; allowedTools?: string[]; source?: string }
+interface StudioSessionContextValue { session: Session; signOut: () => Promise<void> }
+const StudioSessionContext = createContext<StudioSessionContextValue | null>(null);
+
+export function useStudioSession() { return useContext(StudioSessionContext); }
 
 export default function ServerGate({ children }: { children: React.ReactNode }) {
   const [checking, setChecking] = useState(true);
@@ -35,12 +39,25 @@ export default function ServerGate({ children }: { children: React.ReactNode }) 
   }, []);
   useEffect(() => {
     if (!session) return;
-    const refresh = () => { if (document.visibilityState === 'visible') void refreshConfig().catch(() => {}); };
+    const refresh = () => {
+      if (document.visibilityState !== 'visible') return;
+      void refreshConfig().catch(() => {});
+      void fetch('/api/auth/session', { credentials: 'same-origin', cache: 'no-store' }).then(async (response) => {
+        if (response.status === 401) setSession(null);
+        else if (response.ok) {
+          const next = await response.json() as Session;
+          setSession((current) => current && current.username === next.username && current.role === next.role && current.admin === next.admin &&
+            JSON.stringify(current.allowedTools || []) === JSON.stringify(next.allowedTools || []) ? current : next);
+        }
+      }).catch(() => {});
+    };
     window.addEventListener('focus', refresh);
     document.addEventListener('visibilitychange', refresh);
+    const timer = window.setInterval(refresh, 15000);
     return () => {
       window.removeEventListener('focus', refresh);
       document.removeEventListener('visibilitychange', refresh);
+      window.clearInterval(timer);
     };
   }, [session]);
 
@@ -54,6 +71,16 @@ export default function ServerGate({ children }: { children: React.ReactNode }) 
     finally { setBusy(false); }
   }
 
+  async function signOut() {
+    try {
+      const response = await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      delete window.__studioServerKeys;
+      window.dispatchEvent(new Event('studio:server-keys'));
+      setSession(null);
+    } catch { message.error('退出登录失败，请重试'); }
+  }
+
   if (checking) return <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>正在检查登录状态…</div>;
   if (!session) return <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 20, background: '#f5f4fb' }}>
     <Card title="Scene Studio 登录" style={{ width: 'min(420px, 100%)' }}>
@@ -64,5 +91,5 @@ export default function ServerGate({ children }: { children: React.ReactNode }) 
       </Form>
     </Card>
   </div>;
-  return <>{children}</>;
+  return <StudioSessionContext.Provider value={{ session, signOut }}>{children}</StudioSessionContext.Provider>;
 }

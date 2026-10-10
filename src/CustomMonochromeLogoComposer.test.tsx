@@ -70,11 +70,11 @@ describe("customer monochrome page", () => {
       screen.queryByRole("button", { name: /工具设置/ }),
     ).not.toBeInTheDocument();
     const panel = screen.getByRole("complementary", { name: "参数设置" });
-    expect(within(panel).getByDisplayValue("gpt-image-2")).toBeInTheDocument();
+    expect(within(panel).getByDisplayValue("gpt-image-2.5-flare")).toBeInTheDocument();
     expect(within(panel).getByText("生成质量")).toBeInTheDocument();
     expect(screen.queryByText("兼容 API 地址")).not.toBeInTheDocument();
-    expect(screen.getByDisplayValue("gpt-image-2")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("gpt-5.4-mini")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("gpt-image-2.5-flare")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("gpt-6-luna")).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /测试连接/ }),
     ).not.toBeInTheDocument();

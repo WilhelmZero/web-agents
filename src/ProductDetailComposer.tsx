@@ -49,6 +49,9 @@ import {
   analyzeProductDetailPrompts,
   generateProductDetailImage,
 } from './services/gemini';
+import { analyzeProductDetailPromptsOpenAi } from './services/productDetailOpenAi';
+import { editPaperTextOpenAi } from './services/paperText';
+import { OPENAI_IMAGE_MODEL_OPTIONS, OPENAI_LANGUAGE_MODEL_OPTIONS } from './services/openAiModels';
 import {
   composeDetailLongImage,
   downloadAllDetailTasks,
@@ -58,6 +61,8 @@ import {
 } from './services/productDetailUtils';
 import { readLocalStorage } from './storage';
 import type {
+  ImageModel,
+  OptimizerModel,
   ProductDetailPrompt,
   ProductDetailSettings,
   ProductDetailTask,
@@ -75,6 +80,7 @@ const ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 
 export default function ProductDetailComposer({
   apiKey,
+  openAiApiKey,
   apiBaseUrl,
   connectionMode,
   onRequestKey,
@@ -82,6 +88,7 @@ export default function ProductDetailComposer({
   settingsHost,
 }: {
   apiKey: string;
+  openAiApiKey: string;
   apiBaseUrl: string | null;
   connectionMode: 'direct' | 'proxy';
   onRequestKey: () => void;
@@ -104,7 +111,10 @@ export default function ProductDetailComposer({
   const fileRef = useRef<File | undefined>(undefined);
   const promptsRef = useRef<ProductDetailPrompt[]>([]);
   const settingsRef = useRef(settings);
-  const capability = MODEL_CAPABILITIES[settings.imageModel];
+  const openAiImage = settings.imageModel.startsWith('gpt-image-');
+  const capability = openAiImage
+    ? { aspectRatios: ['1:1', '3:2', '2:3', '16:9', '9:16'], imageSizes: ['1K', '2K', '4K'] as ProductDetailSettings['imageSize'][] }
+    : MODEL_CAPABILITIES[settings.imageModel as ImageModel];
 
   useEffect(() => { fileRef.current = file; }, [file]);
   useEffect(() => { promptsRef.current = prompts; }, [prompts]);
@@ -116,13 +126,14 @@ export default function ProductDetailComposer({
   const processing = tasks.some((task) => task.status === 'waiting' || task.status === 'running');
   const completed = tasks.filter((task) => ['success', 'failed', 'stopped'].includes(task.status)).length;
   useEffect(() => { reportTaskProgress({ id: 'product-detail', label: '详情长图生成', completed, total: tasks.length, failed: tasks.filter((task) => task.status === 'failed').length, running: processing }); }, [completed, tasks, processing]);
-  const estimatedCost = estimateImageCost(settings.imageModel, settings.imageSize, prompts.length)
-    + prompts.length * PRICING.models[settings.imageModel].inputImage;
+  const estimatedCost = openAiImage ? undefined : estimateImageCost(settings.imageModel as ImageModel, settings.imageSize, prompts.length)
+    + prompts.length * PRICING.models[settings.imageModel as ImageModel].inputImage;
 
-  const checkApi = () => {
-    if (!apiKey || (connectionMode === 'proxy' && !apiBaseUrl)) {
+  const checkApi = (model: string) => {
+    const openAi = model.startsWith('gpt-');
+    if (!(openAi ? openAiApiKey : apiKey) || (!openAi && connectionMode === 'proxy' && !apiBaseUrl)) {
       onRequestKey();
-      message.warning(!apiKey ? '请先配置 API Key' : '请先配置代理地址');
+      message.warning(!(openAi ? openAiApiKey : apiKey) ? '请先配置 API Key' : '请先配置代理地址');
       return false;
     }
     return true;
@@ -156,21 +167,23 @@ export default function ProductDetailComposer({
   const patchSettings = (patch: Partial<ProductDetailSettings>) => {
     setSettings((current) => {
       const next = { ...current, ...patch };
-      if (patch.imageModel) return { ...next, ...normalizeSettingsForModel(patch.imageModel, next.aspectRatio, next.imageSize) };
+      if (patch.imageModel && !patch.imageModel.startsWith('gpt-image-')) return { ...next, ...normalizeSettingsForModel(patch.imageModel as ImageModel, next.aspectRatio, next.imageSize) };
       return next;
     });
   };
 
   const performAnalysis = async () => {
-    if (!checkApi()) return;
+    if (!checkApi(settings.analyzerModel)) return;
     if (!file) return void message.warning('请先上传一张产品白底图');
     if (!productInfo.trim()) return void message.warning('请先填写商品信息');
     setAnalyzing(true);
     try {
-      const analyzed = await analyzeProductDetailPrompts({
+      const analyzed = settings.analyzerModel.startsWith('gpt-')
+        ? await analyzeProductDetailPromptsOpenAi({ apiKey: openAiApiKey, model: settings.analyzerModel, image: file, productInfo: productInfo.trim(), count: settings.targetCount })
+        : await analyzeProductDetailPrompts({
         apiKey,
         apiBaseUrl,
-        model: settings.analyzerModel,
+        model: settings.analyzerModel as OptimizerModel,
         image: file,
         productInfo: productInfo.trim(),
         count: settings.targetCount,
@@ -226,7 +239,7 @@ export default function ProductDetailComposer({
   };
 
   const queuePrompt = (promptId: string) => {
-    if (!checkApi()) return;
+    if (!checkApi(settings.imageModel)) return;
     const prompt = prompts.find((item) => item.id === promptId);
     if (!file || !prompt?.content.trim()) return void message.warning('图片或提示词不完整');
     setTasks((current) => {
@@ -236,7 +249,7 @@ export default function ProductDetailComposer({
     });
   };
   const queueAll = () => {
-    if (!checkApi()) return;
+    if (!checkApi(settings.imageModel)) return;
     if (!file || !prompts.length) return void message.warning('请先完成商品分析');
     setTasks((current) => prompts.map((prompt) => {
       const existing = current.find((task) => task.promptId === prompt.id);
@@ -257,10 +270,12 @@ export default function ProductDetailComposer({
     setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status: 'running', error: undefined } : item));
     try {
       const currentSettings = settingsRef.current;
-      const generated = await generateProductDetailImage({
+      const generated = currentSettings.imageModel.startsWith('gpt-image-')
+        ? await editPaperTextOpenAi({ apiKey: openAiApiKey, model: currentSettings.imageModel, image: source, prompt: `${prompt.content}${currentSettings.ratioMode === 'fixed' ? `\n目标画面比例：${currentSettings.aspectRatio}。` : ''}`, quality: 'high', signal: controller.signal }).then((blob) => ({ blob, mimeType: blob.type || 'image/png' }))
+        : await generateProductDetailImage({
         apiKey,
         apiBaseUrl,
-        model: currentSettings.imageModel,
+        model: currentSettings.imageModel as ImageModel,
         image: source,
         prompt: prompt.content,
         aspectRatio: currentSettings.ratioMode === 'fixed' ? currentSettings.aspectRatio : undefined,
@@ -281,7 +296,7 @@ export default function ProductDetailComposer({
       runningIds.current.delete(task.id);
       aborters.current.delete(task.id);
     }
-  }, [apiKey, apiBaseUrl]);
+  }, [apiKey, openAiApiKey, apiBaseUrl]);
 
   const retryPrompt = (promptId: string) => {
     const task = tasks.find((item) => item.promptId === promptId);
@@ -330,14 +345,14 @@ export default function ProductDetailComposer({
       <Flex justify="space-between"><Title level={4} style={{ margin: 0 }}>详情页设置</Title><Tag color="blue">单商品</Tag></Flex>
       <Divider />
       <Form layout="vertical">
-        <Form.Item label="商品分析语言模型"><Select value={settings.analyzerModel} onChange={(analyzerModel) => patchSettings({ analyzerModel })} options={[{ value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite' }, { value: 'gemini-3.1-flash', label: 'Gemini 3.1 Flash' }, { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' }]} /></Form.Item>
-        <Form.Item label="图片模型"><Select value={settings.imageModel} onChange={(imageModel) => patchSettings({ imageModel })} options={Object.entries(MODEL_CAPABILITIES).map(([value, item]) => ({ value, label: item.label }))} /></Form.Item>
+        <Form.Item label="商品分析语言模型"><Select value={settings.analyzerModel} onChange={(analyzerModel) => patchSettings({ analyzerModel })} options={[...OPENAI_LANGUAGE_MODEL_OPTIONS, { value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite' }, { value: 'gemini-3.1-flash', label: 'Gemini 3.1 Flash' }, { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' }]} /></Form.Item>
+        <Form.Item label="图片模型"><Select value={settings.imageModel} onChange={(imageModel) => patchSettings({ imageModel })} options={[{ label: 'GPT', options: OPENAI_IMAGE_MODEL_OPTIONS }, { label: 'Gemini', options: Object.entries(MODEL_CAPABILITIES).map(([value, item]) => ({ value, label: item.label })) }]} /></Form.Item>
         <Form.Item label="生成张数"><InputNumber min={1} max={10} value={settings.targetCount} onChange={(targetCount) => patchSettings({ targetCount: targetCount || 1 })} style={{ width: '100%' }} /></Form.Item>
         <Form.Item label="画面比例"><Radio.Group value={settings.ratioMode} onChange={(event) => patchSettings({ ratioMode: event.target.value })}><Radio value="original">跟随原图</Radio><Radio value="fixed">指定比例</Radio></Radio.Group>{settings.ratioMode === 'fixed' && <Select style={{ marginTop: 10 }} value={settings.aspectRatio} onChange={(aspectRatio) => patchSettings({ aspectRatio })} options={capability.aspectRatios.map((value) => ({ value, label: value }))} />}</Form.Item>
-        <Form.Item label="输出分辨率"><Segmented block value={settings.imageSize} onChange={(imageSize) => patchSettings({ imageSize: imageSize as ProductDetailSettings['imageSize'] })} options={capability.imageSizes} /></Form.Item>
+        {openAiImage ? <Text type="secondary">GPT 输出尺寸由模型自动选择。</Text> : <Form.Item label="输出分辨率"><Segmented block value={settings.imageSize} onChange={(imageSize) => patchSettings({ imageSize: imageSize as ProductDetailSettings['imageSize'] })} options={capability.imageSizes} /></Form.Item>}
         <Form.Item label="并发任务数"><InputNumber min={1} max={6} value={settings.concurrency} onChange={(concurrency) => patchSettings({ concurrency: concurrency || 1 })} style={{ width: '100%' }} /></Form.Item>
       </Form>
-      <Card className="price-card" variant="borderless"><Statistic title="预计图片费用" prefix="$" precision={3} value={estimatedCost} /><Text type="secondary">按 {prompts.length || settings.targetCount} 张详情图估算，不含商品分析文本 token。</Text></Card>
+      <Card className="price-card" variant="borderless">{estimatedCost === undefined ? <Text type="secondary">GPT 图片按实际输入与输出 token 计费。</Text> : <><Statistic title="预计图片费用" prefix="$" precision={3} value={estimatedCost} /><Text type="secondary">按 {prompts.length || settings.targetCount} 张详情图估算，不含商品分析文本 token。</Text></>}</Card>
     </div>
   );
 

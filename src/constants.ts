@@ -48,8 +48,8 @@ export const STORAGE_KEYS = {
 } as const;
 
 export const DEFAULT_LOGO_SETTINGS = {
-  imageModel: "gemini-3.1-flash-image",
-  optimizerModel: "gemini-3.1-flash-lite",
+  imageModel: "gpt-image-2.5-flare",
+  optimizerModel: "gpt-6-luna",
   ratioMode: "original",
   aspectRatio: "1:1",
   imageSize: "1K",
@@ -72,9 +72,9 @@ export const DEFAULT_LOGO_REPLACE_SETTINGS = {
   perImagePromptEnabled: false,
   autoGenerateAfterPromptAnalysis: false,
   useOldLogoReference: false,
-  imageProvider: "gemini",
+  imageProvider: "openai",
   imageModel: "gemini-3.1-flash-image",
-  openAiImageModel: "gpt-image-2",
+  openAiImageModel: "gpt-image-2.5-flare",
   ratioMode: "original",
   aspectRatio: "1:1",
   imageSize: "1K",
@@ -98,9 +98,9 @@ export const DEFAULT_LOGO_REPLACE_SETTINGS = {
   customizeReplacementPrompt: false,
   replacementPrompt: "",
   strictTextVerification: true,
-  languageProvider: "gemini",
+  languageProvider: "openai",
   verificationModel: "gemini-3.1-flash-lite",
-  openAiLanguageModel: "gpt-5.6-terra",
+  openAiLanguageModel: "gpt-6-luna",
   verificationRetries: 2,
   autoRetryErrors: true,
   errorRetryLimit: 3,
@@ -108,9 +108,9 @@ export const DEFAULT_LOGO_REPLACE_SETTINGS = {
 } as const;
 
 export const DEFAULT_LOGO_CLASSIFICATION_SETTINGS = {
-  provider: "gemini",
+  provider: "openai",
   geminiModel: "gemini-3.1-flash-lite",
-  openAiModel: "gpt-5.6-terra",
+  openAiModel: "gpt-6-luna",
   concurrency: 3,
   autoRetryErrors: true,
   errorRetryLimit: 3,
@@ -119,9 +119,9 @@ export const DEFAULT_LOGO_CLASSIFICATION_SETTINGS = {
 } as const;
 
 export const DEFAULT_AUTO_LOGO_GENERATION_SETTINGS = {
-  imageProvider: "gemini",
+  imageProvider: "openai",
   imageModel: "gemini-3.1-flash-image",
-  openAiImageModel: "gpt-image-2",
+  openAiImageModel: "gpt-image-2.5-flare",
   ratioMode: "auto",
   aspectRatio: "1:1",
   openAiOutputSize: "1024x1024",
@@ -135,7 +135,7 @@ export const DEFAULT_AUTO_LOGO_GENERATION_SETTINGS = {
   verificationRetries: 2,
 } as const;
 export const DEFAULT_OBJECT_REPLACE_SETTINGS = {
-  imageModel: "gemini-3.1-flash-image",
+  imageModel: "gpt-image-2.5-flare",
   ratioMode: "original",
   aspectRatio: "1:1",
   imageSize: "1K",
@@ -160,13 +160,13 @@ export const DEFAULT_SCENE_REPLACE_SETTINGS = {
   detectInsufficientSceneChange: true,
   autoSkipWhiteBackground: true,
   autoRecommendScene: false,
-  sceneRecommendationProvider: "gemini",
+  sceneRecommendationProvider: "openai",
   sceneRecommendationModel: "gemini-3.1-flash-lite",
-  openAiSceneRecommendationModel: "gpt-5.6-terra",
-  promptOptimizerProvider: "gemini",
+  openAiSceneRecommendationModel: "gpt-6-luna",
+  promptOptimizerProvider: "openai",
   promptOptimizerModel: "gemini-3.1-flash-lite",
-  openAiPromptOptimizerModel: "gpt-5.6-terra",
-  imageModel: "gemini-3.1-flash-image",
+  openAiPromptOptimizerModel: "gpt-6-luna",
+  imageModel: "gpt-image-2.5-flare",
   imageQuality: "high",
   ratioMode: "original",
   aspectRatio: "1:1",
@@ -178,7 +178,7 @@ export const DEFAULT_SCENE_REPLACE_SETTINGS = {
   errorRetryDelaySeconds: 30,
   autoOutpaint: false,
   outpaintBothSizes: false,
-  outpaintImageModel: "gemini-3.1-flash-image",
+  outpaintImageModel: "gpt-image-2.5-flare",
   outpaintImageSize: "2K",
   outpaintQuality: "high",
   outpaintWidth: 3200,
@@ -188,31 +188,31 @@ export const DEFAULT_SCENE_REPLACE_SETTINGS = {
 } as const;
 
 export const DEFAULT_SCENE_CLASSIFICATION_SETTINGS = {
-  provider: "gemini",
+  provider: "openai",
   geminiModel: "gemini-3.1-flash-lite",
-  openAiModel: "gpt-5.6-terra",
+  openAiModel: "gpt-6-luna",
   concurrency: 6,
   autoRetryErrors: true,
   errorRetryLimit: 3,
   errorRetryDelaySeconds: 30,
 } as const;
 export const DEFAULT_INPAINT_SETTINGS = {
-  imageModel: "gemini-3.1-flash-image",
-  optimizerModel: "gemini-3.1-flash-lite",
+  imageModel: "gpt-image-2.5-flare",
+  optimizerModel: "gpt-6-luna",
   ratioMode: "original",
   aspectRatio: "1:1",
   imageSize: "1K",
 } as const;
 
 export const DEFAULT_CUP_RESIZE_SETTINGS = {
-  imageModel: "gemini-3.1-flash-image",
+  imageModel: "gpt-image-2.5-flare",
   imageSize: "2K",
   imageQuality: "high",
 } as const;
 
 export const DEFAULT_PRODUCT_DETAIL_SETTINGS = {
-  analyzerModel: "gemini-3.1-flash-lite",
-  imageModel: "gemini-3.1-flash-image",
+  analyzerModel: "gpt-6-luna",
+  imageModel: "gpt-image-2.5-flare",
   ratioMode: "fixed",
   aspectRatio: "3:4",
   imageSize: "1K",
@@ -351,8 +351,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   openAiApiKey: "",
   connectionMode: import.meta.env.VITE_GEMINI_PROXY_URL ? "proxy" : "direct",
   proxyUrl: import.meta.env.VITE_GEMINI_PROXY_URL || "",
-  imageModel: "gemini-3.1-flash-image",
-  optimizerModel: "gemini-3.1-flash-lite",
+  imageModel: "gpt-image-2.5-flare",
+  optimizerModel: "gpt-6-luna",
   aspectRatio: "1:1",
   imageSize: "1K",
   concurrency: 3,

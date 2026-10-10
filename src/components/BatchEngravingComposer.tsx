@@ -149,10 +149,12 @@ export default function BatchEngravingComposer({
   openAiApiKey,
   onConfigureKey,
   settingsHost,
+  demandPrefill,
 }: {
   openAiApiKey: string;
   onConfigureKey: () => void;
   settingsHost?: HTMLElement | null;
+  demandPrefill?: { id: string; assetId: string; prompt: string } | null;
 }) {
   const { language } = useLanguage();
   const [slots, setSlots] = useState(initialSlots),
@@ -405,6 +407,22 @@ export default function BatchEngravingComposer({
     }
     return false;
   };
+  const loadedDemand = useRef<string | null>(null);
+  useEffect(() => {
+    if (!demandPrefill || loadedDemand.current === demandPrefill.id) return;
+    loadedDemand.current = demandPrefill.id;
+    let cancelled = false;
+    void fetch(`/api/assets/${demandPrefill.assetId}`, { credentials: 'same-origin' })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const file = new File([await response.blob()], `demand-${demandPrefill.id}.png`, { type: response.headers.get('content-type') || 'image/png' });
+        if (!cancelled) {
+          add(file);
+          setPreferences((current) => ({ ...current, instructions: demandPrefill.prompt }));
+        }
+      }).catch((error) => { if (!cancelled) setError(`需求原图载入失败：${(error as Error).message}`); });
+    return () => { cancelled = true; };
+  }, [demandPrefill?.id, demandPrefill?.assetId]);
   useEffect(() => {
     const paste = (event: ClipboardEvent) => {
       if (

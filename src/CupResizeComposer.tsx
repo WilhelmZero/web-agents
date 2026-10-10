@@ -42,9 +42,10 @@ import GeneratingImage from './GeneratingImage';
 import { CUP_RESIZE_PROMPT, inferBorderColor, rgbToHex } from './services/cupResize';
 import { generateCupResizeImage } from './services/gemini';
 import { generateCupResizeOpenAi } from './services/logoReplaceOpenAi';
+import { OPENAI_IMAGE_MODEL_OPTIONS } from './services/openAiModels';
 import { reportTaskProgress } from './services/taskProgress';
 import { readLocalStorage } from './storage';
-import type { CupResizeSettings } from './types';
+import type { CupResizeSettings, OpenAiImageModel } from './types';
 import { downloadBlob, mimeExtension, normalizeSettingsForModel, sanitizeFileName } from './utils';
 
 const { Dragger } = Upload;
@@ -55,9 +56,8 @@ type Point = { x: number; y: number };
 type Scale = { x: number; y: number };
 type CropEdges = { top: number; right: number; bottom: number; left: number };
 type ResizeHandle = 'nw' | 'ne' | 'se' | 'sw';
-const GPT_MODELS = ['gpt-image-2', 'gpt-image-2-2026-04-21'] as const;
-const isOpenAiModel = (model: CupResizeSettings['imageModel']): model is typeof GPT_MODELS[number] => model.startsWith('gpt-image-');
-const MODEL_OPTIONS = [{ label: 'GPT', options: [{ value: 'gpt-image-2', label: 'GPT Image 2（推荐）' }, { value: 'gpt-image-2-2026-04-21', label: 'GPT Image 2（2026-04-21）' }] }, { label: 'Gemini', options: Object.entries(MODEL_CAPABILITIES).map(([value, item]) => ({ value, label: item.label })) }];
+const isOpenAiModel = (model: CupResizeSettings['imageModel']): model is OpenAiImageModel => model.startsWith('gpt-image-');
+const MODEL_OPTIONS = [{ label: 'GPT', options: OPENAI_IMAGE_MODEL_OPTIONS }, { label: 'Gemini', options: Object.entries(MODEL_CAPABILITIES).map(([value, item]) => ({ value, label: item.label })) }];
 
 function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {

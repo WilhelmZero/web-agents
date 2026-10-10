@@ -55,6 +55,7 @@ import {
 import { buildPickerFolderTree } from "./MultiTabSceneReplaceComposer";
 import { FileThumbnail, groupFolderFiles } from "./MultiTabLogoReplaceComposer";
 import { readLocalStorage } from "./storage";
+import { OPENAI_IMAGE_MODEL_OPTIONS } from "./services/openAiModels";
 import type {
   AutoLogoClassificationTask,
   AutoLogoGenerationSettings,
@@ -124,6 +125,7 @@ const ANALYSIS_GEMINI_MODELS = [
   "gemini-2.5-flash",
 ].map((value) => ({ value, label: value }));
 const ANALYSIS_OPENAI_MODELS = [
+  "gpt-6-luna",
   "gpt-5.6-terra",
   "gpt-5.6-sol",
   "gpt-5.6-luna",
@@ -1579,12 +1581,13 @@ export default function AutoLogoClassificationComposer({
             </Form.Item>
           </>
         ) : (
-          <Alert
-            type="info"
-            showIcon
-            title="GPT Image 2 将使用最高质量输出"
-            style={{ marginBottom: 16 }}
-          />
+          <Form.Item label="GPT 图片模型">
+            <Select
+              value={generationSettings.openAiImageModel}
+              onChange={(openAiImageModel) => patchGeneration({ openAiImageModel })}
+              options={OPENAI_IMAGE_MODEL_OPTIONS}
+            />
+          </Form.Item>
         )}
         <Form.Item label="输出图片比例">
           <Select
@@ -2105,21 +2108,21 @@ export default function AutoLogoClassificationComposer({
             <Flex gap={24} wrap style={{ marginTop: 14 }}>
               <Statistic
                 title="预计最低金额"
-                prefix="$"
-                precision={3}
-                value={cost.estimatedMinimum}
+                prefix={generationSettings.imageProvider === 'openai' && generationSettings.openAiImageModel.startsWith('gpt-image-2.5-') ? undefined : '$'}
+                precision={generationSettings.imageProvider === 'openai' && generationSettings.openAiImageModel.startsWith('gpt-image-2.5-') ? undefined : 3}
+                value={generationSettings.imageProvider === 'openai' && generationSettings.openAiImageModel.startsWith('gpt-image-2.5-') ? '按量计费' : cost.estimatedMinimum}
               />
               <Statistic
                 title="预计最差金额"
-                prefix="$"
-                precision={3}
-                value={cost.estimatedWorst}
+                prefix={generationSettings.imageProvider === 'openai' && generationSettings.openAiImageModel.startsWith('gpt-image-2.5-') ? undefined : '$'}
+                precision={generationSettings.imageProvider === 'openai' && generationSettings.openAiImageModel.startsWith('gpt-image-2.5-') ? undefined : 3}
+                value={generationSettings.imageProvider === 'openai' && generationSettings.openAiImageModel.startsWith('gpt-image-2.5-') ? '按量计费' : cost.estimatedWorst}
               />
               <Statistic
                 title="实际图片费用（实时预估）"
-                prefix="$"
-                precision={3}
-                value={cost.actual}
+                prefix={generationSettings.imageProvider === 'openai' && generationSettings.openAiImageModel.startsWith('gpt-image-2.5-') ? undefined : '$'}
+                precision={generationSettings.imageProvider === 'openai' && generationSettings.openAiImageModel.startsWith('gpt-image-2.5-') ? undefined : 3}
+                value={generationSettings.imageProvider === 'openai' && generationSettings.openAiImageModel.startsWith('gpt-image-2.5-') ? '以服务端统计为准' : cost.actual}
               />
               <Statistic
                 title="开始时间"

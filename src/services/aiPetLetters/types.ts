@@ -90,7 +90,7 @@ export interface AiPetLetterWorkspace {
 
 export const DEFAULT_AI_PET_LETTER_SETTINGS: AiPetLetterSettings = {
   version: 2,
-  model: "gpt-image-2.5-sunburst",
+  model: "gpt-image-2.5-flare",
   quality: "xhigh",
   concurrency: 1,
   downloadSize: "high-res",

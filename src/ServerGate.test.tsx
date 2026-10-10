@@ -1,7 +1,12 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { useEffect, useState } from 'react';
-import ServerGate from './ServerGate';
+import ServerGate, { useStudioSession } from './ServerGate';
+
+function SessionProbe() {
+  const studio = useStudioSession();
+  return <div><span>{studio?.session.username}</span><button onClick={() => void studio?.signOut()}>Sign out</button></div>;
+}
 
 function KeyStatus() {
   const [configured, setConfigured] = useState(() => Boolean(window.__studioServerKeys?.openai));
@@ -31,4 +36,19 @@ it('refreshes server key status when returning to an already-open page', async (
   configured = true;
   fireEvent.focus(window);
   await waitFor(() => expect(screen.getByText('OpenAI configured')).toBeInTheDocument());
+});
+
+it('exposes the current account and signs out without keeping the workspace mounted', async () => {
+  const fetchMock = vi.fn(async (url: string) => {
+    if (url === '/api/auth/session') return new Response(JSON.stringify({ username: 'alice', admin: false }), { status: 200 });
+    if (url === '/api/config') return new Response(JSON.stringify({ openai: false, gemini: false }), { status: 200 });
+    if (url === '/api/auth/logout') return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    throw new Error(`Unexpected request: ${url}`);
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  render(<ServerGate><SessionProbe /></ServerGate>);
+  expect(await screen.findByText('alice')).toBeInTheDocument();
+  fireEvent.click(screen.getByText('Sign out'));
+  await waitFor(() => expect(screen.getByText('Scene Studio 登录')).toBeInTheDocument());
+  expect(fetchMock).toHaveBeenCalledWith('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
 });

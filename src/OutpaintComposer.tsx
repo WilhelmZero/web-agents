@@ -14,16 +14,17 @@ import { createId, downloadBlob, sanitizeFileName } from './utils';
 import OriginalCompareImage from './OriginalCompareImage';
 import { useLanguage } from './i18n';
 import { useArchiveResults } from './services/resultArchive';
+import { OPENAI_IMAGE_MODEL_OPTIONS } from './services/openAiModels';
+import type { OpenAiImageModel } from './types';
 
 const { Text, Title, Paragraph } = Typography;
-type OpenAiImageModel = 'gpt-image-2' | 'gpt-image-2-2026-04-21';
 type OutpaintModel = ImageModel | OpenAiImageModel;
 interface Settings { imageModel: OutpaintModel; imageSize: ImageSize; quality: 'high' | 'medium' | 'low'; width: number; height: number; concurrency: number; prompt: string }
 type PreviewMode = 'source' | 'result';
 interface Item { id: string; file: File; sourceUrl: string; status: 'waiting' | 'running' | 'success' | 'failed' | 'stopped'; resultBlob?: Blob; resultUrl?: string; error?: string }
 const DEFAULT_OUTPAINT_PROMPT_ZH = '自然延展原图场景，补充画面之外合理存在的环境内容，保持真实摄影质感和自然景深。';
 const DEFAULT_OUTPAINT_PROMPT_EN = 'Extend the original scene naturally with plausible surroundings beyond the current frame. Preserve a realistic photographic look and natural depth of field.';
-const DEFAULT_SETTINGS: Settings = { imageModel: 'gemini-3.1-flash-image', imageSize: '2K', quality: 'high', width: 3200, height: 1310, concurrency: 3, prompt: DEFAULT_OUTPAINT_PROMPT_ZH };
+const DEFAULT_SETTINGS: Settings = { imageModel: 'gpt-image-2.5-flare', imageSize: '2K', quality: 'high', width: 3200, height: 1310, concurrency: 3, prompt: DEFAULT_OUTPAINT_PROMPT_ZH };
 const PRESETS = [{ label: '超宽屏 3200 × 1310', value: '3200x1310', width: 3200, height: 1310 }, { label: '横版 1800 × 1350', value: '1800x1350', width: 1800, height: 1350 }, { label: '自定义尺寸', value: 'custom' }];
 const isOpenAiModel = (model: OutpaintModel): model is OpenAiImageModel => model.startsWith('gpt-image-');
 
@@ -71,7 +72,7 @@ export default function OutpaintComposer({ apiKey, openAiApiKey, apiBaseUrl, con
   const downloadAll = async () => { const zip = new JSZip(); successful.forEach((item) => item.resultBlob && zip.file(fileName(item), item.resultBlob)); downloadBlob(await zip.generateAsync({ type: 'blob' }), `扩图结果_${settings.width}x${settings.height}.zip`); };
   const previewUrl = (item: Item) => (previewModes[item.id] || 'result') === 'source' ? item.sourceUrl : item.resultUrl;
   const selectedPreset = PRESETS.find((preset) => preset.width === settings.width && preset.height === settings.height)?.value || 'custom';
-  const modelOptions = useMemo(() => [{ label: 'GPT（OpenAI 官方直连）', options: [{ value: 'gpt-image-2', label: 'GPT Image 2（推荐）' }, { value: 'gpt-image-2-2026-04-21', label: 'GPT Image 2（2026-04-21）' }] }, { label: 'Gemini', options: Object.entries(MODEL_CAPABILITIES).map(([value, item]) => ({ value, label: item.label })) }], []);
+  const modelOptions = useMemo(() => [{ label: 'GPT', options: OPENAI_IMAGE_MODEL_OPTIONS }, { label: 'Gemini', options: Object.entries(MODEL_CAPABILITIES).map(([value, item]) => ({ value, label: item.label })) }], []);
   const panel = <div className="settings-panel"><Title level={4}>扩图设置</Title><Form layout="vertical"><Form.Item label="图片模型"><Select value={settings.imageModel} options={modelOptions} onChange={(imageModel) => patchSettings({ imageModel })} /></Form.Item>{isOpenAiModel(settings.imageModel) ? <Form.Item label="GPT 输出质量"><Select value={settings.quality} options={['high', 'medium', 'low'].map((value) => ({ value, label: value }))} onChange={(quality) => patchSettings({ quality })} /></Form.Item> : <Form.Item label="模型生成质量"><Select value={settings.imageSize} options={MODEL_CAPABILITIES[settings.imageModel as ImageModel].imageSizes.map((value) => ({ value, label: value }))} onChange={(imageSize) => patchSettings({ imageSize })} /></Form.Item>}<Form.Item label="输出尺寸预设"><Select value={selectedPreset} options={PRESETS} onChange={(value) => { const preset = PRESETS.find((item) => item.value === value); if (preset?.width && preset.height) patchSettings({ width: preset.width, height: preset.height }); }} /></Form.Item><Flex gap={10}><Form.Item label="宽度" style={{ flex: 1 }}><InputNumber min={64} max={8192} value={settings.width} onChange={(width) => patchSettings({ width: width || 64 })} style={{ width: '100%' }} /></Form.Item><Form.Item label="高度" style={{ flex: 1 }}><InputNumber min={64} max={8192} value={settings.height} onChange={(height) => patchSettings({ height: height || 64 })} style={{ width: '100%' }} /></Form.Item></Flex><Form.Item label="并发任务数"><InputNumber min={1} max={6} value={settings.concurrency} onChange={(concurrency) => patchSettings({ concurrency: concurrency || 1 })} style={{ width: '100%' }} /></Form.Item></Form><Text type="secondary">模型按最接近的目标比例补画，结果直接保留 AI 返回图，不再覆盖合成原图。</Text></div>;
 
   return <div className="outpaint-page"><section className="hero-strip outpaint-hero"><div><Text className="eyebrow">AI OUTPAINT</Text><Title level={2}>完整保留原图，智能补齐画面之外</Title><Paragraph className="hero-description">按指定比例或分辨率扩展画布，只补充缺失环境，并直接保留 AI 返回的完整扩图结果。</Paragraph></div><div className="hero-orb" /></section>

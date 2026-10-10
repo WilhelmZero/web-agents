@@ -1,4 +1,4 @@
-import type { AppSettings, AiProvider } from "../../types";
+import type { AppSettings, AiProvider, ImageModel } from "../../types";
 import { generateExactLogoReplacement } from "../gemini";
 import { generateExactLogoReplacementOpenAi } from "../logoReplaceOpenAi";
 import {
@@ -28,7 +28,7 @@ export async function generatePose(
     provider === "openai"
       ? await generateExactLogoReplacementOpenAi({
           apiKey: s.openAiApiKey,
-          model: "gpt-image-2",
+          model: "gpt-image-2.5-flare",
           scene,
           logos: [],
           prompt,
@@ -38,7 +38,7 @@ export async function generatePose(
         })
       : await generateExactLogoReplacement({
           apiKey: s.apiKey,
-          model: s.imageModel,
+          model: s.imageModel as ImageModel,
           scene,
           logos: [],
           prompt,

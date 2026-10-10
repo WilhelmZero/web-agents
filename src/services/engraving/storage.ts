@@ -11,8 +11,8 @@ export const DEFAULT_OUTPAINT_INSTRUCTIONS_EN =
 export const DEFAULT_PREFERENCES: Preferences = {
   streamPreview: true,
   baseUrl: OPENAI_ROOT,
-  imageModel: "gpt-image-2",
-  reviewModel: "gpt-5.4-mini",
+  imageModel: "gpt-image-2.5-flare",
+  reviewModel: "gpt-6-luna",
   quality: "high",
   subject: "auto",
   style: "strong",

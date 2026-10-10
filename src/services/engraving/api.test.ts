@@ -313,7 +313,7 @@ it("rejects unsupported legacy quality before making a billable request", async 
   await expect(
     createEngravingApi(fetcher).generate({
       ...input(),
-      config: { ...config, quality: "max" },
+      config: { ...config, imageModel: "gpt-image-2", quality: "max" },
     }),
   ).rejects.toThrow("生成质量");
   expect(fetcher).not.toHaveBeenCalled();

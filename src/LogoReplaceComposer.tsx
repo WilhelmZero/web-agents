@@ -49,6 +49,7 @@ import LogoReplaceDevComposer from './LogoReplaceDevComposer';
 import { reportTaskProgress } from './services/taskProgress';
 import { analyzeSceneLogoStyles, buildLogoReplacementInstruction, generateInpaintImage, generateLogoReplacement, generateMultiLogoReplacement, verifyLogoReplacement } from './services/gemini';
 import { analyzeSceneLogoStylesOpenAi, generateLogoReplacementOpenAi, generateLogoResultInpaintOpenAi, generateMultiLogoReplacementOpenAi, verifyLogoReplacementOpenAi } from './services/logoReplaceOpenAi';
+import { OPENAI_IMAGE_MODEL_OPTIONS, OPENAI_LANGUAGE_MODEL_OPTIONS } from './services/openAiModels';
 import { imageDimensions, outputAspectRatio, resizeImageBlob } from './services/logoOutputSizing';
 import { assignReplacementLogos, buildLogoReplaceTasks, shouldAutoRetryLogoError } from './services/logoReplaceUtils';
 import { readLocalStorage } from './storage';
@@ -620,6 +621,7 @@ function LogoReplaceSingleComposer({
   }, [tasks, onTaskDetailChange]);
   const taskCount = replaceableScenes.length * settings.copiesPerScene;
   const gptOutputCostRange = estimateGptImage2HighOutputCostRange(taskCount);
+  const costEstimateAvailable = settings.imageProvider !== 'openai' || settings.openAiImageModel === 'gpt-image-2' || settings.openAiImageModel === 'gpt-image-2-2026-04-21';
   const baseEstimatedCost = settings.imageProvider === 'openai' ? gptOutputCostRange.max : estimateImageCost(settings.imageModel, settings.imageSize, taskCount) + taskCount * PRICING.models[settings.imageModel].inputImage * (settings.useOldLogoReference && oldLogo ? 2 : 1);
   const worstCaseImageCost = baseEstimatedCost * (settings.strictTextVerification ? settings.verificationRetries + 1 : 1) * (settings.autoRetryErrors ? settings.errorRetryLimit + 1 : 1);
   const groups = useMemo(() => scenes.map((scene) => ({ scene, tasks: tasks.filter((task) => task.sceneId === scene.id) })).filter((group) => group.tasks.length), [scenes, tasks]);
@@ -709,7 +711,7 @@ function LogoReplaceSingleComposer({
           {settings.strictTextVerification && <Space direction="vertical" style={{ width: '100%', marginTop: 10 }}>
             <Segmented block value={settings.languageProvider} onChange={(languageProvider) => patchSettings({ languageProvider: languageProvider as LogoReplaceSettings['languageProvider'] })} options={[{ value: 'gemini', label: 'Gemini' }, { value: 'openai', label: 'GPT' }]} />
             {settings.languageProvider === 'openai'
-              ? <Select value={settings.openAiLanguageModel} onChange={(openAiLanguageModel) => patchSettings({ openAiLanguageModel })} options={[{ value: 'gpt-5.6-terra', label: 'GPT-5.6 Terra（推荐）' }, { value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol（最高质量）' }, { value: 'gpt-5.6-luna', label: 'GPT-5.6 Luna（低成本）' }]} />
+              ? <Select value={settings.openAiLanguageModel} onChange={(openAiLanguageModel) => patchSettings({ openAiLanguageModel })} options={OPENAI_LANGUAGE_MODEL_OPTIONS} />
               : <Select value={settings.verificationModel} onChange={(verificationModel) => patchSettings({ verificationModel })} options={[{ value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite' }, { value: 'gemini-3.1-flash', label: 'Gemini 3.1 Flash' }, { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' }]} />}
             <Flex justify="space-between" align="center"><Text>自动修复次数</Text><InputNumber min={0} max={3} value={settings.verificationRetries} onChange={(verificationRetries) => patchSettings({ verificationRetries: verificationRetries ?? 2 })} /></Flex>
           </Space>}
@@ -776,7 +778,7 @@ function LogoReplaceSingleComposer({
           <Text type="secondary" className="field-help">图片按“场景图、可选旧 Logo、新 Logo”的顺序作为独立图片内容提交。</Text>
         </Form.Item>
         <Form.Item label="图片服务"><Segmented block value={settings.imageProvider} onChange={(imageProvider) => patchSettings({ imageProvider: imageProvider as LogoReplaceSettings['imageProvider'] })} options={[{ value: 'gemini', label: 'Gemini' }, { value: 'openai', label: 'GPT' }]} /></Form.Item>
-        <Form.Item label="图片模型">{settings.imageProvider === 'openai' ? <Select value={settings.openAiImageModel} options={[{ value: 'gpt-image-2', label: 'GPT Image 2' }]} /> : <Select value={settings.imageModel} onChange={(imageModel) => patchSettings({ imageModel })} options={Object.entries(MODEL_CAPABILITIES).map(([value, item]) => ({ value, label: item.label }))} />}</Form.Item>
+        <Form.Item label="图片模型">{settings.imageProvider === 'openai' ? <Select value={settings.openAiImageModel} onChange={(openAiImageModel) => patchSettings({ openAiImageModel })} options={OPENAI_IMAGE_MODEL_OPTIONS} /> : <Select value={settings.imageModel} onChange={(imageModel) => patchSettings({ imageModel })} options={Object.entries(MODEL_CAPABILITIES).map(([value, item]) => ({ value, label: item.label }))} />}</Form.Item>
         {settings.imageProvider === 'gemini' ? <><Form.Item label="画面比例">
           <Radio.Group value={settings.ratioMode} onChange={(event) => patchSettings({ ratioMode: event.target.value })}><Radio value="original">跟随场景原图</Radio><Radio value="fixed">指定比例</Radio><Radio value="custom">自定义分辨率</Radio></Radio.Group>
           {settings.ratioMode === 'fixed' && <Select style={{ marginTop: 10 }} value={settings.aspectRatio} onChange={(aspectRatio) => patchSettings({ aspectRatio })} options={MODEL_CAPABILITIES[settings.imageModel].aspectRatios.map((value) => ({ value, label: value }))} />}
@@ -794,7 +796,10 @@ function LogoReplaceSingleComposer({
           </Space>}
         </Form.Item>
       </Form>
-      <Card className="price-card" variant="borderless"><Flex gap={20} wrap><Statistic title={settings.imageProvider === 'openai' ? 'GPT 预计图片输出费用（上限）' : '基础预计价格'} prefix="$" precision={3} value={baseEstimatedCost} />{(settings.strictTextVerification || settings.autoRetryErrors) && <Statistic title="最坏情况生图价格" prefix="$" precision={3} value={worstCaseImageCost} />}</Flex>{settings.imageProvider === 'openai' ? <Text type="secondary">GPT Image 2 当前使用 high 质量与 auto 尺寸，按官方常见尺寸每张约 US$0.165–0.211 估算；本次 {taskCount} 个请求的输出费用约 US${gptOutputCostRange.min.toFixed(3)}–{gptOutputCostRange.max.toFixed(3)}。输入场景图、Logo 和提示词 token 会按实际大小另计；最坏情况同时计入文字校验与错误自动重试上限。<a href="https://developers.openai.com/api/docs/guides/image-generation#calculating-costs" target="_blank" rel="noreferrer">OpenAI 官方计价</a></Text> : <Text type="secondary">基础费用按 {taskCount} 个请求估算。{settings.strictTextVerification ? `文字校验最多重新生成 ${settings.verificationRetries} 次；` : ''}{settings.autoRetryErrors ? `接口错误最多自动重试 ${settings.errorRetryLimit} 次；` : ''}校验模型的文本 token 费用另计。</Text>}</Card>
+      <Card className="price-card" variant="borderless">
+        {costEstimateAvailable ? <><Flex gap={20} wrap><Statistic title={settings.imageProvider === 'openai' ? 'GPT 图片输出估算（旧模型）' : '基础预计价格'} prefix="$" precision={3} value={baseEstimatedCost} />{(settings.strictTextVerification || settings.autoRetryErrors) && <Statistic title="最坏情况生图价格" prefix="$" precision={3} value={worstCaseImageCost} />}</Flex><Text type="secondary">仅旧版 GPT Image 2 或 Gemini 的粗略估算，最终以实际 token 用量为准。</Text></>
+          : <Text type="secondary">{settings.openAiImageModel} 按实际输入与输出 token 用量计费；本页不显示旧版 GPT Image 2 的单张估价。</Text>}
+      </Card>
     </div>
   );
 

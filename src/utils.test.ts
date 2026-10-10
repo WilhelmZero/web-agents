@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_SETTINGS } from './constants';
 import type { ProductImage, PromptItem } from './types';
 import {
   buildTasks,
@@ -82,8 +81,8 @@ describe('model and pricing helpers', () => {
     });
   });
   it('费用随任务数线性增长', () => {
-    const one = estimateImageCost(DEFAULT_SETTINGS.imageModel, '1K', 1);
-    expect(estimateImageCost(DEFAULT_SETTINGS.imageModel, '1K', 3)).toBeCloseTo(one * 3);
+    const one = estimateImageCost('gemini-3.1-flash-image', '1K', 1);
+    expect(estimateImageCost('gemini-3.1-flash-image', '1K', 3)).toBeCloseTo(one * 3);
   });
   it('按 GPT Image 2 high 常见尺寸估算输出费用区间', () => {
     expect(estimateGptImage2HighOutputCostRange(4)).toEqual({ min: 0.66, max: 0.844 });

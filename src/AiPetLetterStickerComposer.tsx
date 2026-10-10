@@ -273,7 +273,7 @@ export default function AiPetLetterStickerComposer({ active, settings: globalSet
     <Title level={4}>生成设置</Title>
     <Text type="secondary">使用右上角 OpenAI Key 与全局请求控制台</Text>
     <label>图片模型</label>
-    <Select value={settings.model} options={["gpt-image-2.5-sunburst", "gpt-image-2.5-flare", "gpt-image-2"].map((value) => ({ value, label: value }))} onChange={(model) => { const quality = normalizeQuality(model, settings.quality); setSettings((value) => ({ ...value, model, quality })); if (quality !== settings.quality) message.info("GPT Image 2 最高使用 high，已自动调整"); }} />
+    <Select value={settings.model} options={["gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2"].map((value) => ({ value, label: value }))} onChange={(model) => { const quality = normalizeQuality(model, settings.quality); setSettings((value) => ({ ...value, model, quality })); if (quality !== settings.quality) message.info("GPT Image 2 最高使用 high，已自动调整"); }} />
     <label>生成质量</label><Select value={settings.quality} options={qualityOptions(settings.model).map((value) => ({ value, label: value }))} onChange={(quality) => setSettings((value) => ({ ...value, quality }))} />
     <label>并发数：{settings.concurrency}</label><Slider min={1} max={6} value={settings.concurrency} onChange={(concurrency) => setSettings((value) => ({ ...value, concurrency }))} />
     <label>背景生成模式</label>

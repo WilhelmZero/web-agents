@@ -7,9 +7,11 @@ import { reportTaskProgress } from './services/taskProgress';
 import { DEFAULT_OBJECT_REPLACE_SETTINGS, MODEL_CAPABILITIES, PRICING, STORAGE_KEYS } from './constants';
 import GeneratingImage from './GeneratingImage';
 import { buildObjectReplacementInstruction, generateObjectReplacementImage } from './services/gemini';
+import { generateExactLogoReplacementOpenAi } from './services/logoReplaceOpenAi';
+import { OPENAI_IMAGE_MODEL_OPTIONS } from './services/openAiModels';
 import { buildObjectReplaceTasks } from './services/objectReplaceUtils';
 import { readLocalStorage } from './storage';
-import type { LogoAsset, ObjectPreservationOptions, ObjectReplaceSettings, ObjectReplaceTask } from './types';
+import type { ImageModel, LogoAsset, ObjectPreservationOptions, ObjectReplaceSettings, ObjectReplaceTask, OpenAiImageModel } from './types';
 import { createId, downloadBlob, estimateImageCost, mimeExtension, normalizeSettingsForModel, sanitizeFileName } from './utils';
 import OriginalCompareImage from './OriginalCompareImage';
 
@@ -28,8 +30,8 @@ function outputName(task: ObjectReplaceTask, scene: LogoAsset, model: string) {
   return String(task.sceneIndex + 1).padStart(2, '0') + '_' + sanitizeFileName(scene.name) + '_' + String(task.copyIndex + 1).padStart(2, '0') + '_' + model + '.' + mimeExtension(task.resultMimeType);
 }
 
-export default function ObjectReplaceComposer({ apiKey, apiBaseUrl, connectionMode, onRequestKey, onSessionStateChange, settingsHost }: {
-  apiKey: string; apiBaseUrl: string | null; connectionMode: 'direct' | 'proxy'; onRequestKey: () => void;
+export default function ObjectReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl, connectionMode, onRequestKey, onSessionStateChange, settingsHost }: {
+  apiKey: string; openAiApiKey: string; apiBaseUrl: string | null; connectionMode: 'direct' | 'proxy'; onRequestKey: () => void;
   onSessionStateChange?: (hasContent: boolean) => void; settingsHost?: HTMLElement | null;
 }) {
   const { message } = AntApp.useApp();
@@ -70,7 +72,7 @@ export default function ObjectReplaceComposer({ apiKey, apiBaseUrl, connectionMo
   };
   const patch = (value: Partial<ObjectReplaceSettings>) => setSettings((current) => {
     const next = { ...current, ...value };
-    return value.imageModel ? { ...next, ...normalizeSettingsForModel(value.imageModel, next.aspectRatio, next.imageSize) } : next;
+    return value.imageModel && !value.imageModel.startsWith('gpt-image-') ? { ...next, ...normalizeSettingsForModel(value.imageModel as ImageModel, next.aspectRatio, next.imageSize) } : next;
   });
   const preserve = (value: Partial<ObjectPreservationOptions>) => patch({ preservation: { ...settings.preservation, ...value } });
   const addScenes = (files: File[]) => {
@@ -110,8 +112,18 @@ export default function ObjectReplaceComposer({ apiKey, apiBaseUrl, connectionMo
     setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status: 'running', error: undefined } : item));
     try {
       const config = settingsRef.current;
-      const result = await generateObjectReplacementImage({
-        apiKey, apiBaseUrl, signal: controller.signal, model: config.imageModel, scene: scene.file,
+      const result = config.imageModel.startsWith('gpt-image-')
+        ? await generateExactLogoReplacementOpenAi({
+          apiKey: openAiApiKey,
+          model: config.imageModel as OpenAiImageModel,
+          scene: scene.file,
+          logos: [sourceRef.current?.file, targetRef.current?.file].filter((file): file is File => Boolean(file)),
+          prompt: buildObjectReplacementInstruction({ sourceObjectName: config.sourceObjectName, targetObjectName: config.targetObjectName, hasSourceReference: Boolean(sourceRef.current), hasTargetReference: Boolean(targetRef.current), preservation: config.preservation }),
+          signal: controller.signal,
+          requestLabel: '物体替换',
+        })
+        : await generateObjectReplacementImage({
+        apiKey, apiBaseUrl, signal: controller.signal, model: config.imageModel as ImageModel, scene: scene.file,
         sourceReference: sourceRef.current?.file, targetReference: targetRef.current?.file,
         sourceObjectName: config.sourceObjectName, targetObjectName: config.targetObjectName, preservation: config.preservation,
         aspectRatio: config.ratioMode === 'fixed' ? config.aspectRatio : undefined, imageSize: config.imageSize,
@@ -124,7 +136,7 @@ export default function ObjectReplaceComposer({ apiKey, apiBaseUrl, connectionMo
         error: controller.signal.aborted ? '任务已停止' : error instanceof Error ? error.message : '物体替换失败',
       } : item));
     } finally { running.current.delete(task.id); aborters.current.delete(task.id); }
-  }, [apiKey, apiBaseUrl]);
+  }, [apiKey, openAiApiKey, apiBaseUrl]);
 
   useEffect(() => {
     const free = Math.max(0, settings.concurrency - running.current.size);
@@ -132,8 +144,8 @@ export default function ObjectReplaceComposer({ apiKey, apiBaseUrl, connectionMo
   }, [tasks, settings.concurrency, execute]);
 
   const start = () => {
-    if (!apiKey) return onRequestKey();
-    if (connectionMode === 'proxy' && !apiBaseUrl) { message.warning('请先配置代理地址'); return onRequestKey(); }
+    if (!(settings.imageModel.startsWith('gpt-image-') ? openAiApiKey : apiKey)) return onRequestKey();
+    if (!settings.imageModel.startsWith('gpt-image-') && connectionMode === 'proxy' && !apiBaseUrl) { message.warning('请先配置代理地址'); return onRequestKey(); }
     if (!scenes.length) return void message.warning('请至少上传一张场景图');
     if (!settings.sourceObjectName.trim() && !sourceReference) return void message.warning('请输入原物体名称或上传原物体参考图');
     if (!settings.targetObjectName.trim() && !targetReference) return void message.warning('请输入新物体名称或上传新物体参考图');
@@ -168,14 +180,14 @@ export default function ObjectReplaceComposer({ apiKey, apiBaseUrl, connectionMo
         <Flex gap={8} style={{ marginTop: 10 }}><Input value={customDraft} placeholder="输入自定义元素" onChange={(event) => setCustomDraft(event.target.value)} onPressEnter={() => { const value = customDraft.trim(); if (value && !settings.preservation.custom.includes(value)) preserve({ custom: [...settings.preservation.custom, value] }); setCustomDraft(''); }} /><Button onClick={() => { const value = customDraft.trim(); if (value && !settings.preservation.custom.includes(value)) preserve({ custom: [...settings.preservation.custom, value] }); setCustomDraft(''); }}>新增</Button></Flex>
         {!!settings.preservation.custom.length && <Space direction="vertical" style={{ width: '100%', marginTop: 10 }}>{settings.preservation.custom.map((item, index) => <Flex key={index} gap={6}><Input value={item} onChange={(event) => preserve({ custom: settings.preservation.custom.map((value, itemIndex) => itemIndex === index ? event.target.value : value) })} /><Button danger icon={<DeleteOutlined />} onClick={() => preserve({ custom: settings.preservation.custom.filter((_, itemIndex) => itemIndex !== index) })} /></Flex>)}</Space>}
         {!targetReference && <Text type="secondary" className="field-help">未上传新物体参考图时，请在新物体名称中明确描述开启元素的外观。</Text>}</Form.Item>
-      <Form.Item label="图片模型"><Select value={settings.imageModel} onChange={(imageModel) => patch({ imageModel })} options={Object.entries(MODEL_CAPABILITIES).map(([value, item]) => ({ value, label: item.label }))} /></Form.Item>
-      <Form.Item label="画面比例"><Radio.Group value={settings.ratioMode} onChange={(event) => patch({ ratioMode: event.target.value })}><Radio value="original">跟随场景原图</Radio><Radio value="fixed">指定比例</Radio></Radio.Group>{settings.ratioMode === 'fixed' && <Select style={{ marginTop: 10 }} value={settings.aspectRatio} onChange={(aspectRatio) => patch({ aspectRatio })} options={MODEL_CAPABILITIES[settings.imageModel].aspectRatios.map((value) => ({ value, label: value }))} />}</Form.Item>
-      <Form.Item label="输出分辨率"><Segmented block value={settings.imageSize} onChange={(imageSize) => patch({ imageSize: imageSize as ObjectReplaceSettings['imageSize'] })} options={MODEL_CAPABILITIES[settings.imageModel].imageSizes} /></Form.Item>
+      <Form.Item label="图片模型"><Select value={settings.imageModel} onChange={(imageModel) => patch({ imageModel })} options={[{ label: 'GPT', options: OPENAI_IMAGE_MODEL_OPTIONS }, { label: 'Gemini', options: Object.entries(MODEL_CAPABILITIES).map(([value, item]) => ({ value, label: item.label })) }]} /></Form.Item>
+      <Form.Item label="画面比例"><Radio.Group value={settings.ratioMode} onChange={(event) => patch({ ratioMode: event.target.value })}><Radio value="original">跟随场景原图</Radio><Radio value="fixed">指定比例</Radio></Radio.Group>{settings.ratioMode === 'fixed' && <Select style={{ marginTop: 10 }} value={settings.aspectRatio} onChange={(aspectRatio) => patch({ aspectRatio })} options={(settings.imageModel.startsWith('gpt-image-') ? ['1:1', '3:2', '2:3', '16:9', '9:16'] : MODEL_CAPABILITIES[settings.imageModel as ImageModel].aspectRatios).map((value) => ({ value, label: value }))} />}</Form.Item>
+      {settings.imageModel.startsWith('gpt-image-') ? <Text type="secondary">GPT 输出尺寸由模型自动选择。</Text> : <Form.Item label="输出分辨率"><Segmented block value={settings.imageSize} onChange={(imageSize) => patch({ imageSize: imageSize as ObjectReplaceSettings['imageSize'] })} options={MODEL_CAPABILITIES[settings.imageModel as ImageModel].imageSizes} /></Form.Item>}
       <Form.Item label="每张场景生成张数"><InputNumber min={1} max={8} value={settings.copiesPerScene} onChange={(value) => patch({ copiesPerScene: value || 1 })} style={{ width: '100%' }} /></Form.Item>
       <Form.Item label="并发任务数"><InputNumber min={1} max={6} value={settings.concurrency} onChange={(value) => patch({ concurrency: value || 1 })} style={{ width: '100%' }} /></Form.Item>
       <Form.Item label="实际替换提示词"><Input.TextArea readOnly value={prompt} autoSize={{ minRows: 7, maxRows: 13 }} /><Text type="secondary" className="field-help">这是实际发送给模型的完整文本，强约束不可编辑。</Text></Form.Item>
     </Form>
-    <Card className="price-card" variant="borderless"><Statistic title="预计价格" prefix="$" precision={3} value={estimateImageCost(settings.imageModel, settings.imageSize, count) + count * PRICING.models[settings.imageModel].inputImage * ((sourceReference ? 1 : 0) + (targetReference ? 1 : 0))} /><Text type="secondary">按 {count} 个请求估算。</Text></Card>
+    <Card className="price-card" variant="borderless">{settings.imageModel.startsWith('gpt-image-') ? <Text type="secondary">GPT 图片按实际输入与输出 token 计费。</Text> : <><Statistic title="预计价格" prefix="$" precision={3} value={estimateImageCost(settings.imageModel as ImageModel, settings.imageSize, count) + count * PRICING.models[settings.imageModel as ImageModel].inputImage * ((sourceReference ? 1 : 0) + (targetReference ? 1 : 0))} /><Text type="secondary">按 {count} 个请求估算。</Text></>}</Card>
   </div>;
 
   return <div className="object-replace-page">
