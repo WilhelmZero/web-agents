@@ -334,6 +334,16 @@ export async function createStudioServer(env = process.env, dependencies = {}) {
     res.status(201).json(publicResult(result));
   } catch (error) { next(error); } });
   app.get('/api/jobs', async (_req, res, next) => { try {
+    if (_req.query.limit !== undefined || _req.query.offset !== undefined) {
+      const limit = Math.min(50, Math.max(1, Number.parseInt(String(_req.query.limit || 20), 10) || 20));
+      const offset = Math.min(100_000, Math.max(0, Number.parseInt(String(_req.query.offset || 0), 10) || 0));
+      const tool = typeof _req.query.tool === 'string' && _req.query.tool !== 'all' ? cleanTool(_req.query.tool) : undefined;
+      const status = typeof _req.query.status === 'string' && ['queued', 'running', 'success', 'failed', 'interrupted', 'cancelled'].includes(_req.query.status) ? _req.query.status : undefined;
+      if (tool && !permitted(_req.studioUser, tool)) return res.status(403).json({ error: 'Tool access denied' });
+      const allowedTools = _req.studioUser.role === 'custom' ? [...(_req.studioUser.allowedTools || []), 'operating-demand'] : null;
+      const page = await store.listJobsPage({ limit, offset, tool, status, allowedTools });
+      return res.json({ total: page.total, items: await Promise.all(page.items.map(async (job) => publicJob(job, await store.assetsForJob(job.id)))) });
+    }
     const jobs = await store.listJobs();
     res.json(await Promise.all(jobs.filter((job) => permitted(_req.studioUser, job.tool)).map(async (job) => publicJob(job, await store.assetsForJob(job.id)))));
   } catch (error) { next(error); } });

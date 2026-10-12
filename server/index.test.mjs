@@ -18,6 +18,10 @@ function fakeStore() {
     async claimJob() { const job = [...jobs.values()].find((item) => item.status === 'queued'); if (!job) return null; job.status = 'running'; job.attempts++; return job; },
     async getJob(id) { return jobs.get(id) || null; },
     async listJobs() { return [...jobs.values()]; },
+    async listJobsPage({ limit = 20, offset = 0, tool, status, allowedTools = null } = {}) {
+      const matches = [...jobs.values()].reverse().filter((job) => (!tool || job.tool === tool) && (!status || (status === 'failed' ? ['failed', 'interrupted'].includes(job.status) : job.status === status)) && (!allowedTools || allowedTools.includes(job.tool)));
+      return { items: matches.slice(offset, offset + limit), total: matches.length };
+    },
     async cancelQueuedJob(id) { const job = jobs.get(id); if (job?.status !== 'queued') return false; job.status = 'cancelled'; return true; },
     async finishJob(job, status, responseStatus, contentType, bodyPath, imageCount, errorMessage) { Object.assign(job, { status, response_status: responseStatus, response_content_type: contentType, response_body_path: bodyPath, image_count: imageCount, error_message: errorMessage, completed_at: new Date(), encrypted_key: null }); },
     async createAsset(asset) { const id = crypto.randomUUID(); assets.set(id, { id, ...asset, expired: false, file_path: asset.path }); return id; },
@@ -88,6 +92,12 @@ test('login protects routes and server key takes precedence over browser fallbac
     assert.equal(jobs[0].imageCount, 1);
     assert.equal(jobs[0].source, 'web-agents');
     assert.equal(jobs[0].assets.length, 1);
+    const firstPage = await (await fetch(`${base}/api/jobs?limit=1&offset=0&tool=scene`, { headers: { Cookie: cookie } })).json();
+    assert.equal(firstPage.total, 1);
+    assert.equal(firstPage.items[0].id, jobs[0].id);
+    const nextPage = await (await fetch(`${base}/api/jobs?limit=1&offset=1&tool=scene`, { headers: { Cookie: cookie } })).json();
+    assert.equal(nextPage.total, 1);
+    assert.deepEqual(nextPage.items, []);
     assert.equal((await fetch(`${base}/api/assets/${jobs[0].assets[0].id}`)).status, 401);
     assert.equal((await fetch(`${base}/api/assets/${jobs[0].assets[0].id}`, { headers: { Cookie: cookie } })).status, 200);
     const expiredPath = path.join(directory, 'expired-image');

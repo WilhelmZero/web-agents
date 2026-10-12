@@ -3,12 +3,33 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import sharp from 'sharp';
 
+// Keep custom-logo valid for demands/presets saved before it was removed from the picker.
 export const DEMAND_TYPES = ['main', 'dimensions', 'logo-design', 'scene', 'custom-logo'];
 export const DEMAND_PLATFORMS = ['AMAZON', 'ETSY', 'TEMU', 'SHEIN', 'EBAY', 'TIKTOK', 'WAYFAIR', 'WALMART'];
-const AUTO_TOOLS = { scene: 'scene', 'custom-logo': 'custom-monochrome-logo' };
+const VERIFIED_AUTO_TOOLS = new Set(['scene', 'custom-monochrome-logo']);
 const IMAGE_MODELS = new Set(['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst']);
 const MODEL = 'gpt-6-luna';
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+function normalizeRequirements(item = {}) {
+  const numbers = Object.fromEntries(['width', 'height', 'ratio', 'dpi', 'maxMB', 'minLongestEdge'].map((key) => [key,
+    item[key] === '' || item[key] == null ? null : Number(item[key])]));
+  if (Object.values(numbers).some((value) => value !== null && (!Number.isFinite(value) || value <= 0))) throw new Error('Image limits must be positive numbers');
+  if ((numbers.width && !numbers.height) || (!numbers.width && numbers.height) || (numbers.width && numbers.height && numbers.width * numbers.height > 80_000_000)) throw new Error('Invalid output resolution');
+  return { content: String(item.content || '').slice(0, 2000), ...numbers,
+    ratio: numbers.width && numbers.height ? numbers.width / numbers.height : numbers.ratio };
+}
+
+export function effectiveSpecifications(content) {
+  const common = content.commonRequirements || {};
+  return content.specifications.map((item) => ({ ...item,
+    content: item.content || common.content || content.description,
+    width: item.width ?? common.width ?? null, height: item.height ?? common.height ?? null,
+    ratio: (item.width ?? common.width) && (item.height ?? common.height)
+      ? (item.width ?? common.width) / (item.height ?? common.height) : item.ratio ?? common.ratio ?? null,
+    dpi: item.dpi ?? common.dpi ?? null,
+    maxMB: item.maxMB ?? common.maxMB ?? null, minLongestEdge: item.minLongestEdge ?? common.minLongestEdge ?? null }));
+}
 
 export function normalizedDemand(input) {
   if (!input || typeof input !== 'object' || !String(input.description || '').trim()) throw new Error('Demand description is required');
@@ -20,24 +41,25 @@ export function normalizedDemand(input) {
     assetId: String(item.assetId || ''), role: item.role === 'source' ? 'source' : 'reference', name: String(item.name || '').slice(0, 255),
   })) : [];
   if (assets.some((item) => !/^[a-f0-9-]{36}$/.test(item.assetId))) throw new Error('Invalid image reference');
-  const specifications = Array.isArray(input.specifications) ? input.specifications.slice(0, 20).map((item) => {
-    const width = item.width === '' || item.width == null ? null : Number(item.width);
-    const height = item.height === '' || item.height == null ? null : Number(item.height);
-    const dpi = item.dpi === '' || item.dpi == null ? null : Number(item.dpi);
-    const maxMB = item.maxMB === '' || item.maxMB == null ? null : Number(item.maxMB);
-    const minLongestEdge = item.minLongestEdge === '' || item.minLongestEdge == null ? null : Number(item.minLongestEdge);
-    const ratio = item.ratio === '' || item.ratio == null ? null : Number(item.ratio);
-    if ([width, height, dpi, maxMB, minLongestEdge, ratio].some((v) => v !== null && (!Number.isFinite(v) || v <= 0))) throw new Error('Image limits must be positive numbers');
-    if ((width && !height) || (!width && height) || (width && height && width * height > 80_000_000)) throw new Error('Invalid output resolution');
-    return { id: /^[a-f0-9-]{36}$/.test(item.id || '') ? item.id : randomUUID(), content: String(item.content || '').slice(0, 2000),
-      width, height, ratio: width && height ? width / height : ratio, dpi,
-      maxMB, minLongestEdge, referenceLinks: Array.isArray(item.referenceLinks) ? item.referenceLinks.slice(0, 10).map((v) => String(v).slice(0, 2000)) : [],
+  const commonInput = input.commonRequirements || {};
+  const count = commonInput.count === '' || commonInput.count == null ? 1 : Number(commonInput.count);
+  if (!Number.isInteger(count) || count < 1 || count > 20) throw new Error('Image count must be between 1 and 20');
+  const supplied = Array.isArray(input.specifications) ? input.specifications.slice(0, 20) : [];
+  const lastCustomized = supplied.reduce((last, item, index) => item.customized === false ? last : index + 1, 0);
+  const outputCount = Math.max(count, lastCustomized);
+  const commonRequirements = { ...normalizeRequirements(commonInput), count: outputCount,
+    source: commonInput.source && typeof commonInput.source === 'object' ? commonInput.source : undefined };
+  const specifications = Array.from({ length: outputCount }, (_, index) => {
+    const item = supplied[index] || {};
+    return { id: /^[a-f0-9-]{36}$/.test(item.id || '') ? item.id : randomUUID(), ...normalizeRequirements(item),
+      customized: supplied[index] ? item.customized !== false : false,
+      referenceLinks: Array.isArray(item.referenceLinks) ? item.referenceLinks.slice(0, 10).map((v) => String(v).slice(0, 2000)) : [],
       referenceAssetIds: Array.isArray(item.referenceAssetIds) ? item.referenceAssetIds.filter((id) => assets.some((asset) => asset.assetId === id && asset.role === 'reference')) : [],
       source: item.source && typeof item.source === 'object' ? item.source : undefined };
-  }) : [];
+  });
   return { title: String(input.title || '').slice(0, 200), description: String(input.description).slice(0, 10000),
-    type, platform, presetId: String(input.presetId || '').slice(0, 36) || null, assets,
-    specifications: specifications.length ? specifications : [{ id: randomUUID(), content: '', width: null, height: null, ratio: null, dpi: null, maxMB: null, referenceLinks: [], referenceAssetIds: [] }],
+    type, platform, presetId: String(input.presetId || '').slice(0, 36) || null, assets, commonRequirements,
+    specifications,
     links: Array.isArray(input.links) ? input.links.slice(0, 20).map((v) => String(v).slice(0, 2000)) : [],
   };
 }
@@ -58,8 +80,7 @@ function responseText(value) {
 function parseAnalysis(value, content) {
   const raw = responseText(value).trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
   const parsed = JSON.parse(raw);
-  const tool = AUTO_TOOLS[content.type] || null;
-  const requestedTool = parsed.tool === tool ? tool : null;
+  const requestedTool = VERIFIED_AUTO_TOOLS.has(parsed.tool) && (parsed.tool !== 'scene' || content.type === 'scene') ? parsed.tool : null;
   return { tool: requestedTool, rationale: String(parsed.rationale || '').slice(0, 1200),
     parameters: {
       model: IMAGE_MODELS.has(parsed.model) ? parsed.model : 'gpt-image-2.5-flare',
@@ -87,8 +108,9 @@ export function createDemandWorker({ store, dataDir, invokeAi }) {
   let draining = false;
   async function analyze(row) {
     const content = JSON.parse(row.content_json);
+    const specifications = effectiveSpecifications(content);
     const userParts = [{ type: 'input_text', text: JSON.stringify({ description: content.description, type: content.type,
-      platform: content.platform, specifications: content.specifications.map(({ content: text, width, height, dpi, maxMB }) => ({ content: text, width, height, dpi, maxMB })) }) }];
+      platform: content.platform, specifications: specifications.map(({ content: text, width, height, dpi, maxMB }) => ({ content: text, width, height, dpi, maxMB })) }) }];
     const preview = content.assets.find((item) => item.role === 'source');
     if (preview) {
       const asset = await store.getAsset(preview.assetId);
@@ -98,7 +120,7 @@ export function createDemandWorker({ store, dataDir, invokeAi }) {
       }
     }
     const body = { model: MODEL, input: [
-      { role: 'developer', content: `Analyze a commercial image-production request. Return only JSON: {"tool": "scene"|"custom-monochrome-logo"|null, "model":"gpt-image-2.5-flare", "rationale":"...", "prompts":["one prompt per requested image"]}. Only choose scene for type scene and custom-monochrome-logo for type custom-logo; otherwise null. Preserve the supplied product identity. Never use a reference link as an image source.` },
+      { role: 'developer', content: `Analyze a commercial image-production request. Return only JSON: {"tool": "scene"|"custom-monochrome-logo"|null, "model":"gpt-image-2.5-flare", "rationale":"...", "prompts":["one prompt per requested image"]}. Choose custom-monochrome-logo whenever the requested FINAL DELIVERABLE is a black-and-white or monochrome customer logo/engraving artwork, regardless of the selected image type (including no type or logo-design). Do not choose it merely because a logo is mentioned as part of a scene or in a reference image. Choose scene only for type scene when the requested final deliverable is a product scene. Otherwise choose null. Preserve the supplied product identity. Never use a reference link as an image source.` },
       { role: 'user', content: userParts },
     ] };
     const { response } = await invokeAi({ path: '/v1/responses', contentType: 'application/json', bytes: Buffer.from(JSON.stringify(body)),
@@ -110,12 +132,13 @@ export function createDemandWorker({ store, dataDir, invokeAi }) {
 
   async function execute(row, payload) {
     const content = JSON.parse(row.content_json);
-    const tool = AUTO_TOOLS[content.type];
+    const specifications = effectiveSpecifications(content);
     const analysis = payload.analysis;
-    if (!tool || analysis?.tool !== tool || !content.assets.some((item) => item.role === 'source')) throw new Error('This request has no verified automatic workflow');
+    const tool = analysis?.tool;
+    if (!VERIFIED_AUTO_TOOLS.has(tool) || (tool === 'scene' && content.type !== 'scene') || !analysis.executable || !content.assets.some((item) => item.role === 'source')) throw new Error('This request has no verified automatic workflow');
     const { asset: inputAsset, bytes: input } = await sourceImage(store, dataDir, content);
     const outcomes = [];
-    for (const [index, spec] of content.specifications.entries()) {
+    for (const [index, spec] of specifications.entries()) {
       const operationId = `demand:${row.id}:v${row.revision}:item:${spec.id}`;
       const prior = await store.getResultByOperation(operationId);
       if (prior) { outcomes.push({ index, resultId: prior.id, status: 'completed' }); continue; }

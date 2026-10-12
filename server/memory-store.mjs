@@ -22,6 +22,12 @@ export function createMemoryStore() {
     async claimJob() { const job = [...jobs.values()].find((item) => item.status === 'queued'); if (!job) return null; job.status = 'running'; job.attempts++; return job; },
     async getJob(id) { return jobs.get(id) || null; },
     async listJobs(limit = 100) { return [...jobs.values()].reverse().slice(0, limit); },
+    async listJobsPage({ limit = 20, offset = 0, tool, status, allowedTools = null } = {}) {
+      const matches = [...jobs.values()].reverse().filter((job) =>
+        (!tool || job.tool === tool) && (!status || (status === 'failed' ? ['failed', 'interrupted'].includes(job.status) : job.status === status)) &&
+        (!allowedTools || allowedTools.includes(job.tool)));
+      return { items: matches.slice(offset, offset + limit), total: matches.length };
+    },
     async cancelQueuedJob(id) { const job = jobs.get(id); if (!job || job.status !== 'queued') return false; job.status = 'cancelled'; return true; },
     async finishJob(job, status, responseStatus, responseType, responsePath, imageCount, errorMessage) {
       Object.assign(job, { status, response_status: responseStatus, response_content_type: responseType, response_body_path: responsePath, image_count: imageCount, error_message: errorMessage, completed_at: new Date(), encrypted_key: null });

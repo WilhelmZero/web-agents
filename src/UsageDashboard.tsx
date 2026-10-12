@@ -1,9 +1,10 @@
 import { BarChartOutlined, CheckCircleOutlined, PictureOutlined, RedoOutlined } from '@ant-design/icons';
-import { Card, Empty, Progress, Segmented, Tooltip, Typography } from 'antd';
+import { Card, Empty, Segmented, Tooltip, Typography } from 'antd';
 import { useMemo, useState } from 'react';
 import { summarizeUsage, type UsageRow } from './services/usageDashboard';
 
 const compactNumber = (value: number, en: boolean) => new Intl.NumberFormat(en ? 'en-US' : 'zh-CN').format(value);
+const providerColors = ['#7457d8', '#19a6a1', '#f0aa45', '#ee7897', '#7194e5', '#8aae56'];
 
 export default function UsageDashboard({ rows, labels, language, tool }: {
   rows: UsageRow[];
@@ -18,6 +19,12 @@ export default function UsageDashboard({ rows, labels, language, tool }: {
   const maxDaily = Math.max(1, ...summary.days.map((item) => item.images));
   const maxTool = Math.max(1, ...topTools.map((item) => item.images));
   const totalProviderRequests = summary.providers.reduce((sum, item) => sum + item.requests, 0);
+  let angle = 0;
+  const providerGradient = summary.providers.map((entry, index) => {
+    const start = angle;
+    angle += entry.requests / totalProviderRequests * 100;
+    return `${providerColors[index % providerColors.length]} ${start}% ${angle}%`;
+  }).join(', ');
 
   return <section className="usage-dashboard" aria-label={en ? 'Usage dashboard' : '用量仪表盘'}>
     <div className="usage-dashboard-heading">
@@ -51,10 +58,16 @@ export default function UsageDashboard({ rows, labels, language, tool }: {
         </Card>
       </div>
       <Card className="usage-provider-card" title={en ? 'Requests by provider' : '各服务商请求量'}>
-        <div className="usage-provider-list">{summary.providers.map((entry) => <div className="usage-provider-row" key={entry.provider}>
-          <div><strong>{entry.provider === 'openai' ? 'OpenAI' : entry.provider === 'gemini' ? 'Gemini' : entry.provider}</strong><span>{compactNumber(entry.requests, en)} / {compactNumber(totalProviderRequests, en)}</span></div>
-          <Progress percent={totalProviderRequests ? Math.round(entry.requests / totalProviderRequests * 100) : 0} showInfo={false} strokeColor="#7457d8" trailColor="#ece9f5" />
-        </div>)}</div>
+        <div className="usage-provider-chart">
+          <div className="usage-provider-pie" role="img" aria-label={summary.providers.map((entry) => `${entry.provider}: ${entry.requests}`).join(', ')} style={{ background: `conic-gradient(${providerGradient})` }}>
+            <div className="usage-provider-pie-center"><strong>{compactNumber(totalProviderRequests, en)}</strong><span>{en ? 'requests' : '次请求'}</span></div>
+          </div>
+          <div className="usage-provider-legend">{summary.providers.map((entry, index) => <div className="usage-provider-legend-row" key={entry.provider}>
+            <span className="usage-provider-swatch" style={{ backgroundColor: providerColors[index % providerColors.length] }} />
+            <strong>{entry.provider === 'openai' ? 'OpenAI' : entry.provider === 'gemini' ? 'Gemini' : entry.provider}</strong>
+            <span>{compactNumber(entry.requests, en)} · {Math.round(entry.requests / totalProviderRequests * 100)}%</span>
+          </div>)}</div>
+        </div>
       </Card>
     </>}
     <Typography.Text type="secondary" className="usage-dashboard-note">{en ? 'Requests count completed AI gateway records; images count actual model outputs, not final archived artwork. No cost estimate is inferred.' : '请求数为已记录完成的 AI 网关请求；图片数为模型实际输出，不等同于最终归档成品。此处不推算费用。'}{rows.length >= 5000 && (en ? ' The server returned its maximum of 5,000 grouped rows; totals may be incomplete.' : ' 服务器已返回上限 5,000 条分组记录，总计可能不完整。')}</Typography.Text>

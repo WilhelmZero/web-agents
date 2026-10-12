@@ -1554,7 +1554,7 @@ function AppContent() {
         current.forEach((item) => URL.revokeObjectURL(item.previewUrl));
         return [{ id: createId(), file, name: file.name, mimeType: file.type, previewUrl: URL.createObjectURL(file) }];
       });
-      const nextPrompts = demand.content.specifications.map((spec, index) => ({ id: createId(), content: demand.analysis?.parameters.prompts[index] || spec.content || demand.content.description }));
+      const nextPrompts = demand.content.specifications.map((spec, index) => ({ id: createId(), content: demand.analysis?.parameters.prompts[index] || spec.content || demand.content.commonRequirements?.content || demand.content.description }));
       setPrompts(nextPrompts);
       setActivePromptId(nextPrompts[0].id);
       setTasks([]);
@@ -1726,7 +1726,7 @@ function AppContent() {
               menu={{ items: [{ key: "logout", icon: <LogoutOutlined />, label: language === "en-US" ? "Sign out" : "退出登录" }], onClick: () => void studioSession.signOut() }}
             >
               <button type="button" className="account-trigger" aria-label={`${language === "en-US" ? "Account" : "个人信息"}：${studioSession.session.username}`}>
-                <Avatar size={30}>{Array.from(studioSession.session.username).slice(0, 2).join("").toLocaleUpperCase()}</Avatar>
+                <Avatar size={24}>{Array.from(studioSession.session.username).slice(0, 2).join("").toLocaleUpperCase()}</Avatar>
                 <span className="account-trigger-name">{studioSession.session.username}</span>
                 <DownOutlined className="account-trigger-chevron" />
               </button>

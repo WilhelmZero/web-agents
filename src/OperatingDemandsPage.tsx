@@ -6,18 +6,37 @@ import type { CreationTool } from './types';
 type Language = 'zh-CN' | 'en-US';
 type Role = 'operator' | 'artist' | 'admin' | 'custom';
 type Asset = { assetId: string; role: 'source' | 'reference'; name: string };
-type Specification = { id: string; content: string; width: number | null; height: number | null; ratio: number | null; dpi: number | null; maxMB: number | null; minLongestEdge?: number | null; referenceLinks: string[]; referenceAssetIds: string[]; source?: { url?: string; checkedAt?: string; status?: string } };
-type Content = { title: string; description: string; type: string | null; platform: string | null; presetId: string | null; assets: Asset[]; specifications: Specification[]; links: string[] };
+type ImageRequirements = { content: string; width: number | null; height: number | null; ratio: number | null; dpi: number | null; maxMB: number | null; minLongestEdge?: number | null; source?: { url?: string; checkedAt?: string; status?: string } };
+type Specification = ImageRequirements & { id: string; customized?: boolean; referenceLinks: string[]; referenceAssetIds: string[] };
+type Content = { title: string; description: string; type: string | null; platform: string | null; presetId: string | null; assets: Asset[]; commonRequirements?: ImageRequirements & { count: number }; specifications: Specification[]; links: string[] };
 type Analysis = { tool: CreationTool | null; rationale: string; executable: boolean; parameters: { model: string; prompts: string[] } };
 export type Demand = { id: string; creator: string; assignee: string | null; status: string; revision: number; content: Content; analysis: Analysis | null; updatedAt: string; operations: Array<{ id: string; kind: string; revision: number; status: string; error: string | null; result?: Array<{ index: number; status: string; resultId?: string; error?: string }> }> };
 type Preset = { id: string; platform: string | null; type: string | null; name: string; nameZh?: string; requirements: Array<Partial<Specification>> };
 type Account = { username: string; role: Role; allowedTools: string[]; source: string; disabled?: boolean };
 
-const TYPES = [ ['main', '首图', 'Main image'], ['dimensions', '尺寸图', 'Dimension image'], ['logo-design', 'LOGO 设计图', 'Logo design'], ['scene', '场景图', 'Scene image'], ['custom-logo', '客户定制 LOGO', 'Custom logo'] ] as const;
+const TYPES = [ ['main', '首图', 'Main image'], ['dimensions', '尺寸图', 'Dimension image'], ['logo-design', 'LOGO 设计图', 'Logo design'], ['scene', '场景图', 'Scene image'] ] as const;
+const LEGACY_CUSTOM_LOGO = ['custom-logo', '客户定制 LOGO', 'Custom logo'] as const;
 const PLATFORMS = ['AMAZON', 'ETSY', 'TEMU', 'SHEIN', 'EBAY', 'TIKTOK', 'WAYFAIR', 'WALMART'];
 const ROLES: Array<[Role, string, string]> = [['operator','运营','Operator'], ['artist','美工','Artist'], ['admin','管理员','Administrator'], ['custom','自定义','Custom']];
+const freshRequirements = (): ImageRequirements & { count: number } => ({ content: '', width: null, height: null, ratio: null, dpi: null, maxMB: null, minLongestEdge: null, count: 1 });
 const freshSpec = (): Specification => ({ id: crypto.randomUUID(), content: '', width: null, height: null, ratio: null, dpi: null, maxMB: null, referenceLinks: [], referenceAssetIds: [] });
-const freshContent = (): Content => ({ title: '', description: '', type: null, platform: null, presetId: null, assets: [], specifications: [freshSpec()], links: [] });
+const freshContent = (): Content => ({ title: '', description: '', type: null, platform: null, presetId: null, assets: [], commonRequirements: freshRequirements(), specifications: [], links: [] });
+const requirementKeys = ['content', 'width', 'height', 'ratio', 'dpi', 'maxMB', 'minLongestEdge'] as const;
+function hasWrittenRequirements(content: Content) {
+  return (content.commonRequirements?.count || 1) > 1 || requirementKeys.some((key) => Boolean(content.commonRequirements?.[key]))
+    || content.specifications.some((spec) => spec.customized !== false && requirementKeys.some((key) => Boolean(spec[key])));
+}
+function describePreset(preset: Preset, en: boolean) {
+  return preset.requirements.map((spec, index) => [
+    `${en ? 'Image' : '第'} ${index + 1}${en ? '' : ' 张'}`,
+    spec.content,
+    spec.width && spec.height ? `${spec.width} × ${spec.height} px` : null,
+    spec.ratio && !(spec.width && spec.height) ? `${en ? 'ratio' : '比例'} ${spec.ratio}` : null,
+    spec.dpi ? `${spec.dpi} DPI` : null,
+    spec.maxMB ? `${en ? 'max' : '最大'} ${spec.maxMB} MB` : null,
+    spec.minLongestEdge ? `${en ? 'longest edge ≥' : '最长边 ≥'} ${spec.minLongestEdge} px` : null,
+  ].filter(Boolean).join(' · ')).join('\n');
+}
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, { credentials: 'same-origin', ...init });
@@ -68,6 +87,31 @@ function SpecificationEditor({ value, onChange, onRemove, assets, language }: {
   </Card>;
 }
 
+function CommonRequirementsEditor({ value, onChange, language }: {
+  value: ImageRequirements & { count: number }; onChange: (value: ImageRequirements & { count: number }) => void; language: Language;
+}) {
+  const en = language === 'en-US';
+  const patch = (part: Partial<ImageRequirements & { count: number }>) => {
+    const next = { ...value, ...part };
+    if (next.width && next.height) next.ratio = next.width / next.height;
+    onChange(next);
+  };
+  return <Space direction="vertical" style={{ width: '100%' }}>
+    <Input.TextArea value={value.content} onChange={(event) => patch({ content: event.target.value })}
+      placeholder={en ? 'Instructions applying to every finished image' : '适用于每张成品图的内容要求'} autoSize={{ minRows: 2, maxRows: 4 }} />
+    <Space wrap>
+      <InputNumber min={1} max={20} value={value.count} onChange={(count) => patch({ count: count || 1 })} addonAfter={en ? 'images' : '张'} aria-label={en ? 'Image count' : '图片张数'} />
+      <InputNumber min={1} max={10000} value={value.width} onChange={(width) => patch({ width })} addonAfter="px" placeholder={en ? 'Width' : '宽'} />
+      <InputNumber min={1} max={10000} value={value.height} onChange={(height) => patch({ height })} addonAfter="px" placeholder={en ? 'Height' : '高'} />
+      <InputNumber min={0.1} step={0.01} value={value.ratio} disabled={Boolean(value.width && value.height)} onChange={(ratio) => patch({ ratio })} addonBefore={en ? 'Ratio' : '比例'} />
+      <InputNumber min={1} value={value.dpi} onChange={(dpi) => patch({ dpi })} addonAfter="DPI" />
+      <InputNumber min={0.1} step={0.1} value={value.maxMB} onChange={(maxMB) => patch({ maxMB })} addonAfter="MB" placeholder={en ? 'Size limit' : '大小限制'} />
+      <InputNumber min={1} value={value.minLongestEdge} onChange={(minLongestEdge) => patch({ minLongestEdge })} addonAfter="px" placeholder={en ? 'Min longest edge' : '最长边下限'} />
+    </Space>
+    {value.source?.status && <Typography.Text type="secondary">{value.source.status === 'unverified' ? (en ? 'Unverified suggestion' : '待核验建议') : (en ? 'Platform source' : '平台来源')} · {value.source.checkedAt || ''} {value.source.url && <a href={value.source.url} target="_blank" rel="noreferrer">{en ? 'Source' : '来源'}</a>}</Typography.Text>}
+  </Space>;
+}
+
 export default function OperatingDemandsPage({ language, username, admin, toolOptions, onOpenTool, focusedId }: {
   language: Language; username: string; admin: boolean; toolOptions: Array<{ key: CreationTool; label: string }>;
   onOpenTool: (tool: CreationTool, demand: Demand) => void; focusedId?: string | null;
@@ -109,7 +153,7 @@ export default function OperatingDemandsPage({ language, username, admin, toolOp
       setEditing(undefined); message.success(t('需求已保存，AI 正在分析参数', 'Request saved; AI is analyzing parameters')); await refresh();
     } catch (error) { message.error(localizedError(error, language)); } finally { setBusy(false); }
   };
-  const upload = async (files: FileList | null) => {
+  const upload = async (files: FileList | null, role: Asset['role']) => {
     if (!files) return;
     setBusy(true);
     try {
@@ -117,18 +161,44 @@ export default function OperatingDemandsPage({ language, username, admin, toolOp
       for (const file of Array.from(files)) {
         if (!file.type.startsWith('image/') || file.size > 20 * 1024 * 1024) throw new Error(t('只支持 20 MB 以内的图片', 'Only images up to 20 MB are supported'));
         const result = await api<{ id: string }>('/api/assets', { method: 'POST', headers: { 'Content-Type': file.type, 'X-Tool': 'operating-demand', 'X-File-Name': encodeURIComponent(file.name) }, body: file });
-        uploaded.push({ assetId: result.id, role: 'reference', name: file.name });
+        uploaded.push({ assetId: result.id, role, name: file.name });
       }
       setDraft((previous) => ({ ...previous, assets: [...previous.assets, ...uploaded] }));
     } catch (error) { message.error(localizedError(error, language)); } finally { setBusy(false); }
   };
-  const applyPreset = (id: string) => {
-    const preset = presets.find((item) => item.id === id);
-    if (!preset) return;
-    setDraft((previous) => ({ ...previous, presetId: id,
-      specifications: preset.requirements.map((item) => ({ ...freshSpec(), ...item, id: crypto.randomUUID(), referenceLinks: [], referenceAssetIds: [] })) }));
+  const applyPreset = (preset: Preset, base: Content, confirmOverwrite = true) => {
+    const apply = () => {
+      const first = preset.requirements[0] || {};
+      setDraft({ ...base, presetId: preset.id,
+        commonRequirements: { ...freshRequirements(), ...Object.fromEntries(requirementKeys.map((key) => [key, first[key] ?? (key === 'content' ? '' : null)])),
+          ratio: first.width && first.height ? first.width / first.height : first.ratio ?? null,
+          count: Math.max(1, preset.requirements.length), source: first.source },
+        specifications: preset.requirements.length > 1 ? preset.requirements.map((item) => ({ ...freshSpec(), ...item, id: crypto.randomUUID(), customized: true, referenceLinks: [], referenceAssetIds: [] })) : [] });
+    };
+    if (!confirmOverwrite || !hasWrittenRequirements(base)) return apply();
+    Modal.confirm({ title: t('应用预设并覆盖已填写的图片要求？', 'Apply preset and replace existing image requirements?'),
+      content: <div><Typography.Text strong>{en ? preset.name : preset.nameZh || preset.name}</Typography.Text>
+        <Typography.Paragraph style={{ whiteSpace: 'pre-wrap', marginTop: 8 }}>{describePreset(preset, en)}</Typography.Paragraph></div>,
+      okText: t('应用预设', 'Apply preset'), cancelText: t('保留已填写内容', 'Keep current requirements'), onOk: apply });
   };
-  const setSpec = (id: string, value: Specification) => setDraft((previous) => ({ ...previous, specifications: previous.specifications.map((item) => item.id === id ? value : item) }));
+  const chooseClassification = (part: Pick<Content, 'type' | 'platform'>) => {
+    const next = { ...draft, ...part, presetId: null };
+    if (!next.type || !next.platform) return setDraft(next);
+    const candidates = presets.filter((preset) => (preset.platform === next.platform || preset.platform === null) && (preset.type === next.type || preset.type === null));
+    const score = (preset: Preset) => Number(preset.platform === next.platform) * 2 + Number(preset.type === next.type);
+    candidates.sort((a, b) => score(b) - score(a));
+    if (candidates[0]?.id === draft.presetId) return setDraft({ ...next, presetId: draft.presetId });
+    setDraft(next);
+    if (candidates[0]) applyPreset(candidates[0], next);
+  };
+  const setSpec = (id: string, value: Specification) => setDraft((previous) => ({ ...previous, specifications: previous.specifications.map((item) => item.id === id ? { ...value, customized: true } : item) }));
+  const addImageRequirement = () => setDraft((previous) => {
+    const specifications = [...previous.specifications];
+    const index = specifications.findIndex((item) => item.customized === false);
+    const target = index < 0 ? specifications.length : index;
+    specifications[target] = { ...(specifications[target] || freshSpec()), customized: true };
+    return { ...previous, specifications, commonRequirements: { ...(previous.commonRequirements || freshRequirements()), count: Math.max(previous.commonRequirements?.count || 1, target + 1) } };
+  });
   const action = async (url: string, method = 'POST', body?: unknown): Promise<boolean> => { setBusy(true); try { await api(url, body ? json(method, body) : { method }); await refresh(); return true; } catch (error) { message.error(localizedError(error, language)); return false; } finally { setBusy(false); } };
   const savePreset = async () => {
     if (!presetEdit) return;
@@ -152,7 +222,7 @@ export default function OperatingDemandsPage({ language, username, admin, toolOp
         const currentRun = demand.operations.find((op) => op.kind === 'execute' && op.revision === demand.revision);
         const parameters = analysisEdits[demand.id] || demand.analysis?.parameters;
         return <List.Item key={demand.id} id={`demand-${demand.id}`} style={focusedId === demand.id ? { background: '#f1edff', borderRadius: 12, padding: 16 } : {}}>
-          <Card style={{ width: '100%' }} title={<Space wrap><span>{demand.content.title || demand.content.description.slice(0, 60)}</span><Tag>{TYPES.find((item) => item[0] === demand.content.type)?.[en ? 2 : 1] || t('未指定类型', 'No type')}</Tag><Tag>{demand.content.platform || t('未指定平台', 'No platform')}</Tag><Tag color={demand.status === 'completed' ? 'success' : 'processing'}>{demand.status === 'completed' ? t('已完成', 'Completed') : t('进行中', 'Open')}</Tag></Space>}
+          <Card style={{ width: '100%' }} title={<Space wrap><span>{demand.content.title || demand.content.description.slice(0, 60)}</span><Tag>{TYPES.find((item) => item[0] === demand.content.type)?.[en ? 2 : 1] || (demand.content.type === LEGACY_CUSTOM_LOGO[0] ? LEGACY_CUSTOM_LOGO[en ? 2 : 1] : t('未指定类型', 'No type'))}</Tag><Tag>{demand.content.platform || t('未指定平台', 'No platform')}</Tag><Tag color={demand.status === 'completed' ? 'success' : 'processing'}>{demand.status === 'completed' ? t('已完成', 'Completed') : t('进行中', 'Open')}</Tag></Space>}
             extra={<Space><Typography.Text type="secondary">{demand.creator} → {demand.assignee || t('未分配', 'Unassigned')}</Typography.Text><Button size="small" icon={<EditOutlined />} onClick={() => { setEditing(demand); setDraft(structuredClone(demand.content)); setAssignee(demand.assignee); }}>{t('编辑', 'Edit')}</Button></Space>}>
             <Typography.Paragraph>{demand.content.description}</Typography.Paragraph>
             <Space wrap>{demand.content.assets.map((asset) => <Tag key={asset.assetId}>{asset.role === 'source' ? t('原图', 'Source') : t('参考', 'Reference')} · {asset.name}</Tag>)}</Space>
@@ -185,24 +255,31 @@ export default function OperatingDemandsPage({ language, username, admin, toolOp
     <Drawer title={editing ? t('编辑做图需求', 'Edit request') : t('新建做图需求', 'New request')} open={editing !== undefined} width="min(760px, 100vw)" onClose={() => setEditing(undefined)} extra={<Button type="primary" loading={busy} onClick={() => void save()}>{t('保存需求', 'Save request')}</Button>}>
       <Form layout="vertical"><Form.Item label={t('标题（选填）', 'Title (optional)')}><Input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} /></Form.Item>
         <Form.Item label={t('具体做图需求', 'Image production brief')} required><Input.TextArea value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} rows={4} /></Form.Item>
-        <Row gutter={12}><Col span={12}><Form.Item label={t('做图类型', 'Image type')}><Select allowClear value={draft.type} options={TYPES.map(([value, zh, english]) => ({ value, label: en ? english : zh }))} onChange={(type) => setDraft({ ...draft, type: type || null })} /></Form.Item></Col>
-          <Col span={12}><Form.Item label={t('平台', 'Platform')}><Select allowClear value={draft.platform} options={PLATFORMS.map((value) => ({ value }))} onChange={(platform) => setDraft({ ...draft, platform: platform || null })} /></Form.Item></Col></Row>
+        <Row gutter={12}><Col span={12}><Form.Item label={t('做图类型', 'Image type')} extra={t('黑白 Logo 需求会根据描述自动识别，无需选择专门类型。', 'Black-and-white logo requests are recognized from the brief; no separate type is needed.')}><Select allowClear value={draft.type} options={[...TYPES.map(([value, zh, english]) => ({ value, label: en ? english : zh })), ...(draft.type === LEGACY_CUSTOM_LOGO[0] ? [{ value: LEGACY_CUSTOM_LOGO[0], label: en ? LEGACY_CUSTOM_LOGO[2] : LEGACY_CUSTOM_LOGO[1], disabled: true }] : [])]} onChange={(type) => chooseClassification({ type: type || null, platform: draft.platform })} /></Form.Item></Col>
+          <Col span={12}><Form.Item label={t('平台', 'Platform')}><Select allowClear value={draft.platform} options={PLATFORMS.map((value) => ({ value }))} onChange={(platform) => chooseClassification({ type: draft.type, platform: platform || null })} /></Form.Item></Col></Row>
         <Form.Item label={t('负责美工', 'Assigned artist')}><Select allowClear value={assignee} options={artists.map((item) => ({ value: item.username }))} onChange={(value) => setAssignee(value || null)} /></Form.Item>
-        <Form.Item label={t('套用图片要求预设', 'Apply image preset')}><Select allowClear value={draft.presetId} options={presets.filter((item) => (!item.platform || item.platform === draft.platform) && (!item.type || item.type === draft.type)).map((item) => ({ value: item.id, label: en ? item.name : item.nameZh || item.name }))} onChange={(id) => id ? applyPreset(id) : setDraft({ ...draft, presetId: null })} /></Form.Item>
-        <Divider>{t('上传图片并标记用途', 'Upload images and set their purpose')}</Divider>
-        <label className="operating-upload-label"><UploadOutlined /> {t('上传图片', 'Upload images')}<input type="file" accept="image/*" multiple hidden onChange={(e) => { void upload(e.target.files); e.target.value = ''; }} /></label>
+        <Form.Item label={t('图片要求预设（可更换）', 'Image preset (optional override)')} extra={t('选好类型和平台会自动带入匹配预设；已有要求时先确认。', 'Choosing a type and platform applies a matching preset; existing requirements require confirmation.')}><Select allowClear value={draft.presetId} options={presets.filter((item) => (!item.platform || item.platform === draft.platform) && (!item.type || item.type === draft.type)).map((item) => ({ value: item.id, label: en ? item.name : item.nameZh || item.name }))} onChange={(id) => { const preset = presets.find((item) => item.id === id); if (preset) applyPreset(preset, draft); else setDraft({ ...draft, presetId: null }); }} /></Form.Item>
+        <Divider>{t('所有图片的共同要求', 'Requirements for all images')}</Divider>
+        <CommonRequirementsEditor value={draft.commonRequirements || { ...freshRequirements(), count: Math.max(1, draft.specifications.length) }} language={language} onChange={(commonRequirements) => setDraft((previous) => ({ ...previous, commonRequirements: { ...commonRequirements,
+          count: Math.max(commonRequirements.count, previous.specifications.reduce((last, item, index) => item.customized === false ? last : index + 1, 1)) } }))} />
+        <Divider>{t('上传素材', 'Upload assets')}</Divider>
+        <Typography.Paragraph type="secondary">{t('自动执行使用第一张待处理图片；参考效果图只作风格参考。不需要上传时也可以先保存需求。', 'Automatic runs use the first source image; style references only guide the AI. You can save a request without uploading yet.')}</Typography.Paragraph>
+        <Space wrap>
+          <label className="operating-upload-label"><UploadOutlined /> {t('上传待处理图片', 'Upload source images')}<input type="file" accept="image/*" multiple hidden onChange={(event) => { void upload(event.target.files, 'source'); event.target.value = ''; }} /></label>
+          <label className="operating-upload-label"><UploadOutlined /> {t('上传参考效果图', 'Upload style references')}<input type="file" accept="image/*" multiple hidden onChange={(event) => { void upload(event.target.files, 'reference'); event.target.value = ''; }} /></label>
+        </Space>
         <List size="small" dataSource={draft.assets} renderItem={(asset) => <List.Item actions={[<Button key="remove" danger size="small" icon={<DeleteOutlined />} onClick={() => setDraft((value) => ({ ...value, assets: value.assets.filter((item) => item.assetId !== asset.assetId) }))} />]}>
-          <Space><Image width={56} height={56} style={{ objectFit: 'contain' }} src={`/api/assets/${asset.assetId}`} /><Typography.Text>{asset.name}</Typography.Text><Select value={asset.role} style={{ width: 140 }} options={[{ value: 'source', label: t('待处理原图', 'Source image') }, { value: 'reference', label: t('效果参考', 'Reference') }]} onChange={(role) => setDraft((value) => ({ ...value, assets: value.assets.map((item) => item.assetId === asset.assetId ? { ...item, role } : item) }))} /></Space>
+          <Space><Image width={56} height={56} style={{ objectFit: 'contain' }} src={`/api/assets/${asset.assetId}`} /><Typography.Text>{asset.name}</Typography.Text><Tag color={asset.role === 'source' ? 'purple' : 'blue'}>{asset.role === 'source' ? t('待处理图片', 'Source image') : t('参考效果图', 'Style reference')}</Tag><Button size="small" onClick={() => setDraft((value) => ({ ...value, assets: value.assets.map((item) => item.assetId === asset.assetId ? { ...item, role: item.role === 'source' ? 'reference' : 'source' } : item) }))}>{t('切换用途', 'Switch use')}</Button></Space>
         </List.Item>}/>
+        <Button style={{ marginTop: 12 }} icon={<PlusOutlined />} onClick={addImageRequirement}>{t('添加单张图片的特殊要求', 'Add requirements for one image')}</Button>
+        {draft.specifications.some((spec) => spec.customized !== false) && <Typography.Paragraph type="secondary" style={{ marginTop: 8 }}>{t('留空的单张字段会沿用上方所有图片的共同要求。', 'Blank per-image fields inherit the requirements for all images above.')}</Typography.Paragraph>}
+        {draft.specifications.map((spec, index) => spec.customized === false ? null : <div key={spec.id} style={{ marginTop: 12 }}><Typography.Text strong>{t('第', 'Image ')}{index + 1}{t('张的特殊要求', ' overrides')}</Typography.Text><SpecificationEditor value={spec} assets={draft.assets} language={language} onChange={(value) => setSpec(spec.id, value)} onRemove={() => setDraft((previous) => ({ ...previous, specifications: previous.specifications.map((item) => item.id === spec.id ? { ...freshSpec(), id: item.id, customized: false } : item) }))} /></div>)}
         <Form.Item label={t('通用参考链接，每行一个（选填）', 'General reference links, one per line (optional)')}><Input.TextArea value={draft.links.join('\n')} onChange={(e) => setDraft({ ...draft, links: lines(e.target.value) })} autoSize={{ minRows: 1, maxRows: 4 }} /></Form.Item>
-        <Divider>{t('逐张图片要求', 'Requirements per image')}</Divider>
-        {draft.specifications.map((spec, index) => <div key={spec.id}><Typography.Text strong>{t('第', 'Image ')}{index + 1}{t('张', '')}</Typography.Text><SpecificationEditor value={spec} assets={draft.assets} language={language} onChange={(value) => setSpec(spec.id, value)} onRemove={() => setDraft((previous) => ({ ...previous, specifications: previous.specifications.filter((item) => item.id !== spec.id) }))} /></div>)}
-        <Button icon={<PlusOutlined />} onClick={() => setDraft((value) => ({ ...value, specifications: [...value.specifications, freshSpec()] }))}>{t('增加一张图片', 'Add image requirement')}</Button>
       </Form>
     </Drawer>
     <Drawer title={t('编辑共享预设', 'Edit shared preset')} open={presetEdit !== undefined} width="min(700px, 100vw)" onClose={() => setPresetEdit(undefined)} extra={<Button type="primary" onClick={() => void savePreset()}>{t('保存预设', 'Save preset')}</Button>}>
       {presetEdit && <Space direction="vertical" style={{ width: '100%' }}><Input value={presetEdit.name} placeholder={t('英文名称', 'English name')} onChange={(e) => setPresetEdit({ ...presetEdit, name: e.target.value })} /><Input value={presetEdit.nameZh} placeholder={t('中文名称', 'Chinese name')} onChange={(e) => setPresetEdit({ ...presetEdit, nameZh: e.target.value })} />
-        <Space><Select allowClear placeholder={t('平台', 'Platform')} value={presetEdit.platform} style={{ width: 180 }} options={PLATFORMS.map((value) => ({ value }))} onChange={(platform) => setPresetEdit({ ...presetEdit, platform: platform || null })} /><Select allowClear placeholder={t('类型', 'Type')} value={presetEdit.type} style={{ width: 180 }} options={TYPES.map(([value, zh, english]) => ({ value, label: en ? english : zh }))} onChange={(type) => setPresetEdit({ ...presetEdit, type: type || null })} /></Space>
+        <Space><Select allowClear placeholder={t('平台', 'Platform')} value={presetEdit.platform} style={{ width: 180 }} options={PLATFORMS.map((value) => ({ value }))} onChange={(platform) => setPresetEdit({ ...presetEdit, platform: platform || null })} /><Select allowClear placeholder={t('类型', 'Type')} value={presetEdit.type} style={{ width: 180 }} options={[...TYPES.map(([value, zh, english]) => ({ value, label: en ? english : zh })), ...(presetEdit.type === LEGACY_CUSTOM_LOGO[0] ? [{ value: LEGACY_CUSTOM_LOGO[0], label: en ? LEGACY_CUSTOM_LOGO[2] : LEGACY_CUSTOM_LOGO[1], disabled: true }] : [])]} onChange={(type) => setPresetEdit({ ...presetEdit, type: type || null })} /></Space>
         {presetEdit.requirements.map((spec, index) => <div key={index}><SpecificationEditor value={{ ...freshSpec(), ...spec, id: spec.id || String(index), referenceLinks: [], referenceAssetIds: [] }} assets={[]} language={language}
           onChange={(next) => setPresetEdit((current) => current && ({ ...current, requirements: current.requirements.map((item, i) => i === index ? { ...next, source: item.source } : item) }))}
           onRemove={() => setPresetEdit((current) => current && ({ ...current, requirements: current.requirements.filter((_, i) => i !== index) }))} />

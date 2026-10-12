@@ -1,7 +1,7 @@
 import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
-import { Alert, Button, Card, Checkbox, Empty, Image, InputNumber, Select, Space, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Checkbox, Empty, Image, InputNumber, Pagination, Select, Space, Tag, Typography } from 'antd';
 import JSZip from 'jszip';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { downloadBlob, mimeExtension, sanitizeFileName } from './utils';
 import type { RenderParams } from './services/engraving/types';
 import type { WrapDesign, PrintSettings } from './services/cupWrap/types';
@@ -22,11 +22,15 @@ interface Job {
 const statusColor = (status: string) => status === 'success' ? 'green' : ['failed', 'interrupted'].includes(status) ? 'red' : status === 'queued' ? 'gold' : 'blue';
 const statusLabel = (status: string, en: boolean) => ({ queued: en ? 'Queued' : '排队中', running: en ? 'Running' : '进行中', success: en ? 'Complete' : '已完成', failed: en ? 'Failed' : '失败', interrupted: en ? 'Interrupted' : '已中断', cancelled: en ? 'Cancelled' : '已取消' })[status as 'queued' | 'running' | 'success' | 'failed' | 'interrupted' | 'cancelled'] || status;
 const nameFor = (result: Result) => sanitizeFileName(result.name || `${result.tool}.${mimeExtension(result.mime)}`);
+const JOB_PAGE_SIZE = 20;
 
 export default function ResultsPage({ labels, language }: { labels: Record<string, string>; language: 'zh-CN' | 'en-US' }) {
   const en = language === 'en-US';
   const [results, setResults] = useState<Result[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [jobPage, setJobPage] = useState(1);
+  const [jobTotal, setJobTotal] = useState(0);
+  const [jobsLoading, setJobsLoading] = useState(false);
   const [tool, setTool] = useState('all');
   const [status, setStatus] = useState('all');
   const [selected, setSelected] = useState<string[]>([]);
@@ -46,21 +50,39 @@ export default function ResultsPage({ labels, language }: { labels: Record<strin
       if (tool !== 'all') query.set('tool', tool);
       if (status === 'success') query.set('status', 'available');
       if (status === 'expired') query.set('status', 'expired');
-      const [resultResponse, jobResponse, usageResponse] = await Promise.all([
-        fetch(`/api/results?${query}`), fetch('/api/jobs'),
+      const [resultResponse, usageResponse] = await Promise.all([
+        fetch(`/api/results?${query}`),
         isAdmin ? fetch('/api/admin/usage').catch(() => null) : Promise.resolve(null),
       ]);
-      if (!resultResponse.ok || !jobResponse.ok) throw new Error(en ? 'Cannot load results' : '无法读取生成结果');
+      if (!resultResponse.ok) throw new Error(en ? 'Cannot load results' : '无法读取生成结果');
       const batch = await resultResponse.json() as Result[];
       const visibleBatch = ['all', 'success', 'expired'].includes(status) ? batch : [];
       setResults((current) => offset ? [...current, ...visibleBatch] : visibleBatch);
       setHasMore(visibleBatch.length === 40);
-      setJobs(await jobResponse.json() as Job[]);
       if (usageResponse?.ok) setAdminUsage(await usageResponse.json() as UsageRow[]);
       setError('');
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
     finally { setLoading(false); }
   }, [tool, status, en, isAdmin]);
+
+  const refreshJobs = useCallback(async (signal?: AbortSignal) => {
+    if (status === 'expired') { setJobs([]); setJobTotal(0); setJobsLoading(false); return; }
+    setJobsLoading(true);
+    try {
+      const query = new URLSearchParams({ limit: String(JOB_PAGE_SIZE), offset: String((jobPage - 1) * JOB_PAGE_SIZE) });
+      if (tool !== 'all') query.set('tool', tool);
+      if (status !== 'all') query.set('status', status);
+      const response = await fetch(`/api/jobs?${query}`, { signal });
+      if (!response.ok) throw new Error(en ? 'Cannot load server jobs' : '无法读取服务器任务');
+      const page = await response.json() as { items: Job[]; total: number };
+      if (signal?.aborted) return;
+      if (jobPage > 1 && (jobPage - 1) * JOB_PAGE_SIZE >= page.total) { setJobPage(Math.max(1, Math.ceil(page.total / JOB_PAGE_SIZE))); return; }
+      setJobs(page.items);
+      setJobTotal(page.total);
+    } catch (cause) {
+      if (!signal?.aborted) setError(cause instanceof Error ? cause.message : String(cause));
+    } finally { if (!signal?.aborted) setJobsLoading(false); }
+  }, [tool, status, jobPage, en]);
 
   useEffect(() => {
     void refresh();
@@ -70,12 +92,17 @@ export default function ResultsPage({ labels, language }: { labels: Record<strin
     return () => { window.removeEventListener('studio:results-updated', onUpdate); window.clearInterval(timer); };
   }, [refresh]);
   useEffect(() => {
+    const controller = new AbortController();
+    void refreshJobs(controller.signal);
+    const timer = window.setInterval(() => { if (document.visibilityState === 'visible') void refreshJobs(controller.signal); }, 10_000);
+    return () => { controller.abort(); window.clearInterval(timer); };
+  }, [refreshJobs]);
+  useEffect(() => {
     void fetch('/api/auth/session').then(async (response) => {
       if (response.ok) setIsAdmin(Boolean((await response.json() as { admin?: boolean }).admin));
     }).catch(() => {});
   }, []);
 
-  const visibleJobs = useMemo(() => jobs.filter((job) => tool === 'all' || job.tool === tool).filter((job) => status === 'all' || status === job.status || (status === 'failed' && job.status === 'interrupted')), [jobs, tool, status]);
   const selectedResults = results.filter((item) => selected.includes(item.id) && !item.expired);
 
   async function fetchAsset(id: string): Promise<Blob> {
@@ -180,13 +207,13 @@ export default function ResultsPage({ labels, language }: { labels: Record<strin
   async function cancelJob(id: string) {
     const response = await fetch(`/api/jobs/${id}/cancel`, { method: 'POST' });
     if (!response.ok) { setError(en ? 'The job has already started' : '任务已开始，无法取消排队'); return; }
-    void refresh();
+    void refreshJobs();
   }
 
   return <section style={{ padding: '24px 28px', maxWidth: 1440, margin: '0 auto' }}>
     <Space style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', marginBottom: 18 }}>
       <div><Typography.Title level={2} style={{ marginBottom: 4 }}>{en ? 'Generated results' : '生成结果'}</Typography.Title><Typography.Text type="secondary">{en ? 'Final images are kept for 30 days. Source uploads are not listed here.' : '仅展示最终图片；图片保存 30 天，上传原图不会列在这里。'}</Typography.Text></div>
-      <Space wrap><Select value={tool} style={{ minWidth: 190 }} onChange={(value) => { setTool(value); setSelected([]); }} options={[{ value: 'all', label: en ? 'All tools' : '全部工具' }, ...Object.entries(labels).map(([value, label]) => ({ value, label }))]} /><Select value={status} style={{ minWidth: 130 }} onChange={(value) => { setStatus(value); setSelected([]); }} options={[{ value: 'all', label: en ? 'All status' : '全部状态' }, { value: 'success', label: en ? 'Complete' : '已完成' }, { value: 'queued', label: en ? 'Queued' : '排队中' }, { value: 'running', label: en ? 'Running' : '进行中' }, { value: 'failed', label: en ? 'Failed' : '失败' }, { value: 'expired', label: en ? 'Expired' : '已过期' }]} /><Button icon={<ReloadOutlined />} onClick={() => void refresh()} loading={loading}>{en ? 'Refresh' : '刷新'}</Button></Space>
+      <Space wrap><Select value={tool} style={{ minWidth: 190 }} onChange={(value) => { setTool(value); setJobPage(1); setSelected([]); }} options={[{ value: 'all', label: en ? 'All tools' : '全部工具' }, ...Object.entries(labels).map(([value, label]) => ({ value, label }))]} /><Select value={status} style={{ minWidth: 130 }} onChange={(value) => { setStatus(value); setJobPage(1); setSelected([]); }} options={[{ value: 'all', label: en ? 'All status' : '全部状态' }, { value: 'success', label: en ? 'Complete' : '已完成' }, { value: 'queued', label: en ? 'Queued' : '排队中' }, { value: 'running', label: en ? 'Running' : '进行中' }, { value: 'failed', label: en ? 'Failed' : '失败' }, { value: 'expired', label: en ? 'Expired' : '已过期' }]} /><Button icon={<ReloadOutlined />} onClick={() => { void refresh(); void refreshJobs(); }} loading={loading || jobsLoading}>{en ? 'Refresh' : '刷新'}</Button></Space>
     </Space>
     {error && <Alert type="error" showIcon message={error} closable onClose={() => setError('')} style={{ marginBottom: 16 }} />}
     {isAdmin && adminUsage && <UsageDashboard rows={adminUsage} labels={labels} language={language} tool={tool} />}
@@ -198,10 +225,11 @@ export default function ResultsPage({ labels, language }: { labels: Record<strin
       </div>}
       {hasMore && <Button block style={{ marginTop: 16 }} loading={loading} onClick={() => void refresh(results.length)}>{en ? 'Load more' : '加载更多'}</Button>}
     </Card>
-    <Card title={en ? 'Server jobs' : '服务器任务'} style={{ marginTop: 22 }}>
-      {!visibleJobs.length ? <Empty description={en ? 'No jobs' : '暂无任务'} /> : <div style={{ display: 'grid', gap: 10 }}>
-        {visibleJobs.map((job) => <div key={job.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, borderBottom: '1px solid #eee', paddingBottom: 10 }}><div><Space wrap><strong>{labels[job.tool] || job.tool}</strong><Tag color={statusColor(job.status)}>{job.status === 'success' ? en ? 'AI response ready' : 'AI 返回完成' : statusLabel(job.status, en)}</Tag><Tag>{job.provider}</Tag></Space><div style={{ color: '#777' }}>{job.username} · {job.model} · {new Date(job.createdAt).toLocaleString()} · {en ? 'Images' : '图片'} {job.imageCount}</div>{job.error && <Typography.Text type="danger">{job.error}</Typography.Text>}{job.assets?.some((asset) => !asset.expired && asset.mime.startsWith('image/')) && <div><Typography.Text type="secondary">{en ? 'Model outputs (not final artwork): ' : '模型原图（非最终成品）：'}</Typography.Text>{job.assets.filter((asset) => !asset.expired && asset.mime.startsWith('image/')).map((asset) => <Button key={asset.id} size="small" type="link" onClick={() => { void fetchAsset(asset.id).then((blob) => downloadBlob(blob, asset.name)).catch((cause) => setError(String(cause))); }}>{asset.name}</Button>)}</div>}</div>{job.status === 'queued' && <Button danger size="small" onClick={() => void cancelJob(job.id)}>{en ? 'Cancel queued' : '取消排队'}</Button>}</div>)}
+    <Card title={en ? 'Server jobs' : '服务器任务'} style={{ marginTop: 22 }} loading={jobsLoading && !jobs.length}>
+      {!jobs.length ? <Empty description={en ? 'No jobs' : '暂无任务'} /> : <div style={{ display: 'grid', gap: 10 }}>
+        {jobs.map((job) => <div key={job.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, borderBottom: '1px solid #eee', paddingBottom: 10 }}><div><Space wrap><strong>{labels[job.tool] || job.tool}</strong><Tag color={statusColor(job.status)}>{job.status === 'success' ? en ? 'AI response ready' : 'AI 返回完成' : statusLabel(job.status, en)}</Tag><Tag>{job.provider}</Tag></Space><div style={{ color: '#777' }}>{job.username} · {job.model} · {new Date(job.createdAt).toLocaleString()} · {en ? 'Images' : '图片'} {job.imageCount}</div>{job.error && <Typography.Text type="danger">{job.error}</Typography.Text>}{job.assets?.some((asset) => !asset.expired && asset.mime.startsWith('image/')) && <div><Typography.Text type="secondary">{en ? 'Model outputs (not final artwork): ' : '模型原图（非最终成品）：'}</Typography.Text>{job.assets.filter((asset) => !asset.expired && asset.mime.startsWith('image/')).map((asset) => <Button key={asset.id} size="small" type="link" onClick={() => { void fetchAsset(asset.id).then((blob) => downloadBlob(blob, asset.name)).catch((cause) => setError(String(cause))); }}>{asset.name}</Button>)}</div>}</div>{job.status === 'queued' && <Button danger size="small" onClick={() => void cancelJob(job.id)}>{en ? 'Cancel queued' : '取消排队'}</Button>}</div>)}
       </div>}
+      {jobTotal > JOB_PAGE_SIZE && <Pagination className="server-jobs-pagination" current={jobPage} pageSize={JOB_PAGE_SIZE} total={jobTotal} showSizeChanger={false} disabled={jobsLoading} onChange={setJobPage} showTotal={(total) => en ? `${total} jobs` : `共 ${total} 个任务`} />}
     </Card>
   </section>;
 }

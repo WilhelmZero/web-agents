@@ -113,6 +113,22 @@ export function createStore(env = process.env) {
       const [rows] = await pool.execute('SELECT id, source, tool, provider, model, username, status, attempts, response_status, image_count, error_message, created_at, completed_at FROM studio_jobs ORDER BY created_at DESC LIMIT ?', [limit]);
       return rows;
     },
+    async listJobsPage({ limit = 20, offset = 0, tool, status, allowedTools = null } = {}) {
+      if (allowedTools && !allowedTools.length) return { items: [], total: 0 };
+      const conditions = [];
+      const values = [];
+      if (tool) { conditions.push('tool=?'); values.push(tool); }
+      if (status === 'failed') conditions.push("status IN ('failed','interrupted')");
+      else if (status) { conditions.push('status=?'); values.push(status); }
+      if (allowedTools) {
+        conditions.push(`tool IN (${allowedTools.map(() => '?').join(',')})`);
+        values.push(...allowedTools);
+      }
+      const where = conditions.length ? ` WHERE ${conditions.join(' AND ')}` : '';
+      const [countRows] = await pool.execute(`SELECT COUNT(*) AS total FROM studio_jobs${where}`, values);
+      const [items] = await pool.execute(`SELECT id, source, tool, provider, model, username, status, attempts, response_status, image_count, error_message, created_at, completed_at FROM studio_jobs${where} ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`, [...values, limit, offset]);
+      return { items, total: Number(countRows[0].total) };
+    },
     async finishJob(job, status, responseStatus, contentType, bodyPath, imageCount, errorMessage) {
       await pool.execute(`UPDATE studio_jobs SET status=?, response_status=?, response_content_type=?, response_body_path=?, image_count=?, error_message=?, encrypted_key=NULL, completed_at=NOW() WHERE id=?`, [status, responseStatus, contentType, bodyPath, imageCount, errorMessage, job.id]);
       await pool.execute('INSERT INTO studio_usage (job_id, source, tool, provider, model, username, status, image_count, upstream_status, attempts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [job.id, job.source, job.tool, job.provider, job.model, job.username, status, imageCount, responseStatus, job.attempts]);
