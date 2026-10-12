@@ -2581,7 +2581,7 @@ function AppContent() {
           </div>
         </Content>
 
-        {!resultsOpen && <>
+        {!resultsOpen && !demandsOpen && <>
         {!compact && creationTool === "scene" && (
           <Sider width={330} theme="light" className="settings-sider">
             {settingsPanel}

@@ -17,7 +17,23 @@ type Account = { username: string; role: Role; allowedTools: string[]; source: s
 
 const TYPES = [ ['main', '首图', 'Main image'], ['dimensions', '尺寸图', 'Dimension image'], ['logo-design', 'LOGO 设计图', 'Logo design'], ['scene', '场景图', 'Scene image'] ] as const;
 const LEGACY_CUSTOM_LOGO = ['custom-logo', '客户定制 LOGO', 'Custom logo'] as const;
-const PLATFORMS = ['AMAZON', 'ETSY', 'TEMU', 'SHEIN', 'EBAY', 'TIKTOK', 'WAYFAIR', 'WALMART'];
+const PLATFORMS = ['AMAZON', 'ETSY', 'TEMU', 'SHEIN', 'EBAY', 'TIKTOK', 'WAYFAIR', 'WALMART'] as const;
+type Platform = typeof PLATFORMS[number];
+const PLATFORM_MARKS: Record<Platform, { glyph: string; color: string; background: string }> = {
+  AMAZON: { glyph: 'a', color: '#232f3e', background: '#fff1d6' },
+  ETSY: { glyph: 'E', color: '#f1641e', background: '#fff0e7' },
+  TEMU: { glyph: 'T', color: '#f7681e', background: '#fff0e7' },
+  SHEIN: { glyph: 'S', color: '#111827', background: '#eef0f4' },
+  EBAY: { glyph: 'e', color: '#3665f3', background: '#eaf0ff' },
+  TIKTOK: { glyph: '♪', color: '#141414', background: '#e4fafd' },
+  WAYFAIR: { glyph: 'W', color: '#7d2597', background: '#f5eafa' },
+  WALMART: { glyph: '✦', color: '#e8a600', background: '#fff5d8' },
+};
+function PlatformLabel({ platform }: { platform: Platform }) {
+  const mark = PLATFORM_MARKS[platform];
+  return <span className="operating-platform-option"><span className="operating-platform-icon" aria-hidden="true" style={{ color: mark.color, backgroundColor: mark.background }}>{mark.glyph}</span><span>{platform}</span></span>;
+}
+const PLATFORM_OPTIONS = PLATFORMS.map((value) => ({ value, label: <PlatformLabel platform={value} /> }));
 const ROLES: Array<[Role, string, string]> = [['operator','运营','Operator'], ['artist','美工','Artist'], ['admin','管理员','Administrator'], ['custom','自定义','Custom']];
 const freshRequirements = (): ImageRequirements & { count: number } => ({ content: '', width: null, height: null, ratio: null, dpi: null, maxMB: null, minLongestEdge: null, count: 1 });
 const freshSpec = (): Specification => ({ id: crypto.randomUUID(), content: '', width: null, height: null, ratio: null, dpi: null, maxMB: null, referenceLinks: [], referenceAssetIds: [] });
@@ -277,7 +293,7 @@ export default function OperatingDemandsPage({ language, username, admin, toolOp
     <Drawer title={editing ? t('编辑做图需求', 'Edit request') : t('新建做图需求', 'New request')} open={editing !== undefined} width="min(760px, 100vw)" onClose={() => setEditing(undefined)} extra={<Space><Button icon={<ReloadOutlined />} disabled={busy} onClick={() => setResetConfirmOpen(true)}>{t('重置', 'Reset')}</Button><Button type="primary" loading={busy} onClick={() => void save()}>{t('保存需求', 'Save request')}</Button></Space>}>
       <Form layout="vertical">
         <Row gutter={12}><Col span={12}><Form.Item label={t('做图类型', 'Image type')} required extra={t('黑白 Logo 需求会根据描述自动识别，无需选择专门类型。', 'Black-and-white logo requests are recognized from the brief; no separate type is needed.')}><Select value={draft.type} placeholder={t('请选择做图类型', 'Select image type')} options={[...TYPES.map(([value, zh, english]) => ({ value, label: en ? english : zh })), ...(draft.type === LEGACY_CUSTOM_LOGO[0] ? [{ value: LEGACY_CUSTOM_LOGO[0], label: en ? LEGACY_CUSTOM_LOGO[2] : LEGACY_CUSTOM_LOGO[1], disabled: true }] : [])]} onChange={(type) => chooseClassification({ type, platform: draft.platform })} /></Form.Item></Col>
-          <Col span={12}><Form.Item label={t('平台', 'Platform')} required><Select value={draft.platform} placeholder={t('请选择平台', 'Select platform')} options={PLATFORMS.map((value) => ({ value }))} onChange={(platform) => chooseClassification({ type: draft.type, platform })} /></Form.Item></Col></Row>
+          <Col span={12}><Form.Item label={t('平台', 'Platform')} required><Select value={draft.platform} placeholder={t('请选择平台', 'Select platform')} options={PLATFORM_OPTIONS} onChange={(platform) => chooseClassification({ type: draft.type, platform })} /></Form.Item></Col></Row>
         <Form.Item label={t('图片要求预设（可更换）', 'Image preset (optional override)')} extra={t('选好类型和平台会自动带入匹配预设；已有要求时先确认。', 'Choosing a type and platform applies a matching preset; existing requirements require confirmation.')}><Select allowClear value={draft.presetId} options={presets.filter((item) => (!item.platform || item.platform === draft.platform) && (!item.type || item.type === draft.type)).map((item) => ({ value: item.id, label: en ? item.name : item.nameZh || item.name }))} onChange={(id) => { const preset = presets.find((item) => item.id === id); if (preset) applyPreset(preset, draft); else setDraft({ ...draft, presetId: null }); }} /></Form.Item>
         <Form.Item label={t('标题（选填）', 'Title (optional)')}><Input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} /></Form.Item>
         <Form.Item label={t('具体做图需求', 'Image production brief')} required><Input.TextArea value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} rows={4} /></Form.Item>
@@ -316,7 +332,7 @@ export default function OperatingDemandsPage({ language, username, admin, toolOp
     </Modal>
     <Drawer title={t('编辑共享预设', 'Edit shared preset')} open={presetEdit !== undefined} width="min(700px, 100vw)" onClose={() => setPresetEdit(undefined)} extra={<Button type="primary" onClick={() => void savePreset()}>{t('保存预设', 'Save preset')}</Button>}>
       {presetEdit && <Space direction="vertical" style={{ width: '100%' }}><Input value={presetEdit.name} placeholder={t('英文名称', 'English name')} onChange={(e) => setPresetEdit({ ...presetEdit, name: e.target.value })} /><Input value={presetEdit.nameZh} placeholder={t('中文名称', 'Chinese name')} onChange={(e) => setPresetEdit({ ...presetEdit, nameZh: e.target.value })} />
-        <Space><Select allowClear placeholder={t('平台', 'Platform')} value={presetEdit.platform} style={{ width: 180 }} options={PLATFORMS.map((value) => ({ value }))} onChange={(platform) => setPresetEdit({ ...presetEdit, platform: platform || null })} /><Select allowClear placeholder={t('类型', 'Type')} value={presetEdit.type} style={{ width: 180 }} options={[...TYPES.map(([value, zh, english]) => ({ value, label: en ? english : zh })), ...(presetEdit.type === LEGACY_CUSTOM_LOGO[0] ? [{ value: LEGACY_CUSTOM_LOGO[0], label: en ? LEGACY_CUSTOM_LOGO[2] : LEGACY_CUSTOM_LOGO[1], disabled: true }] : [])]} onChange={(type) => setPresetEdit({ ...presetEdit, type: type || null })} /></Space>
+        <Space><Select allowClear placeholder={t('平台', 'Platform')} value={presetEdit.platform} style={{ width: 180 }} options={PLATFORM_OPTIONS} onChange={(platform) => setPresetEdit({ ...presetEdit, platform: platform || null })} /><Select allowClear placeholder={t('类型', 'Type')} value={presetEdit.type} style={{ width: 180 }} options={[...TYPES.map(([value, zh, english]) => ({ value, label: en ? english : zh })), ...(presetEdit.type === LEGACY_CUSTOM_LOGO[0] ? [{ value: LEGACY_CUSTOM_LOGO[0], label: en ? LEGACY_CUSTOM_LOGO[2] : LEGACY_CUSTOM_LOGO[1], disabled: true }] : [])]} onChange={(type) => setPresetEdit({ ...presetEdit, type: type || null })} /></Space>
         {presetEdit.requirements.map((spec, index) => <div key={index}><SpecificationEditor value={{ ...freshSpec(), ...spec, id: spec.id || String(index), referenceLinks: [], referenceAssetIds: [] }} assets={[]} language={language}
           onChange={(next) => setPresetEdit((current) => current && ({ ...current, requirements: current.requirements.map((item, i) => i === index ? { ...next, source: item.source } : item) }))}
           onRemove={() => setPresetEdit((current) => current && ({ ...current, requirements: current.requirements.filter((_, i) => i !== index) }))} />
