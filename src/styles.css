@@ -982,10 +982,26 @@ button, input, textarea { font: inherit; }
 }
 .operating-upload-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   margin-bottom: 12px;
 }
-@media (max-width: 640px) {
-  .operating-upload-grid { grid-template-columns: 1fr; }
+.operating-asset-row .operating-asset-action {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease;
+}
+.operating-asset-row:hover .operating-asset-action,
+.operating-asset-row:focus-within .operating-asset-action {
+  opacity: 1;
+  pointer-events: auto;
+}
+.operating-asset-requirements {
+  padding: 4px 12px 12px 68px;
+}
+@media (hover: none) {
+  .operating-asset-row .operating-asset-action {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }

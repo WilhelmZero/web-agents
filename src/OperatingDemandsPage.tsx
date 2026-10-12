@@ -69,7 +69,7 @@ function localizedError(value: unknown, language: Language) {
 }
 
 function SpecificationEditor({ value, onChange, onRemove, assets, language }: {
-  value: Specification; onChange: (value: Specification) => void; onRemove: () => void; assets: Asset[]; language: Language;
+  value: Specification; onChange: (value: Specification) => void; onRemove?: () => void; assets: Asset[]; language: Language;
 }) {
   const en = language === 'en-US';
   const patch = (part: Partial<Specification>) => {
@@ -77,7 +77,7 @@ function SpecificationEditor({ value, onChange, onRemove, assets, language }: {
     if (next.width && next.height) next.ratio = next.width / next.height;
     onChange(next);
   };
-  return <Card size="small" style={{ marginBottom: 12 }} extra={<Button danger type="text" icon={<DeleteOutlined />} onClick={onRemove} />}>
+  return <Card size="small" style={{ marginBottom: 12 }} extra={onRemove && <Button danger type="text" icon={<DeleteOutlined />} onClick={onRemove} />}>
     <Space direction="vertical" style={{ width: '100%' }}>
       <Input.TextArea value={value.content} onChange={(e) => patch({ content: e.target.value })} placeholder={en ? 'Content for this image' : '这一张图片的内容'} autoSize={{ minRows: 2, maxRows: 5 }} />
       <Space wrap>
@@ -89,8 +89,8 @@ function SpecificationEditor({ value, onChange, onRemove, assets, language }: {
         <InputNumber min={1} value={value.minLongestEdge} onChange={(minLongestEdge) => patch({ minLongestEdge })} addonAfter="px" placeholder={en ? 'Min longest edge' : '最长边下限'} />
       </Space>
       <Input.TextArea value={value.referenceLinks.join('\n')} onChange={(e) => patch({ referenceLinks: lines(e.target.value) })} placeholder={en ? 'Reference links, one per line' : '参考链接，每行一个'} autoSize={{ minRows: 1, maxRows: 3 }} />
-      <Select mode="multiple" style={{ width: '100%' }} value={value.referenceAssetIds} onChange={(referenceAssetIds) => patch({ referenceAssetIds })}
-        placeholder={en ? 'Reference images for this output' : '这张成品对应的参考图片'} options={assets.filter((asset) => asset.role === 'reference').map((asset) => ({ label: asset.name, value: asset.assetId }))} />
+      {assets.some((asset) => asset.role === 'reference') && <Select mode="multiple" style={{ width: '100%' }} value={value.referenceAssetIds} onChange={(referenceAssetIds) => patch({ referenceAssetIds })}
+        placeholder={en ? 'Reference images for this output' : '这张成品对应的参考图片'} options={assets.filter((asset) => asset.role === 'reference').map((asset) => ({ label: asset.name, value: asset.assetId }))} />}
       {value.source?.status && <Typography.Text type="secondary">{value.source.status === 'unverified' ? (en ? 'Unverified suggestion' : '待核验建议') : (en ? 'Platform source' : '平台来源')} · {value.source.checkedAt || ''} {value.source.url && <a href={value.source.url} target="_blank" rel="noreferrer">{en ? 'Source' : '来源'}</a>}</Typography.Text>}
     </Space>
   </Card>;
@@ -132,6 +132,8 @@ export default function OperatingDemandsPage({ language, username, admin, toolOp
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Demand | null | undefined>(undefined);
   const [draft, setDraft] = useState<Content>(freshContent);
+  const [expandedAssetIds, setExpandedAssetIds] = useState<string[]>([]);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [assignee, setAssignee] = useState<string | null>(null);
   const [presetEdit, setPresetEdit] = useState<Preset | null | undefined>(undefined);
   const [accountEdit, setAccountEdit] = useState<Partial<Account> | null>(null);
@@ -204,13 +206,21 @@ export default function OperatingDemandsPage({ language, username, admin, toolOp
     if (candidates[0]) applyPreset(candidates[0], next);
   };
   const setSpec = (id: string, value: Specification) => setDraft((previous) => ({ ...previous, specifications: previous.specifications.map((item) => item.id === id ? { ...value, customized: true } : item) }));
-  const addImageRequirement = () => setDraft((previous) => {
-    const specifications = [...previous.specifications];
-    const index = specifications.findIndex((item) => item.customized === false);
-    const target = index < 0 ? specifications.length : index;
-    specifications[target] = { ...(specifications[target] || freshSpec()), customized: true };
-    return { ...previous, specifications, commonRequirements: { ...(previous.commonRequirements || freshRequirements()), count: Math.max(previous.commonRequirements?.count || 1, target + 1) } };
-  });
+  const toggleImageRequirement = (assetId: string, index: number) => {
+    if (expandedAssetIds.includes(assetId)) {
+      setExpandedAssetIds((current) => current.filter((id) => id !== assetId));
+      return;
+    }
+    setDraft((previous) => {
+      const specifications = [...previous.specifications];
+      specifications[index] = { ...(specifications[index] || freshSpec()), customized: true };
+      return { ...previous, specifications, commonRequirements: { ...(previous.commonRequirements || freshRequirements()), count: Math.max(previous.commonRequirements?.count || 1, index + 1) } };
+    });
+    setExpandedAssetIds((current) => [...current, assetId]);
+  };
+  const resetDraft = () => {
+    setDraft(freshContent()); setAssignee(null); setExpandedAssetIds([]); setEditing(null); setResetConfirmOpen(false);
+  };
   const action = async (url: string, method = 'POST', body?: unknown): Promise<boolean> => { setBusy(true); try { await api(url, body ? json(method, body) : { method }); await refresh(); return true; } catch (error) { message.error(localizedError(error, language)); return false; } finally { setBusy(false); } };
   const savePreset = async () => {
     if (!presetEdit) return;
@@ -225,7 +235,7 @@ export default function OperatingDemandsPage({ language, username, admin, toolOp
   return <div className="operating-demands-page">
     <Space style={{ width: '100%', justifyContent: 'space-between' }} align="start">
       <div><Typography.Title level={2} style={{ marginBottom: 4 }}>{t('做图需求', 'Image production requests')}</Typography.Title><Typography.Text type="secondary">{t('需求、分配、参数建议与服务器任务集中管理', 'Requests, assignments, suggested parameters and server jobs')}</Typography.Text></div>
-      <Button type="primary" icon={<PlusOutlined />} onClick={() => { setDraft(freshContent()); setAssignee(null); setEditing(null); }}>{t('新建需求', 'New request')}</Button>
+      <Button type="primary" icon={<PlusOutlined />} onClick={() => { setDraft(freshContent()); setAssignee(null); setExpandedAssetIds([]); setEditing(null); }}>{t('新建需求', 'New request')}</Button>
     </Space>
     <Tabs activeKey={tab} onChange={setTab} items={[
       { key: 'demands', label: t('需求记录', 'Requests'), children: <Spin spinning={loading}><List dataSource={demands} locale={{ emptyText: <Empty description={t('暂无需求', 'No requests')} /> }} renderItem={(demand) => {
@@ -235,7 +245,7 @@ export default function OperatingDemandsPage({ language, username, admin, toolOp
         const parameters = analysisEdits[demand.id] || demand.analysis?.parameters;
         return <List.Item key={demand.id} id={`demand-${demand.id}`} style={focusedId === demand.id ? { background: '#f1edff', borderRadius: 12, padding: 16 } : {}}>
           <Card style={{ width: '100%' }} title={<Space wrap><span>{demand.content.title || demand.content.description.slice(0, 60)}</span><Tag>{TYPES.find((item) => item[0] === demand.content.type)?.[en ? 2 : 1] || (demand.content.type === LEGACY_CUSTOM_LOGO[0] ? LEGACY_CUSTOM_LOGO[en ? 2 : 1] : t('未指定类型', 'No type'))}</Tag><Tag>{demand.content.platform || t('未指定平台', 'No platform')}</Tag><Tag color={demand.status === 'completed' ? 'success' : 'processing'}>{demand.status === 'completed' ? t('已完成', 'Completed') : t('进行中', 'Open')}</Tag></Space>}
-            extra={<Space><Typography.Text type="secondary">{demand.creator} → {demand.assignee || t('未分配', 'Unassigned')}</Typography.Text><Button size="small" icon={<EditOutlined />} onClick={() => { setEditing(demand); setDraft(editableContent(demand.content)); setAssignee(demand.assignee); }}>{t('编辑', 'Edit')}</Button></Space>}>
+            extra={<Space><Typography.Text type="secondary">{demand.creator} → {demand.assignee || t('未分配', 'Unassigned')}</Typography.Text><Button size="small" icon={<EditOutlined />} onClick={() => { setEditing(demand); setDraft(editableContent(demand.content)); setExpandedAssetIds([]); setAssignee(demand.assignee); }}>{t('编辑', 'Edit')}</Button></Space>}>
             <Typography.Paragraph>{demand.content.description}</Typography.Paragraph>
             <Space wrap>{demand.content.assets.map((asset) => <Tag key={asset.assetId}>{asset.role === 'source' ? t('原图', 'Source') : t('参考', 'Reference')} · {asset.name}</Tag>)}</Space>
             <Divider style={{ margin: '12px 0' }} />
@@ -264,7 +274,7 @@ export default function OperatingDemandsPage({ language, username, admin, toolOp
       { key: 'presets', label: t('图片要求预设', 'Image presets'), children: <><Button icon={<PlusOutlined />} onClick={() => setPresetEdit({ id: crypto.randomUUID(), platform: null, type: null, name: '', requirements: [freshSpec()] })}>{t('新增预设', 'Add preset')}</Button><List dataSource={presets} renderItem={(preset) => <List.Item actions={[<Button key="edit" size="small" onClick={() => setPresetEdit(structuredClone(preset))}>{t('编辑', 'Edit')}</Button>, <Button key="delete" danger size="small" onClick={() => Modal.confirm({ title: t('删除预设？', 'Delete preset?'), onOk: () => action(`/api/demand-presets/${preset.id}`, 'DELETE') })}>{t('删除', 'Delete')}</Button>]}><List.Item.Meta title={en ? preset.name : preset.nameZh || preset.name} description={`${preset.platform || '—'} · ${preset.requirements.length} ${t('张图片', 'images')}`} /></List.Item>} /></> },
       ...(admin ? [{ key: 'accounts', label: t('账号管理', 'Accounts'), children: <><Button icon={<PlusOutlined />} onClick={() => setAccountEdit({ username: '', role: 'operator', allowedTools: [] })}>{t('新建账号', 'Create account')}</Button><List dataSource={accounts} renderItem={(account) => <List.Item actions={account.source === 'database' ? [<Button key="edit" size="small" onClick={() => setAccountEdit(account)}>{t('编辑', 'Edit')}</Button>] : []}><List.Item.Meta title={account.username} description={`${ROLES.find((role) => role[0] === account.role)?.[en ? 2 : 1]} · ${account.source}`} /></List.Item>} /></> }] : []),
     ]} />
-    <Drawer title={editing ? t('编辑做图需求', 'Edit request') : t('新建做图需求', 'New request')} open={editing !== undefined} width="min(760px, 100vw)" onClose={() => setEditing(undefined)} extra={<Button type="primary" loading={busy} onClick={() => void save()}>{t('保存需求', 'Save request')}</Button>}>
+    <Drawer title={editing ? t('编辑做图需求', 'Edit request') : t('新建做图需求', 'New request')} open={editing !== undefined} width="min(760px, 100vw)" onClose={() => setEditing(undefined)} extra={<Space><Button icon={<ReloadOutlined />} disabled={busy} onClick={() => setResetConfirmOpen(true)}>{t('重置', 'Reset')}</Button><Button type="primary" loading={busy} onClick={() => void save()}>{t('保存需求', 'Save request')}</Button></Space>}>
       <Form layout="vertical">
         <Row gutter={12}><Col span={12}><Form.Item label={t('做图类型', 'Image type')} required extra={t('黑白 Logo 需求会根据描述自动识别，无需选择专门类型。', 'Black-and-white logo requests are recognized from the brief; no separate type is needed.')}><Select value={draft.type} placeholder={t('请选择做图类型', 'Select image type')} options={[...TYPES.map(([value, zh, english]) => ({ value, label: en ? english : zh })), ...(draft.type === LEGACY_CUSTOM_LOGO[0] ? [{ value: LEGACY_CUSTOM_LOGO[0], label: en ? LEGACY_CUSTOM_LOGO[2] : LEGACY_CUSTOM_LOGO[1], disabled: true }] : [])]} onChange={(type) => chooseClassification({ type, platform: draft.platform })} /></Form.Item></Col>
           <Col span={12}><Form.Item label={t('平台', 'Platform')} required><Select value={draft.platform} placeholder={t('请选择平台', 'Select platform')} options={PLATFORMS.map((value) => ({ value }))} onChange={(platform) => chooseClassification({ type: draft.type, platform })} /></Form.Item></Col></Row>
@@ -276,21 +286,34 @@ export default function OperatingDemandsPage({ language, username, admin, toolOp
         <CommonRequirementsEditor value={draft.commonRequirements || { ...freshRequirements(), count: Math.max(1, draft.specifications.length) }} language={language} onChange={(commonRequirements) => setDraft((previous) => ({ ...previous, commonRequirements: { ...commonRequirements,
           count: Math.max(commonRequirements.count, previous.specifications.reduce((last, item, index) => item.customized === false ? last : index + 1, 1)) } }))} />
         <Divider>{t('上传素材', 'Upload assets')}</Divider>
-        <Typography.Paragraph type="secondary">{t('自动执行使用第一张待处理图片；参考效果图只作风格参考。不需要上传时也可以先保存需求。', 'Automatic runs use the first source image; style references only guide the AI. You can save a request without uploading yet.')}</Typography.Paragraph>
+        <Typography.Paragraph type="secondary">{t('自动执行使用第一张待处理图片。不需要上传时也可以先保存需求。', 'Automatic runs use the first source image. You can save a request without uploading yet.')}</Typography.Paragraph>
         <div className="operating-upload-grid">
-          {(['source', 'reference'] as const).map((role) => <Attachments key={role} items={[]} overflow="wrap" accept="image/*" multiple
-            beforeUpload={(file) => { void upload([file as File], role); return false; }}
-            placeholder={{ icon: <FileImageOutlined />, title: role === 'source' ? t('拖拽、点击或粘贴待处理图片', 'Drag, click, or paste source images') : t('拖拽、点击或粘贴参考效果图', 'Drag, click, or paste style references'), description: t('PNG / JPEG / WebP，单张不超过 20 MB', 'PNG / JPEG / WebP, up to 20 MB each') }} />)}
+          <Attachments items={[]} overflow="wrap" accept="image/*" multiple
+            beforeUpload={(file) => { void upload([file as File], 'source'); return false; }}
+            placeholder={{ icon: <FileImageOutlined />, title: t('拖拽、点击或粘贴待处理图片', 'Drag, click, or paste source images'), description: t('PNG / JPEG / WebP，单张不超过 20 MB', 'PNG / JPEG / WebP, up to 20 MB each') }} />
         </div>
-        <List size="small" dataSource={draft.assets} renderItem={(asset) => <List.Item actions={[<Button key="remove" danger size="small" icon={<DeleteOutlined />} onClick={() => setDraft((value) => ({ ...value, assets: value.assets.filter((item) => item.assetId !== asset.assetId) }))} />]}>
-          <Space><Image width={56} height={56} style={{ objectFit: 'contain' }} src={`/api/assets/${asset.assetId}`} /><Typography.Text>{asset.name}</Typography.Text><Tag color={asset.role === 'source' ? 'purple' : 'blue'}>{asset.role === 'source' ? t('待处理图片', 'Source image') : t('参考效果图', 'Style reference')}</Tag><Button size="small" onClick={() => setDraft((value) => ({ ...value, assets: value.assets.map((item) => item.assetId === asset.assetId ? { ...item, role: item.role === 'source' ? 'reference' : 'source' } : item) }))}>{t('切换用途', 'Switch use')}</Button></Space>
-        </List.Item>}/>
-        <Button style={{ marginTop: 12 }} icon={<PlusOutlined />} onClick={addImageRequirement}>{t('添加单张图片的特殊要求', 'Add requirements for one image')}</Button>
-        {draft.specifications.some((spec) => spec.customized !== false) && <Typography.Paragraph type="secondary" style={{ marginTop: 8 }}>{t('留空的单张字段会沿用上方所有图片的共同要求。', 'Blank per-image fields inherit the requirements for all images above.')}</Typography.Paragraph>}
-        {draft.specifications.map((spec, index) => spec.customized === false ? null : <div key={spec.id} style={{ marginTop: 12 }}><Typography.Text strong>{t('第', 'Image ')}{index + 1}{t('张的特殊要求', ' overrides')}</Typography.Text><SpecificationEditor value={spec} assets={draft.assets} language={language} onChange={(value) => setSpec(spec.id, value)} onRemove={() => setDraft((previous) => ({ ...previous, specifications: previous.specifications.map((item) => item.id === spec.id ? { ...freshSpec(), id: item.id, customized: false } : item) }))} /></div>)}
+        <List size="small" dataSource={draft.assets} renderItem={(asset) => {
+          const index = draft.assets.filter((item) => item.role === 'source').findIndex((item) => item.assetId === asset.assetId);
+          const spec = index >= 0 ? draft.specifications[index] : undefined;
+          const expanded = expandedAssetIds.includes(asset.assetId);
+          return <div className="operating-asset-block" key={asset.assetId}>
+            <List.Item className="operating-asset-row" actions={[<Button key="remove" danger size="small" icon={<DeleteOutlined />} aria-label={t('删除图片', 'Remove image')} onClick={() => {
+              setExpandedAssetIds((current) => current.filter((id) => id !== asset.assetId));
+              setDraft((value) => { const sourceIndex = value.assets.filter((item) => item.role === 'source').findIndex((item) => item.assetId === asset.assetId);
+                return { ...value, assets: value.assets.filter((item) => item.assetId !== asset.assetId), specifications: sourceIndex < 0 ? value.specifications : value.specifications.filter((_, i) => i !== sourceIndex) }; });
+            }} />]}>
+              <Space wrap><Image width={56} height={56} style={{ objectFit: 'contain' }} src={`/api/assets/${asset.assetId}`} /><Typography.Text>{asset.name}</Typography.Text><Tag color={asset.role === 'source' ? 'purple' : 'blue'}>{asset.role === 'source' ? t('待处理图片', 'Source image') : t('参考效果图', 'Style reference')}</Tag>
+                {index >= 0 && <Button size="small" className="operating-asset-action" onClick={() => toggleImageRequirement(asset.assetId, index)}>{expanded ? t('收起特殊要求', 'Collapse requirements') : spec?.customized ? t('编辑特殊要求', 'Edit requirements') : t('添加单张特殊需求', 'Add image-specific requirements')}</Button>}</Space>
+            </List.Item>
+            {expanded && spec && <div className="operating-asset-requirements"><Typography.Text type="secondary">{t('留空字段沿用所有图片的共同要求。', 'Blank fields inherit the requirements for all images.')}</Typography.Text><SpecificationEditor value={spec} assets={draft.assets} language={language} onChange={(value) => setSpec(spec.id, value)} /></div>}
+          </div>;
+        }} />
         <Form.Item label={t('通用参考链接，每行一个（选填）', 'General reference links, one per line (optional)')}><Input.TextArea value={draft.links.join('\n')} onChange={(e) => setDraft({ ...draft, links: lines(e.target.value) })} autoSize={{ minRows: 1, maxRows: 4 }} /></Form.Item>
       </Form>
     </Drawer>
+    <Modal title={t('重置当前表单？', 'Reset the current form?')} open={resetConfirmOpen} onOk={resetDraft} onCancel={() => setResetConfirmOpen(false)} okText={t('重置', 'Reset')} okButtonProps={{ danger: true }}>
+      {t('清空当前草稿中的文字、要求和上传列表；已保存的需求不会被删除。', 'Clear text, requirements, and uploads from this draft. Saved requests will not be deleted.')}
+    </Modal>
     <Drawer title={t('编辑共享预设', 'Edit shared preset')} open={presetEdit !== undefined} width="min(700px, 100vw)" onClose={() => setPresetEdit(undefined)} extra={<Button type="primary" onClick={() => void savePreset()}>{t('保存预设', 'Save preset')}</Button>}>
       {presetEdit && <Space direction="vertical" style={{ width: '100%' }}><Input value={presetEdit.name} placeholder={t('英文名称', 'English name')} onChange={(e) => setPresetEdit({ ...presetEdit, name: e.target.value })} /><Input value={presetEdit.nameZh} placeholder={t('中文名称', 'Chinese name')} onChange={(e) => setPresetEdit({ ...presetEdit, nameZh: e.target.value })} />
         <Space><Select allowClear placeholder={t('平台', 'Platform')} value={presetEdit.platform} style={{ width: 180 }} options={PLATFORMS.map((value) => ({ value }))} onChange={(platform) => setPresetEdit({ ...presetEdit, platform: platform || null })} /><Select allowClear placeholder={t('类型', 'Type')} value={presetEdit.type} style={{ width: 180 }} options={[...TYPES.map(([value, zh, english]) => ({ value, label: en ? english : zh })), ...(presetEdit.type === LEGACY_CUSTOM_LOGO[0] ? [{ value: LEGACY_CUSTOM_LOGO[0], label: en ? LEGACY_CUSTOM_LOGO[2] : LEGACY_CUSTOM_LOGO[1], disabled: true }] : [])]} onChange={(type) => setPresetEdit({ ...presetEdit, type: type || null })} /></Space>

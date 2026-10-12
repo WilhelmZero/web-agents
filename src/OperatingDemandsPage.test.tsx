@@ -4,7 +4,7 @@ import OperatingDemandsPage, { DemandTodoButton } from './OperatingDemandsPage';
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
-it('shows classification first, scene-style asset drop zones, and optional per-image controls', async () => {
+it('shows one source drop zone and preserves image-specific fields when collapsed', async () => {
   const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
     if (['/api/demands', '/api/demand-presets', '/api/accounts/assignable'].includes(url)) return new Response('[]', { status: 200 });
     if (url === '/api/assets') return new Response(JSON.stringify({ id: '00000000-0000-4000-8000-000000000042' }), { status: 201 });
@@ -25,21 +25,51 @@ it('shows classification first, scene-style asset drop zones, and optional per-i
   expect(screen.queryByPlaceholderText('Instructions applying to every finished image')).not.toBeInTheDocument();
   expect(screen.getByText('Upload assets')).toBeInTheDocument();
   expect(screen.getAllByText('Drag, click, or paste source images').length).toBeGreaterThan(0);
-  expect(screen.getAllByText('Drag, click, or paste style references').length).toBeGreaterThan(0);
+  expect(screen.queryByText('Drag, click, or paste style references')).not.toBeInTheDocument();
   const sourcePicker = document.querySelector('.operating-upload-grid input[type="file"]') as HTMLInputElement;
   expect(sourcePicker).toBeTruthy();
   fireEvent.change(sourcePicker, { target: { files: [new File(['png'], 'brief.png', { type: 'image/png' })] } });
   expect(await screen.findByText('brief.png')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Save request' }));
   expect(fetchMock.mock.calls.filter(([url, init]) => url === '/api/demands' && init?.method === 'POST')).toHaveLength(0);
-  expect(screen.queryByText('Image 1 overrides')).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: /Add requirements for one image/ }));
-  expect(screen.getByText('Image 1 overrides')).toBeInTheDocument();
+  expect(screen.queryByPlaceholderText('Content for this image')).not.toBeInTheDocument();
+  const addOverride = screen.getByRole('button', { name: 'Add image-specific requirements' });
+  expect(addOverride).toHaveClass('operating-asset-action');
+  expect(screen.queryByRole('button', { name: 'Switch use' })).not.toBeInTheDocument();
+  fireEvent.click(addOverride);
+  fireEvent.change(screen.getByPlaceholderText('Content for this image'), { target: { value: 'Retain the label' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Collapse requirements' }));
+  expect(screen.queryByPlaceholderText('Content for this image')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Edit requirements' }));
+  expect(screen.getByDisplayValue('Retain the label')).toBeInTheDocument();
   expect(screen.getByText('Black-and-white logo requests are recognized from the brief; no separate type is needed.')).toBeInTheDocument();
   fireEvent.mouseDown(screen.getAllByRole('combobox')[0]);
   expect(await screen.findByText('Logo design')).toBeInTheDocument();
   expect(screen.queryByText('Custom logo')).not.toBeInTheDocument();
-}, 20_000);
+}, 45_000);
+
+it('resets only the current draft after confirmation', async () => {
+  const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
+    if (url === '/api/assets') return new Response(JSON.stringify({ id: '00000000-0000-4000-8000-000000000043' }), { status: 201 });
+    return new Response('[]', { status: 200 });
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  render(<OperatingDemandsPage language="en-US" username="operator" admin={false} toolOptions={[]} onOpenTool={() => {}} />);
+  await screen.findByText('Image production requests');
+  fireEvent.click(screen.getByRole('button', { name: /New request/ }));
+  const brief = screen.getByText('Image production brief').closest('.ant-form-item')!.querySelector('textarea')!;
+  fireEvent.change(brief, { target: { value: 'A scene with warm light' } });
+  const picker = document.querySelector('.operating-upload-grid input[type="file"]') as HTMLInputElement;
+  fireEvent.change(picker, { target: { files: [new File(['png'], 'scene.png', { type: 'image/png' })] } });
+  expect(await screen.findByText('scene.png')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: /Reset/ }));
+  expect(await screen.findByText('Reset the current form?')).toBeInTheDocument();
+  fireEvent.click(screen.getAllByRole('button', { name: /Reset/ }).at(-1)!);
+  fireEvent.click(screen.getByRole('button', { name: /New request/ }));
+  expect(screen.queryByText('scene.png')).not.toBeInTheDocument();
+  expect(screen.getByText('Image production brief').closest('.ant-form-item')!.querySelector('textarea')!.value).toBe('');
+  expect(fetchMock.mock.calls.filter(([url, init]) => url === '/api/demands' && init?.method === 'POST')).toHaveLength(0);
+}, 45_000);
 
 it('offers a matching preset after type and platform selection and previews its fields before replacing typed requirements', async () => {
   const presets = [{ id: '00000000-0000-4000-8000-000000000001', type: 'main', platform: 'AMAZON', name: 'Amazon main image', nameZh: '亚马逊首图', requirements: [{ content: 'White background', width: 2000, height: 2000, dpi: 300, maxMB: 10 }] }];
