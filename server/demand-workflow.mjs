@@ -35,6 +35,8 @@ export function normalizedDemand(input) {
   if (!input || typeof input !== 'object' || !String(input.description || '').trim()) throw new Error('Demand description is required');
   const type = input.type || null;
   const platform = input.platform === 'SHEI' ? 'SHEIN' : input.platform || null;
+  if (!type) throw new Error('Image type is required');
+  if (!platform) throw new Error('Platform is required');
   if (type && !DEMAND_TYPES.includes(type)) throw new Error('Unsupported image type');
   if (platform && !DEMAND_PLATFORMS.includes(platform)) throw new Error('Unsupported platform');
   const assets = Array.isArray(input.assets) ? input.assets.slice(0, 24).map((item) => ({

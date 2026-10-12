@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Attachments } from '@ant-design/x';
 import { Alert, Badge, Button, Card, Checkbox, Col, Divider, Drawer, Dropdown, Empty, Form, Image, Input, InputNumber, List, Modal, Row, Select, Space, Spin, Tabs, Tag, Typography, message } from 'antd';
-import { BellOutlined, DeleteOutlined, DownOutlined, EditOutlined, PlusOutlined, ReloadOutlined, RocketOutlined, UploadOutlined } from '@ant-design/icons';
+import { BellOutlined, DeleteOutlined, DownOutlined, EditOutlined, FileImageOutlined, PlusOutlined, ReloadOutlined, RocketOutlined } from '@ant-design/icons';
 import type { CreationTool } from './types';
 
 type Language = 'zh-CN' | 'en-US';
@@ -21,9 +22,16 @@ const ROLES: Array<[Role, string, string]> = [['operator','运营','Operator'], 
 const freshRequirements = (): ImageRequirements & { count: number } => ({ content: '', width: null, height: null, ratio: null, dpi: null, maxMB: null, minLongestEdge: null, count: 1 });
 const freshSpec = (): Specification => ({ id: crypto.randomUUID(), content: '', width: null, height: null, ratio: null, dpi: null, maxMB: null, referenceLinks: [], referenceAssetIds: [] });
 const freshContent = (): Content => ({ title: '', description: '', type: null, platform: null, presetId: null, assets: [], commonRequirements: freshRequirements(), specifications: [], links: [] });
+function editableContent(content: Content): Content {
+  const copy = structuredClone(content);
+  const oldCommonContent = copy.commonRequirements?.content?.trim();
+  if (oldCommonContent && !copy.description.includes(oldCommonContent)) copy.description = `${copy.description.trim()}\n${oldCommonContent}`.trim();
+  if (copy.commonRequirements) copy.commonRequirements.content = '';
+  return copy;
+}
 const requirementKeys = ['content', 'width', 'height', 'ratio', 'dpi', 'maxMB', 'minLongestEdge'] as const;
 function hasWrittenRequirements(content: Content) {
-  return (content.commonRequirements?.count || 1) > 1 || requirementKeys.some((key) => Boolean(content.commonRequirements?.[key]))
+  return Boolean(content.description.trim()) || (content.commonRequirements?.count || 1) > 1 || requirementKeys.some((key) => Boolean(content.commonRequirements?.[key]))
     || content.specifications.some((spec) => spec.customized !== false && requirementKeys.some((key) => Boolean(spec[key])));
 }
 function describePreset(preset: Preset, en: boolean) {
@@ -52,8 +60,9 @@ function localizedError(value: unknown, language: Language) {
   const detail = value instanceof Error ? value.message : String(value);
   if (language === 'en-US') return detail;
   if (/OPENAI_API_KEY|Configure a openai/i.test(detail)) return '服务端未配置 OpenAI Key，后台分析或生成无法执行';
+  if (/Image type is required|Platform is required/i.test(detail)) return '请先选择做图类型和平台';
   if (/stale|changed/i.test(detail)) return '需求已更新，请刷新后重试';
-  if (/source image|required.*source/i.test(detail)) return '自动执行需要上传并标记待处理原图';
+  if (/source image|required.*source/i.test(detail)) return '自动执行需要上传待处理图片';
   if (/permission|access denied|Admin required/i.test(detail)) return '当前账号没有此操作权限';
   if (/too large|Upload too large/i.test(detail)) return '文件或请求超过大小限制';
   return `操作失败：${detail}`;
@@ -97,8 +106,6 @@ function CommonRequirementsEditor({ value, onChange, language }: {
     onChange(next);
   };
   return <Space direction="vertical" style={{ width: '100%' }}>
-    <Input.TextArea value={value.content} onChange={(event) => patch({ content: event.target.value })}
-      placeholder={en ? 'Instructions applying to every finished image' : '适用于每张成品图的内容要求'} autoSize={{ minRows: 2, maxRows: 4 }} />
     <Space wrap>
       <InputNumber min={1} max={20} value={value.count} onChange={(count) => patch({ count: count || 1 })} addonAfter={en ? 'images' : '张'} aria-label={en ? 'Image count' : '图片张数'} />
       <InputNumber min={1} max={10000} value={value.width} onChange={(width) => patch({ width })} addonAfter="px" placeholder={en ? 'Width' : '宽'} />
@@ -147,13 +154,15 @@ export default function OperatingDemandsPage({ language, username, admin, toolOp
   useEffect(() => { if (focusedId) setTab('demands'); }, [focusedId]);
 
   const save = async () => {
+    if (!draft.type || !draft.platform) return message.warning(t('请先选择做图类型和平台', 'Select an image type and platform first'));
+    if (!draft.description.trim()) return message.warning(t('请填写具体做图需求', 'Enter the image production brief'));
     setBusy(true);
     try {
       await api<Demand>('/api/demands', json('POST', { id: editing?.id, revision: editing?.revision, assignee, content: draft }));
       setEditing(undefined); message.success(t('需求已保存，AI 正在分析参数', 'Request saved; AI is analyzing parameters')); await refresh();
     } catch (error) { message.error(localizedError(error, language)); } finally { setBusy(false); }
   };
-  const upload = async (files: FileList | null, role: Asset['role']) => {
+  const upload = async (files: File[] | FileList | null, role: Asset['role']) => {
     if (!files) return;
     setBusy(true);
     try {
@@ -169,8 +178,11 @@ export default function OperatingDemandsPage({ language, username, admin, toolOp
   const applyPreset = (preset: Preset, base: Content, confirmOverwrite = true) => {
     const apply = () => {
       const first = preset.requirements[0] || {};
+      const presetBrief = String(first.content || '').trim();
+      const currentBrief = base.description.trim();
       setDraft({ ...base, presetId: preset.id,
-        commonRequirements: { ...freshRequirements(), ...Object.fromEntries(requirementKeys.map((key) => [key, first[key] ?? (key === 'content' ? '' : null)])),
+        description: presetBrief && !currentBrief.includes(presetBrief) ? [currentBrief, presetBrief].filter(Boolean).join('\n') : currentBrief,
+        commonRequirements: { ...freshRequirements(), ...Object.fromEntries(requirementKeys.filter((key) => key !== 'content').map((key) => [key, first[key] ?? null])),
           ratio: first.width && first.height ? first.width / first.height : first.ratio ?? null,
           count: Math.max(1, preset.requirements.length), source: first.source },
         specifications: preset.requirements.length > 1 ? preset.requirements.map((item) => ({ ...freshSpec(), ...item, id: crypto.randomUUID(), customized: true, referenceLinks: [], referenceAssetIds: [] })) : [] });
@@ -223,7 +235,7 @@ export default function OperatingDemandsPage({ language, username, admin, toolOp
         const parameters = analysisEdits[demand.id] || demand.analysis?.parameters;
         return <List.Item key={demand.id} id={`demand-${demand.id}`} style={focusedId === demand.id ? { background: '#f1edff', borderRadius: 12, padding: 16 } : {}}>
           <Card style={{ width: '100%' }} title={<Space wrap><span>{demand.content.title || demand.content.description.slice(0, 60)}</span><Tag>{TYPES.find((item) => item[0] === demand.content.type)?.[en ? 2 : 1] || (demand.content.type === LEGACY_CUSTOM_LOGO[0] ? LEGACY_CUSTOM_LOGO[en ? 2 : 1] : t('未指定类型', 'No type'))}</Tag><Tag>{demand.content.platform || t('未指定平台', 'No platform')}</Tag><Tag color={demand.status === 'completed' ? 'success' : 'processing'}>{demand.status === 'completed' ? t('已完成', 'Completed') : t('进行中', 'Open')}</Tag></Space>}
-            extra={<Space><Typography.Text type="secondary">{demand.creator} → {demand.assignee || t('未分配', 'Unassigned')}</Typography.Text><Button size="small" icon={<EditOutlined />} onClick={() => { setEditing(demand); setDraft(structuredClone(demand.content)); setAssignee(demand.assignee); }}>{t('编辑', 'Edit')}</Button></Space>}>
+            extra={<Space><Typography.Text type="secondary">{demand.creator} → {demand.assignee || t('未分配', 'Unassigned')}</Typography.Text><Button size="small" icon={<EditOutlined />} onClick={() => { setEditing(demand); setDraft(editableContent(demand.content)); setAssignee(demand.assignee); }}>{t('编辑', 'Edit')}</Button></Space>}>
             <Typography.Paragraph>{demand.content.description}</Typography.Paragraph>
             <Space wrap>{demand.content.assets.map((asset) => <Tag key={asset.assetId}>{asset.role === 'source' ? t('原图', 'Source') : t('参考', 'Reference')} · {asset.name}</Tag>)}</Space>
             <Divider style={{ margin: '12px 0' }} />
@@ -253,21 +265,23 @@ export default function OperatingDemandsPage({ language, username, admin, toolOp
       ...(admin ? [{ key: 'accounts', label: t('账号管理', 'Accounts'), children: <><Button icon={<PlusOutlined />} onClick={() => setAccountEdit({ username: '', role: 'operator', allowedTools: [] })}>{t('新建账号', 'Create account')}</Button><List dataSource={accounts} renderItem={(account) => <List.Item actions={account.source === 'database' ? [<Button key="edit" size="small" onClick={() => setAccountEdit(account)}>{t('编辑', 'Edit')}</Button>] : []}><List.Item.Meta title={account.username} description={`${ROLES.find((role) => role[0] === account.role)?.[en ? 2 : 1]} · ${account.source}`} /></List.Item>} /></> }] : []),
     ]} />
     <Drawer title={editing ? t('编辑做图需求', 'Edit request') : t('新建做图需求', 'New request')} open={editing !== undefined} width="min(760px, 100vw)" onClose={() => setEditing(undefined)} extra={<Button type="primary" loading={busy} onClick={() => void save()}>{t('保存需求', 'Save request')}</Button>}>
-      <Form layout="vertical"><Form.Item label={t('标题（选填）', 'Title (optional)')}><Input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} /></Form.Item>
-        <Form.Item label={t('具体做图需求', 'Image production brief')} required><Input.TextArea value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} rows={4} /></Form.Item>
-        <Row gutter={12}><Col span={12}><Form.Item label={t('做图类型', 'Image type')} extra={t('黑白 Logo 需求会根据描述自动识别，无需选择专门类型。', 'Black-and-white logo requests are recognized from the brief; no separate type is needed.')}><Select allowClear value={draft.type} options={[...TYPES.map(([value, zh, english]) => ({ value, label: en ? english : zh })), ...(draft.type === LEGACY_CUSTOM_LOGO[0] ? [{ value: LEGACY_CUSTOM_LOGO[0], label: en ? LEGACY_CUSTOM_LOGO[2] : LEGACY_CUSTOM_LOGO[1], disabled: true }] : [])]} onChange={(type) => chooseClassification({ type: type || null, platform: draft.platform })} /></Form.Item></Col>
-          <Col span={12}><Form.Item label={t('平台', 'Platform')}><Select allowClear value={draft.platform} options={PLATFORMS.map((value) => ({ value }))} onChange={(platform) => chooseClassification({ type: draft.type, platform: platform || null })} /></Form.Item></Col></Row>
-        <Form.Item label={t('负责美工', 'Assigned artist')}><Select allowClear value={assignee} options={artists.map((item) => ({ value: item.username }))} onChange={(value) => setAssignee(value || null)} /></Form.Item>
+      <Form layout="vertical">
+        <Row gutter={12}><Col span={12}><Form.Item label={t('做图类型', 'Image type')} required extra={t('黑白 Logo 需求会根据描述自动识别，无需选择专门类型。', 'Black-and-white logo requests are recognized from the brief; no separate type is needed.')}><Select value={draft.type} placeholder={t('请选择做图类型', 'Select image type')} options={[...TYPES.map(([value, zh, english]) => ({ value, label: en ? english : zh })), ...(draft.type === LEGACY_CUSTOM_LOGO[0] ? [{ value: LEGACY_CUSTOM_LOGO[0], label: en ? LEGACY_CUSTOM_LOGO[2] : LEGACY_CUSTOM_LOGO[1], disabled: true }] : [])]} onChange={(type) => chooseClassification({ type, platform: draft.platform })} /></Form.Item></Col>
+          <Col span={12}><Form.Item label={t('平台', 'Platform')} required><Select value={draft.platform} placeholder={t('请选择平台', 'Select platform')} options={PLATFORMS.map((value) => ({ value }))} onChange={(platform) => chooseClassification({ type: draft.type, platform })} /></Form.Item></Col></Row>
         <Form.Item label={t('图片要求预设（可更换）', 'Image preset (optional override)')} extra={t('选好类型和平台会自动带入匹配预设；已有要求时先确认。', 'Choosing a type and platform applies a matching preset; existing requirements require confirmation.')}><Select allowClear value={draft.presetId} options={presets.filter((item) => (!item.platform || item.platform === draft.platform) && (!item.type || item.type === draft.type)).map((item) => ({ value: item.id, label: en ? item.name : item.nameZh || item.name }))} onChange={(id) => { const preset = presets.find((item) => item.id === id); if (preset) applyPreset(preset, draft); else setDraft({ ...draft, presetId: null }); }} /></Form.Item>
+        <Form.Item label={t('标题（选填）', 'Title (optional)')}><Input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} /></Form.Item>
+        <Form.Item label={t('具体做图需求', 'Image production brief')} required><Input.TextArea value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} rows={4} /></Form.Item>
+        <Form.Item label={t('负责美工', 'Assigned artist')}><Select allowClear value={assignee} options={artists.map((item) => ({ value: item.username }))} onChange={(value) => setAssignee(value || null)} /></Form.Item>
         <Divider>{t('所有图片的共同要求', 'Requirements for all images')}</Divider>
         <CommonRequirementsEditor value={draft.commonRequirements || { ...freshRequirements(), count: Math.max(1, draft.specifications.length) }} language={language} onChange={(commonRequirements) => setDraft((previous) => ({ ...previous, commonRequirements: { ...commonRequirements,
           count: Math.max(commonRequirements.count, previous.specifications.reduce((last, item, index) => item.customized === false ? last : index + 1, 1)) } }))} />
         <Divider>{t('上传素材', 'Upload assets')}</Divider>
         <Typography.Paragraph type="secondary">{t('自动执行使用第一张待处理图片；参考效果图只作风格参考。不需要上传时也可以先保存需求。', 'Automatic runs use the first source image; style references only guide the AI. You can save a request without uploading yet.')}</Typography.Paragraph>
-        <Space wrap>
-          <label className="operating-upload-label"><UploadOutlined /> {t('上传待处理图片', 'Upload source images')}<input type="file" accept="image/*" multiple hidden onChange={(event) => { void upload(event.target.files, 'source'); event.target.value = ''; }} /></label>
-          <label className="operating-upload-label"><UploadOutlined /> {t('上传参考效果图', 'Upload style references')}<input type="file" accept="image/*" multiple hidden onChange={(event) => { void upload(event.target.files, 'reference'); event.target.value = ''; }} /></label>
-        </Space>
+        <div className="operating-upload-grid">
+          {(['source', 'reference'] as const).map((role) => <Attachments key={role} items={[]} overflow="wrap" accept="image/*" multiple
+            beforeUpload={(file) => { void upload([file as File], role); return false; }}
+            placeholder={{ icon: <FileImageOutlined />, title: role === 'source' ? t('拖拽、点击或粘贴待处理图片', 'Drag, click, or paste source images') : t('拖拽、点击或粘贴参考效果图', 'Drag, click, or paste style references'), description: t('PNG / JPEG / WebP，单张不超过 20 MB', 'PNG / JPEG / WebP, up to 20 MB each') }} />)}
+        </div>
         <List size="small" dataSource={draft.assets} renderItem={(asset) => <List.Item actions={[<Button key="remove" danger size="small" icon={<DeleteOutlined />} onClick={() => setDraft((value) => ({ ...value, assets: value.assets.filter((item) => item.assetId !== asset.assetId) }))} />]}>
           <Space><Image width={56} height={56} style={{ objectFit: 'contain' }} src={`/api/assets/${asset.assetId}`} /><Typography.Text>{asset.name}</Typography.Text><Tag color={asset.role === 'source' ? 'purple' : 'blue'}>{asset.role === 'source' ? t('待处理图片', 'Source image') : t('参考效果图', 'Style reference')}</Tag><Button size="small" onClick={() => setDraft((value) => ({ ...value, assets: value.assets.map((item) => item.assetId === asset.assetId ? { ...item, role: item.role === 'source' ? 'reference' : 'source' } : item) }))}>{t('切换用途', 'Switch use')}</Button></Space>
         </List.Item>}/>

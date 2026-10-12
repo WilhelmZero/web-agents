@@ -19,15 +19,17 @@ async function until(fetchValue, check) {
 }
 
 test('image requirements calculate ratio and reject inconsistent sizes', () => {
-  const value = normalizedDemand({ description: 'make an image', platform: 'SHEI', specifications: [{ width: 1200, height: 800, dpi: 300 }] });
+  const value = normalizedDemand({ description: 'make an image', type: 'main', platform: 'SHEI', specifications: [{ width: 1200, height: 800, dpi: 300 }] });
   assert.equal(value.platform, 'SHEIN');
   assert.equal(value.specifications[0].ratio, 1.5);
-  assert.throws(() => normalizedDemand({ description: 'x', specifications: [{ width: 1000 }] }), /resolution/);
-  assert.throws(() => normalizedDemand({ description: 'x', specifications: [{ ratio: -1 }] }), /positive/);
+  assert.throws(() => normalizedDemand({ description: 'x', type: 'main', platform: 'AMAZON', specifications: [{ width: 1000 }] }), /resolution/);
+  assert.throws(() => normalizedDemand({ description: 'x', type: 'main', platform: 'AMAZON', specifications: [{ ratio: -1 }] }), /positive/);
+  assert.throws(() => normalizedDemand({ description: 'x', platform: 'AMAZON' }), /Image type is required/);
+  assert.throws(() => normalizedDemand({ description: 'x', type: 'main' }), /Platform is required/);
 });
 
 test('shared image requirements apply to every output while per-image fields override them', () => {
-  const demand = normalizedDemand({ description: 'Make listing images', commonRequirements: {
+  const demand = normalizedDemand({ description: 'Make listing images', type: 'main', platform: 'AMAZON', commonRequirements: {
     content: 'White background for every image', count: 3, width: 1200, height: 800, dpi: 300, maxMB: 5,
   }, specifications: [{ content: 'Show the front', dpi: 150 }] });
   assert.equal(demand.specifications.length, 3);
@@ -39,7 +41,7 @@ test('shared image requirements apply to every output while per-image fields ove
   assert.deepEqual(output.map((item) => item.width), [1200, 1200, 1200]);
   assert.equal(output[2].ratio, 1.5);
   assert.deepEqual(normalizedDemand(demand).specifications.map((item) => item.id), demand.specifications.map((item) => item.id));
-  assert.throws(() => normalizedDemand({ description: 'x', commonRequirements: { count: 21 } }), /count/);
+  assert.throws(() => normalizedDemand({ description: 'x', type: 'main', platform: 'AMAZON', commonRequirements: { count: 21 } }), /count/);
 });
 
 test('demand accounts, assignment, analysis, auto execution and tool permissions', async () => {
@@ -99,7 +101,7 @@ test('demand accounts, assignment, analysis, auto execution and tool permissions
     assert.equal(results.length, 1);
     assert.equal(results[0].exportSpec.dpi, 300);
     const batchCreated = await request('/api/demands', adminCookie, 'POST', { content: {
-      description: 'Show the product in two listing scenes', type: 'scene',
+      description: 'Show the product in two listing scenes', type: 'scene', platform: 'AMAZON',
       assets: [{ assetId, name: 'source.png', role: 'source' }],
       commonRequirements: { content: 'Use a clean background', count: 2, width: 200, height: 200, dpi: 240 }, specifications: [],
     } });
@@ -112,7 +114,7 @@ test('demand accounts, assignment, analysis, auto execution and tool permissions
     assert.equal(batchFinished.operations.find((op) => op.kind === 'execute').result.length, 2);
     assert.equal((await (await request('/api/results?tool=scene', adminCookie)).json()).length, 3);
     const logoCreated = await request('/api/demands', adminCookie, 'POST', { content: {
-      title: 'Engraving artwork', description: 'Make a black-and-white customer logo for engraving', type: 'logo-design',
+      title: 'Engraving artwork', description: 'Make a black-and-white customer logo for engraving', type: 'logo-design', platform: 'AMAZON',
       assets: [{ assetId, name: 'source.png', role: 'source' }], specifications: [{ id: crypto.randomUUID(), content: 'Final monochrome logo' }],
     } });
     assert.equal(logoCreated.status, 201);
@@ -127,10 +129,7 @@ test('demand accounts, assignment, analysis, auto execution and tool permissions
       description: 'Create a black-and-white customer logo from this source image',
       assets: [{ assetId, name: 'source.png', role: 'source' }],
     } });
-    assert.equal(untypedLogo.status, 201);
-    const untypedDemand = await untypedLogo.json();
-    const untypedAnalyzed = await until(async () => (await request(`/api/demands/${untypedDemand.id}`, adminCookie)).json(), (value) => value.analysis?.executable);
-    assert.equal(untypedAnalyzed.analysis.tool, 'custom-monochrome-logo');
+    assert.equal(untypedLogo.status, 400);
     assert.equal((await request(`/api/demands/${demand.id}/complete`, artistCookie, 'POST')).status, 200);
     assert.equal((await (await request('/api/demands/todos', artistCookie)).json()).length, 0);
   } finally {
