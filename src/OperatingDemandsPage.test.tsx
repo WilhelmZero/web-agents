@@ -84,7 +84,9 @@ it('offers a matching preset after type and platform selection and previews its 
   fireEvent.mouseDown(screen.getAllByRole('combobox')[0]);
   fireEvent.click((await screen.findAllByText('Main image')).find((node) => node.closest('.ant-select-item-option'))!.closest('.ant-select-item-option')!);
   fireEvent.mouseDown(screen.getAllByRole('combobox')[1]);
-  expect(document.querySelectorAll('.ant-select-dropdown .operating-platform-icon')).toHaveLength(8);
+  const platformIcons = Array.from(document.querySelectorAll<HTMLImageElement>('.ant-select-dropdown .operating-platform-icon'));
+  expect(platformIcons).toHaveLength(8);
+  expect(platformIcons.every((icon) => icon.src.startsWith('data:image/'))).toBe(true);
   fireEvent.click(screen.getAllByText('AMAZON').find((node) => node.closest('.ant-select-item-option'))!.closest('.ant-select-item-option')!);
   expect((await screen.findAllByText('Apply preset and replace existing image requirements?')).length).toBeGreaterThan(0);
   expect(screen.getAllByText(/2000 × 2000 px/).length).toBeGreaterThan(0);

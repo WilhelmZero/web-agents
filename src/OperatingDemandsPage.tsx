@@ -3,6 +3,7 @@ import { Attachments } from '@ant-design/x';
 import { Alert, Badge, Button, Card, Checkbox, Col, Divider, Drawer, Dropdown, Empty, Form, Image, Input, InputNumber, List, Modal, Row, Select, Space, Spin, Tabs, Tag, Typography, message } from 'antd';
 import { BellOutlined, DeleteOutlined, DownOutlined, EditOutlined, FileImageOutlined, PlusOutlined, ReloadOutlined, RocketOutlined } from '@ant-design/icons';
 import type { CreationTool } from './types';
+import { PLATFORM_BRAND_ICONS } from './platformBrandIcons';
 
 type Language = 'zh-CN' | 'en-US';
 type Role = 'operator' | 'artist' | 'admin' | 'custom';
@@ -19,19 +20,8 @@ const TYPES = [ ['main', '首图', 'Main image'], ['dimensions', '尺寸图', 'D
 const LEGACY_CUSTOM_LOGO = ['custom-logo', '客户定制 LOGO', 'Custom logo'] as const;
 const PLATFORMS = ['AMAZON', 'ETSY', 'TEMU', 'SHEIN', 'EBAY', 'TIKTOK', 'WAYFAIR', 'WALMART'] as const;
 type Platform = typeof PLATFORMS[number];
-const PLATFORM_MARKS: Record<Platform, { glyph: string; color: string; background: string }> = {
-  AMAZON: { glyph: 'a', color: '#232f3e', background: '#fff1d6' },
-  ETSY: { glyph: 'E', color: '#f1641e', background: '#fff0e7' },
-  TEMU: { glyph: 'T', color: '#f7681e', background: '#fff0e7' },
-  SHEIN: { glyph: 'S', color: '#111827', background: '#eef0f4' },
-  EBAY: { glyph: 'e', color: '#3665f3', background: '#eaf0ff' },
-  TIKTOK: { glyph: '♪', color: '#141414', background: '#e4fafd' },
-  WAYFAIR: { glyph: 'W', color: '#7d2597', background: '#f5eafa' },
-  WALMART: { glyph: '✦', color: '#e8a600', background: '#fff5d8' },
-};
 function PlatformLabel({ platform }: { platform: Platform }) {
-  const mark = PLATFORM_MARKS[platform];
-  return <span className="operating-platform-option"><span className="operating-platform-icon" aria-hidden="true" style={{ color: mark.color, backgroundColor: mark.background }}>{mark.glyph}</span><span>{platform}</span></span>;
+  return <span className="operating-platform-option"><img className={`operating-platform-icon${platform === 'EBAY' ? ' operating-platform-icon-wide' : ''}`} src={PLATFORM_BRAND_ICONS[platform]} alt="" aria-hidden="true" /><span>{platform}</span></span>;
 }
 const PLATFORM_OPTIONS = PLATFORMS.map((value) => ({ value, label: <PlatformLabel platform={value} /> }));
 const ROLES: Array<[Role, string, string]> = [['operator','运营','Operator'], ['artist','美工','Artist'], ['admin','管理员','Administrator'], ['custom','自定义','Custom']];

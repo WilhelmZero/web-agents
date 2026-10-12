@@ -992,15 +992,14 @@ button, input, textarea { font: inherit; }
   gap: 8px;
 }
 .operating-platform-icon {
-  display: inline-grid;
-  place-items: center;
+  display: block;
   width: 22px;
   height: 22px;
   flex: none;
-  border-radius: 6px;
-  font-size: 15px;
-  font-weight: 800;
-  line-height: 1;
+  object-fit: contain;
+}
+.operating-platform-icon-wide {
+  width: 34px;
 }
 .operating-asset-row .operating-asset-action {
   opacity: 0;
