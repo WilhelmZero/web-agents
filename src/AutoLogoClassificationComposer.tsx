@@ -89,7 +89,8 @@ import {
   normalizeLogoClassificationPresetGroups,
   updateLogoClassificationPresetGroupCategories,
 } from "./services/logoClassificationPresetGroups";
-import { createDefaultLogoClassificationPresetGroup } from "./services/defaultClassificationPresetGroups";
+import { createDefaultLogoClassificationPresetGroup, localizeDefaultLogoClassificationPresetGroups } from "./services/defaultClassificationPresetGroups";
+import { useLanguage } from './i18n';
 import {
   generateExactLogoReplacement,
   optimizeLogoReplacePrompt,
@@ -326,6 +327,7 @@ export default function AutoLogoClassificationComposer({
   settingsHost?: HTMLElement | null;
 }) {
   const { message } = App.useApp();
+  const { language } = useLanguage();
   const [groups, setGroups] = useState<Group[]>([]);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [checkedFolders, setCheckedFolders] = useState<string[]>([]);
@@ -341,16 +343,17 @@ export default function AutoLogoClassificationComposer({
       ? []
       : readLocalStorage(STORAGE_KEYS.logoClassificationPresets, []);
     if (!hasGroupedPresets && !Array.isArray(legacyPresets)) {
-      return [createDefaultLogoClassificationPresetGroup()];
+      return localizeDefaultLogoClassificationPresetGroups([createDefaultLogoClassificationPresetGroup()], language);
     }
     if (!hasGroupedPresets && legacyPresets.length === 0) {
-      return [createDefaultLogoClassificationPresetGroup()];
+      return localizeDefaultLogoClassificationPresetGroups([createDefaultLogoClassificationPresetGroup()], language);
     }
-    return normalizeLogoClassificationPresetGroups(
+    return localizeDefaultLogoClassificationPresetGroups(normalizeLogoClassificationPresetGroups(
       readLocalStorage(STORAGE_KEYS.logoClassificationPresetGroups, []),
       legacyPresets,
-    );
+    ), language);
   });
+  useEffect(() => setPresetGroups((current) => localizeDefaultLogoClassificationPresetGroups(current, language)), [language]);
   const [activePresetGroupId, setActivePresetGroupId] = useState(() =>
     readLocalStorage(STORAGE_KEYS.activeLogoClassificationPresetGroup, ""),
   );

@@ -40,6 +40,8 @@ import { createPortal } from 'react-dom';
 import { DEFAULT_CUP_RESIZE_SETTINGS, MODEL_CAPABILITIES, STORAGE_KEYS } from './constants';
 import GeneratingImage from './GeneratingImage';
 import { CUP_RESIZE_PROMPT, inferBorderColor, rgbToHex } from './services/cupResize';
+import { useLanguage } from './i18n';
+import { localizeMoreToolDefault } from './moreToolI18n';
 import { generateCupResizeImage } from './services/gemini';
 import { generateCupResizeOpenAi } from './services/logoReplaceOpenAi';
 import { OPENAI_IMAGE_MODEL_OPTIONS } from './services/openAiModels';
@@ -343,6 +345,8 @@ export default function CupResizeComposer({ apiKey, openAiApiKey, apiBaseUrl, co
   settingsHost?: HTMLElement | null;
 }) {
   const { message } = AntApp.useApp();
+  const { language } = useLanguage();
+  const localizedDefaultPrompt = localizeMoreToolDefault(CUP_RESIZE_PROMPT, language);
   const [settings, setSettings] = useState<CupResizeSettings>(() => readLocalStorage(STORAGE_KEYS.cupResizeSettings, DEFAULT_CUP_RESIZE_SETTINGS as CupResizeSettings));
   const [scene, setScene] = useState<File>();
   const [cup, setCup] = useState<File>();
@@ -363,6 +367,10 @@ export default function CupResizeComposer({ apiKey, openAiApiKey, apiBaseUrl, co
   const [historyState, setHistoryState] = useState({ undo: 0, redo: 0 });
   const [instructionPrompt, setInstructionPrompt] = useState(() => readLocalStorage(STORAGE_KEYS.cupResizeInstruction, CUP_RESIZE_PROMPT));
   const [supplementalPrompt, setSupplementalPrompt] = useState(() => readLocalStorage(STORAGE_KEYS.cupResizePrompt, '给杯子倒上半杯酒'));
+  useEffect(() => {
+    setInstructionPrompt((current) => localizeMoreToolDefault(current, language));
+    setSupplementalPrompt((current) => localizeMoreToolDefault(current, language));
+  }, [language, instructionPrompt, supplementalPrompt]);
   const [result, setResult] = useState<{ blob: Blob; url: string; mimeType: string }>();
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewOriginal, setPreviewOriginal] = useState(false);
@@ -399,8 +407,8 @@ export default function CupResizeComposer({ apiKey, openAiApiKey, apiBaseUrl, co
     try {
       const guideFile = new File([composite], 'cup-placement-guide.png', { type: 'image/png' });
       const generated = isOpenAiModel(settings.imageModel)
-        ? await generateCupResizeOpenAi({ apiKey: openAiApiKey, model: settings.imageModel, compositeGuide: guideFile, prompt: `${instructionPrompt.trim() || CUP_RESIZE_PROMPT}${supplementalPrompt.trim() ? `\n用户补充要求：${supplementalPrompt.trim()}` : ''}`, quality: settings.imageQuality, signal: controller.signal })
-        : await generateCupResizeImage({ apiKey, apiBaseUrl, model: settings.imageModel, compositeGuide: composite, prompt: instructionPrompt.trim() || CUP_RESIZE_PROMPT, supplementalPrompt, imageSize: settings.imageSize, signal: controller.signal });
+        ? await generateCupResizeOpenAi({ apiKey: openAiApiKey, model: settings.imageModel, compositeGuide: guideFile, prompt: `${instructionPrompt.trim() || localizedDefaultPrompt}${supplementalPrompt.trim() ? `\n${language === 'en-US' ? 'Additional user request' : '用户补充要求'}：${supplementalPrompt.trim()}` : ''}`, quality: settings.imageQuality, signal: controller.signal })
+        : await generateCupResizeImage({ apiKey, apiBaseUrl, model: settings.imageModel, compositeGuide: composite, prompt: instructionPrompt.trim() || localizedDefaultPrompt, supplementalPrompt, imageSize: settings.imageSize, signal: controller.signal });
       setResult({ blob: generated.blob, url: URL.createObjectURL(generated.blob), mimeType: generated.mimeType }); setStatus('success');
     } catch (reason) {
       if (controller.signal.aborted) setStatus('idle');

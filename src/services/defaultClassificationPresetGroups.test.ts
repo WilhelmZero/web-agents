@@ -3,6 +3,8 @@ import { FOLDER_SCENE_POOLS } from "./sceneThemeRecommendation";
 import {
   createDefaultLogoClassificationPresetGroup,
   createDefaultSceneClassificationPresetGroup,
+  localizeDefaultLogoClassificationPresetGroups,
+  localizeDefaultSceneClassificationPresetGroups,
 } from "./defaultClassificationPresetGroups";
 
 describe("default automatic-classification preset groups", () => {
@@ -65,5 +67,30 @@ describe("default automatic-classification preset groups", () => {
     expect(
       createDefaultLogoClassificationPresetGroup().categories[0].name,
     ).toBe("其他载体 / 沿用原工艺");
+  });
+
+  it('switches untouched built-in category names and prompts in both directions', () => {
+    const originalScene = createDefaultSceneClassificationPresetGroup();
+    const originalLogo = createDefaultLogoClassificationPresetGroup();
+    const englishScene = localizeDefaultSceneClassificationPresetGroups([originalScene], 'en-US')[0];
+    const englishLogo = localizeDefaultLogoClassificationPresetGroups([originalLogo], 'en-US')[0];
+    expect(englishScene.name).toBe('Default multi-tab scene replacement preset');
+    expect(englishScene.categories[0].name).toBe('Shot glass');
+    expect(englishScene.categories[0].prompt).toContain('Strictly preserve the cup');
+    expect(englishLogo.categories[1].name).toBe('Glass / frosted laser engraving');
+    expect(englishLogo.categories[1].prompt).toContain('do not redraw, translate, or alter it');
+    expect(localizeDefaultSceneClassificationPresetGroups([englishScene], 'zh-CN')[0]).toEqual(originalScene);
+    expect(localizeDefaultLogoClassificationPresetGroups([englishLogo], 'zh-CN')[0]).toEqual(originalLogo);
+  });
+
+  it('does not overwrite edits to built-in categories or user-created groups', () => {
+    const original = createDefaultSceneClassificationPresetGroup();
+    const edited = { ...original, categories: original.categories.map((category, index) => index === 0 ? { ...category, name: 'My category', prompt: 'My custom prompt' } : category) };
+    const custom = { ...original, id: 'my-group', name: 'My group' };
+    const [localized, untouched] = localizeDefaultSceneClassificationPresetGroups([edited, custom], 'en-US');
+    expect(localized.categories[0].name).toBe('My category');
+    expect(localized.categories[0].prompt).toBe('My custom prompt');
+    expect(localized.categories[1].name).toBe('Stemless egg cup');
+    expect(untouched).toBe(custom);
   });
 });

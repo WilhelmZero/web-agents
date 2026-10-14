@@ -25,6 +25,8 @@ import {
 import type { ImageModel, OpenAiImageModel } from './types';
 import { createId, downloadBlob, sanitizeFileName } from './utils';
 import OriginalCompareImage from './OriginalCompareImage';
+import { useLanguage } from './i18n';
+import { localizeMoreToolDefault } from './moreToolI18n';
 
 const { Text, Title } = Typography;
 const STORAGE_KEY = 'scene-studio-workflow-v1';
@@ -47,9 +49,10 @@ function defaultConfig(kind: WorkflowNodeKind): WorkflowNodeConfig {
   return { concurrency: 3, copies: 1, prompt: '自然延展原图场景，补充画面之外合理存在的环境内容，保持真实摄影质感和自然景深。', imageModel: 'gpt-image-2.5-flare', imageSize: '2K', quality: 'high', autoOutpaint: false, dualOutpaint: false, outpaintWidth: 3200, outpaintHeight: 1310, randomMatch: true };
 }
 
-function createNode(kind: WorkflowNodeKind, position: { x: number; y: number }): FlowNode {
+function createNode(kind: WorkflowNodeKind, position: { x: number; y: number }, language: 'zh-CN' | 'en-US'): FlowNode {
   const labels = { 'scene-replace': '场景替换', outpaint: '扩图', 'logo-replace': 'Logo 替换' };
-  return { id: createId(), type: 'creationTool', position, data: { label: labels[kind], kind, config: defaultConfig(kind), files: [], logos: [], predictedInput: 0, predictedOutput: 0, sceneOutput: 0, outpaintOutput: 0, success: 0, failed: 0, waiting: 0, status: 'idle', logs: [] } };
+  const config = defaultConfig(kind);
+  return { id: createId(), type: 'creationTool', position, data: { label: localizeMoreToolDefault(labels[kind], language), kind, config: { ...config, prompt: localizeMoreToolDefault(config.prompt, language) }, files: [], logos: [], predictedInput: 0, predictedOutput: 0, sceneOutput: 0, outpaintOutput: 0, success: 0, failed: 0, waiting: 0, status: 'idle', logs: [] } };
 }
 
 const KIND_ICON = { 'scene-replace': <PictureOutlined />, outpaint: <ExpandOutlined />, 'logo-replace': <SwapOutlined /> };
@@ -93,10 +96,22 @@ async function loadDraft<T>() {
 
 function WorkflowComposerInner({ apiKey, openAiApiKey, apiBaseUrl, connectionMode, onRequestKey, onSessionStateChange }: Props) {
   const { message } = App.useApp();
+  const { language } = useLanguage();
   const restored = useMemo(() => { try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null') as { name?: string; globals?: GlobalSettings; nodes?: FlowNode[]; edges?: FlowEdge[] } | null; } catch { return null; } }, []);
   const [name, setName] = useState(restored?.name || '商品图工作流');
   const [globals, setGlobals] = useState<GlobalSettings>(restored?.globals || { concurrency: 6, retryEnabled: true, retryLimit: 3, retryDelay: 30 });
   const [nodes, setNodes] = useState<FlowNode[]>(restored?.nodes?.map((node) => ({ ...node, data: { ...node.data, config: { ...node.data.config, concurrency: workflowNodeConcurrency(node.data.kind, node.data.config.concurrency) }, files: [], logos: [], logs: [], status: 'idle' } })) || []);
+  useEffect(() => {
+    setName((current) => localizeMoreToolDefault(current, language));
+    setNodes((current) => {
+      const next = current.map((node) => {
+        const label = localizeMoreToolDefault(node.data.label, language);
+        const prompt = localizeMoreToolDefault(node.data.config.prompt, language);
+        return label === node.data.label && prompt === node.data.config.prompt ? node : { ...node, data: { ...node.data, label, config: { ...node.data.config, prompt } } };
+      });
+      return next.every((node, index) => node === current[index]) ? current : next;
+    });
+  }, [language]);
   const [edges, setEdges] = useState<FlowEdge[]>(restored?.edges || []);
   const [selectedId, setSelectedId] = useState<string>(); const [results, setResults] = useState<Record<string, WorkflowAsset[]>>({});
   const [running, setRunning] = useState(false); const [paused, setPaused] = useState(false); const pausedRef = useRef(false); const abortRef = useRef<AbortController | undefined>(undefined);
@@ -118,7 +133,7 @@ function WorkflowComposerInner({ apiKey, openAiApiKey, apiBaseUrl, connectionMod
     if (edgesRef.current.some((edge) => edge.target === connection.target && (edge.targetHandle || 'images') === (connection.targetHandle || 'images'))) return void message.error('该输入端口已经连接了上游');
     setEdges((current) => addEdge({ ...connection, id: createId(), animated: true }, current));
   }, [message]);
-  const addNode = (kind: WorkflowNodeKind) => setNodes((current) => [...current, createNode(kind, { x: 90 + current.length * 300, y: 140 + (current.length % 2) * 80 })]);
+  const addNode = (kind: WorkflowNodeKind) => setNodes((current) => [...current, createNode(kind, { x: 90 + current.length * 300, y: 140 + (current.length % 2) * 80 }, language)]);
   const addFiles = (target: 'files' | 'logos', incoming: File[]) => { if (!selected) return false; const valid = incoming.filter((file) => IMAGE_TYPES.includes(file.type) && file.size <= 20 * 1024 * 1024); patchNode(selected.id, { [target]: [...selected.data[target], ...valid] }); return false; };
 
   const sourceAssets = (node: FlowNode) => {

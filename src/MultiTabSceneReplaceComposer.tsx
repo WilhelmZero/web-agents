@@ -52,11 +52,16 @@ import { readLocalStorage } from "./storage";
 import {
   assignFolderScene,
   FOLDER_SCENE_COMMON_PROMPT,
+  FOLDER_SCENE_COMMON_PROMPT_EN,
   identifyCupType,
   SCENE_COMMON_CONSTRAINT,
   SCENE_MANUAL_DEFAULT_PROMPT,
+  SCENE_COMMON_CONSTRAINT_EN,
+  SCENE_MANUAL_DEFAULT_PROMPT_EN,
+  localizedScenePrompt,
   type RecommendedCupType,
 } from "./services/sceneThemeRecommendation";
+import { useLanguage } from "./i18n";
 import { detectWhiteBackground } from "./services/whiteBackgroundDetection";
 import { formatBatchDuration } from "./services/batchTiming";
 import { sanitizeRelativeFolderPath } from "./services/batchFolderPath";
@@ -409,6 +414,7 @@ export default function MultiTabSceneReplaceComposer(
   props: Parameters<typeof SceneReplaceComposer>[0],
 ) {
   const { message } = App.useApp();
+  const { language } = useLanguage();
   const params = new URLSearchParams(location.search);
   const worker = params.get("worker") === "1";
   const batchId = params.get("batch");
@@ -441,7 +447,7 @@ export default function MultiTabSceneReplaceComposer(
   const [detectInsufficientSceneChange, setDetectInsufficientSceneChange] =
     useState(storedSceneSettings.detectInsufficientSceneChange ?? true);
   const [prompt, setPrompt] = useState(() =>
-    autoRecommendScene ? SCENE_COMMON_CONSTRAINT : SCENE_MANUAL_DEFAULT_PROMPT,
+    localizedScenePrompt(language, autoRecommendScene),
   );
   const [exactPromptControl, setExactPromptControl] = useState(() =>
     readLocalStorage("scene-studio.scene-tabs-exact-prompt-control", false),
@@ -571,11 +577,22 @@ export default function MultiTabSceneReplaceComposer(
     if (folderSuggestionMode)
       setPrompt((current) =>
         current === SCENE_COMMON_CONSTRAINT ||
-        current === SCENE_MANUAL_DEFAULT_PROMPT
-          ? FOLDER_SCENE_COMMON_PROMPT
+        current === SCENE_COMMON_CONSTRAINT_EN ||
+        current === SCENE_MANUAL_DEFAULT_PROMPT ||
+        current === SCENE_MANUAL_DEFAULT_PROMPT_EN
+          ? language === 'en-US' ? FOLDER_SCENE_COMMON_PROMPT_EN : FOLDER_SCENE_COMMON_PROMPT
           : current,
       );
-  }, [folderSuggestionMode]);
+  }, [folderSuggestionMode, language]);
+  useEffect(() => {
+    setPrompt((current) => {
+      if (current === FOLDER_SCENE_COMMON_PROMPT || current === FOLDER_SCENE_COMMON_PROMPT_EN)
+        return language === 'en-US' ? FOLDER_SCENE_COMMON_PROMPT_EN : FOLDER_SCENE_COMMON_PROMPT;
+      if ([SCENE_COMMON_CONSTRAINT, SCENE_COMMON_CONSTRAINT_EN, SCENE_MANUAL_DEFAULT_PROMPT, SCENE_MANUAL_DEFAULT_PROMPT_EN].includes(current))
+        return localizedScenePrompt(language, autoRecommendScene);
+      return current;
+    });
+  }, [language, autoRecommendScene]);
   useEffect(() => {
     setFolderSuggestions((current) => {
       let changed = false;
@@ -1548,11 +1565,11 @@ export default function MultiTabSceneReplaceComposer(
                 setFolderSuggestionMode(value);
                 setPrompt((current) =>
                   value
-                    ? FOLDER_SCENE_COMMON_PROMPT
-                    : current === FOLDER_SCENE_COMMON_PROMPT
+                    ? language === 'en-US' ? FOLDER_SCENE_COMMON_PROMPT_EN : FOLDER_SCENE_COMMON_PROMPT
+                    : current === FOLDER_SCENE_COMMON_PROMPT || current === FOLDER_SCENE_COMMON_PROMPT_EN
                       ? autoRecommendScene
-                        ? SCENE_COMMON_CONSTRAINT
-                        : SCENE_MANUAL_DEFAULT_PROMPT
+                        ? localizedScenePrompt(language, true)
+                        : localizedScenePrompt(language, false)
                       : current,
                 );
               }}
@@ -1809,11 +1826,11 @@ export default function MultiTabSceneReplaceComposer(
                   if (
                     !trimmed ||
                     trimmed === SCENE_COMMON_CONSTRAINT ||
-                    trimmed === SCENE_MANUAL_DEFAULT_PROMPT
+                    trimmed === SCENE_COMMON_CONSTRAINT_EN ||
+                    trimmed === SCENE_MANUAL_DEFAULT_PROMPT ||
+                    trimmed === SCENE_MANUAL_DEFAULT_PROMPT_EN
                   )
-                    return value
-                      ? SCENE_COMMON_CONSTRAINT
-                      : SCENE_MANUAL_DEFAULT_PROMPT;
+                    return localizedScenePrompt(language, value);
                   return current;
                 });
               }}

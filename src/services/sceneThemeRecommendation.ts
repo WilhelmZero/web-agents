@@ -34,6 +34,7 @@ export const FOLDER_SCENE_POOLS: Record<Exclude<RecommendedCupType, '其他'>, s
 };
 
 export const FOLDER_SCENE_COMMON_PROMPT = '场景需自然合理、不违和，自动搭配正确饮品、桌面材质和少量辅助道具，严格要求杯子的外形、轮廓、比例、结构、尺寸、朝向及在图中的位置完全不变，禁止拉伸、压缩、弯曲、重塑或改变杯口、杯身、杯底；人物在图中的位置和人物动作、特别是人物手势不变，穿搭及背景氛围可改变，真实的景深效果';
+export const FOLDER_SCENE_COMMON_PROMPT_EN = 'Keep each scene natural and credible, with the correct drink, tabletop material, and a few supporting props. Preserve the cup shape, silhouette, proportions, structure, dimensions, orientation, and position exactly; do not stretch, compress, bend, reshape, or alter its rim, body, or base. Preserve people’s positions and actions, especially hand gestures. Clothing and atmosphere may change, with realistic depth of field.';
 
 const ALL_FOLDER_SCENES = Object.values(FOLDER_SCENE_POOLS).flat();
 

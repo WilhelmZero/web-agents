@@ -301,6 +301,13 @@ describe("玻璃杯 Logo 雕刻技能指令", () => {
 });
 
 describe("Logo 替换指令", () => {
+  it("uses an English production prompt when requested", () => {
+    const prompt = buildLogoReplacementInstruction({ hasOldLogo: true, logoColorMode: 'custom', customLogoColor: '#112233', language: 'en-US' });
+    expect(prompt).toContain('Image 2 identifies the old logo');
+    expect(prompt).toContain('#112233');
+    expect(prompt).toContain('every matching old logo');
+    expect(prompt).not.toMatch(/[\u3400-\u9fff]/);
+  });
   it("有旧 Logo 时声明三张图片顺序并限制仅修改 Logo", () => {
     const instruction = buildLogoReplacementInstruction({
       hasOldLogo: true,
@@ -457,6 +464,12 @@ describe("Logo 替换指令", () => {
 });
 
 describe("物体批量替换指令", () => {
+  it("uses an English preview and generation prompt when requested", () => {
+    const prompt = buildObjectReplacementInstruction({ sourceObjectName: 'cup', targetObjectName: 'mug', hasSourceReference: false, hasTargetReference: true, preservation: { print: true, logo: false, engraving: false, liquid: false, foam: false, custom: [] }, language: 'en-US' });
+    expect(prompt).toContain('Sx = Sy = Sz');
+    expect(prompt).toContain('surface print');
+    expect(prompt).not.toMatch(/[\u3400-\u9fff]/);
+  });
   it("只移植新杯本体和勾选的表面特征，其他内容跟随原场景", () => {
     const instruction = buildObjectReplacementInstruction({
       sourceObjectName: "玻璃杯",

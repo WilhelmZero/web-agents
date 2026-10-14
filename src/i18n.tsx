@@ -1,4 +1,5 @@
 import { translateEngravingText } from "./engraving-i18n";
+import { moreToolTranslations } from "./moreToolI18n";
 import { XProvider } from "@ant-design/x";
 import enUSX from "@ant-design/x/locale/en_US";
 import zhCNX from "@ant-design/x/locale/zh_CN";
@@ -19,6 +20,21 @@ export type AppLanguage = "zh-CN" | "en-US";
 const LANGUAGE_KEY = "scene-studio-language";
 
 const translations: Record<string, string> = {
+  ...moreToolTranslations,
+  "系统就绪": "System ready",
+  "任务执行中": "Tasks running",
+  "存在失败任务": "Some tasks failed",
+  "本站服务器转发 AI 请求": "AI requests are routed through this server",
+  "服务器环境变量中的 Key 优先。未配置时，此窗口的备用 Key 保存在当前浏览器，仅通过 HTTPS 发送给本站服务器；请勿在不受信任的设备上配置。":
+    "Server environment keys take priority. If none are configured, backup keys entered here are stored in this browser and sent only to this server over HTTPS. Do not configure keys on an untrusted device.",
+  "所有请求经本站服务器安全转发；环境变量优先。":
+    "All requests are securely routed through this server; environment keys take priority.",
+  "Gemini Key 已由服务器环境变量配置": "Gemini key is configured on the server",
+  "OpenAI Key 已由服务器环境变量配置": "OpenAI key is configured on the server",
+  "控制台不会记录 API Key 或 Base64 请求正文；提示词与缩略图详情默认收起，输入和输出图片各最多保留最近 8 张；每次最多显示 4 张输入、2 张输出，日志仅保留在当前页面会话。":
+    "The console does not record API keys or Base64 request bodies. Prompts and thumbnails are collapsed by default. It keeps at most 8 recent input and output images, showing up to 4 inputs and 2 outputs per request. Logs last only for this page session.",
+  "当前模式由 AI 直接生成包含背景底色的完整图片。":
+    "In this mode, AI generates the complete image with its background color.",
   "专色 TIFF 制作": "Spot-color TIFF maker",
   "批量生成智能对象图层与双专色通道的印刷 TIFF":
     "Batch-create print TIFFs with a Smart Object and two spot channels",
@@ -1741,11 +1757,20 @@ function translateText(value: string): string {
   const trimmed = value.trim();
   const exact =
     translations[trimmed] ||
+    translations[trimmed.replace(/\s+/g, " ")] ||
     translations[
       trimmed.replace(/(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])/g, "")
     ];
   if (exact) return value.replace(trimmed, exact);
   const regexTranslations: Array<[RegExp, string]> = [
+    [/^任务执行中 (\d+)\/(\d+)$/, "Tasks running $1/$2"],
+    [/^(\d+) 个任务失败$/, "$1 tasks failed"],
+    [/^AI 累计生成 (\d+) 张图片$/, "AI generated $1 images in total"],
+    [/^(.+)（(\d+) 个分类）$/, '$1 ($2 categories)'],
+    [/^(.+) · (\d+) 个分类$/, '$1 · $2 categories'],
+    [/^下载全部（(\d+)）$/, 'Download all ($1)'],
+    [/^生成所选（(\d+)）$/, 'Generate selected ($1)'],
+    [/^分析并发 (\d+)，生图并发 (\d+)；两条队列会同时推进。$/, 'Analysis concurrency $1 and image concurrency $2; both queues run in parallel.'],
     [/^置顶(.+)$/, "Pin $1"],
     [/^取消置顶(.+)$/, "Unpin $1"],
     [/^准备替换\s*(\d+)\s*张$/, "Ready to replace $1 images"],

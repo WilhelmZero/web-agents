@@ -63,6 +63,7 @@ import { assignMultipleLogos, expandStylesByOccurrence } from './services/logoRe
 import type { SceneLogoAnalysis } from './types';
 import { DEFAULT_LOGO_RESULT_INPAINT_PROMPT, normalizeLogoResultInpaintPrompt } from './services/logoResultInpaint';
 import { appendImageGenerationGuard } from './services/imageGenerationGuard';
+import { useLanguage, type AppLanguage } from './i18n';
 
 const { Text, Title, Paragraph } = Typography;
 const ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
@@ -76,7 +77,7 @@ function statusText(status: LogoReplaceTask['status']) {
   return '已停止';
 }
 
-export function buildActualReplacementPrompt(settings: LogoReplaceSettings, hasOldLogo: boolean, expectedText = '', correctionFeedback = '', perImagePrompt?: string) {
+export function buildActualReplacementPrompt(settings: LogoReplaceSettings, hasOldLogo: boolean, expectedText = '', correctionFeedback = '', perImagePrompt?: string, language: AppLanguage = 'zh-CN') {
   const customPrompt = perImagePrompt?.trim() || (settings.customizeReplacementPrompt ? settings.replacementPrompt.trim() : '');
   const mandatoryPrompt = buildLogoReplacementInstruction({
     hasOldLogo,
@@ -94,11 +95,13 @@ export function buildActualReplacementPrompt(settings: LogoReplaceSettings, hasO
     expectedText,
     correctionFeedback,
     beerMugContext: /啤酒杯/.test(customPrompt),
+    language,
   });
   const collageInstruction = '【多个小图强制规则】请直接查看并判断输入画面中是否存在多个小图；若存在，必须对模型判断出的每一个小图逐一、完整地执行相同的 Logo 替换要求，所有小图都必须处理。不得根据截图、拼贴、海报或详情页等预设类别来决定是否执行，也不得筛选或跳过其中任何小图。同一新 Logo 必须应用到每个小图中所有对应的旧 Logo，严禁只处理第一张、最大一张或其中部分小图；不得合并、删除、移动、裁切任何小图，不得改变原有排版、标题、标签及其他非 Logo 内容。';
+  const collageInstructionEn = '【Highest priority: multiple images in a collage】Inspect the input for separate small images. Replace every matching old logo in every image, using the same new logo. Do not skip, merge, delete, move, or crop any panel, or change its layout, labels, or other non-logo content.';
   return appendImageGenerationGuard(customPrompt
-    ? customPrompt + '\n\n【以下 Logo 工艺、颜色、小字保护及图中图规则为强制最高优先级，不得被前文覆盖】\n' + mandatoryPrompt + '\n\n' + collageInstruction
-    : mandatoryPrompt + '\n\n' + collageInstruction);
+    ? customPrompt + (language === 'en-US' ? '\n\n【Highest priority: the following production, color, small-text, and collage rules override earlier text】\n' : '\n\n【以下 Logo 工艺、颜色、小字保护及图中图规则为强制最高优先级，不得被前文覆盖】\n') + mandatoryPrompt + '\n\n' + (language === 'en-US' ? collageInstructionEn : collageInstruction)
+    : mandatoryPrompt + '\n\n' + (language === 'en-US' ? collageInstructionEn : collageInstruction), language);
 }
 interface LogoReplaceComposerProps {
   apiKey: string;
@@ -142,6 +145,7 @@ function LogoReplaceSingleComposer({
   initialOldLogoFile,
 }: LogoReplaceComposerProps) {
   const { message } = AntApp.useApp();
+  const { language } = useLanguage();
   const distinctLogoPerOccurrence = Boolean(initialDistinctLogoPerOccurrence);
   const [settings, setSettings] = useState<LogoReplaceSettings>(() => {
     const stored = readLocalStorage(STORAGE_KEYS.logoReplaceSettings, {} as Partial<LogoReplaceSettings> & { logoEffect?: string });
@@ -326,10 +330,34 @@ function LogoReplaceSingleComposer({
     customWoodEngravingMethod: settings.customWoodEngravingMethod,
     customEngravingObject: settings.customEngravingObject,
     engravingMethod: settings.engravingMethod,
-  }), [oldLogo, settings.useOldLogoReference, settings.logoColorMode, settings.customLogoColor, settings.engravingMode, settings.glassEngravingEnabled, settings.woodEngravingEnabled, settings.customEngravingEnabled, settings.woodEngravingStyle, settings.woodEngravingColorDepth, settings.customWoodEngravingMethod, settings.customEngravingObject, settings.engravingMethod]);
+    language,
+  }), [oldLogo, settings.useOldLogoReference, settings.logoColorMode, settings.customLogoColor, settings.engravingMode, settings.glassEngravingEnabled, settings.woodEngravingEnabled, settings.customEngravingEnabled, settings.woodEngravingStyle, settings.woodEngravingColorDepth, settings.customWoodEngravingMethod, settings.customEngravingObject, settings.engravingMethod, language]);
+  useEffect(() => {
+    setSettings((current) => {
+      if (!current.customizeReplacementPrompt || !current.replacementPrompt.trim()) return current;
+      const defaultInOtherLanguage = buildLogoReplacementInstruction({
+        hasOldLogo: current.useOldLogoReference && Boolean(oldLogo),
+        logoColorMode: current.logoColorMode,
+        customLogoColor: current.customLogoColor,
+        engravingMode: current.engravingMode,
+        glassEngravingEnabled: current.glassEngravingEnabled,
+        woodEngravingEnabled: current.woodEngravingEnabled,
+        customEngravingEnabled: current.customEngravingEnabled,
+        woodEngravingStyle: current.woodEngravingStyle,
+        woodEngravingColorDepth: current.woodEngravingColorDepth,
+        customWoodEngravingMethod: current.customWoodEngravingMethod,
+        customEngravingObject: current.customEngravingObject,
+        engravingMethod: current.engravingMethod,
+        language: language === 'en-US' ? 'zh-CN' : 'en-US',
+      });
+      return current.replacementPrompt.trim() === defaultInOtherLanguage.trim()
+        ? { ...current, replacementPrompt: defaultReplacementPrompt }
+        : current;
+    });
+  }, [language, oldLogo, defaultReplacementPrompt]);
   const actualReplacementPrompt = useMemo(
-    () => buildActualReplacementPrompt(settings, settings.useOldLogoReference && Boolean(oldLogo)),
-    [settings, oldLogo],
+    () => buildActualReplacementPrompt(settings, settings.useOldLogoReference && Boolean(oldLogo), '', '', undefined, language),
+    [settings, oldLogo, language],
   );
   const perImagePromptSource = settings.customizeReplacementPrompt ? settings.replacementPrompt.trim() : actualReplacementPrompt;
   const perImagePrompts = usePerImagePrompts({ tool: 'logo-replace', files: scenes.map((scene) => scene.file), sourcePrompt: perImagePromptSource, initial: initialPerImagePrompts, onChange: onPerImagePromptsChange, config: { provider: settings.languageProvider, apiKey: settings.languageProvider === 'openai' ? openAiApiKey : apiKey, apiBaseUrl, geminiModel: settings.verificationModel, openAiModel: settings.openAiLanguageModel, concurrency: Math.min(8, settings.concurrency), autoRetryErrors: settings.autoRetryErrors, errorRetryLimit: settings.errorRetryLimit, errorRetryDelaySeconds: settings.errorRetryDelaySeconds } });
@@ -395,7 +423,7 @@ function LogoReplaceSingleComposer({
           signal: controller.signal,
         };
         const assignedPrompt = promptAssignment?.prompt;
-        const replacementPrompt = buildActualReplacementPrompt(currentSettings, currentSettings.useOldLogoReference && Boolean(oldLogoRef.current), expectedText, correctionFeedback, assignedPrompt);
+        const replacementPrompt = buildActualReplacementPrompt(currentSettings, currentSettings.useOldLogoReference && Boolean(oldLogoRef.current), expectedText, correctionFeedback, assignedPrompt, language);
         const dimensions = await imageDimensions(scene.file);
         const aspectRatio = outputAspectRatio(currentSettings.ratioMode, dimensions.width, dimensions.height, currentSettings.aspectRatio, currentSettings.customOutputWidth, currentSettings.customOutputHeight, MODEL_CAPABILITIES[currentSettings.imageModel].aspectRatios);
         const occurrenceStyles = expandStylesByOccurrence(occurrenceAnalysesRef.current[scene.id]?.styles || [], true).slice(0, replacements.length);

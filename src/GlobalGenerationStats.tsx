@@ -13,6 +13,7 @@ import {
 } from "antd";
 import { useSyncExternalStore } from "react";
 import { MODEL_CAPABILITIES } from "./constants";
+import { useLanguage } from "./i18n";
 import {
   getGenerationStatsSnapshot,
   resetGenerationStats,
@@ -29,6 +30,8 @@ function modelLabel(model: string) {
 }
 
 export default function GlobalGenerationStats() {
+  const { language } = useLanguage();
+  const en = language === "en-US";
   const stats = useSyncExternalStore(
     subscribeGenerationStats,
     getGenerationStatsSnapshot,
@@ -42,10 +45,10 @@ export default function GlobalGenerationStats() {
   const content = (
     <div className="global-generation-stats-panel">
       <Flex justify="space-between" align="end" gap={16}>
-        <Statistic title="累计成功生成" value={stats.total} suffix="张" />
+        <Statistic title={en ? "Images generated" : "累计成功生成"} value={stats.total} suffix={en ? undefined : "张"} />
         {stats.updatedAt ? (
           <Text type="secondary" className="global-generation-stats-time">
-            最近生成
+            {en ? "Last generated" : "最近生成"}
             <br />
             {new Date(stats.updatedAt).toLocaleString()}
           </Text>
@@ -57,7 +60,7 @@ export default function GlobalGenerationStats() {
           size="small"
           dataSource={models}
           renderItem={([model, item]) => (
-            <List.Item extra={<Tag color="purple">{item.count} 张</Tag>}>
+            <List.Item extra={<Tag color="purple">{item.count} {en ? "images" : "张"}</Tag>}>
               <List.Item.Meta
                 title={modelLabel(model)}
                 description={
@@ -74,17 +77,17 @@ export default function GlobalGenerationStats() {
       ) : (
         <Empty
           image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description="还没有成功生成的图片"
+          description={en ? "No images generated yet" : "还没有成功生成的图片"}
         />
       )}
       <Divider />
       <Flex justify="space-between" align="center" gap={12}>
-        <Text type="secondary">数据仅保存在当前浏览器或桌面客户端。</Text>
+        <Text type="secondary">{en ? "These counts are stored only in this browser." : "数据仅保存在当前浏览器。"}</Text>
         <Popconfirm
-          title="清空本机生成统计？"
-          description="该操作不会删除生成结果。"
-          okText="清空"
-          cancelText="取消"
+          title={en ? "Clear local generation counts?" : "清空本机生成统计？"}
+          description={en ? "This will not delete generated results." : "该操作不会删除生成结果。"}
+          okText={en ? "Clear" : "清空"}
+          cancelText={en ? "Cancel" : "取消"}
           onConfirm={resetGenerationStats}
         >
           <Button
@@ -93,7 +96,7 @@ export default function GlobalGenerationStats() {
             icon={<DeleteOutlined />}
             disabled={!stats.total}
           >
-            清空
+            {en ? "Clear" : "清空"}
           </Button>
         </Popconfirm>
       </Flex>
@@ -101,13 +104,13 @@ export default function GlobalGenerationStats() {
   );
 
   return (
-    <Popover title="AI 生成图片统计" content={content} trigger="click">
+    <Popover title={en ? "AI image generation counts" : "AI 生成图片统计"} content={content} trigger="click">
       <Button
         icon={<BarChartOutlined />}
-        aria-label={`AI 累计生成 ${stats.total} 张图片`}
-        title="查看各模型累计生成张数"
+        aria-label={en ? `AI generated ${stats.total} images in total` : `AI 累计生成 ${stats.total} 张图片`}
+        title={en ? "View generated image counts by model" : "查看各模型累计生成张数"}
       >
-        已生成 {stats.total} 张
+        {en ? `Generated ${stats.total} images` : `已生成 ${stats.total} 张`}
       </Button>
     </Popover>
   );

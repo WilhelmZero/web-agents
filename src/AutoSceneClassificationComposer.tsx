@@ -82,7 +82,8 @@ import {
   normalizeSceneClassificationPresetGroups,
   updateSceneClassificationPresetGroupCategories,
 } from "./services/sceneClassificationPresetGroups";
-import { createDefaultSceneClassificationPresetGroup } from "./services/defaultClassificationPresetGroups";
+import { createDefaultSceneClassificationPresetGroup, localizeDefaultSceneClassificationPresetGroups } from "./services/defaultClassificationPresetGroups";
+import { useLanguage } from './i18n';
 import {
   generateSceneReplacementImage,
   optimizeSceneReplacePrompt,
@@ -343,6 +344,7 @@ export default function AutoSceneClassificationComposer({
   settingsHost?: HTMLElement | null;
 }) {
   const { message } = App.useApp();
+  const { language } = useLanguage();
   const [groups, setGroups] = useState<Group[]>([]);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [checkedFolders, setCheckedFolders] = useState<string[]>([]);
@@ -356,16 +358,17 @@ export default function AutoSceneClassificationComposer({
       ? []
       : readLocalStorage(STORAGE_KEYS.sceneClassificationPresets, []);
     if (!hasGroupedPresets && !Array.isArray(legacyPresets)) {
-      return [createDefaultSceneClassificationPresetGroup()];
+      return localizeDefaultSceneClassificationPresetGroups([createDefaultSceneClassificationPresetGroup()], language);
     }
     if (!hasGroupedPresets && legacyPresets.length === 0) {
-      return [createDefaultSceneClassificationPresetGroup()];
+      return localizeDefaultSceneClassificationPresetGroups([createDefaultSceneClassificationPresetGroup()], language);
     }
-    return normalizeSceneClassificationPresetGroups(
+    return localizeDefaultSceneClassificationPresetGroups(normalizeSceneClassificationPresetGroups(
       readLocalStorage(STORAGE_KEYS.sceneClassificationPresetGroups, []),
       legacyPresets,
-    );
+    ), language);
   });
+  useEffect(() => setPresetGroups((current) => localizeDefaultSceneClassificationPresetGroups(current, language)), [language]);
   const [activePresetGroupId, setActivePresetGroupId] = useState(() =>
     readLocalStorage(STORAGE_KEYS.activeSceneClassificationPresetGroup, ""),
   );

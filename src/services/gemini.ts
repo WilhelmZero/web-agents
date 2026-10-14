@@ -646,7 +646,15 @@ export function buildLogoReplacementInstruction(options: {
   expectedText?: string;
   correctionFeedback?: string;
   beerMugContext?: boolean;
+  language?: "zh-CN" | "en-US";
 }): string {
+  if (options.language === "en-US") {
+    const reference = options.hasOldLogo ? "Image 2 identifies the old logo; image 3 is the new logo to apply." : "Image 2 is the new logo to apply. Identify the existing brand logos on the product or carrier.";
+    const engraving = options.engravingMode === "auto" || options.glassEngravingEnabled || options.woodEngravingEnabled || options.customEngravingEnabled;
+    const color = engraving ? "Let engraving color arise naturally from the carrier material, depth, lighting, and shadows; do not impose an unrealistic flat color." : options.logoColorMode === "original" ? "Preserve the new logo's original colors exactly." : `Render the new logo in ${options.logoColorMode === "custom" ? options.customLogoColor || "#ffffff" : options.logoColorMode}, without changing its shape, text, proportions, or details.`;
+    const effects = [options.glassEngravingEnabled && "glass engraving", options.woodEngravingEnabled && `wood engraving (${options.woodEngravingStyle || "auto"})`, options.customEngravingEnabled && `custom engraving on ${options.customEngravingObject || "the specified carrier"} using ${options.engravingMethod || "the specified technique"}`].filter(Boolean).join(", ");
+    return `Perform a strict logo replacement. Image 1 is the original scene and must remain unchanged except for the old logos. ${reference} Locate and replace every matching old logo, including all instances in collages and all visible positions on the same carrier. First remove each old logo completely. Use the exact new logo artwork as an indivisible graphic asset: preserve every stroke, character, letter case, spacing, punctuation, color relationship, and proportion; do not redraw, retype with OCR, invent text, or simplify small lettering. ${options.expectedText ? `The exact expected text is: ${options.expectedText}.` : ""} ${color} ${effects ? `Match the carrier's original production technique, including ${effects}.` : "Match the carrier's original print or engraving technique."} Conform naturally to the real carrier geometry, curvature, perspective, texture, reflection, refraction, highlights, occlusion, and depth of field. On glassware, keep the logo within the printable front area; do not let it spill onto the rim, stem, foot, or beyond the body. On ribbed mugs, follow each ridge without flattening the surface. Keep foreground hands and objects in front of the logo. Never paste a flat rectangular sticker, watermark, or opaque overlay. Retain each logo's reasonable center and footprint, but correct visibly wrong placement or distortion using the carrier's true geometry. Do not add a logo where none existed. Keep the original framing, composition, crop, camera, product structure, people, background, props, non-logo text, colors, lighting, shadows, reflections, refractions, grain, and sharpness unchanged. Do not move, delete, add, or redesign any non-logo content. ${options.correctionFeedback ? `Correct this issue: ${options.correctionFeedback}.` : ""}`;
+  }
   const automaticEngraving = options.engravingMode === "auto";
   const hasEngraving =
     automaticEngraving ||
@@ -1417,7 +1425,20 @@ export function buildObjectReplacementInstruction(options: {
   hasSourceReference: boolean;
   hasTargetReference: boolean;
   preservation: ObjectPreservationOptions;
+  language?: "zh-CN" | "en-US";
 }): string {
+  if (options.language === "en-US") {
+    const source = options.sourceObjectName.trim() || "the object shown in the original-object reference";
+    const target = options.targetObjectName.trim() || "the object shown in the new-object reference";
+    const references = ["Image 1 is the original scene and the sole reference for composition, camera, lighting, occlusion, and environment."];
+    if (options.hasSourceReference) references.push(`The next image identifies the original object (${source}); do not copy its background or appearance.`);
+    if (options.hasTargetReference) references.push(`The final image shows the new object (${target}); use only the physical object's identifying features, not its background, camera angle, shadow, props, or accessories.`);
+    const retained = [options.preservation.print && "surface print", options.preservation.logo && "logo", options.preservation.engraving && "engraving", ...options.preservation.custom].filter(Boolean).join(", ");
+    const surface = retained ? `Copy these features accurately from the new object: ${retained}. Completely remove the old object's corresponding print, logo, text, and engraving. Preserve every character, color, proportion, and position of the new artwork; do not reconstruct it with OCR.` : "Do not force-copy artwork or decoration from the new-object reference; use its structure, shape, material, and base color.";
+    const liquid = options.preservation.liquid ? "Retain the new reference's liquid type, color, and state, adapted to the original scene." : "Do not copy liquid from the new reference; retain the original scene's liquid type, color, and fill level, and do not add liquid if absent.";
+    const foam = options.preservation.foam ? "Retain foam characteristics from the new reference, adapted to the original scene." : "Do not copy foam from the new reference; keep the original scene's foam, and do not add foam if absent.";
+    return `Perform a strict local edit replacing only the physical object. ${references.join(" ")} Find and replace every instance of ${source} with ${target}; do not miss any. Separate the physical object from its contents, hands, foreground occluders, detachable accessories, and background. Anchor the replacement to the original contact point and centerline, not to the old object's visible height. Expand the local edit region if the new silhouette is larger; if smaller, reconstruct the original background naturally. ${surface} ${liquid} ${foam} The replacement may only be rigidly rotated, translated, perspectively projected, and uniformly scaled with Sx = Sy = Sz. Preserve the new reference's aspect ratio, rim, body, waist, base, wall curvature, taper, and local thickness; never stretch, squash, widen the base, shorten the height, or reshape any part to fit the old mask. For cups, treat only the vessel shell, rim, base, and integral handle as the new object; retain the original scene's hands, removable lids, straws, ice, and other contents unless explicitly selected above. Maintain the original contact point, orientation, camera view, hand grip, and occlusion order. Keep all people, hands, background, props, non-target text, composition, crop, lighting, shadows, reflections, depth of field, and sharpness unchanged. Blend only the narrow boundary around the replacement. Before output, compare the new object's normalized silhouette and key width sections against its reference; reject any changed proportions, especially a widened or thickened cup base, and any changes outside the replacement boundary.`;
+  }
   const sourceName = options.sourceObjectName.trim() || "原物体参考图所示物体";
   const targetName = options.targetObjectName.trim() || "新物体参考图所示物体";
   let imageIndex = 2;
@@ -1476,6 +1497,7 @@ export async function generateObjectReplacementImage(options: {
   sourceObjectName: string;
   targetObjectName: string;
   preservation: ObjectPreservationOptions;
+  language?: "zh-CN" | "en-US";
   aspectRatio?: string;
   imageSize: ImageSize;
   signal?: AbortSignal;
@@ -1499,7 +1521,9 @@ export async function generateObjectReplacementImage(options: {
           hasSourceReference: Boolean(options.sourceReference),
           hasTargetReference: Boolean(options.targetReference),
           preservation: options.preservation,
+          language: options.language,
         }),
+        options.language,
       ),
     },
     { inlineData: { mimeType: options.scene.type, data: sceneData } },

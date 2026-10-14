@@ -74,7 +74,7 @@ import {
   idealOutpaintRatio,
   recommendedArtworkMode,
 } from "./services/cupWrap/geometryOutpaint";
-import { useLanguage } from "./i18n";
+import { useLanguage, type AppLanguage } from "./i18n";
 const SHOW_MANUAL_ARTWORK_TOOLS = false;
 const PRINT_SETTINGS_KEY = "cup-wrap-print:settings:v3";
 const LEGACY_PRINT_SETTINGS_KEY = "cup-wrap-print:settings:v2";
@@ -185,9 +185,20 @@ function LayoutArtwork({
     />
   );
 }
-const fresh = (): WrapDesign => ({
+function localizedDesignName(name: string, language: AppLanguage): string {
+  const copy = / (?:副本|copy)$/.test(name);
+  const base = copy ? name.replace(/ (?:副本|copy)$/, "") : name;
+  const numbered = /^(?:杯型|Cup) (\d+)$/.exec(base);
+  if (base !== "杯身设计" && base !== "Cup design" && !numbered) return name;
+  const localized = numbered
+    ? language === "en-US" ? `Cup ${numbered[1]}` : `杯型 ${numbered[1]}`
+    : language === "en-US" ? "Cup design" : "杯身设计";
+  return copy ? `${localized} ${language === "en-US" ? "copy" : "副本"}` : localized;
+}
+
+const fresh = (language: AppLanguage = "zh-CN"): WrapDesign => ({
   id: crypto.randomUUID(),
-  name: "杯身设计",
+  name: language === "en-US" ? "Cup design" : "杯身设计",
   cup: { ...DEFAULT_CUP },
   sourceRevision: crypto.randomUUID(),
   aiResults: [],
@@ -302,7 +313,7 @@ export default function CupWrapPrintComposer({
     index: number;
     value: Placement;
   }>();
-  const [designs, setDesigns] = useState<WrapDesign[]>(() => [fresh()]),
+  const [designs, setDesigns] = useState<WrapDesign[]>(() => [fresh(language)]),
     [activeDesignId, setActiveDesignId] = useState(""),
     [ready, setReady] = useState(false),
     [error, setError] = useState(""),
@@ -975,7 +986,7 @@ export default function CupWrapPrintComposer({
       <h3>杯型名称</h3>
       <Input
         aria-label="杯型名称"
-        value={d.name}
+        value={localizedDesignName(d.name, language)}
         onChange={(event) => update({ name: event.target.value })}
       />
       <h3>杯身尺寸 · mm</h3>
@@ -1794,7 +1805,7 @@ export default function CupWrapPrintComposer({
             onClick={() => setActiveDesignId(design.id)}
           >
             <Space direction="vertical" size={4}>
-              <strong>{design.name || `杯型 ${index + 1}`}</strong>
+              <strong>{localizedDesignName(design.name || `杯型 ${index + 1}`, language)}</strong>
               <span>
                 {language === "en-US"
                   ? `Top diameter ${design.cup.top} · bottom diameter ${design.cup.bottom} · height ${design.cup.height} mm`
@@ -1803,7 +1814,7 @@ export default function CupWrapPrintComposer({
               <Space onClick={(event) => event.stopPropagation()}>
                 <Switch
                   size="small"
-                  aria-label={`加入A4混排 ${design.name}`}
+                  aria-label={`加入A4混排 ${localizedDesignName(design.name, language)}`}
                   checked={design.enabled !== false}
                   onChange={(enabled) =>
                     setDesigns((items) =>
@@ -1816,11 +1827,11 @@ export default function CupWrapPrintComposer({
                 <Button
                   size="small"
                   icon={<CopyOutlined />}
-                  aria-label={`复制杯型 ${design.name}`}
+                  aria-label={`复制杯型 ${localizedDesignName(design.name, language)}`}
                   onClick={() => {
                     const copy = structuredClone(design);
                     copy.id = crypto.randomUUID();
-                    copy.name = `${design.name} 副本`;
+                    copy.name = `${design.name} ${language === "en-US" ? "copy" : "副本"}`;
                     copy.artworkSlots = copy.artworkSlots?.map((slot) => ({
                       ...slot,
                       id: crypto.randomUUID(),
@@ -1834,7 +1845,7 @@ export default function CupWrapPrintComposer({
                   danger
                   disabled={designs.length === 1}
                   icon={<DeleteOutlined />}
-                  aria-label={`删除杯型 ${design.name}`}
+                  aria-label={`删除杯型 ${localizedDesignName(design.name, language)}`}
                   onClick={() => {
                     const next = designs.filter(
                       (item) => item.id !== design.id,
@@ -1850,8 +1861,8 @@ export default function CupWrapPrintComposer({
         <Button
           icon={<PlusOutlined />}
           onClick={() => {
-            const design = fresh();
-            design.name = `杯型 ${designs.length + 1}`;
+            const design = fresh(language);
+            design.name = language === "en-US" ? `Cup ${designs.length + 1}` : `杯型 ${designs.length + 1}`;
             setDesigns((items) => [...items, design]);
             setActiveDesignId(design.id);
           }}
@@ -2330,7 +2341,7 @@ export default function CupWrapPrintComposer({
                                   textAnchor="middle"
                                   fontSize="3"
                                 >
-                                  {design.name}
+                                  {localizedDesignName(design.name, language)}
                                 </text>
                               )}
                             </g>

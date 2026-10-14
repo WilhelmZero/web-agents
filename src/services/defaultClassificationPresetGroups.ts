@@ -98,6 +98,52 @@ const DEFAULT_SCENE_CATEGORIES: SceneClassificationPreset[] = [
   },
 ];
 
+const LOGO_SCENE_LOCK_EN = 'Perform a strict logo replacement. Identify existing brand logos on product surfaces in the source scene and replace each with the supplied new logo. An old-logo reference, if supplied, is only for locating the old mark. Preserve the new logo’s shapes, text, character order, case, proportions, strokes, and negative space exactly; do not redraw, translate, or alter it. Edit only areas covered by old logos and never add a logo where none existed. Keep the cup, wooden box, people, hands, background, props, composition, crop, lighting, colors, occlusion, and support relationships unchanged. Remove each old logo completely, then make the new logo inherit the surface’s true curvature, perspective, refraction, reflection, texture, grain, depth of field, lighting, and occlusion. No flat stickers, watermarks, rectangular backgrounds, or floating overlays. If multiple new logos are supplied, use them in input order for the corresponding positions.';
+const ENGLISH_LOGO_CATEGORIES: Record<string, { name: string; prompt: string }> = {
+  'default-logo-original-craft': { name: 'Other surface / preserve original process', prompt: `${LOGO_SCENE_LOCK_EN} Identify each old logo’s surface and original production process. Preserve its real printing, engraving, etching, embossing, gloss, color, and edge treatment; replace only the logo content. Match each process separately when one image contains multiple processes.` },
+  'default-logo-glass-etch': { name: 'Glass / frosted laser engraving', prompt: `${LOGO_SCENE_LOCK_EN} For an old logo on glass, make the new logo a realistic translucent milky-white frosted laser etching. Wrap it continuously around the actual cup curvature with correct compression at both sides, perspective, refraction, reflection, and glass-thickness effects. On stemmed, wine, champagne, or cocktail glasses, place the logo only on the upper front of the bowl; keep its width within 42% of the bowl’s maximum visible width and away from the stem, base, and tapering area.` },
+  'default-logo-beer-mug': { name: 'Beer mug / safe smooth-area replacement', prompt: `${LOGO_SCENE_LOCK_EN} The main surface is a beer mug. If the upper body is smooth and the lower body has ribs, prisms, relief, facets, or raised patterns, detect where the texture begins. Preserve the source logo’s aspect ratio and fit the new logo proportionally within the old logo’s smooth upper area. Prefer a smaller logo with empty space over clipping, stretching, or extending into the textured area. If the old logo is near the foam or liquid line, keep that same vertical relationship.` },
+  'default-logo-dark-wood': { name: 'Dark wood box / laser burn', prompt: `${LOGO_SCENE_LOCK_EN} For an old logo on a dark wooden box or dark wood coating, use dark laser-burn engraving with a realistic, high-contrast dark-brown to charcoal-black mark. Keep text and shapes crisp with sharp edges while retaining wood grain and natural scorch marks. Do not create white, milky-white, frosted-glass, white-ink, or glowing effects.` },
+  'default-logo-light-wood': { name: 'Light wood box / subtle tone-on-tone engraving', prompt: `${LOGO_SCENE_LOCK_EN} For an old logo on a light wooden box or light wood coating, use a very shallow engraving in nearly the same color as the wood. Preserve continuous real wood grain and reveal the logo mainly through faint groove-edge highlights and natural shadows from the original lighting. No dark outlines, brown line art, fill, burning, ink, paint, whitening, or glow.` },
+  'default-logo-custom-material': { name: 'Other engraved surface / material-aware', prompt: `${LOGO_SCENE_LOCK_EN} For an old logo on metal, ceramic, stone, leather, or another non-glass, non-wood surface, first identify its color, texture, hardness, reflectivity, relief, and the old logo’s real production process. Replace the logo using that same process. Never apply frosted-glass or wood-burn effects to the wrong material.` },
+};
+
+const SCENE_COMMON_PROMPT_EN = 'Keep the scene natural and believable, with an appropriate drink, tabletop material, and a few supporting props. Strictly preserve the cup’s shape, silhouette, proportions, structure, size, orientation, and position. Do not stretch, compress, bend, reshape, or change its rim, body, or base. Preserve people’s positions, actions, and especially hand gestures. Clothing and background atmosphere may change. Use realistic depth of field.';
+const ENGLISH_SCENE_CATEGORIES: Record<string, { name: string; prompt: string }> = {
+  'default-scene-1': { name: 'Shot glass', prompt: `Replace the background with one distinctly different, everyday Western setting suitable for a shot glass: a home bar, friends gathering, or casual party drinks. ${SCENE_COMMON_PROMPT_EN}` },
+  'default-scene-2': { name: 'Stemless egg cup', prompt: `Replace the background with one distinctly different, everyday Western setting suitable for a stemless egg cup: a bright kitchen, breakfast table, or brunch. ${SCENE_COMMON_PROMPT_EN}` },
+  'default-scene-3': { name: 'Can-shaped glass', prompt: `Replace the background with one distinctly different, everyday Western setting suitable for a can-shaped glass: a casual kitchen, coffee corner, summer cold drink, or relaxed home. ${SCENE_COMMON_PROMPT_EN}` },
+  'default-scene-4': { name: 'Beer mug', prompt: `Replace the background with one distinctly different, everyday Western setting suitable for a beer mug: a bar, backyard barbecue, or gathering table. ${SCENE_COMMON_PROMPT_EN}` },
+  'default-scene-5': { name: 'Whiskey glass', prompt: `Replace the background with one distinctly different, everyday Western setting suitable for a whiskey glass: a home bar, study, walnut tabletop, or tasting scene. ${SCENE_COMMON_PROMPT_EN}` },
+  'default-scene-other': { name: 'Other glassware / real use', prompt: `Based on the main cup or drinking vessel’s real purpose, replace the background with a distinctly different, natural and credible everyday Western setting without excessive holiday styling. ${SCENE_COMMON_PROMPT_EN}` },
+};
+
+function localizeBuiltinGroup<T extends { id: string; name: string; categories: Array<{ id: string; name: string; prompt: string }> }>(
+  groups: T[], original: T, englishCategories: Record<string, { name: string; prompt: string }>, englishName: string, language: 'zh-CN' | 'en-US',
+): T[] {
+  return groups.map((group) => {
+    if (group.id !== original.id) return group;
+    const name = group.name === original.name || group.name === englishName ? (language === 'en-US' ? englishName : original.name) : group.name;
+    const categories = group.categories.map((category) => {
+      const source = original.categories.find((item) => item.id === category.id);
+      const english = englishCategories[category.id];
+      if (!source || !english) return category;
+      const nextName = category.name === source.name || category.name === english.name ? (language === 'en-US' ? english.name : source.name) : category.name;
+      const nextPrompt = category.prompt === source.prompt || category.prompt === english.prompt ? (language === 'en-US' ? english.prompt : source.prompt) : category.prompt;
+      return nextName === category.name && nextPrompt === category.prompt ? category : { ...category, name: nextName, prompt: nextPrompt };
+    });
+    return name === group.name && categories.every((item, index) => item === group.categories[index]) ? group : { ...group, name, categories };
+  });
+}
+
+export function localizeDefaultLogoClassificationPresetGroups(groups: LogoClassificationPresetGroup[], language: 'zh-CN' | 'en-US'): LogoClassificationPresetGroup[] {
+  return localizeBuiltinGroup(groups, createDefaultLogoClassificationPresetGroup(), ENGLISH_LOGO_CATEGORIES, 'Default multi-tab logo replacement preset', language);
+}
+
+export function localizeDefaultSceneClassificationPresetGroups(groups: SceneClassificationPresetGroup[], language: 'zh-CN' | 'en-US'): SceneClassificationPresetGroup[] {
+  return localizeBuiltinGroup(groups, createDefaultSceneClassificationPresetGroup(), ENGLISH_SCENE_CATEGORIES, 'Default multi-tab scene replacement preset', language);
+}
+
 export function createDefaultLogoClassificationPresetGroup(): LogoClassificationPresetGroup {
   return {
     id: "builtin-multitab-logo-mapping",

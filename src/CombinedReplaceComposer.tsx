@@ -9,6 +9,8 @@ import { analyzeCombinedLogos, analyzeCombinedScene, generateCombinedReplacement
 import { assignCombinedLogos, buildCombinedReplacementPrompt, combinedTaskCount, type CombinedAttempt, type CombinedLogoProfile, type CombinedReplaceSettings, type CombinedScenePlan } from './services/combinedReplace';
 import { reportTaskProgress } from './services/taskProgress';
 import { readLocalStorage } from './storage';
+import { useLanguage } from './i18n';
+import { localizeMoreToolDefault } from './moreToolI18n';
 import { OPENAI_IMAGE_MODEL_OPTIONS, OPENAI_LANGUAGE_MODEL_OPTIONS } from './services/openAiModels';
 import type { LogoAsset, ProductImage, TaskStatus } from './types';
 import { createId, downloadBlob, sanitizeFileName } from './utils';
@@ -28,10 +30,15 @@ const delay = (seconds: number, signal?: AbortSignal) => new Promise<void>((reso
 
 export default function CombinedReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl, onRequestKey, onSessionStateChange, settingsHost }: Props) {
   const { message, notification } = AntApp.useApp();
+  const { language } = useLanguage();
   const [settings, setSettings] = useState<CombinedReplaceSettings>(() => ({ ...DEFAULTS, ...readLocalStorage(STORAGE_KEYS.combinedReplaceSettings, {}) }));
   const [scenes, setScenes] = useState<ProductImage[]>([]); const [logos, setLogos] = useState<LogoAsset[]>([]);
   const [scenePrompt, setScenePrompt] = useState(() => { const stored = localStorage.getItem(STORAGE_KEYS.combinedReplaceScenePrompt); return !stored || stored === LEGACY_SCENE_PROMPT ? DEFAULT_SCENE_PROMPT : stored; });
   const [logoPrompt, setLogoPrompt] = useState(() => localStorage.getItem(STORAGE_KEYS.combinedReplaceLogoPrompt) || DEFAULT_LOGO_PROMPT);
+  useEffect(() => {
+    setScenePrompt((current) => localizeMoreToolDefault(current, language));
+    setLogoPrompt((current) => localizeMoreToolDefault(current, language));
+  }, [language]);
   const [plans, setPlans] = useState<CombinedScenePlan[]>([]); const [profiles, setProfiles] = useState<CombinedLogoProfile[]>([]); const [analysisDirty, setAnalysisDirty] = useState(false); const [analyzing, setAnalyzing] = useState(false);
   const [tasks, setTasks] = useState<Task[]>([]); const aborters = useRef(new Map<string, AbortController>()); const [running, setRunning] = useState(false);
   useEffect(() => { localStorage.setItem(STORAGE_KEYS.combinedReplaceSettings, JSON.stringify(settings)); }, [settings]);

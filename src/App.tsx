@@ -197,12 +197,14 @@ const CREATION_TOOL_ITEMS: Array<{
     key: "scene-logo-replace",
     icon: <SwapOutlined />,
     label: "场景 + Logo 一次替换",
+    englishLabel: "Scene & Logo Replacement",
     description: "一次请求同步替换场景、氛围和多个 Logo",
   },
   {
     key: "workflow",
     icon: <ApartmentOutlined />,
     label: "工作流",
+    englishLabel: "Workflow",
     description: "连接创作工具节点，批量预测并自动执行",
   },
   {
@@ -223,18 +225,21 @@ const CREATION_TOOL_ITEMS: Array<{
     key: "cup-resize",
     icon: <ExpandOutlined />,
     label: "杯子大小精确调整",
+    englishLabel: "Precise Cup Resizing",
     description: "精确控制杯子的位置、尺寸与融合",
   },
   {
     key: "logo",
     icon: <ExperimentOutlined />,
     label: "Logo 合成",
+    englishLabel: "Logo Compositing",
     description: "将品牌标识自然合成到产品图片",
   },
   {
     key: "logo-replace",
     icon: <SwapOutlined />,
     label: "Logo 替换",
+    englishLabel: "Logo Replacement",
     description: "批量识别、替换并校验场景 Logo",
   },
   {
@@ -248,30 +253,35 @@ const CREATION_TOOL_ITEMS: Array<{
     key: "logo-replace-tabs",
     icon: <AppstoreOutlined />,
     label: "多标签 Logo 替换",
+    englishLabel: "Multi-tab Logo Replacement",
     description: "跨标签并行执行多组 Logo 替换任务",
   },
   {
     key: "scene-replace-tabs",
     icon: <AppstoreOutlined />,
     label: "多标签场景替换",
+    englishLabel: "Multi-tab Scene Replacement",
     description: "跨标签并行执行多组场景替换与扩图任务",
   },
   {
     key: "auto-scene-classify",
     icon: <ApartmentOutlined />,
     label: "自动分类场景替换",
+    englishLabel: "Auto-classified Scene Replacement",
     description: "AI 分类图片并流水线执行对应场景替换",
   },
   {
     key: "auto-logo-classify",
     icon: <ApartmentOutlined />,
     label: "自动分类 Logo 替换",
+    englishLabel: "Auto-classified Logo Replacement",
     description: "AI 选择预设并按识别数量携带 Logo 替换",
   },
   {
     key: "logo-export",
     icon: <DownloadOutlined />,
     label: "PSD Logo 工具",
+    englishLabel: "PSD Logo Tools",
     description: "免 Photoshop 替换智能对象，并批量导出 PSD 图层",
   },
   {
@@ -285,6 +295,7 @@ const CREATION_TOOL_ITEMS: Array<{
     key: "pet-letter-stickers",
     icon: <PictureOutlined />,
     label: "萌宠字母贴纸",
+    englishLabel: "Pet Letter Stickers",
     description: "完整萌宠、互动姿势与高清 A–Z 字母排版",
   },
   {
@@ -298,6 +309,7 @@ const CREATION_TOOL_ITEMS: Array<{
     key: "icon-vector-split",
     icon: <ScissorOutlined />,
     label: "图标拆分矢量化",
+    englishLabel: "Icon Split & Vectorize",
     description: "从排版图片自动拆分多个图标并导出独立 SVG",
   },
   {
@@ -318,6 +330,7 @@ const CREATION_TOOL_ITEMS: Array<{
     key: "spot-color-tiff",
     icon: <FileImageOutlined />,
     label: "专色 TIFF 制作",
+    englishLabel: "Spot-color TIFF Maker",
     description: "批量生成智能对象图层与双专色通道的印刷 TIFF",
   },
   {
@@ -331,6 +344,7 @@ const CREATION_TOOL_ITEMS: Array<{
     key: "object-replace",
     icon: <ReloadOutlined />,
     label: "物体批量替换",
+    englishLabel: "Batch Object Replacement",
     description: "批量替换画面中的指定物体",
   },
   {
@@ -344,6 +358,7 @@ const CREATION_TOOL_ITEMS: Array<{
     key: "product-detail",
     icon: <FolderOpenOutlined />,
     label: "详情长图生成",
+    englishLabel: "Product Detail Image",
     description: "组合素材生成商品详情长图",
   },
 ];
@@ -1816,13 +1831,13 @@ function AppContent() {
                   {
                     key: "more-tools",
                     icon: <AppstoreOutlined />,
-                    label: "更多工具",
+                    label: language === 'en-US' ? 'More tools' : '更多工具',
                     children: [
                       ...moreCreationToolMenuItems,
                       {
                         key: "video",
                         icon: <VideoCameraOutlined />,
-                        label: "视频生成",
+                        label: language === 'en-US' ? 'Video generation' : '视频生成',
                         disabled: true,
                       },
                     ],
@@ -1832,7 +1847,7 @@ function AppContent() {
               {
                 key: "manage",
                 type: "group",
-                label: "管理",
+                label: language === 'en-US' ? 'Management' : '管理',
                 children: [
                   {
                     key: "results",

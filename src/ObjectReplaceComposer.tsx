@@ -14,6 +14,7 @@ import { readLocalStorage } from './storage';
 import type { ImageModel, LogoAsset, ObjectPreservationOptions, ObjectReplaceSettings, ObjectReplaceTask, OpenAiImageModel } from './types';
 import { createId, downloadBlob, estimateImageCost, mimeExtension, normalizeSettingsForModel, sanitizeFileName } from './utils';
 import OriginalCompareImage from './OriginalCompareImage';
+import { useLanguage } from './i18n';
 
 const { Text, Title, Paragraph } = Typography;
 const TYPES = ['image/png', 'image/jpeg', 'image/webp'];
@@ -35,6 +36,7 @@ export default function ObjectReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl
   onSessionStateChange?: (hasContent: boolean) => void; settingsHost?: HTMLElement | null;
 }) {
   const { message } = AntApp.useApp();
+  const { language } = useLanguage();
   const stored = readLocalStorage(STORAGE_KEYS.objectReplaceSettings, {} as Partial<ObjectReplaceSettings>);
   const [settings, setSettings] = useState<ObjectReplaceSettings>(() => ({
     ...DEFAULT_OBJECT_REPLACE_SETTINGS, ...stored,
@@ -57,6 +59,9 @@ export default function ObjectReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl
   useEffect(() => { sourceRef.current = sourceReference; }, [sourceReference]);
   useEffect(() => { targetRef.current = targetReference; }, [targetReference]);
   useEffect(() => { settingsRef.current = settings; localStorage.setItem(STORAGE_KEYS.objectReplaceSettings, JSON.stringify(settings)); }, [settings]);
+  useEffect(() => {
+    setSettings((current) => current.sourceObjectName === '杯子' && language === 'en-US' ? { ...current, sourceObjectName: 'cup' } : current.sourceObjectName === 'cup' && language === 'zh-CN' ? { ...current, sourceObjectName: '杯子' } : current);
+  }, [language]);
   useEffect(() => onSessionStateChange?.(Boolean(scenes.length || sourceReference || targetReference || tasks.length || settings.targetObjectName.trim())), [scenes.length, sourceReference, targetReference, tasks.length, settings.targetObjectName, onSessionStateChange]);
 
   const valid = (file: File) => {
@@ -99,8 +104,8 @@ export default function ObjectReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl
   };
   const prompt = useMemo(() => buildObjectReplacementInstruction({
     sourceObjectName: settings.sourceObjectName, targetObjectName: settings.targetObjectName,
-    hasSourceReference: Boolean(sourceReference), hasTargetReference: Boolean(targetReference), preservation: settings.preservation,
-  }), [settings.sourceObjectName, settings.targetObjectName, settings.preservation, sourceReference, targetReference]);
+    hasSourceReference: Boolean(sourceReference), hasTargetReference: Boolean(targetReference), preservation: settings.preservation, language,
+  }), [settings.sourceObjectName, settings.targetObjectName, settings.preservation, sourceReference, targetReference, language]);
 
   const execute = useCallback(async (task: ObjectReplaceTask) => {
     if (running.current.has(task.id)) return;
@@ -118,14 +123,14 @@ export default function ObjectReplaceComposer({ apiKey, openAiApiKey, apiBaseUrl
           model: config.imageModel as OpenAiImageModel,
           scene: scene.file,
           logos: [sourceRef.current?.file, targetRef.current?.file].filter((file): file is File => Boolean(file)),
-          prompt: buildObjectReplacementInstruction({ sourceObjectName: config.sourceObjectName, targetObjectName: config.targetObjectName, hasSourceReference: Boolean(sourceRef.current), hasTargetReference: Boolean(targetRef.current), preservation: config.preservation }),
+          prompt: buildObjectReplacementInstruction({ sourceObjectName: config.sourceObjectName, targetObjectName: config.targetObjectName, hasSourceReference: Boolean(sourceRef.current), hasTargetReference: Boolean(targetRef.current), preservation: config.preservation, language }),
           signal: controller.signal,
           requestLabel: '物体替换',
         })
         : await generateObjectReplacementImage({
         apiKey, apiBaseUrl, signal: controller.signal, model: config.imageModel as ImageModel, scene: scene.file,
         sourceReference: sourceRef.current?.file, targetReference: targetRef.current?.file,
-        sourceObjectName: config.sourceObjectName, targetObjectName: config.targetObjectName, preservation: config.preservation,
+        sourceObjectName: config.sourceObjectName, targetObjectName: config.targetObjectName, preservation: config.preservation, language,
         aspectRatio: config.ratioMode === 'fixed' ? config.aspectRatio : undefined, imageSize: config.imageSize,
       });
       const resultUrl = URL.createObjectURL(result.blob);
