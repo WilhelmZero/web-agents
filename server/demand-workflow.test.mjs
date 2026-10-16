@@ -26,6 +26,10 @@ test('image requirements calculate ratio and reject inconsistent sizes', () => {
   assert.throws(() => normalizedDemand({ description: 'x', type: 'main', platform: 'AMAZON', specifications: [{ ratio: -1 }] }), /positive/);
   assert.throws(() => normalizedDemand({ description: 'x', platform: 'AMAZON' }), /Image type is required/);
   assert.throws(() => normalizedDemand({ description: 'x', type: 'main' }), /Platform is required/);
+  const custom = normalizedDemand({ description: 'Create a custom detail graphic', type: 'Detail graphic', platform: 'AMAZON', localPaths: ['\\\\NAS\\shared\\art', 'Z:\\designs'] });
+  assert.equal(custom.type, 'Detail graphic');
+  assert.deepEqual(custom.localPaths, ['\\\\NAS\\shared\\art', 'Z:\\designs']);
+  assert.throws(() => normalizedDemand({ description: 'x', type: 'main', platform: 'AMAZON', localPaths: ['relative\\folder'] }), /absolute drive or network paths/);
 });
 
 test('shared image requirements apply to every output while per-image fields override them', () => {
@@ -53,14 +57,18 @@ test('demand accounts, assignment, analysis, auto execution and tool permissions
   await new Promise((resolve) => instance.server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${instance.server.address().port}`;
   const nativeFetch = globalThis.fetch;
+  let sawReferenceOnEdit = false;
   const generated = await sharp({ create: { width: 64, height: 64, channels: 4, background: '#ffffff' } }).png().toBuffer();
   globalThis.fetch = (url, options) => {
     if (String(url).startsWith('https://api.openai.com/v1/responses')) {
       const requestBody = JSON.parse(options.body.toString());
       const wantsMonochromeLogo = requestBody.input[1].content[0].text.includes('black-and-white customer logo');
-      return Promise.resolve(new Response(JSON.stringify({ output: [{ content: [{ type: 'output_text', text: JSON.stringify({ tool: wantsMonochromeLogo ? 'custom-monochrome-logo' : 'scene', model: 'gpt-image-2.5-flare', rationale: wantsMonochromeLogo ? 'The final deliverable is a monochrome logo' : 'Scene matches the request', prompts: [wantsMonochromeLogo ? 'Keep the logo black and white' : 'Put the product on a table'] }) }] }] }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+       return Promise.resolve(new Response(JSON.stringify({ output: [{ content: [{ type: 'output_text', text: JSON.stringify({ title: wantsMonochromeLogo ? 'Customer engraving logo' : 'Warm product scene', tool: wantsMonochromeLogo ? 'custom-monochrome-logo' : 'scene', model: 'gpt-image-2.5-flare', rationale: wantsMonochromeLogo ? 'The final deliverable is a monochrome logo' : 'Scene matches the request', prompts: [wantsMonochromeLogo ? 'Keep the logo black and white' : 'Put the product on a table'] }) }] }] }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
     }
-    if (String(url).startsWith('https://api.openai.com/v1/images/edits')) return Promise.resolve(new Response(JSON.stringify({ data: [{ b64_json: generated.toString('base64') }] }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    if (String(url).startsWith('https://api.openai.com/v1/images/edits')) {
+      if (options.body.toString().includes('reference.png')) sawReferenceOnEdit = true;
+      return Promise.resolve(new Response(JSON.stringify({ data: [{ b64_json: generated.toString('base64') }] }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    }
     return nativeFetch(url, options);
   };
   const request = async (url, cookie, method = 'GET', data) => nativeFetch(base + url, { method, headers: { Cookie: cookie, ...(data ? { 'Content-Type': 'application/json' } : {}) }, body: data ? JSON.stringify(data) : undefined });
@@ -80,6 +88,9 @@ test('demand accounts, assignment, analysis, auto execution and tool permissions
     const upload = await nativeFetch(base + '/api/assets', { method: 'POST', headers: { Cookie: adminCookie, 'Content-Type': 'image/png', 'X-Tool': 'operating-demand', 'X-File-Name': 'source.png' }, body: generated });
     assert.equal(upload.status, 201);
     const { id: assetId } = await upload.json();
+    const referenceUpload = await nativeFetch(base + '/api/assets', { method: 'POST', headers: { Cookie: adminCookie, 'Content-Type': 'image/png', 'X-Tool': 'operating-demand', 'X-File-Name': 'reference.png' }, body: generated });
+    assert.equal(referenceUpload.status, 201);
+    const { id: referenceId } = await referenceUpload.json();
     const created = await request('/api/demands', adminCookie, 'POST', { assignee: 'artist1', content: {
       title: 'Scene brief', description: 'Show the product in a room', type: 'scene', platform: 'AMAZON',
       assets: [{ assetId, name: 'source.png', role: 'source' }], specifications: [{ id: crypto.randomUUID(), content: 'Hero image', width: 200, height: 200, dpi: 300 }],
@@ -92,6 +103,7 @@ test('demand accounts, assignment, analysis, auto execution and tool permissions
     assert.equal((await noChange.json()).revision, demand.revision);
     const analyzed = await until(async () => (await request(`/api/demands/${demand.id}`, adminCookie)).json(), (value) => value.analysis?.executable);
     assert.equal(analyzed.analysis.tool, 'scene');
+    assert.equal(analyzed.content.title, 'Warm product scene');
     const todo = await (await request('/api/demands/todos', artistCookie)).json();
     assert.equal(todo[0].id, demand.id);
     assert.equal((await request(`/api/demands/${demand.id}/execute`, adminCookie, 'POST')).status, 202);
@@ -101,8 +113,8 @@ test('demand accounts, assignment, analysis, auto execution and tool permissions
     assert.equal(results.length, 1);
     assert.equal(results[0].exportSpec.dpi, 300);
     const batchCreated = await request('/api/demands', adminCookie, 'POST', { content: {
-      description: 'Show the product in two listing scenes', type: 'scene', platform: 'AMAZON',
-      assets: [{ assetId, name: 'source.png', role: 'source' }],
+      description: 'Show the product in two listing scenes', type: 'Lifestyle shot', platform: 'AMAZON',
+      assets: [{ assetId, name: 'source.png', role: 'source' }, { assetId: referenceId, name: 'reference.png', role: 'reference' }],
       commonRequirements: { content: 'Use a clean background', count: 2, width: 200, height: 200, dpi: 240 }, specifications: [],
     } });
     assert.equal(batchCreated.status, 201);
@@ -112,6 +124,7 @@ test('demand accounts, assignment, analysis, auto execution and tool permissions
     const batchFinished = await until(async () => (await request(`/api/demands/${batch.id}`, adminCookie)).json(),
       (value) => value.operations.some((op) => op.kind === 'execute' && op.status === 'completed'));
     assert.equal(batchFinished.operations.find((op) => op.kind === 'execute').result.length, 2);
+    assert.equal(sawReferenceOnEdit, true);
     assert.equal((await (await request('/api/results?tool=scene', adminCookie)).json()).length, 3);
     const logoCreated = await request('/api/demands', adminCookie, 'POST', { content: {
       title: 'Engraving artwork', description: 'Make a black-and-white customer logo for engraving', type: 'logo-design', platform: 'AMAZON',

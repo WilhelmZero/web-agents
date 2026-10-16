@@ -986,6 +986,26 @@ button, input, textarea { font: inherit; }
   gap: 12px;
   margin-bottom: 12px;
 }
+.operating-reference-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+.operating-reference-grid .ant-form-item,
+.operating-reference-grid .ant-attachments {
+  min-width: 0;
+}
+.operating-local-paths {
+  display: grid;
+  gap: 6px;
+  margin: 4px 0 12px;
+}
+.operating-local-paths .ant-btn-link {
+  max-width: min(520px, 70vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .operating-platform-option {
   display: inline-flex;
   align-items: center;
@@ -1013,6 +1033,9 @@ button, input, textarea { font: inherit; }
 }
 .operating-asset-requirements {
   padding: 4px 12px 12px 68px;
+}
+@media (max-width: 640px) {
+  .operating-reference-grid { grid-template-columns: minmax(0, 1fr); }
 }
 @media (hover: none) {
   .operating-asset-row .operating-asset-action {

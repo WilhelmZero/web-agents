@@ -33,11 +33,11 @@ export function effectiveSpecifications(content) {
 
 export function normalizedDemand(input) {
   if (!input || typeof input !== 'object' || !String(input.description || '').trim()) throw new Error('Demand description is required');
-  const type = input.type || null;
+  const type = String(input.type || '').trim().slice(0, 80) || null;
   const platform = input.platform === 'SHEI' ? 'SHEIN' : input.platform || null;
   if (!type) throw new Error('Image type is required');
   if (!platform) throw new Error('Platform is required');
-  if (type && !DEMAND_TYPES.includes(type)) throw new Error('Unsupported image type');
+  if (type && /[\x00-\x1f]/.test(type)) throw new Error('Invalid image type');
   if (platform && !DEMAND_PLATFORMS.includes(platform)) throw new Error('Unsupported platform');
   const assets = Array.isArray(input.assets) ? input.assets.slice(0, 24).map((item) => ({
     assetId: String(item.assetId || ''), role: item.role === 'source' ? 'source' : 'reference', name: String(item.name || '').slice(0, 255),
@@ -59,10 +59,12 @@ export function normalizedDemand(input) {
       referenceAssetIds: Array.isArray(item.referenceAssetIds) ? item.referenceAssetIds.filter((id) => assets.some((asset) => asset.assetId === id && asset.role === 'reference')) : [],
       source: item.source && typeof item.source === 'object' ? item.source : undefined };
   });
+  const localPaths = Array.isArray(input.localPaths) ? input.localPaths.slice(0, 20).map((value) => String(value).trim().slice(0, 1000)).filter(Boolean) : [];
+  if (localPaths.some((value) => /[\x00-\x1f]/.test(value) || !/^(?:[A-Za-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+|\/\/[^/]+\/[^/]+)/.test(value))) throw new Error('Local folder paths must be absolute drive or network paths');
   return { title: String(input.title || '').slice(0, 200), description: String(input.description).slice(0, 10000),
     type, platform, presetId: String(input.presetId || '').slice(0, 36) || null, assets, commonRequirements,
     specifications,
-    links: Array.isArray(input.links) ? input.links.slice(0, 20).map((v) => String(v).slice(0, 2000)) : [],
+    links: Array.isArray(input.links) ? input.links.slice(0, 20).map((v) => String(v).slice(0, 2000)) : [], localPaths,
   };
 }
 
@@ -82,8 +84,9 @@ function responseText(value) {
 function parseAnalysis(value, content) {
   const raw = responseText(value).trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
   const parsed = JSON.parse(raw);
-  const requestedTool = VERIFIED_AUTO_TOOLS.has(parsed.tool) && (parsed.tool !== 'scene' || content.type === 'scene') ? parsed.tool : null;
-  return { tool: requestedTool, rationale: String(parsed.rationale || '').slice(0, 1200),
+  const requestedTool = VERIFIED_AUTO_TOOLS.has(parsed.tool) ? parsed.tool : null;
+  return { title: String(parsed.title || content.description).trim().replace(/\s+/g, ' ').slice(0, 80),
+    tool: requestedTool, rationale: String(parsed.rationale || '').slice(0, 1200),
     parameters: {
       model: IMAGE_MODELS.has(parsed.model) ? parsed.model : 'gpt-image-2.5-flare',
       prompts: content.specifications.map((item, index) => String(parsed.prompts?.[index] || item.content || content.description).slice(0, 4000)),
@@ -121,8 +124,15 @@ export function createDemandWorker({ store, dataDir, invokeAi }) {
         userParts.push({ type: 'input_image', image_url: `data:image/png;base64,${thumbnail.toString('base64')}`, detail: 'low' });
       }
     }
+    for (const reference of content.assets.filter((item) => item.role === 'reference').slice(0, 2)) {
+      const asset = await store.getAsset(reference.assetId);
+      if (asset?.file_path && asset.mime?.startsWith('image/')) {
+        const thumbnail = await sharp(await readFile(asset.file_path)).resize({ width: 512, height: 512, fit: 'inside' }).png().toBuffer();
+        userParts.push({ type: 'input_image', image_url: `data:image/png;base64,${thumbnail.toString('base64')}`, detail: 'low' });
+      }
+    }
     const body = { model: MODEL, input: [
-      { role: 'developer', content: `Analyze a commercial image-production request. Return only JSON: {"tool": "scene"|"custom-monochrome-logo"|null, "model":"gpt-image-2.5-flare", "rationale":"...", "prompts":["one prompt per requested image"]}. Choose custom-monochrome-logo whenever the requested FINAL DELIVERABLE is a black-and-white or monochrome customer logo/engraving artwork, regardless of the selected image type (including no type or logo-design). Do not choose it merely because a logo is mentioned as part of a scene or in a reference image. Choose scene only for type scene when the requested final deliverable is a product scene. Otherwise choose null. Preserve the supplied product identity. Never use a reference link as an image source.` },
+      { role: 'developer', content: `Analyze a commercial image-production request. The first supplied image is the source; later images, if any, are style references only. Return only JSON: {"title":"concise title in the same language as the brief", "tool": "scene"|"custom-monochrome-logo"|null, "model":"gpt-image-2.5-flare", "rationale":"...", "prompts":["one prompt per requested image"]}. Create a specific, short title from the actual requested deliverable; do not invent specifications. Choose custom-monochrome-logo whenever the requested FINAL DELIVERABLE is a black-and-white or monochrome customer logo/engraving artwork, regardless of the selected image type. Do not choose it merely because a logo is mentioned as part of a scene or in a reference image. Choose scene when the requested final deliverable is a product scene, including custom image types. Otherwise choose null. Preserve the supplied product identity. Never use a reference link or a local folder path as an image source.` },
       { role: 'user', content: userParts },
     ] };
     const { response } = await invokeAi({ path: '/v1/responses', contentType: 'application/json', bytes: Buffer.from(JSON.stringify(body)),
@@ -137,7 +147,7 @@ export function createDemandWorker({ store, dataDir, invokeAi }) {
     const specifications = effectiveSpecifications(content);
     const analysis = payload.analysis;
     const tool = analysis?.tool;
-    if (!VERIFIED_AUTO_TOOLS.has(tool) || (tool === 'scene' && content.type !== 'scene') || !analysis.executable || !content.assets.some((item) => item.role === 'source')) throw new Error('This request has no verified automatic workflow');
+    if (!VERIFIED_AUTO_TOOLS.has(tool) || !analysis.executable || !content.assets.some((item) => item.role === 'source')) throw new Error('This request has no verified automatic workflow');
     const { asset: inputAsset, bytes: input } = await sourceImage(store, dataDir, content);
     const outcomes = [];
     for (const [index, spec] of specifications.entries()) {
@@ -152,7 +162,8 @@ export function createDemandWorker({ store, dataDir, invokeAi }) {
         const form = new FormData();
         form.append('model', IMAGE_MODELS.has(analysis.parameters?.model) ? analysis.parameters.model : 'gpt-image-2.5-flare');
         form.append('image', new Blob([input], { type: inputAsset.mime }), inputAsset.name || 'source.png');
-        for (const referenceId of (spec.referenceAssetIds || []).slice(0, 3)) {
+        const referenceIds = spec.referenceAssetIds?.length ? spec.referenceAssetIds : content.assets.filter((item) => item.role === 'reference').map((item) => item.assetId);
+        for (const referenceId of referenceIds.slice(0, 3)) {
           if (!content.assets.some((item) => item.assetId === referenceId && item.role === 'reference')) continue;
           const reference = await store.getAsset(referenceId);
           if (reference?.file_path && reference.mime?.startsWith('image/') && path.resolve(reference.file_path).startsWith(path.resolve(dataDir) + path.sep)) {

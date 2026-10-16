@@ -1,5 +1,6 @@
 import mysql from 'mysql2/promise';
 import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { DEFAULT_DEMAND_PRESETS } from './demand-presets.mjs';
 
 export function createStore(env = process.env) {
@@ -250,21 +251,22 @@ export function createStore(env = process.env) {
       if (!input.id) input.id = randomUUID();
       const existing = await this.getDemand(input.id);
       if (existing && existing.revision !== input.expectedRevision) return null;
-      if (existing && existing.content_json === JSON.stringify(input.content) && existing.assignee === (input.assignee || null)) return existing;
+      const content = { ...input.content, title: '' };
+      if (existing && isDeepStrictEqual({ ...JSON.parse(existing.content_json), title: '' }, JSON.parse(JSON.stringify(content))) && existing.assignee === (input.assignee || null)) return existing;
       if (existing) {
         const [result] = await pool.execute(`UPDATE studio_demands SET assignee=?, content_json=?, analysis_json=NULL,
           revision=revision+1, status='open' WHERE id=? AND revision=?`,
-        [input.assignee || null, JSON.stringify(input.content), input.id, input.expectedRevision]);
+        [input.assignee || null, JSON.stringify(content), input.id, input.expectedRevision]);
         if (!result.affectedRows) return null;
       } else {
         await pool.execute('INSERT INTO studio_demands (id, creator, assignee, content_json) VALUES (?, ?, ?, ?)',
-          [input.id, input.creator, input.assignee || null, JSON.stringify(input.content)]);
+           [input.id, input.creator, input.assignee || null, JSON.stringify(content)]);
       }
       return this.getDemand(input.id);
     },
     async updateDemandAnalysis(id, revision, analysis) {
-      const [result] = await pool.execute('UPDATE studio_demands SET analysis_json=? WHERE id=? AND revision=?',
-        [JSON.stringify(analysis), id, revision]);
+      const [result] = await pool.execute("UPDATE studio_demands SET analysis_json=?, content_json=JSON_SET(content_json, '$.title', ?) WHERE id=? AND revision=?",
+        [JSON.stringify(analysis), analysis.title || '', id, revision]);
       return result.affectedRows > 0;
     },
     async completeDemand(id) {

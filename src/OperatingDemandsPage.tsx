@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Attachments } from '@ant-design/x';
-import { Alert, Badge, Button, Card, Checkbox, Col, Divider, Drawer, Dropdown, Empty, Form, Image, Input, InputNumber, List, Modal, Row, Select, Space, Spin, Tabs, Tag, Typography, message } from 'antd';
-import { BellOutlined, DeleteOutlined, DownOutlined, EditOutlined, FileImageOutlined, PlusOutlined, ReloadOutlined, RocketOutlined } from '@ant-design/icons';
+import { Alert, AutoComplete, Badge, Button, Card, Checkbox, Col, Divider, Drawer, Dropdown, Empty, Form, Image, Input, InputNumber, List, Modal, Row, Select, Space, Spin, Tabs, Tag, Typography, message } from 'antd';
+import { BellOutlined, CopyOutlined, DeleteOutlined, DownOutlined, EditOutlined, FileImageOutlined, FolderOpenOutlined, PlusOutlined, ReloadOutlined, RocketOutlined } from '@ant-design/icons';
 import type { CreationTool } from './types';
 import { PLATFORM_BRAND_ICONS } from './platformBrandIcons';
 
@@ -10,8 +10,8 @@ type Role = 'operator' | 'artist' | 'admin' | 'custom';
 type Asset = { assetId: string; role: 'source' | 'reference'; name: string };
 type ImageRequirements = { content: string; width: number | null; height: number | null; ratio: number | null; dpi: number | null; maxMB: number | null; minLongestEdge?: number | null; source?: { url?: string; checkedAt?: string; status?: string } };
 type Specification = ImageRequirements & { id: string; customized?: boolean; referenceLinks: string[]; referenceAssetIds: string[] };
-type Content = { title: string; description: string; type: string | null; platform: string | null; presetId: string | null; assets: Asset[]; commonRequirements?: ImageRequirements & { count: number }; specifications: Specification[]; links: string[] };
-type Analysis = { tool: CreationTool | null; rationale: string; executable: boolean; parameters: { model: string; prompts: string[] } };
+type Content = { title: string; description: string; type: string | null; platform: string | null; presetId: string | null; assets: Asset[]; commonRequirements?: ImageRequirements & { count: number }; specifications: Specification[]; links: string[]; localPaths?: string[] };
+type Analysis = { title?: string; tool: CreationTool | null; rationale: string; executable: boolean; parameters: { model: string; prompts: string[] } };
 export type Demand = { id: string; creator: string; assignee: string | null; status: string; revision: number; content: Content; analysis: Analysis | null; updatedAt: string; operations: Array<{ id: string; kind: string; revision: number; status: string; error: string | null; result?: Array<{ index: number; status: string; resultId?: string; error?: string }> }> };
 type Preset = { id: string; platform: string | null; type: string | null; name: string; nameZh?: string; requirements: Array<Partial<Specification>> };
 type Account = { username: string; role: Role; allowedTools: string[]; source: string; disabled?: boolean };
@@ -27,18 +27,34 @@ const PLATFORM_OPTIONS = PLATFORMS.map((value) => ({ value, label: <PlatformLabe
 const ROLES: Array<[Role, string, string]> = [['operator','运营','Operator'], ['artist','美工','Artist'], ['admin','管理员','Administrator'], ['custom','自定义','Custom']];
 const freshRequirements = (): ImageRequirements & { count: number } => ({ content: '', width: null, height: null, ratio: null, dpi: null, maxMB: null, minLongestEdge: null, count: 1 });
 const freshSpec = (): Specification => ({ id: crypto.randomUUID(), content: '', width: null, height: null, ratio: null, dpi: null, maxMB: null, referenceLinks: [], referenceAssetIds: [] });
-const freshContent = (): Content => ({ title: '', description: '', type: null, platform: null, presetId: null, assets: [], commonRequirements: freshRequirements(), specifications: [], links: [] });
+const freshContent = (): Content => ({ title: '', description: '', type: null, platform: 'AMAZON', presetId: null, assets: [], commonRequirements: freshRequirements(), specifications: [], links: [], localPaths: [] });
 function editableContent(content: Content): Content {
   const copy = structuredClone(content);
   const oldCommonContent = copy.commonRequirements?.content?.trim();
   if (oldCommonContent && !copy.description.includes(oldCommonContent)) copy.description = `${copy.description.trim()}\n${oldCommonContent}`.trim();
   if (copy.commonRequirements) copy.commonRequirements.content = '';
+  const firstSpecific = copy.specifications.find((item) => item.customized !== false) || copy.specifications[0];
+  const shared = { ...freshRequirements(), ...copy.commonRequirements };
+  if (firstSpecific) {
+    for (const key of ['width', 'height', 'ratio', 'dpi', 'maxMB', 'minLongestEdge'] as const) shared[key] ??= firstSpecific[key] ?? null;
+  }
+  copy.commonRequirements = { ...shared, count: Math.max(shared.count, copy.specifications.length) };
+  copy.specifications = [];
+  copy.localPaths ||= [];
   return copy;
 }
 const requirementKeys = ['content', 'width', 'height', 'ratio', 'dpi', 'maxMB', 'minLongestEdge'] as const;
 function hasWrittenRequirements(content: Content) {
-  return Boolean(content.description.trim()) || (content.commonRequirements?.count || 1) > 1 || requirementKeys.some((key) => Boolean(content.commonRequirements?.[key]))
-    || content.specifications.some((spec) => spec.customized !== false && requirementKeys.some((key) => Boolean(spec[key])));
+  return Boolean(content.description.trim()) || (content.commonRequirements?.count || 1) > 1 || requirementKeys.some((key) => Boolean(content.commonRequirements?.[key]));
+}
+function localFolderUrl(value: string): string | null {
+  const normalized = value.trim().replaceAll('/', '\\');
+  if (/^[A-Za-z]:\\/.test(normalized)) return `file:///${normalized[0].toUpperCase()}:/${normalized.slice(3).split('\\').map(encodeURIComponent).join('/')}`;
+  if (/^\\\\[^\\]+\\[^\\]+/.test(normalized)) {
+    const [host, ...parts] = normalized.slice(2).split('\\');
+    return `file://${host}/${parts.map(encodeURIComponent).join('/')}`;
+  }
+  return null;
 }
 function describePreset(preset: Preset, en: boolean) {
   return preset.requirements.map((spec, index) => [
@@ -138,7 +154,7 @@ export default function OperatingDemandsPage({ language, username, admin, toolOp
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Demand | null | undefined>(undefined);
   const [draft, setDraft] = useState<Content>(freshContent);
-  const [expandedAssetIds, setExpandedAssetIds] = useState<string[]>([]);
+  const [localPathDraft, setLocalPathDraft] = useState('');
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [assignee, setAssignee] = useState<string | null>(null);
   const [presetEdit, setPresetEdit] = useState<Preset | null | undefined>(undefined);
@@ -166,7 +182,7 @@ export default function OperatingDemandsPage({ language, username, admin, toolOp
     if (!draft.description.trim()) return message.warning(t('请填写具体做图需求', 'Enter the image production brief'));
     setBusy(true);
     try {
-      await api<Demand>('/api/demands', json('POST', { id: editing?.id, revision: editing?.revision, assignee, content: draft }));
+      await api<Demand>('/api/demands', json('POST', { id: editing?.id, revision: editing?.revision, assignee, content: { ...draft, title: '', specifications: [] } }));
       setEditing(undefined); message.success(t('需求已保存，AI 正在分析参数', 'Request saved; AI is analyzing parameters')); await refresh();
     } catch (error) { message.error(localizedError(error, language)); } finally { setBusy(false); }
   };
@@ -193,7 +209,7 @@ export default function OperatingDemandsPage({ language, username, admin, toolOp
         commonRequirements: { ...freshRequirements(), ...Object.fromEntries(requirementKeys.filter((key) => key !== 'content').map((key) => [key, first[key] ?? null])),
           ratio: first.width && first.height ? first.width / first.height : first.ratio ?? null,
           count: Math.max(1, preset.requirements.length), source: first.source },
-        specifications: preset.requirements.length > 1 ? preset.requirements.map((item) => ({ ...freshSpec(), ...item, id: crypto.randomUUID(), customized: true, referenceLinks: [], referenceAssetIds: [] })) : [] });
+        specifications: [] });
     };
     if (!confirmOverwrite || !hasWrittenRequirements(base)) return apply();
     Modal.confirm({ title: t('应用预设并覆盖已填写的图片要求？', 'Apply preset and replace existing image requirements?'),
@@ -211,21 +227,24 @@ export default function OperatingDemandsPage({ language, username, admin, toolOp
     setDraft(next);
     if (candidates[0]) applyPreset(candidates[0], next);
   };
-  const setSpec = (id: string, value: Specification) => setDraft((previous) => ({ ...previous, specifications: previous.specifications.map((item) => item.id === id ? { ...value, customized: true } : item) }));
-  const toggleImageRequirement = (assetId: string, index: number) => {
-    if (expandedAssetIds.includes(assetId)) {
-      setExpandedAssetIds((current) => current.filter((id) => id !== assetId));
-      return;
-    }
-    setDraft((previous) => {
-      const specifications = [...previous.specifications];
-      specifications[index] = { ...(specifications[index] || freshSpec()), customized: true };
-      return { ...previous, specifications, commonRequirements: { ...(previous.commonRequirements || freshRequirements()), count: Math.max(previous.commonRequirements?.count || 1, index + 1) } };
-    });
-    setExpandedAssetIds((current) => [...current, assetId]);
-  };
   const resetDraft = () => {
-    setDraft(freshContent()); setAssignee(null); setExpandedAssetIds([]); setEditing(null); setResetConfirmOpen(false);
+    setDraft(freshContent()); setAssignee(null); setLocalPathDraft(''); setEditing(null); setResetConfirmOpen(false);
+  };
+  const addLocalPath = () => {
+    const path = localPathDraft.trim();
+    if (!localFolderUrl(path)) return message.warning(t('请输入完整盘符路径或 NAS 共享路径', 'Enter an absolute drive or NAS share path'));
+    setDraft((previous) => ({ ...previous, localPaths: Array.from(new Set([...(previous.localPaths || []), path])) }));
+    setLocalPathDraft('');
+  };
+  const openLocalPath = (path: string) => {
+    const url = localFolderUrl(path);
+    if (!url) return;
+    window.open(url, '_blank');
+    message.info(t('若浏览器拦截本地路径，请复制路径并在文件管理器中打开。', 'If your browser blocks local paths, copy this path into your file manager.'));
+  };
+  const copyLocalPath = async (path: string) => {
+    try { await navigator.clipboard.writeText(path); message.success(t('路径已复制', 'Path copied')); }
+    catch { message.warning(t('复制失败，请手动复制路径', 'Copy failed; please copy the path manually')); }
   };
   const action = async (url: string, method = 'POST', body?: unknown): Promise<boolean> => { setBusy(true); try { await api(url, body ? json(method, body) : { method }); await refresh(); return true; } catch (error) { message.error(localizedError(error, language)); return false; } finally { setBusy(false); } };
   const savePreset = async () => {
@@ -241,7 +260,7 @@ export default function OperatingDemandsPage({ language, username, admin, toolOp
   return <div className="operating-demands-page">
     <Space style={{ width: '100%', justifyContent: 'space-between' }} align="start">
       <div><Typography.Title level={2} style={{ marginBottom: 4 }}>{t('做图需求', 'Image production requests')}</Typography.Title><Typography.Text type="secondary">{t('需求、分配、参数建议与服务器任务集中管理', 'Requests, assignments, suggested parameters and server jobs')}</Typography.Text></div>
-      <Button type="primary" icon={<PlusOutlined />} onClick={() => { setDraft(freshContent()); setAssignee(null); setExpandedAssetIds([]); setEditing(null); }}>{t('新建需求', 'New request')}</Button>
+       <Button type="primary" icon={<PlusOutlined />} onClick={() => { setDraft(freshContent()); setAssignee(null); setLocalPathDraft(''); setEditing(null); }}>{t('新建需求', 'New request')}</Button>
     </Space>
     <Tabs activeKey={tab} onChange={setTab} items={[
       { key: 'demands', label: t('需求记录', 'Requests'), children: <Spin spinning={loading}><List dataSource={demands} locale={{ emptyText: <Empty description={t('暂无需求', 'No requests')} /> }} renderItem={(demand) => {
@@ -250,10 +269,11 @@ export default function OperatingDemandsPage({ language, username, admin, toolOp
         const currentRun = demand.operations.find((op) => op.kind === 'execute' && op.revision === demand.revision);
         const parameters = analysisEdits[demand.id] || demand.analysis?.parameters;
         return <List.Item key={demand.id} id={`demand-${demand.id}`} style={focusedId === demand.id ? { background: '#f1edff', borderRadius: 12, padding: 16 } : {}}>
-          <Card style={{ width: '100%' }} title={<Space wrap><span>{demand.content.title || demand.content.description.slice(0, 60)}</span><Tag>{TYPES.find((item) => item[0] === demand.content.type)?.[en ? 2 : 1] || (demand.content.type === LEGACY_CUSTOM_LOGO[0] ? LEGACY_CUSTOM_LOGO[en ? 2 : 1] : t('未指定类型', 'No type'))}</Tag><Tag>{demand.content.platform || t('未指定平台', 'No platform')}</Tag><Tag color={demand.status === 'completed' ? 'success' : 'processing'}>{demand.status === 'completed' ? t('已完成', 'Completed') : t('进行中', 'Open')}</Tag></Space>}
-            extra={<Space><Typography.Text type="secondary">{demand.creator} → {demand.assignee || t('未分配', 'Unassigned')}</Typography.Text><Button size="small" icon={<EditOutlined />} onClick={() => { setEditing(demand); setDraft(editableContent(demand.content)); setExpandedAssetIds([]); setAssignee(demand.assignee); }}>{t('编辑', 'Edit')}</Button></Space>}>
+           <Card style={{ width: '100%' }} title={<Space wrap><span>{demand.content.title || demand.analysis?.title || demand.content.description.slice(0, 60)}</span><Tag>{TYPES.find((item) => item[0] === demand.content.type)?.[en ? 2 : 1] || (demand.content.type === LEGACY_CUSTOM_LOGO[0] ? LEGACY_CUSTOM_LOGO[en ? 2 : 1] : demand.content.type || t('未指定类型', 'No type'))}</Tag><Tag>{demand.content.platform || t('未指定平台', 'No platform')}</Tag><Tag color={demand.status === 'completed' ? 'success' : 'processing'}>{demand.status === 'completed' ? t('已完成', 'Completed') : t('进行中', 'Open')}</Tag></Space>}
+             extra={<Space><Typography.Text type="secondary">{demand.creator} → {demand.assignee || t('未分配', 'Unassigned')}</Typography.Text><Button size="small" icon={<EditOutlined />} onClick={() => { setEditing(demand); setDraft(editableContent(demand.content)); setLocalPathDraft(''); setAssignee(demand.assignee); }}>{t('编辑', 'Edit')}</Button></Space>}>
             <Typography.Paragraph>{demand.content.description}</Typography.Paragraph>
             <Space wrap>{demand.content.assets.map((asset) => <Tag key={asset.assetId}>{asset.role === 'source' ? t('原图', 'Source') : t('参考', 'Reference')} · {asset.name}</Tag>)}</Space>
+             {!!demand.content.localPaths?.length && <div className="operating-local-paths"><Typography.Text type="secondary">{t('本地素材目录', 'Local asset folders')}</Typography.Text>{demand.content.localPaths.map((path) => <Space key={path} wrap><Button type="link" icon={<FolderOpenOutlined />} onClick={() => openLocalPath(path)}>{path}</Button><Button size="small" icon={<CopyOutlined />} onClick={() => void copyLocalPath(path)} aria-label={t('复制路径', 'Copy path')} /></Space>)}</div>}
             <Divider style={{ margin: '12px 0' }} />
             {analyzing ? <Tag icon={<ReloadOutlined spin />} color="processing">{t('AI 正在分析参数', 'AI is analyzing parameters')}</Tag> : demand.analysis ? <>
               <Typography.Text>{demand.analysis.rationale}</Typography.Text><br />
@@ -282,15 +302,13 @@ export default function OperatingDemandsPage({ language, username, admin, toolOp
     ]} />
     <Drawer title={editing ? t('编辑做图需求', 'Edit request') : t('新建做图需求', 'New request')} open={editing !== undefined} width="min(760px, 100vw)" onClose={() => setEditing(undefined)} extra={<Space><Button icon={<ReloadOutlined />} disabled={busy} onClick={() => setResetConfirmOpen(true)}>{t('重置', 'Reset')}</Button><Button type="primary" loading={busy} onClick={() => void save()}>{t('保存需求', 'Save request')}</Button></Space>}>
       <Form layout="vertical">
-        <Row gutter={12}><Col span={12}><Form.Item label={t('做图类型', 'Image type')} required extra={t('黑白 Logo 需求会根据描述自动识别，无需选择专门类型。', 'Black-and-white logo requests are recognized from the brief; no separate type is needed.')}><Select value={draft.type} placeholder={t('请选择做图类型', 'Select image type')} options={[...TYPES.map(([value, zh, english]) => ({ value, label: en ? english : zh })), ...(draft.type === LEGACY_CUSTOM_LOGO[0] ? [{ value: LEGACY_CUSTOM_LOGO[0], label: en ? LEGACY_CUSTOM_LOGO[2] : LEGACY_CUSTOM_LOGO[1], disabled: true }] : [])]} onChange={(type) => chooseClassification({ type, platform: draft.platform })} /></Form.Item></Col>
-          <Col span={12}><Form.Item label={t('平台', 'Platform')} required><Select value={draft.platform} placeholder={t('请选择平台', 'Select platform')} options={PLATFORM_OPTIONS} onChange={(platform) => chooseClassification({ type: draft.type, platform })} /></Form.Item></Col></Row>
+         <Row gutter={12}><Col span={12}><Form.Item label={t('平台', 'Platform')} required><Select value={draft.platform} options={PLATFORM_OPTIONS} onChange={(platform) => chooseClassification({ type: draft.type, platform })} /></Form.Item></Col>
+           <Col span={12}><Form.Item label={t('做图类型', 'Image type')} required extra={t('可选择预设类型，也可输入自定义类型；黑白 Logo 会由 AI 自动识别。', 'Select a type or enter your own; AI recognizes black-and-white logos automatically.')}><AutoComplete value={TYPES.find(([value]) => value === draft.type)?.[en ? 2 : 1] || (draft.type === LEGACY_CUSTOM_LOGO[0] ? LEGACY_CUSTOM_LOGO[en ? 2 : 1] : draft.type || '')} placeholder={t('选择或输入做图类型', 'Select or enter image type')} options={TYPES.map(([value, zh, english]) => ({ value: en ? english : zh, label: en ? english : zh, type: value }))} onChange={(value) => setDraft((previous) => ({ ...previous, type: value.trim() || null, presetId: null }))} onSelect={(_, option) => chooseClassification({ type: option.type, platform: draft.platform })} /></Form.Item></Col></Row>
         <Form.Item label={t('图片要求预设（可更换）', 'Image preset (optional override)')} extra={t('选好类型和平台会自动带入匹配预设；已有要求时先确认。', 'Choosing a type and platform applies a matching preset; existing requirements require confirmation.')}><Select allowClear value={draft.presetId} options={presets.filter((item) => (!item.platform || item.platform === draft.platform) && (!item.type || item.type === draft.type)).map((item) => ({ value: item.id, label: en ? item.name : item.nameZh || item.name }))} onChange={(id) => { const preset = presets.find((item) => item.id === id); if (preset) applyPreset(preset, draft); else setDraft({ ...draft, presetId: null }); }} /></Form.Item>
-        <Form.Item label={t('标题（选填）', 'Title (optional)')}><Input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} /></Form.Item>
         <Form.Item label={t('具体做图需求', 'Image production brief')} required><Input.TextArea value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} rows={4} /></Form.Item>
         <Form.Item label={t('负责美工', 'Assigned artist')}><Select allowClear value={assignee} options={artists.map((item) => ({ value: item.username }))} onChange={(value) => setAssignee(value || null)} /></Form.Item>
-        <Divider>{t('所有图片的共同要求', 'Requirements for all images')}</Divider>
-        <CommonRequirementsEditor value={draft.commonRequirements || { ...freshRequirements(), count: Math.max(1, draft.specifications.length) }} language={language} onChange={(commonRequirements) => setDraft((previous) => ({ ...previous, commonRequirements: { ...commonRequirements,
-          count: Math.max(commonRequirements.count, previous.specifications.reduce((last, item, index) => item.customized === false ? last : index + 1, 1)) } }))} />
+         <Divider>{t('图片要求', 'Image requirements')}</Divider>
+         <CommonRequirementsEditor value={draft.commonRequirements || freshRequirements()} language={language} onChange={(commonRequirements) => setDraft((previous) => ({ ...previous, commonRequirements }))} />
         <Divider>{t('上传素材', 'Upload assets')}</Divider>
         <Typography.Paragraph type="secondary">{t('自动执行使用第一张待处理图片。不需要上传时也可以先保存需求。', 'Automatic runs use the first source image. You can save a request without uploading yet.')}</Typography.Paragraph>
         <div className="operating-upload-grid">
@@ -298,23 +316,20 @@ export default function OperatingDemandsPage({ language, username, admin, toolOp
             beforeUpload={(file) => { void upload([file as File], 'source'); return false; }}
             placeholder={{ icon: <FileImageOutlined />, title: t('拖拽、点击或粘贴待处理图片', 'Drag, click, or paste source images'), description: t('PNG / JPEG / WebP，单张不超过 20 MB', 'PNG / JPEG / WebP, up to 20 MB each') }} />
         </div>
-        <List size="small" dataSource={draft.assets} renderItem={(asset) => {
-          const index = draft.assets.filter((item) => item.role === 'source').findIndex((item) => item.assetId === asset.assetId);
-          const spec = index >= 0 ? draft.specifications[index] : undefined;
-          const expanded = expandedAssetIds.includes(asset.assetId);
+         <Space.Compact style={{ width: '100%', marginBottom: 12 }}><Input value={localPathDraft} onChange={(event) => setLocalPathDraft(event.target.value)} onPressEnter={addLocalPath} placeholder={t('本地或 NAS 素材目录，如 \\\\NAS\\共享\\产品图', 'Local or NAS folder, e.g. \\\\NAS\\share\\images')} /><Button icon={<FolderOpenOutlined />} onClick={addLocalPath}>{t('添加本地路径', 'Add local path')}</Button></Space.Compact>
+         <Typography.Paragraph type="secondary">{t('路径仅供同事在自己的电脑上打开；浏览器可能限制直接访问本地文件夹。', 'The path is for teammates to open on their own computers; browsers may block direct access to local folders.')}</Typography.Paragraph>
+         {!!draft.localPaths?.length && <div className="operating-local-paths">{draft.localPaths.map((path) => <Space key={path} wrap><Button type="link" icon={<FolderOpenOutlined />} onClick={() => openLocalPath(path)}>{path}</Button><Button size="small" icon={<CopyOutlined />} onClick={() => void copyLocalPath(path)} aria-label={t('复制路径', 'Copy path')} /><Button size="small" danger icon={<DeleteOutlined />} onClick={() => setDraft((previous) => ({ ...previous, localPaths: previous.localPaths?.filter((item) => item !== path) }))} aria-label={t('删除路径', 'Remove path')} /></Space>)}</div>}
+         {!!draft.assets.length && <List size="small" dataSource={draft.assets} renderItem={(asset) => {
           return <div className="operating-asset-block" key={asset.assetId}>
             <List.Item className="operating-asset-row" actions={[<Button key="remove" danger size="small" icon={<DeleteOutlined />} aria-label={t('删除图片', 'Remove image')} onClick={() => {
-              setExpandedAssetIds((current) => current.filter((id) => id !== asset.assetId));
-              setDraft((value) => { const sourceIndex = value.assets.filter((item) => item.role === 'source').findIndex((item) => item.assetId === asset.assetId);
-                return { ...value, assets: value.assets.filter((item) => item.assetId !== asset.assetId), specifications: sourceIndex < 0 ? value.specifications : value.specifications.filter((_, i) => i !== sourceIndex) }; });
+               setDraft((value) => ({ ...value, assets: value.assets.filter((item) => item.assetId !== asset.assetId) }));
             }} />]}>
-              <Space wrap><Image width={56} height={56} style={{ objectFit: 'contain' }} src={`/api/assets/${asset.assetId}`} /><Typography.Text>{asset.name}</Typography.Text><Tag color={asset.role === 'source' ? 'purple' : 'blue'}>{asset.role === 'source' ? t('待处理图片', 'Source image') : t('参考效果图', 'Style reference')}</Tag>
-                {index >= 0 && <Button size="small" className="operating-asset-action" onClick={() => toggleImageRequirement(asset.assetId, index)}>{expanded ? t('收起特殊要求', 'Collapse requirements') : spec?.customized ? t('编辑特殊要求', 'Edit requirements') : t('添加单张特殊需求', 'Add image-specific requirements')}</Button>}</Space>
+               <Space wrap><Image width={56} height={56} style={{ objectFit: 'contain' }} src={`/api/assets/${asset.assetId}`} /><Typography.Text>{asset.name}</Typography.Text><Tag color={asset.role === 'source' ? 'purple' : 'blue'}>{asset.role === 'source' ? t('待处理图片', 'Source image') : t('参考效果图', 'Style reference')}</Tag></Space>
             </List.Item>
-            {expanded && spec && <div className="operating-asset-requirements"><Typography.Text type="secondary">{t('留空字段沿用所有图片的共同要求。', 'Blank fields inherit the requirements for all images.')}</Typography.Text><SpecificationEditor value={spec} assets={draft.assets} language={language} onChange={(value) => setSpec(spec.id, value)} /></div>}
           </div>;
-        }} />
-        <Form.Item label={t('通用参考链接，每行一个（选填）', 'General reference links, one per line (optional)')}><Input.TextArea value={draft.links.join('\n')} onChange={(e) => setDraft({ ...draft, links: lines(e.target.value) })} autoSize={{ minRows: 1, maxRows: 4 }} /></Form.Item>
+         }} />}
+         <div className="operating-reference-grid"><Form.Item label={t('参考链接（选填）', 'Reference links (optional)')}><Input.TextArea value={draft.links.join('\n')} onChange={(e) => setDraft({ ...draft, links: lines(e.target.value) })} placeholder={t('每行一个链接', 'One link per line')} autoSize={{ minRows: 3, maxRows: 5 }} /></Form.Item>
+           <Form.Item label={t('参考图片（选填）', 'Reference images (optional)')}><Attachments items={[]} overflow="wrap" accept="image/*" multiple beforeUpload={(file) => { void upload([file as File], 'reference'); return false; }} placeholder={{ icon: <FileImageOutlined />, title: t('拖拽、点击或粘贴参考图片', 'Drag, click, or paste reference images'), description: t('仅供参考，不作为待处理原图', 'For reference only, not used as a source image') }} /></Form.Item></div>
       </Form>
     </Drawer>
     <Modal title={t('重置当前表单？', 'Reset the current form?')} open={resetConfirmOpen} onOk={resetDraft} onCancel={() => setResetConfirmOpen(false)} okText={t('重置', 'Reset')} okButtonProps={{ danger: true }}>

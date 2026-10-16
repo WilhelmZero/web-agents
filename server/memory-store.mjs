@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { DEFAULT_DEMAND_PRESETS } from './demand-presets.mjs';
 
 // Local UI smoke tests only. Production always requires MySQL.
@@ -79,12 +80,13 @@ export function createMemoryStore() {
       const id = input.id || randomUUID();
       const prior = demands.get(id);
       if (prior && prior.revision !== input.expectedRevision) return null;
-      if (prior && prior.content_json === JSON.stringify(input.content) && prior.assignee === (input.assignee || null)) return prior;
+      const content = { ...input.content, title: '' };
+      if (prior && isDeepStrictEqual({ ...JSON.parse(prior.content_json), title: '' }, JSON.parse(JSON.stringify(content))) && prior.assignee === (input.assignee || null)) return prior;
       const row = { id, creator: prior?.creator || input.creator, assignee: input.assignee || null, status: 'open', revision: (prior?.revision || 0) + 1,
-        content_json: JSON.stringify(input.content), analysis_json: null, created_at: prior?.created_at || new Date(), updated_at: new Date() };
+        content_json: JSON.stringify(content), analysis_json: null, created_at: prior?.created_at || new Date(), updated_at: new Date() };
       demands.set(id, row); return row;
     },
-    async updateDemandAnalysis(id, revision, analysis) { const row = demands.get(id); if (!row || row.revision !== revision) return false; row.analysis_json = JSON.stringify(analysis); return true; },
+    async updateDemandAnalysis(id, revision, analysis) { const row = demands.get(id); if (!row || row.revision !== revision) return false; row.analysis_json = JSON.stringify(analysis); row.content_json = JSON.stringify({ ...JSON.parse(row.content_json), title: analysis.title || '' }); return true; },
     async completeDemand(id) { const row = demands.get(id); if (!row) return false; row.status = 'completed'; return true; },
     async createDemandOperation(input) {
       const existing = [...demandOperations.values()].find((item) => item.demand_id === input.demandId && item.revision === input.revision && item.kind === input.kind);

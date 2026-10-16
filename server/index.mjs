@@ -215,7 +215,7 @@ export async function createStudioServer(env = process.env, dependencies = {}) {
   } catch (error) { next(error); } });
   app.put('/api/demand-presets/:id', express.json({ limit: '256kb' }), async (req, res, next) => { try {
     const value = req.body || {};
-    if (!/^[a-f0-9-]{36}$/.test(req.params.id) || (value.platform && !DEMAND_PLATFORMS.includes(value.platform)) || (value.type && !DEMAND_TYPES.includes(value.type))) return res.status(400).json({ error: 'Invalid preset' });
+    if (!/^[a-f0-9-]{36}$/.test(req.params.id) || (value.platform && !DEMAND_PLATFORMS.includes(value.platform)) || (value.type && (typeof value.type !== 'string' || !value.type.trim() || value.type.length > 80))) return res.status(400).json({ error: 'Invalid preset' });
     if (!String(value.name || '').trim() || !Array.isArray(value.requirements) || value.requirements.length > 20) return res.status(400).json({ error: 'Preset name and image requirements are required' });
     const preset = { ...value, id: req.params.id, name: String(value.name).slice(0, 120) };
     await store.saveDemandPreset(preset);
